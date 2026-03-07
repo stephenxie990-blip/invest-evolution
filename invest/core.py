@@ -26,7 +26,7 @@ import numpy as np
 import pandas as pd
 
 from config import config, normalize_date  # noqa: E402  ← 全局配置
-from llm_gateway import LLMGateway, LLMGatewayError, LLMUnavailableError
+from app.llm_gateway import LLMGateway, LLMGatewayError, LLMUnavailableError
 
 logger = logging.getLogger(__name__)
 

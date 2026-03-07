@@ -10,7 +10,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Awaitable, Callable, Optional
 
-from llm_gateway import LLMGateway, LLMGatewayError, LLMUnavailableError
+from app.llm_gateway import LLMGateway, LLMGatewayError, LLMUnavailableError
 
 logger = logging.getLogger(__name__)
 

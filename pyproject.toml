@@ -23,8 +23,8 @@ dependencies = [
 dev = ["pytest>=8.0"]
 
 [project.scripts]
-invest-commander = "commander:main"
-invest-train = "train:train_main"
+invest-commander = "app.commander:main"
+invest-train = "app.train:train_main"
 invest-data = "market_data.__main__:main"
 
 [tool.pytest.ini_options]
@@ -34,7 +34,7 @@ pythonpath = ["."]
 addopts = "-q"
 
 [tool.setuptools]
-packages = ["brain", "market_data", "invest", "config"]
+packages = ["app", "brain", "market_data", "invest", "config"]
 py-modules = [
   "commander",
   "llm_gateway",

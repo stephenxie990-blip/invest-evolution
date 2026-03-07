@@ -2,19 +2,19 @@
 
 ## 入口分工
 
-- `commander.py`：推荐的统一 CLI 入口，适合状态检查、守护运行、策略热重载和单轮训练。
-- `train.py`：面向训练流程本身的专用入口，适合批量 cycle 和研究型实验。
-- `web_server.py`：Flask Web 前端/API 入口，适合手动触发训练、查看状态、编辑配置和数据同步。
+- `app/commander.py`：推荐的统一 CLI 入口，适合状态检查、守护运行、策略热重载和单轮训练。
+- `app/train.py`：面向训练流程本身的专用入口，适合批量 cycle 和研究型实验。
+- `app/web_server.py`：Flask Web 前端/API 入口，适合手动触发训练、查看状态、编辑配置和数据同步。
 - `market_data/manager.py`：统一数据同步命令入口；内部已收口到 canonical 数据层。
 
 ## 从入口到执行的主链路
 
-1. `commander.py`
+1. `app/commander.py`
    - 构建 `CommanderConfig`
    - 初始化 `CommanderRuntime`
    - 装配 `BrainRuntime`、`CronService`、Bridge、Memory、Plugins
    - 通过 `InvestmentBodyService` 驱动 `SelfLearningController`
-2. `train.py`
+2. `app/train.py`
    - `SelfLearningController.run_training_cycle()` 执行单轮训练
    - `DataManager` 优先从离线 canonical 库读取数据；离线不可用时才降级到在线抓取或 mock
    - 使用 `compute_market_stats()` 与 Agent/算法判断市场状态
@@ -22,7 +22,7 @@
    - 交给 `SimulatedTrader.run_simulation()` 执行模拟交易
    - 用 `StrategyEvaluator` / `BenchmarkEvaluator` / `FreezeEvaluator` 做评估
    - 在亏损或触发条件下调用 `LLMOptimizer` 与 `EvolutionEngine` 做优化
-3. `web_server.py`
+3. `app/web_server.py`
    - 复用 `CommanderRuntime`
    - 暴露 `/api/status`、`/api/train`、`/api/strategies`、`/api/evolution_config`
    - 通过 `WebDatasetService` 提供 `/api/data/status`
@@ -66,3 +66,9 @@
 - 训练、Web、T0 统一从 canonical schema 读数据。
 - 安装与运行统一以 `pyproject.toml` 为单一依赖来源。
 - Agent 不参与数据下载、清洗、落库和 cutoff 裁切。
+
+
+## 第四轮目录收口补充
+
+- 顶层应用实现已收口到 `app/` 包。
+- 根目录 `commander.py`、`train.py`、`web_server.py`、`llm_gateway.py`、`llm_router.py` 现为兼容壳或兼容转发模块。

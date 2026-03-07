@@ -34,28 +34,34 @@ python web_server.py --mock
 
 ## 主链路说明
 
-- `commander.py`：统一 CLI 与守护入口，负责拼装 `CommanderRuntime`、调度、Bridge、策略基因与训练执行。
+- `app/commander.py`：统一 CLI 与守护入口的真实实现，负责拼装 `CommanderRuntime`、调度、Bridge、策略基因与训练执行；根目录 `commander.py` 仅保留兼容启动壳。
 - `brain/runtime.py` + `brain/tools.py`：提供多轮推理与 tool-calling 外壳，把训练、状态、策略、记忆、定时任务暴露给 Commander。
-- `train.py`：训练主控制器 `SelfLearningController`，负责“加载数据 → 市场判断 → 选股会议 → 模拟交易 → 评估 → 优化”。
+- `app/train.py`：训练主控制器 `SelfLearningController` 的真实实现，负责“加载数据 → 市场判断 → 选股会议 → 模拟交易 → 评估 → 优化”；根目录 `train.py` 为兼容壳。
 - `market_data/repository.py` + `market_data/ingestion.py` + `market_data/datasets.py`：统一数据仓储、同步服务、训练/T0/Web 读取构造器。
 - `market_data/manager.py`：保留对外 façade，统一转发到 canonical 数据层。
 - `invest/meetings.py`：`SelectionMeeting` 生成交易计划，`ReviewMeeting` 进行复盘与权重调整。
 - `invest/trading.py`：`SimulatedTrader`、风险控制、调度执行。
 - `invest/evaluation.py`：收益、基准、冻结与策略管理评估。
 - `invest/optimization.py`：LLM 亏损分析、遗传进化、参数优化与交易分析。
-- `web_server.py`：Flask Web API/前端入口，复用 `CommanderRuntime` 提供状态、训练、策略与配置操作。
+- `app/web_server.py`：Flask Web API/前端入口的真实实现，复用 `CommanderRuntime` 提供状态、训练、策略与配置操作；根目录 `web_server.py` 为兼容壳。
 - 详细说明见 `docs/MAIN_FLOW.md`。
 
 ## 当前目录结构（与代码一致）
 
-- `commander.py`: 融合主入口（守护进程、调度、工具编排）
+## 目录收口说明
+
+- `app/`：顶层应用实现包，收纳原先散落在根目录的 `commander.py`、`train.py`、`web_server.py`、`llm_gateway.py`、`llm_router.py` 实现。
+- 根目录同名文件现为兼容启动壳，保留 `python commander.py ...`、`python train.py ...`、`python web_server.py ...` 等既有用法。
+- 业务包继续保留为 `invest/`、`market_data/`、`brain/`、`config/`，避免把业务逻辑重新散回根目录。
+
+- `app/commander.py`: 融合主入口真实实现（守护进程、调度、工具编排）
 - `brain/runtime.py`: 指挥官多轮推理 + tool-calling 运行时
 - `brain/scheduler.py`: 本地 heartbeat + interval job 调度
 - `brain/tools.py`: 投资工具注册（status/train/strategies/cron/memory/plugins）
 - `brain/memory.py`: 持久记忆存储（jsonl）
 - `brain/bridge.py`: 多通道桥接总线（file inbox/outbox）
 - `brain/plugins.py`: 插件工具加载（plugins/*.json）
-- `llm_gateway.py`: 全系统唯一外部 LLM 通道（训练与指挥官共用）
+- `app/llm_gateway.py`: 全系统唯一外部 LLM 通道（训练与指挥官共用）；根目录 `llm_gateway.py` 为兼容转发模块
 - `invest/core.py`: 基础模型、LLMCaller、技术指标与公共能力
 - `market_data/repository.py`: SQLite canonical schema 与查询仓储
 - `market_data/ingestion.py`: Baostock/Tushare 同步写入服务
@@ -66,7 +72,7 @@ python web_server.py --mock
 - `invest/meetings.py`: 选股会议与复盘会议编排
 - `invest/trading.py`: 交易执行与风控
 - `invest/optimization.py`: 参数优化、进化与策略库
-- `train.py`: 训练流程控制器
+- `app/train.py`: 训练流程控制器真实实现
 
 ## 融合运行模型
 
