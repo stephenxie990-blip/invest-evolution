@@ -52,7 +52,7 @@ class CommanderConfig:
     bridge_inbox: Path = PROJECT_ROOT / "sessions" / "inbox"
     bridge_outbox: Path = PROJECT_ROOT / "sessions" / "outbox"
 
-    model: str = field(default_factory=lambda: os.environ.get("COMMANDER_MODEL", config.llm_model))
+    model: str = field(default_factory=lambda: os.environ.get("COMMANDER_MODEL", config.llm_fast_model))
     api_key: str = field(default_factory=lambda: os.environ.get("COMMANDER_API_KEY", config.llm_api_key))
     api_base: str = field(default_factory=lambda: os.environ.get("COMMANDER_API_BASE", config.llm_api_base))
     temperature: float = field(default_factory=lambda: float(os.environ.get("COMMANDER_TEMP", "0.2")))

@@ -31,3 +31,28 @@ testpaths = ["tests"]
 python_files = ["test_*.py"]
 pythonpath = ["."]
 addopts = "-q"
+
+[tool.setuptools]
+py-modules = [
+  "agents",
+  "brain_bridge",
+  "brain_memory",
+  "brain_plugins",
+  "brain_runtime",
+  "brain_scheduler",
+  "brain_tools",
+  "commander",
+  "config",
+  "core",
+  "data",
+  "debate",
+  "evaluation",
+  "llm_gateway",
+  "llm_router",
+  "meetings",
+  "memory",
+  "optimization",
+  "trading",
+  "train",
+  "web_server",
+]

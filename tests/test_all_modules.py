@@ -159,24 +159,6 @@ def test_trader_with_plan():
     assert len(result.trade_history) > 0
 
 
-def test_trader_no_plan_backward_compat():
-    """不设置 plan 时走旧逻辑（向后兼容）"""
-    from trading import SimulatedTrader
-
-    stock_data = make_stock_data(10, 60)
-    codes = list(stock_data.keys())
-    dates = stock_data[codes[0]]["trade_date"].tolist()
-
-    trader = SimulatedTrader(initial_capital=100000, max_positions=2)
-    trader.set_stock_data(stock_data)
-    # 不调用 set_trading_plan
-
-    result = trader.run_simulation(dates[0], dates[:30])
-
-    assert result.initial_capital == 100000
-    assert result.final_capital > 0
-
-
 # ===== Phase 1 测试 =====
 
 def test_llm_caller_dry_run():
@@ -810,11 +792,11 @@ def test_selection_meeting_weights():
 def test_all_imports():
     """确保所有模块都能正常导入"""
     modules = [
-        "src.core",
-        "src.agents",
-        "src.trading",
-        "src.meetings",
-        "src.config",
+        "core",
+        "agents",
+        "trading",
+        "meetings",
+        "config",
     ]
 
     for mod in modules:
@@ -862,7 +844,6 @@ if __name__ == "__main__":
     run_test("TradingPlan 创建和查询", test_trading_plan_creation)
     run_test("PlanBuilder 生成计划", test_plan_builder)
     run_test("Trader 按计划交易", test_trader_with_plan)
-    run_test("Trader 无计划向后兼容", test_trader_no_plan_backward_compat)
 
     # Phase 1
     print("\n--- Phase 1: LLMCaller + MarketRegime ---")

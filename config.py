@@ -143,11 +143,6 @@ class EvolutionConfig:
     logs_dir: Optional[Path] = None
     memory_dir: Optional[Path] = None   # 市场情境记忆库存储目录 (Phase 2)
 
-    @property
-    def llm_model(self) -> str:
-        """向后兼容别名，指向 llm_fast_model"""
-        return self.llm_fast_model
-
     def __post_init__(self):
         if self.output_dir is None:
             self.output_dir = OUTPUT_DIR / "evolution"

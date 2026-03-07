@@ -29,8 +29,6 @@ python commander.py run
 python web_server.py --mock
 ```
 
-如需和旧流程保持一致，也可执行 `python3 -m pip install -r requirements.txt`；该文件与 `pyproject.toml` 现已保持同步。
-
 ## 主链路说明
 
 - `commander.py`：统一 CLI 与守护入口，负责拼装 `CommanderRuntime`、调度、Bridge、策略基因与训练执行。
@@ -80,7 +78,7 @@ pytest -q
 
 ## 依赖
 
-运行依赖以 `pyproject.toml` 为准，推荐使用 `python3 -m pip install -e ".[dev]"`；`requirements.txt` 作为同步维护的兼容安装清单。
+运行依赖和开发依赖统一由 `pyproject.toml` 管理，推荐使用 `python3 -m pip install -e ".[dev]"`。
 
 ## 配置
 

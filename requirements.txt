@@ -1,9 +1,0 @@
-numpy>=1.26
-pandas>=2.2
-PyYAML>=6.0
-litellm>=1.52
-baostock>=0.8.9
-tushare>=1.4.0
-rank-bm25>=0.2.2
-flask>=3.0
-pytest>=8.0

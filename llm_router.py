@@ -83,14 +83,6 @@ class LLMRouter:
         )
         return cls(_fast_caller=fast_caller, _deep_caller=deep_caller)
 
-    @classmethod
-    def from_caller(cls, caller: LLMCaller) -> "LLMRouter":
-        """用单一 LLMCaller 同时充当 fast 和 deep（兼容旧代码）。
-
-        适用于没有配置双模型的场景，保持向后兼容。
-        """
-        return cls(_fast_caller=caller, _deep_caller=caller)
-
     # ------------------------------------------------------------------ #
     # 路由方法                                                              #
     # ------------------------------------------------------------------ #

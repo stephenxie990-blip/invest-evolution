@@ -59,18 +59,6 @@ def test_llm_router_get_stats():
     assert "shared" in stats
 
 
-def test_llm_router_from_caller():
-    """LLMRouter.from_caller() 向后兼容"""
-    from core import LLMCaller
-    from llm_router import LLMRouter
-
-    caller = LLMCaller(dry_run=True)
-    router = LLMRouter.from_caller(caller)
-
-    assert router.fast() is caller
-    assert router.deep() is caller
-
-
 def test_dry_run_routing():
     """dry_run 模式下 fast 和 deep 均能正常返回占位响应"""
     from config import EvolutionConfig

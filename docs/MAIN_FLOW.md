@@ -28,7 +28,7 @@
 ## 模块映射
 
 - `core.py`：公共数据结构、指标计算、市场统计、追踪器
-- `agents.py`：各类 Agent 定义与兼容别名
+- `agents.py`：各类 Agent 定义
 - `brain_runtime.py`：tool-calling 运行时
 - `brain_tools.py`：Commander 工具注册
 - `brain_scheduler.py`：本地心跳与 interval 调度
@@ -38,12 +38,9 @@
 - `llm_gateway.py` / `llm_router.py`：统一 LLM 出口与快/慢模型路由
 - `data.py` / `meetings.py` / `trading.py` / `evaluation.py` / `optimization.py`：训练与交易主业务链
 
-## `src/` 兼容层说明
+## 代码结构约束
 
-- `src/` 目录当前只包含对根模块的兼容 re-export，例如 `src/commander.py -> from commander import *`。
-- 保留它的价值在于兼容旧命令、旧导入路径和现有兼容测试。
-- 如果计划删除 `src/`，需要同步完成三类收口：
-  - 删除或改写所有 `src.*` 兼容测试
-  - 删除 `agents.py`、`core.py`、`__init__.py` 中的 `src.*` 别名兼容逻辑
-  - 全量确认外部脚本/文档/自动化不再使用 `python -m src.*`
-- 因此当前建议是：`src/` 暂时保留，作为低成本兼容层；等确认无外部依赖后，再在单独变更中删除。
+- 根目录模块是唯一真实源码入口。
+- 代码与导入路径统一使用根目录模块。
+- 安装与运行统一以 `pyproject.toml` 为单一依赖来源。
+- 训练与运行依赖显式 `TradingPlan`、显式配置字段和明确入口。

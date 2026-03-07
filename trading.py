@@ -647,6 +647,7 @@ class SimulatedTrader:
     - A 股 T+1 规则
     - Phase 3 异常检测器
     - 真实交易成本（佣金 + 印花税 + 滑点）
+    - 显式 `TradingPlan` 输入合同
     """
 
     def __init__(
@@ -1060,26 +1061,6 @@ class SimulatedTrader:
             if success:
                 self._plan_bought.add(code)
 
-    # ===== 内部兜底选股 =====
-
-    def select_stocks(self, date: str) -> List[dict]:
-        candidates = []
-        for ts_code in self.stock_data:
-            if any(p.ts_code == ts_code for p in self.positions):
-                continue
-            if ts_code in self.cooldown_days:
-                continue
-            hist = self.get_historical_data(ts_code, date, days=60)
-            if hist is None or len(hist) < 30:
-                continue
-            recent = hist.tail(5)
-            if recent.empty:
-                continue
-            score = recent["pct_chg"].mean() * 0.6 + recent.iloc[-1]["pct_chg"] * 0.4
-            candidates.append({"ts_code": ts_code, "score": score, "price": float(recent.iloc[-1]["close"])})
-        candidates.sort(key=lambda x: x["score"], reverse=True)
-        return candidates[:5]
-
     # ===== 异常处理 =====
 
     def _handle_emergency(self, event: EmergencyEvent, date: str):
@@ -1146,18 +1127,9 @@ class SimulatedTrader:
 
         # 买入
         if self.can_buy():
-            if self.trading_plan:
-                self._execute_plan_step(date)
-            else:
-                for c in self.select_stocks(date):
-                    if not self.can_buy():
-                        break
-                    if self.enable_risk_control:
-                        ok, _ = self.check_can_open_position(c["ts_code"], self.position_size_pct)
-                        if not ok:
-                            continue
-                    if self.buy(c["ts_code"], date, c["price"], f"选股得分:{c['score']:.2f}"):
-                        result["action"] = Action.BUY
+            self._execute_plan_step(date)
+            if len(self.trade_history) > trade_count_before:
+                result["action"] = Action.BUY
 
         # 异常检测
         if self.enable_risk_control and self.positions:

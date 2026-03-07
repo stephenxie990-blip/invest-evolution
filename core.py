@@ -56,7 +56,7 @@ class LLMCaller:
         max_retries: int = None,
         dry_run: bool = False,
     ):
-        self.model = model or config.llm_model
+        self.model = model or config.llm_fast_model
         self.api_key = api_key or config.llm_api_key
         self.api_base = api_base or config.llm_api_base
         self.timeout = timeout or config.llm_timeout
@@ -810,66 +810,3 @@ class TraceLog:
             with open(filepath, "r", encoding="utf-8") as f:
                 return json.load(f)
         return {}
-
-
-def _install_compat_modules():
-    import sys
-    import types
-    import importlib
-
-    current = sys.modules[__name__]
-    if not hasattr(current, "__path__"):
-        current.__path__ = []
-
-    def _module(name: str, mapping: Dict[str, Any]):
-        mod = types.ModuleType(name)
-        for k, v in mapping.items():
-            setattr(mod, k, v)
-        return mod
-
-    def _lazy_module(name: str, target: str, attrs: List[str]):
-        mod = types.ModuleType(name)
-
-        def __getattr__(attr: str):
-            if attr in attrs:
-                module = importlib.import_module(target)
-                return getattr(module, attr)
-            raise AttributeError(attr)
-
-        mod.__getattr__ = __getattr__
-        return mod
-
-    sys.modules.setdefault("src.core.llm_caller", _module(
-        "src.core.llm_caller", {"LLMCaller": LLMCaller}
-    ))
-    sys.modules.setdefault("src.core.trading_plan", _module(
-        "src.core.trading_plan", {"TradingPlan": TradingPlan, "PositionPlan": PositionPlan}
-    ))
-    sys.modules.setdefault("src.core.plan_builder", _module(
-        "src.core.plan_builder", {"make_simple_plan": make_simple_plan}
-    ))
-    sys.modules.setdefault("src.core.stock_analyzer", _module(
-        "src.core.stock_analyzer",
-        {"summarize_stocks": summarize_stocks, "format_stock_table": format_stock_table}
-    ))
-    sys.modules.setdefault("src.core.market_stats", _module(
-        "src.core.market_stats", {"compute_market_stats": compute_market_stats}
-    ))
-    sys.modules.setdefault("src.core.agent_tracker", _module(
-        "src.core.agent_tracker", {"AgentTracker": AgentTracker}
-    ))
-    sys.modules.setdefault("src.core.selection_meeting", _lazy_module(
-        "src.core.selection_meeting", "src.meetings", ["SelectionMeeting"]
-    ))
-    sys.modules.setdefault("src.core.review_meeting", _lazy_module(
-        "src.core.review_meeting", "src.meetings", ["ReviewMeeting"]
-    ))
-    sys.modules.setdefault("src.core.meeting_recorder", _lazy_module(
-        "src.core.meeting_recorder", "src.meetings", ["MeetingRecorder"]
-    ))
-    sys.modules.setdefault("src.core.emergency", _lazy_module(
-        "src.core.emergency", "src.trading", ["EmergencyDetector", "EmergencyType", "EmergencyEvent"]
-    ))
-
-
-_install_compat_modules()
