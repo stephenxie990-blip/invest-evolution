@@ -10,7 +10,6 @@ from data_repository import MarketDataRepository
 
 logger = logging.getLogger(__name__)
 
-
 _NUMERIC_COLUMNS = ("open", "high", "low", "close", "volume", "amount", "pct_chg", "turnover")
 
 
@@ -59,7 +58,6 @@ class TrainingDatasetBuilder:
     def __init__(self, repository: MarketDataRepository | None = None, db_path: str | None = None):
         self.repository = repository or MarketDataRepository(db_path)
         self.repository.initialize_schema()
-        self.repository.migrate_legacy_tables()
 
     @property
     def available(self) -> bool:
@@ -107,7 +105,6 @@ class WebDatasetService:
     def __init__(self, repository: MarketDataRepository | None = None, db_path: str | None = None):
         self.repository = repository or MarketDataRepository(db_path)
         self.repository.initialize_schema()
-        self.repository.migrate_legacy_tables()
 
     def get_status_summary(self) -> dict[str, Any]:
         return self.repository.get_status_summary()
@@ -119,7 +116,6 @@ class T0DatasetBuilder:
     def __init__(self, repository: MarketDataRepository | None = None, db_path: str | None = None):
         self.repository = repository or MarketDataRepository(db_path)
         self.repository.initialize_schema()
-        self.repository.migrate_legacy_tables()
 
     def get_pool_at_date(self, cutoff_date: str) -> list[str]:
         return self.repository.get_security_pool_at_date(cutoff_date)

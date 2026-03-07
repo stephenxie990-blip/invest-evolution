@@ -111,8 +111,8 @@ def make_mock_data(n_stocks=80, n_days=400, seed=42):
 def load_real_data():
     """加载离线真实数据"""
     try:
-        from data import OfflineDataLoader
-        loader = OfflineDataLoader()
+        from data_datasets import TrainingDatasetBuilder
+        loader = TrainingDatasetBuilder()
         stock_data = loader.get_stocks(cutoff_date="20231231", stock_count=50)
         if stock_data and len(stock_data) > 20:
             return stock_data

@@ -1,9 +1,4 @@
-"""
-Local brain runtime (nanobot-like core) for the fused invest system.
-
-This module intentionally lives inside src/ so the fused program no longer
-relies on external nanobot package files at runtime.
-"""
+"""Local brain runtime for the fused invest system."""
 
 from __future__ import annotations
 
@@ -354,12 +349,15 @@ class BrainRuntime:
     def _parse_tool_args(raw: Any) -> dict[str, Any]:
         if isinstance(raw, dict):
             return raw
-        if not raw:
+        if raw is None:
             return {}
         if isinstance(raw, str):
+            raw = raw.strip()
+            if not raw:
+                return {}
             try:
                 parsed = json.loads(raw)
-            except Exception as exc:
+            except json.JSONDecodeError as exc:
                 raise ToolArgumentParseError(str(exc)) from exc
             if not isinstance(parsed, dict):
                 raise ToolArgumentParseError("tool arguments must decode to a JSON object")
@@ -377,14 +375,14 @@ class BrainRuntime:
             return "Error: Usage /tool <name> {json-args}"
 
         name = parts[1].strip()
-        args = {}
+        args: dict[str, Any] = {}
         if len(parts) >= 3:
             raw = parts[2].strip()
             if raw:
                 try:
-                    args = json.loads(raw)
-                except Exception as exc:
-                    return f"Error: invalid json args: {exc}"
+                    args = self._parse_tool_args(raw)
+                except ToolArgumentParseError as exc:
+                    return f"Error: invalid tool arguments for {name}: {exc}"
         return await self.tools.execute(name, args)
 
     def _append_turn(self, session: BrainSession, user_msg: dict[str, Any], assistant_msg: dict[str, Any]) -> None:

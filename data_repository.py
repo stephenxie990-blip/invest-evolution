@@ -2,7 +2,6 @@ import logging
 import os
 import sqlite3
 from contextlib import contextmanager
-from datetime import datetime
 from pathlib import Path
 from typing import Any, Iterable, Mapping, Optional, Sequence
 
@@ -11,8 +10,6 @@ import pandas as pd
 from config import PROJECT_ROOT, normalize_date
 
 logger = logging.getLogger(__name__)
-
-_LEGACY_TABLES = ("stock_info", "daily_kline", "financial_data", "stock_daily", "metadata")
 
 
 def _default_db_path() -> Path:
@@ -88,12 +85,8 @@ class MarketDataRepository:
                 )
                 """
             )
-            conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_daily_bar_code_date ON daily_bar(code, trade_date)"
-            )
-            conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_daily_bar_trade_date ON daily_bar(trade_date)"
-            )
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_daily_bar_code_date ON daily_bar(code, trade_date)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_daily_bar_trade_date ON daily_bar(trade_date)")
             conn.execute(
                 """
                 CREATE TABLE IF NOT EXISTS financial_snapshot (
@@ -126,133 +119,6 @@ class MarketDataRepository:
             conn.execute(
                 "INSERT OR REPLACE INTO ingestion_meta(key, value, updated_at) VALUES ('schema_version', 'canonical_v1', CURRENT_TIMESTAMP)"
             )
-
-    def table_exists(self, conn: sqlite3.Connection, table_name: str) -> bool:
-        row = conn.execute(
-            "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
-            (table_name,),
-        ).fetchone()
-        return row is not None
-
-    def list_legacy_tables(self) -> list[str]:
-        with self.connect() as conn:
-            return [name for name in _LEGACY_TABLES if self.table_exists(conn, name)]
-
-    def migrate_legacy_tables(self, drop_legacy: bool = False) -> dict[str, Any]:
-        self.initialize_schema()
-        migrated: list[str] = []
-
-        with self.connect() as conn:
-            if self.table_exists(conn, "stock_info"):
-                conn.execute(
-                    """
-                    INSERT OR REPLACE INTO security_master (
-                        code, name, list_date, delist_date, industry, is_st, source, updated_at
-                    )
-                    SELECT
-                        code,
-                        name,
-                        CASE WHEN COALESCE(list_date, '') = '' THEN '' ELSE REPLACE(list_date, '-', '') END,
-                        CASE WHEN COALESCE(delist_date, '') = '' THEN '' ELSE REPLACE(delist_date, '-', '') END,
-                        industry,
-                        COALESCE(is_st, 0),
-                        'legacy.stock_info',
-                        CURRENT_TIMESTAMP
-                    FROM stock_info
-                    """
-                )
-                migrated.append("stock_info")
-
-            if self.table_exists(conn, "daily_kline"):
-                conn.execute(
-                    """
-                    INSERT OR REPLACE INTO daily_bar (
-                        code, trade_date, open, high, low, close, volume, amount,
-                        pct_chg, turnover, adj_flag, source, updated_at
-                    )
-                    SELECT
-                        code,
-                        CASE WHEN COALESCE(trade_date, '') = '' THEN '' ELSE REPLACE(trade_date, '-', '') END,
-                        open, high, low, close, volume, amount,
-                        NULL, NULL,
-                        'hfq',
-                        'legacy.daily_kline',
-                        CURRENT_TIMESTAMP
-                    FROM daily_kline
-                    """
-                )
-                migrated.append("daily_kline")
-
-            if self.table_exists(conn, "stock_daily"):
-                conn.execute(
-                    """
-                    INSERT OR REPLACE INTO daily_bar (
-                        code, trade_date, open, high, low, close, volume, amount,
-                        pct_chg, turnover, adj_flag, source, updated_at
-                    )
-                    SELECT
-                        code,
-                        CASE WHEN COALESCE(trade_date, '') = '' THEN '' ELSE REPLACE(trade_date, '-', '') END,
-                        open, high, low, close, volume, amount,
-                        pct_chg, turnover,
-                        'hfq',
-                        'legacy.stock_daily',
-                        CURRENT_TIMESTAMP
-                    FROM stock_daily
-                    """
-                )
-                migrated.append("stock_daily")
-
-            if self.table_exists(conn, "financial_data"):
-                conn.execute(
-                    """
-                    INSERT OR REPLACE INTO financial_snapshot (
-                        code, report_date, publish_date, roe, net_profit, revenue,
-                        total_assets, market_cap, source, updated_at
-                    )
-                    SELECT
-                        code,
-                        CASE WHEN COALESCE(report_date, '') = '' THEN '' ELSE REPLACE(report_date, '-', '') END,
-                        CASE WHEN COALESCE(publish_date, '') = '' THEN '' ELSE REPLACE(publish_date, '-', '') END,
-                        roe, net_profit, revenue, total_assets, market_cap,
-                        'legacy.financial_data',
-                        CURRENT_TIMESTAMP
-                    FROM financial_data
-                    """
-                )
-                migrated.append("financial_data")
-
-            if self.table_exists(conn, "metadata"):
-                conn.execute(
-                    """
-                    INSERT OR REPLACE INTO ingestion_meta (key, value, updated_at)
-                    SELECT key, value, CURRENT_TIMESTAMP FROM metadata
-                    """
-                )
-                migrated.append("metadata")
-
-            if migrated:
-                conn.execute(
-                    "INSERT OR REPLACE INTO ingestion_meta(key, value, updated_at) VALUES ('legacy_migrated_at', ?, CURRENT_TIMESTAMP)",
-                    (datetime.now().isoformat(timespec="seconds"),),
-                )
-
-            if drop_legacy:
-                self._drop_legacy_tables(conn, migrated)
-
-        return {"migrated_tables": migrated, "dropped_legacy": bool(drop_legacy and migrated)}
-
-    def _drop_legacy_tables(self, conn: sqlite3.Connection, table_names: Sequence[str]) -> None:
-        for table_name in table_names:
-            conn.execute(f"DROP TABLE IF EXISTS {table_name}")
-
-    def cleanup_legacy_tables(self) -> list[str]:
-        existing = self.list_legacy_tables()
-        if not existing:
-            return []
-        with self.connect() as conn:
-            self._drop_legacy_tables(conn, existing)
-        return existing
 
     def upsert_security_master(self, records: Iterable[Mapping[str, Any]]) -> int:
         rows = [
@@ -378,7 +244,6 @@ class MarketDataRepository:
             "financial_count": financial_count,
             "latest_date": latest_date,
             "schema": "canonical_v1",
-            "legacy_tables": self.list_legacy_tables(),
         }
 
     def list_security_codes(self) -> list[str]:

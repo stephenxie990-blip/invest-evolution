@@ -45,9 +45,9 @@
 
 ### Phase 5：删除旧双轨逻辑
 - 业务代码已不再直接读写 `stock_daily` / `daily_kline` / `stock_info` / `metadata`
-- `data.py` 已重写为 façade，旧实现已移除
-- 提供 `cleanup_legacy_tables()` 用于物理删除旧表
-- 默认迁移策略为“先导入后使用”；物理删表保持显式触发，避免无备份情况下破坏现场数据
+- `data.py` 已收敛为干净主入口，仅保留 `DataManager` / `MockDataProvider` / `EvolutionDataLoader`
+- 旧类 façade 与 legacy 表清理辅助代码已删除
+- 项目运行时只认 canonical schema
 
 ## 新的模块边界
 
@@ -64,14 +64,14 @@
 - Web 和训练分别使用不同表模型的路径
 - T0 依赖在线股票池即时构造的分散逻辑
 
-### 仍保留但已退化为 façade 的名称
+### 已彻底删除的旧名称
 - `DataCache`
 - `OfflineDataLoader`
 - `DataDownloader`
 - `HistoricalStockPool`
 - `T0DataLoader`
 
-保留原因：减少外部调用点改造成本；内部已不再承载 legacy 逻辑。
+对应调用点已切换到 `DataIngestionService`、`TrainingDatasetBuilder`、`T0DatasetBuilder`。
 
 ## Agent 参与边界
 
@@ -82,4 +82,4 @@
 
 1. 首次同步 canonical 数据：`python data.py --source baostock --start 20180101`
 2. 确认状态：访问 Web `/api/data/status` 或调用 `DataQualityService.audit()`
-3. 如需物理删掉旧表：显式执行 `cleanup_legacy_tables()`，并先备份数据库
+3. 旧表已执行物理清理；后续仅维护 canonical schema

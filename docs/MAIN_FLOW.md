@@ -28,17 +28,16 @@
    - 通过 `WebDatasetService` 提供 `/api/data/status`
    - 通过 `DataIngestionService` 提供 `/api/data/download`
 4. `data.py`
-   - `DataCache` façade → `DataIngestionService` / `WebDatasetService`
-   - `OfflineDataLoader` façade → `TrainingDatasetBuilder`
-   - `T0DataLoader` façade → `T0DatasetBuilder`
-   - `DataDownloader` façade → `DataIngestionService.sync_daily_bars_from_tushare()`
+   - 仅保留 `DataManager`、`MockDataProvider`、`EvolutionDataLoader` 与数据同步 CLI
+   - 训练读取直接由 `TrainingDatasetBuilder` 提供
+   - T0 读取直接由 `T0DatasetBuilder` 提供
 
 ## 数据主链路
 
 1. 写入链路
    - `DataIngestionService.sync_security_master()` 将股票主数据写入 `security_master`
    - `DataIngestionService.sync_daily_bars()` / `sync_daily_bars_from_tushare()` 将行情写入 `daily_bar`
-   - 历史旧表会先导入 canonical schema；新写入不再落到 `stock_daily` / `daily_kline`
+   - 当前项目已清除 legacy 双表链路，只维护 canonical schema
 2. 读取链路
    - `TrainingDatasetBuilder` 负责训练/回测 cutoff、最小历史长度和未来窗口规则
    - `T0DatasetBuilder` 负责 T0 股票池与幸存者偏差修正

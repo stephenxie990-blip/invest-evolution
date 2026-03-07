@@ -2,7 +2,7 @@ import logging
 import os
 import time
 from datetime import datetime
-from typing import Any, Iterable, Sequence
+from typing import Any, Sequence
 
 from config import normalize_date
 from data_repository import MarketDataRepository
@@ -37,12 +37,7 @@ class DataIngestionService:
         self.tushare_token = tushare_token or os.environ.get("TUSHARE_TOKEN", "")
         self.repository.initialize_schema()
 
-    def bootstrap(self, drop_legacy: bool = False) -> dict[str, Any]:
-        return self.repository.migrate_legacy_tables(drop_legacy=drop_legacy)
-
     def sync_security_master(self) -> dict[str, Any]:
-        self.bootstrap()
-
         import baostock as bs
 
         login = bs.login()
@@ -90,8 +85,6 @@ class DataIngestionService:
         start_date: str = "20160101",
         end_date: str | None = None,
     ) -> dict[str, Any]:
-        self.bootstrap()
-
         import baostock as bs
 
         start = normalize_date(start_date)
@@ -166,7 +159,6 @@ class DataIngestionService:
         stock_limit: int | None = None,
         test_mode: bool = False,
     ) -> dict[str, Any]:
-        self.bootstrap()
         if not self.tushare_token:
             raise RuntimeError("未配置 TUSHARE_TOKEN")
 

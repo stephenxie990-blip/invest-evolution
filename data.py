@@ -1,10 +1,9 @@
-"""投资进化系统 - 统一数据层 façade。"""
+"""投资进化系统 - 干净的数据主入口。"""
 
 import argparse
 import logging
 import os
 import random
-from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Dict, Optional, Protocol
@@ -13,21 +12,10 @@ import numpy as np
 import pandas as pd
 
 from config import PROJECT_ROOT, config, normalize_date
-from data_datasets import T0DatasetBuilder, TrainingDatasetBuilder, WebDatasetService
+from data_datasets import T0DatasetBuilder, TrainingDatasetBuilder
 from data_ingestion import DataIngestionService
-from data_quality import DataQualityService
-from data_repository import MarketDataRepository
 
 logger = logging.getLogger(__name__)
-
-
-
-def _default_db_path() -> Path:
-    return Path(os.environ.get("INVEST_DB_PATH", str(PROJECT_ROOT / "data" / "stock_history.db")))
-
-
-def _default_offline_db_path() -> Path:
-    return _default_db_path()
 
 DEFAULT_STOCK_POOL = [
     "sh.600519",
@@ -53,12 +41,8 @@ DEFAULT_STOCK_POOL = [
 ]
 
 
-@dataclass(frozen=True)
-class HistoricalStock:
-    code: str
-    name: str
-    ipo_date: str
-    out_date: str = ""
+def _default_db_path() -> Path:
+    return Path(os.environ.get("INVEST_DB_PATH", str(PROJECT_ROOT / "data" / "stock_history.db")))
 
 
 def _random_cutoff_date(
@@ -79,241 +63,6 @@ def _random_cutoff_date(
 
     random_days = random.randint(0, (max_dt - earliest_valid).days)
     return (earliest_valid + timedelta(days=random_days)).strftime("%Y%m%d")
-
-
-class DataCache:
-    """兼容外部调用的下载 façade，内部统一写 canonical schema。"""
-
-    def __init__(self, db_path: str | None = None):
-        self.repository = MarketDataRepository(db_path)
-        self.ingestion = DataIngestionService(repository=self.repository)
-        self.web_service = WebDatasetService(repository=self.repository)
-        self.quality_service = DataQualityService(repository=self.repository)
-
-    def connect(self):
-        self.repository.initialize_schema()
-
-    def close(self):
-        return None
-
-    def _ensure_connected(self):
-        self.repository.initialize_schema()
-        self.repository.migrate_legacy_tables()
-
-    def create_tables(self):
-        self._ensure_connected()
-
-    def get_status_summary(self) -> dict:
-        self._ensure_connected()
-        return self.web_service.get_status_summary()
-
-    def download_stock_info(self):
-        self._ensure_connected()
-        return self.ingestion.sync_security_master()
-
-    def download_daily_kline(
-        self,
-        codes: list[str] | None = None,
-        start_date: str = "20160101",
-        end_date: str | None = None,
-    ):
-        self._ensure_connected()
-        return self.ingestion.sync_daily_bars(codes=codes, start_date=start_date, end_date=end_date)
-
-    def load_daily_kline(
-        self,
-        code: str,
-        start_date: str | None = None,
-        end_date: str | None = None,
-    ) -> pd.DataFrame:
-        self._ensure_connected()
-        return self.repository.query_daily_bars(codes=[code], start_date=start_date, end_date=end_date)
-
-    def get_all_stock_codes(self) -> list[str]:
-        self._ensure_connected()
-        return self.repository.list_security_codes()
-
-    def get_pool_at_date(self, cutoff_date: str) -> list[str]:
-        self._ensure_connected()
-        return self.repository.get_security_pool_at_date(cutoff_date)
-
-
-class OfflineDataLoader:
-    """训练读取 façade，内部统一走 TrainingDatasetBuilder。"""
-
-    def __init__(self, db_path: str | None = None):
-        self.repository = MarketDataRepository(db_path if db_path else _default_offline_db_path())
-        self.builder = TrainingDatasetBuilder(repository=self.repository)
-        self._db_exists = self.repository.db_path.exists() and self.builder.available
-        if not self._db_exists:
-            logger.warning("数据库不存在或无可用行情数据: %s", self.repository.db_path)
-
-    def get_stocks(
-        self,
-        cutoff_date: str,
-        stock_count: int = 50,
-        min_history_days: int = 200,
-        include_future_days: int = 0,
-    ) -> Dict[str, pd.DataFrame]:
-        if not self.available:
-            logger.warning("离线数据不可用，使用模拟数据")
-            return generate_mock_stock_data(stock_count)
-
-        stock_data = self.builder.get_stocks(
-            cutoff_date=cutoff_date,
-            stock_count=stock_count,
-            min_history_days=min_history_days,
-            include_future_days=include_future_days,
-        )
-        if stock_data:
-            return stock_data
-
-        logger.warning("没有找到足够历史数据的股票，使用模拟数据")
-        return generate_mock_stock_data(stock_count)
-
-    def get_stock(self, code: str, cutoff_date: str | None = None) -> Optional[pd.DataFrame]:
-        if not self.available:
-            return None
-        return self.builder.get_stock(code, cutoff_date)
-
-    def get_available_date_range(self):
-        if not self.available:
-            return None, None
-        return self.builder.get_available_date_range()
-
-    def get_stock_count(self) -> int:
-        if not self.available:
-            return 0
-        return self.builder.get_stock_count()
-
-    @property
-    def available(self) -> bool:
-        return self._db_exists
-
-
-class DataDownloader:
-    """Tushare 下载 façade，内部统一写 canonical schema。"""
-
-    def __init__(self, tushare_token: str | None = None, db_path: str | None = None):
-        self.service = DataIngestionService(db_path=db_path, tushare_token=tushare_token)
-
-    def download_all(
-        self,
-        start_date: str = "20180101",
-        end_date: str | None = None,
-        stock_limit: int | None = None,
-        test: bool = False,
-    ) -> dict:
-        return self.service.sync_daily_bars_from_tushare(
-            start_date=start_date,
-            end_date=end_date,
-            stock_limit=stock_limit,
-            test_mode=test,
-        )
-
-
-class EvolutionDataLoader:
-    """在线数据兜底，仅用于离线库不可用时的临时抓取。"""
-
-    def __init__(self, data_source: str | None = None, stock_pool: list[str] | None = None):
-        self.data_source = data_source or config.data_source
-        self.stock_pool = stock_pool or DEFAULT_STOCK_POOL
-
-    def random_cutoff_date(
-        self,
-        min_date: str = "20180101",
-        max_date: str | None = None,
-        min_history_days: int = 730,
-    ) -> str:
-        return _random_cutoff_date(min_date, max_date, min_history_days)
-
-    def load_all_data_before(self, cutoff_date: str) -> dict:
-        if self.data_source != "baostock":
-            raise RuntimeError(f"在线数据源 {self.data_source} 暂未统一接入")
-
-        import baostock as bs
-
-        cutoff = normalize_date(cutoff_date)
-        start_date = (datetime.strptime(cutoff, "%Y%m%d") - timedelta(days=900)).strftime("%Y-%m-%d")
-        end_date = f"{cutoff[:4]}-{cutoff[4:6]}-{cutoff[6:8]}"
-
-        login = bs.login()
-        if getattr(login, "error_code", "0") != "0":
-            raise RuntimeError(f"Baostock 登录失败: {getattr(login, 'error_msg', '')}")
-
-        stock_data: dict[str, pd.DataFrame] = {}
-        try:
-            for code in self.stock_pool:
-                rs = bs.query_history_k_data_plus(
-                    code,
-                    "date,code,open,high,low,close,volume,amount,pctChg,turn",
-                    start_date=start_date,
-                    end_date=end_date,
-                    frequency="d",
-                    adjustflag="2",
-                )
-                if getattr(rs, "error_code", "0") != "0":
-                    continue
-
-                rows = []
-                while rs.next():
-                    rows.append(dict(zip(rs.fields, rs.get_row_data())))
-                if not rows:
-                    continue
-
-                df = pd.DataFrame(rows)
-                df["trade_date"] = df["date"].map(normalize_date)
-                df["pct_chg"] = pd.to_numeric(df.get("pctChg"), errors="coerce")
-                df["turnover"] = pd.to_numeric(df.get("turn"), errors="coerce")
-                for column in ("open", "high", "low", "close", "volume", "amount"):
-                    df[column] = pd.to_numeric(df[column], errors="coerce")
-                stock_data[code] = df[["date", "trade_date", "open", "high", "low", "close", "volume", "amount", "pct_chg", "turnover", "code"]]
-        finally:
-            bs.logout()
-
-        return {"cutoff_date": cutoff, "stocks": stock_data}
-
-
-class HistoricalStockPool:
-    """T0 股票池 façade，内部统一走 T0DatasetBuilder。"""
-
-    def __init__(self, db_path: str | None = None):
-        self.repository = MarketDataRepository(db_path)
-        self.builder = T0DatasetBuilder(repository=self.repository)
-        self.all_stocks = [
-            HistoricalStock(
-                code=item["code"],
-                name=item.get("name", item["code"]),
-                ipo_date=item.get("list_date", ""),
-                out_date=item.get("delist_date", ""),
-            )
-            for item in self.repository.list_securities()
-        ]
-
-    def get_pool_at_date(self, cutoff_date: str) -> list[str]:
-        return self.builder.get_pool_at_date(cutoff_date)
-
-    def get_survived_stocks(self, cutoff_date: str, stocks: list[str]) -> dict[str, bool]:
-        return self.builder.get_survived_stocks(cutoff_date, stocks)
-
-
-class T0DataLoader:
-    """T0 数据读取 façade，内部统一走 canonical dataset builder。"""
-
-    def __init__(self, db_path: str | None = None):
-        self.builder = T0DatasetBuilder(db_path=db_path)
-        self.historical_pool = HistoricalStockPool(db_path=db_path)
-
-    def random_cutoff_date(
-        self,
-        min_date: str = "20180101",
-        max_date: str | None = None,
-        min_history_days: int = 730,
-    ) -> str:
-        return _random_cutoff_date(min_date, max_date, min_history_days)
-
-    def load_data_at_t0(self, cutoff_date: str, max_stocks: int = 500) -> dict:
-        return self.builder.load_data_at_t0(cutoff_date=cutoff_date, max_stocks=max_stocks)
 
 
 def generate_mock_stock_data(
@@ -407,6 +156,68 @@ class MockDataProvider:
         return selected
 
 
+class EvolutionDataLoader:
+    """在线数据兜底，仅用于离线库不可用时的临时抓取。"""
+
+    def __init__(self, data_source: str | None = None, stock_pool: list[str] | None = None):
+        self.data_source = data_source or config.data_source
+        self.stock_pool = stock_pool or DEFAULT_STOCK_POOL
+
+    def random_cutoff_date(
+        self,
+        min_date: str = "20180101",
+        max_date: str | None = None,
+        min_history_days: int = 730,
+    ) -> str:
+        return _random_cutoff_date(min_date, max_date, min_history_days)
+
+    def load_all_data_before(self, cutoff_date: str) -> dict:
+        if self.data_source != "baostock":
+            raise RuntimeError(f"在线数据源 {self.data_source} 暂未统一接入")
+
+        import baostock as bs
+
+        cutoff = normalize_date(cutoff_date)
+        start_date = (datetime.strptime(cutoff, "%Y%m%d") - timedelta(days=900)).strftime("%Y-%m-%d")
+        end_date = f"{cutoff[:4]}-{cutoff[4:6]}-{cutoff[6:8]}"
+
+        login = bs.login()
+        if getattr(login, "error_code", "0") != "0":
+            raise RuntimeError(f"Baostock 登录失败: {getattr(login, 'error_msg', '')}")
+
+        stock_data: dict[str, pd.DataFrame] = {}
+        try:
+            for code in self.stock_pool:
+                rs = bs.query_history_k_data_plus(
+                    code,
+                    "date,code,open,high,low,close,volume,amount,pctChg,turn",
+                    start_date=start_date,
+                    end_date=end_date,
+                    frequency="d",
+                    adjustflag="2",
+                )
+                if getattr(rs, "error_code", "0") != "0":
+                    continue
+
+                rows = []
+                while rs.next():
+                    rows.append(dict(zip(rs.fields, rs.get_row_data())))
+                if not rows:
+                    continue
+
+                df = pd.DataFrame(rows)
+                df["trade_date"] = df["date"].map(normalize_date)
+                df["pct_chg"] = pd.to_numeric(df.get("pctChg"), errors="coerce")
+                df["turnover"] = pd.to_numeric(df.get("turn"), errors="coerce")
+                for column in ("open", "high", "low", "close", "volume", "amount"):
+                    df[column] = pd.to_numeric(df[column], errors="coerce")
+                stock_data[code] = df[["date", "trade_date", "open", "high", "low", "close", "volume", "amount", "pct_chg", "turnover", "code"]]
+        finally:
+            bs.logout()
+
+        return {"cutoff_date": cutoff, "stocks": stock_data}
+
+
 class DataManager:
     """统一数据入口：优先 canonical 离线库，其次在线兜底，最后 mock。"""
 
@@ -417,9 +228,10 @@ class DataManager:
         data_provider: Optional[DataProvider] = None,
     ):
         self._provider = data_provider
-        self._offline = OfflineDataLoader(db_path)
+        self._offline = TrainingDatasetBuilder(db_path=str(db_path) if db_path else str(_default_db_path()))
         self._online: Optional[EvolutionDataLoader] = None
         self._prefer_offline = prefer_offline
+
         if not self._offline.available:
             logger.info("离线数据库不可用，将使用在线数据源或模拟数据")
 
@@ -459,12 +271,14 @@ class DataManager:
             )
 
         if self._prefer_offline and self._offline.available:
-            return self._offline.get_stocks(
+            stock_data = self._offline.get_stocks(
                 cutoff_date=cutoff_date,
                 stock_count=stock_count,
                 min_history_days=min_history_days,
                 include_future_days=include_future_days,
             )
+            if stock_data:
+                return stock_data
 
         if self._online is None:
             try:
@@ -501,27 +315,19 @@ def _cli_main():
     parser.add_argument("--token", type=str, default=None, help="Tushare Token")
     parser.add_argument("--test", action="store_true", help="测试模式（只下3只）")
     parser.add_argument("--source", choices=["baostock", "tushare"], default="baostock", help="数据源")
-    parser.add_argument("--drop-legacy", action="store_true", help="同步后删除旧表")
     args = parser.parse_args()
 
+    service = DataIngestionService(tushare_token=args.token)
     if args.source == "baostock":
-        cache = DataCache()
-        cache.download_stock_info()
-        cache.download_daily_kline(start_date=args.start, end_date=args.end)
-        if args.drop_legacy:
-            dropped = cache.repository.cleanup_legacy_tables()
-            logger.info("已删除旧表: %s", dropped)
+        service.sync_security_master()
+        service.sync_daily_bars(start_date=args.start, end_date=args.end)
     else:
-        downloader = DataDownloader(tushare_token=args.token)
-        downloader.download_all(
+        service.sync_daily_bars_from_tushare(
             start_date=args.start,
             end_date=args.end,
             stock_limit=args.stocks,
-            test=args.test,
+            test_mode=args.test,
         )
-        if args.drop_legacy:
-            dropped = downloader.service.repository.cleanup_legacy_tables()
-            logger.info("已删除旧表: %s", dropped)
 
 
 if __name__ == "__main__":

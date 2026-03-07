@@ -1,89 +1,10 @@
-import sqlite3
-from pathlib import Path
-
 import pandas as pd
 
 import web_server
-from data import DataManager, T0DataLoader
+from data import DataManager
+from data_datasets import T0DatasetBuilder
 from data_ingestion import DataIngestionService
 from data_repository import MarketDataRepository
-
-
-def _make_legacy_db(db_path: Path) -> None:
-    conn = sqlite3.connect(db_path)
-    conn.execute(
-        """
-        CREATE TABLE stock_info (
-            code TEXT PRIMARY KEY,
-            name TEXT,
-            list_date TEXT,
-            delist_date TEXT,
-            industry TEXT,
-            is_st INTEGER DEFAULT 0
-        )
-        """
-    )
-    conn.execute(
-        """
-        CREATE TABLE stock_daily (
-            code TEXT,
-            trade_date TEXT,
-            open REAL,
-            high REAL,
-            low REAL,
-            close REAL,
-            volume REAL,
-            amount REAL,
-            pct_chg REAL,
-            turnover REAL
-        )
-        """
-    )
-    conn.execute("CREATE TABLE metadata (key TEXT PRIMARY KEY, value TEXT)")
-    conn.executemany(
-        "INSERT INTO stock_info VALUES (?, ?, ?, ?, ?, ?)",
-        [
-            ("sh.600001", "Alpha", "2020-01-01", "", "银行", 0),
-            ("sh.600002", "Beta", "2020-01-01", "2023-12-31", "消费", 0),
-            ("sh.600003", "Gamma", "2024-01-10", "", "科技", 0),
-        ],
-    )
-    rows = []
-    for trade_date, close_a, close_b in [
-        ("20240102", 10.0, 20.0),
-        ("20240103", 10.2, 20.5),
-        ("20240104", 10.5, 20.2),
-    ]:
-        rows.append(("sh.600001", trade_date, close_a - 0.1, close_a + 0.1, close_a - 0.2, close_a, 1000.0, 5000.0, 1.0, 2.0))
-        rows.append(("sh.600002", trade_date, close_b - 0.1, close_b + 0.1, close_b - 0.2, close_b, 1500.0, 8000.0, 1.0, 3.0))
-    for trade_date, close_c in [("20240110", 30.0), ("20240111", 30.5), ("20240112", 30.8)]:
-        rows.append(("sh.600003", trade_date, close_c - 0.1, close_c + 0.1, close_c - 0.2, close_c, 2000.0, 9000.0, 1.0, 4.0))
-    conn.executemany("INSERT INTO stock_daily VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", rows)
-    conn.executemany(
-        "INSERT INTO metadata VALUES (?, ?)",
-        [("latest_date", "20240112"), ("source", "legacy")],
-    )
-    conn.commit()
-    conn.close()
-
-
-def test_repository_migrates_legacy_tables_into_canonical(tmp_path):
-    db_path = tmp_path / "stock_history.db"
-    _make_legacy_db(db_path)
-
-    repo = MarketDataRepository(db_path)
-    result = repo.migrate_legacy_tables()
-
-    assert set(result["migrated_tables"]) == {"stock_info", "stock_daily", "metadata"}
-    status = repo.get_status_summary()
-    assert status["schema"] == "canonical_v1"
-    assert status["stock_count"] == 3
-    assert status["kline_count"] == 9
-    assert status["latest_date"] == "20240112"
-
-    dropped = repo.cleanup_legacy_tables()
-    assert set(dropped) == {"stock_info", "stock_daily", "metadata"}
-    assert repo.list_legacy_tables() == []
 
 
 def test_data_manager_reads_canonical_schema(tmp_path):
@@ -127,7 +48,7 @@ def test_data_manager_reads_canonical_schema(tmp_path):
     assert max(stock_data["sh.600010"]["trade_date"]) >= "20240109"
 
 
-def test_t0_loader_uses_canonical_security_master(tmp_path):
+def test_t0_dataset_builder_uses_canonical_security_master(tmp_path):
     db_path = tmp_path / "t0.db"
     repo = MarketDataRepository(db_path)
     repo.initialize_schema()
@@ -173,8 +94,8 @@ def test_t0_loader_uses_canonical_security_master(tmp_path):
         )
     repo.upsert_daily_bars(bars)
 
-    loader = T0DataLoader(db_path=str(db_path))
-    data = loader.load_data_at_t0("20240105", max_stocks=10)
+    builder = T0DatasetBuilder(db_path=str(db_path))
+    data = builder.load_data_at_t0("20240105", max_stocks=10)
 
     assert sorted(data["stocks"]) == ["sh.600001"]
     assert data["survived"] == {"sh.600001": True}

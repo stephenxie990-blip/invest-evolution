@@ -50,6 +50,29 @@ def test_explicit_tool_call_validation_error(tmp_path: Path):
     assert "Invalid parameters" in result
 
 
+def test_explicit_tool_call_invalid_json_returns_parse_error(tmp_path: Path):
+    runtime = BrainRuntime(
+        workspace=tmp_path,
+        model="test-model",
+        api_key="",
+    )
+    runtime.tools.register(EchoTool())
+
+    result = asyncio.run(runtime.process_direct('/tool echo {"text":'))
+    assert "invalid tool arguments for echo" in result
+
+
+def test_explicit_tool_call_non_object_json_returns_parse_error(tmp_path: Path):
+    runtime = BrainRuntime(
+        workspace=tmp_path,
+        model="test-model",
+        api_key="",
+    )
+    runtime.tools.register(EchoTool())
+
+    result = asyncio.run(runtime.process_direct('/tool echo ["hello"]'))
+    assert "tool arguments must decode to a JSON object" in result
+
 
 def test_parse_tool_args_invalid_json_raises(tmp_path: Path):
     runtime = BrainRuntime(
@@ -62,6 +85,33 @@ def test_parse_tool_args_invalid_json_raises(tmp_path: Path):
         runtime._parse_tool_args('{"text":')
     except Exception as exc:
         assert "Expecting" in str(exc) or "delimiter" in str(exc)
+    else:
+        raise AssertionError("expected parse error")
+
+
+def test_parse_tool_args_blank_string_returns_empty_dict(tmp_path: Path):
+    runtime = BrainRuntime(
+        workspace=tmp_path,
+        model="test-model",
+        api_key="",
+    )
+
+    assert runtime._parse_tool_args("") == {}
+    assert runtime._parse_tool_args("   ") == {}
+    assert runtime._parse_tool_args(None) == {}
+
+
+def test_parse_tool_args_non_string_non_object_raises(tmp_path: Path):
+    runtime = BrainRuntime(
+        workspace=tmp_path,
+        model="test-model",
+        api_key="",
+    )
+
+    try:
+        runtime._parse_tool_args(False)
+    except Exception as exc:
+        assert "JSON object or JSON string" in str(exc)
     else:
         raise AssertionError("expected parse error")
 
