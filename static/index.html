@@ -1,0 +1,2040 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>投资进化系统 v1.0</title>
+<meta name="description" content="AI驱动的量化交易进化训练平台 — 多智能体协作、策略自我进化">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+/* ============================================================
+   CSS Design System — Dark Financial Theme
+   ============================================================ */
+:root {
+  --bg-primary: #0a0e17;
+  --bg-secondary: #111827;
+  --bg-card: rgba(17, 24, 39, 0.85);
+  --bg-card-hover: rgba(31, 41, 55, 0.9);
+  --bg-input: rgba(17, 24, 39, 0.6);
+  --border: rgba(75, 85, 99, 0.4);
+  --border-accent: rgba(99, 102, 241, 0.5);
+  --text-primary: #f9fafb;
+  --text-secondary: #9ca3af;
+  --text-muted: #6b7280;
+  --accent: #6366f1;
+  --accent-glow: rgba(99, 102, 241, 0.3);
+  --green: #10b981;
+  --green-glow: rgba(16, 185, 129, 0.2);
+  --red: #ef4444;
+  --red-glow: rgba(239, 68, 68, 0.2);
+  --yellow: #f59e0b;
+  --blue: #3b82f6;
+  --radius: 12px;
+  --radius-sm: 8px;
+  --shadow: 0 4px 24px rgba(0, 0, 0, 0.4);
+  --transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+/* Background gradient orbs */
+body::before, body::after {
+  content: '';
+  position: fixed;
+  border-radius: 50%;
+  filter: blur(120px);
+  opacity: 0.15;
+  pointer-events: none;
+  z-index: -1;
+}
+body::before {
+  width: 600px; height: 600px;
+  background: var(--accent);
+  top: -200px; right: -100px;
+}
+body::after {
+  width: 500px; height: 500px;
+  background: var(--green);
+  bottom: -150px; left: -100px;
+}
+
+/* ---- Layout ---- */
+.app-container {
+  display: flex;
+  min-height: 100vh;
+}
+
+/* ---- Sidebar ---- */
+.sidebar {
+  width: 240px;
+  min-width: 240px;
+  background: var(--bg-secondary);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  padding: 24px 0;
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  overflow-y: auto;
+}
+
+.sidebar-logo {
+  padding: 0 24px 24px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 16px;
+}
+
+.sidebar-logo h1 {
+  font-size: 18px;
+  font-weight: 700;
+  background: linear-gradient(135deg, var(--accent), var(--green));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.sidebar-logo p {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: 4px;
+}
+
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 24px;
+  cursor: pointer;
+  color: var(--text-secondary);
+  transition: var(--transition);
+  border-left: 3px solid transparent;
+  font-size: 14px;
+  font-weight: 500;
+  user-select: none;
+}
+
+.nav-item:hover {
+  background: rgba(99, 102, 241, 0.08);
+  color: var(--text-primary);
+}
+
+.nav-item.active {
+  color: var(--accent);
+  background: rgba(99, 102, 241, 0.1);
+  border-left-color: var(--accent);
+}
+
+.nav-icon {
+  font-size: 18px;
+  width: 24px;
+  text-align: center;
+}
+
+.sidebar-footer {
+  margin-top: auto;
+  padding: 16px 24px;
+  border-top: 1px solid var(--border);
+}
+
+.status-dot {
+  display: inline-block;
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: var(--green);
+  margin-right: 8px;
+  animation: pulse 2s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+.sidebar-footer span {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+/* ---- Main Content ---- */
+.main-content {
+  flex: 1;
+  padding: 32px;
+  overflow-y: auto;
+  max-height: 100vh;
+}
+
+.page-header {
+  margin-bottom: 24px;
+}
+
+.page-header h2 {
+  font-size: 24px;
+  font-weight: 700;
+}
+
+.page-header p {
+  color: var(--text-secondary);
+  font-size: 14px;
+  margin-top: 4px;
+}
+
+/* ---- Panels ---- */
+.panel { display: none; }
+.panel.active { display: block; animation: fadeIn 0.3s ease; }
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* ---- Cards ---- */
+.card {
+  background: var(--bg-card);
+  backdrop-filter: blur(20px);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 24px;
+  margin-bottom: 20px;
+  transition: var(--transition);
+}
+
+.card:hover {
+  border-color: var(--border-accent);
+  box-shadow: 0 0 20px var(--accent-glow);
+}
+
+.card-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 16px;
+}
+
+/* ---- Metric Grid ---- */
+.metric-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+.metric-card {
+  background: var(--bg-card);
+  backdrop-filter: blur(20px);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 20px;
+  transition: var(--transition);
+}
+
+.metric-card:hover {
+  border-color: var(--border-accent);
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+}
+
+.metric-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.metric-value {
+  font-size: 28px;
+  font-weight: 700;
+  margin-top: 8px;
+  background: linear-gradient(135deg, var(--text-primary), var(--text-secondary));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.metric-value.green { background: linear-gradient(135deg, var(--green), #34d399); -webkit-background-clip: text; background-clip: text; }
+.metric-value.red { background: linear-gradient(135deg, var(--red), #f87171); -webkit-background-clip: text; background-clip: text; }
+.metric-value.blue { background: linear-gradient(135deg, var(--blue), #60a5fa); -webkit-background-clip: text; background-clip: text; }
+.metric-value.accent { background: linear-gradient(135deg, var(--accent), #818cf8); -webkit-background-clip: text; background-clip: text; }
+
+.metric-sub {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-top: 4px;
+}
+
+/* ---- Buttons ---- */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 20px;
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  transition: var(--transition);
+  outline: none;
+}
+
+.btn-primary {
+  background: linear-gradient(135deg, var(--accent), #4f46e5);
+  color: white;
+  box-shadow: 0 4px 12px var(--accent-glow);
+}
+.btn-primary:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 20px var(--accent-glow);
+}
+.btn-primary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.btn-secondary {
+  background: rgba(75, 85, 99, 0.3);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+}
+.btn-secondary:hover { background: rgba(75, 85, 99, 0.5); }
+
+.btn-danger {
+  background: rgba(239, 68, 68, 0.15);
+  color: var(--red);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+}
+.btn-danger:hover { background: rgba(239, 68, 68, 0.25); }
+
+.btn-sm { padding: 6px 14px; font-size: 13px; }
+
+/* ---- Inputs ---- */
+.input, .select, .textarea {
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  padding: 10px 14px;
+  font-family: inherit;
+  font-size: 14px;
+  outline: none;
+  transition: var(--transition);
+}
+.input:focus, .textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-glow); }
+.textarea { resize: vertical; min-height: 80px; }
+
+/* ---- Toggle ---- */
+.toggle-group {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.toggle {
+  position: relative;
+  width: 44px;
+  height: 24px;
+  cursor: pointer;
+}
+.toggle input { display: none; }
+.toggle-track {
+  position: absolute;
+  inset: 0;
+  background: rgba(75, 85, 99, 0.5);
+  border-radius: 12px;
+  transition: var(--transition);
+}
+.toggle input:checked + .toggle-track { background: var(--accent); }
+.toggle-thumb {
+  position: absolute;
+  top: 2px; left: 2px;
+  width: 20px; height: 20px;
+  background: white;
+  border-radius: 50%;
+  transition: var(--transition);
+  pointer-events: none;
+}
+.toggle input:checked ~ .toggle-thumb { left: 22px; }
+
+/* ---- Badge ---- */
+.badge {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 20px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+.badge-green { background: var(--green-glow); color: var(--green); }
+.badge-red { background: var(--red-glow); color: var(--red); }
+.badge-blue { background: rgba(59, 130, 246, 0.15); color: var(--blue); }
+.badge-yellow { background: rgba(245, 158, 11, 0.15); color: var(--yellow); }
+
+/* ---- Table ---- */
+.table-wrapper { overflow-x: auto; }
+table {
+  width: 100%;
+  border-collapse: collapse;
+}
+th, td {
+  padding: 12px 16px;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+}
+th {
+  color: var(--text-muted);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  font-size: 11px;
+}
+tr:hover td { background: rgba(99, 102, 241, 0.04); }
+
+/* ============================================================
+   Chat Panel
+   ============================================================ */
+.chat-container {
+  display: flex;
+  flex-direction: column;
+  height: calc(100vh - 160px);
+}
+
+.chat-messages {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.chat-msg {
+  display: flex;
+  gap: 12px;
+  max-width: 85%;
+  animation: fadeIn 0.3s ease;
+}
+
+.chat-msg.user { align-self: flex-end; flex-direction: row-reverse; }
+
+.chat-avatar {
+  width: 36px; height: 36px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  flex-shrink: 0;
+}
+
+.chat-msg.user .chat-avatar { background: linear-gradient(135deg, var(--accent), #4f46e5); }
+.chat-msg.assistant .chat-avatar { background: linear-gradient(135deg, var(--green), #059669); }
+
+.chat-bubble {
+  padding: 14px 18px;
+  border-radius: var(--radius);
+  font-size: 14px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.chat-msg.user .chat-bubble {
+  background: linear-gradient(135deg, var(--accent), #4f46e5);
+  color: white;
+  border-bottom-right-radius: 4px;
+}
+
+.chat-msg.assistant .chat-bubble {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  color: var(--text-primary);
+  border-bottom-left-radius: 4px;
+}
+
+.chat-input-bar {
+  display: flex;
+  gap: 12px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+
+.chat-input-bar .input {
+  flex: 1;
+}
+
+/* ---- Strategy Card Grid ---- */
+.strategy-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 16px;
+}
+
+.strategy-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 20px;
+  transition: var(--transition);
+}
+.strategy-card:hover {
+  border-color: var(--border-accent);
+  box-shadow: 0 0 20px var(--accent-glow);
+}
+
+.strategy-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.strategy-name {
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.strategy-meta {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
+.strategy-desc {
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+/* ---- Train Panel ---- */
+.train-controls {
+  display: flex;
+  gap: 16px;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  margin-bottom: 24px;
+}
+
+.form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.form-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.train-result {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 20px;
+  max-height: 500px;
+  overflow-y: auto;
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-size: 13px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  color: var(--text-secondary);
+}
+
+/* ---- Cron Form ---- */
+.cron-form {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  margin-bottom: 20px;
+}
+
+/* ---- Loading Spinner ---- */
+.spinner {
+  display: inline-block;
+  width: 18px; height: 18px;
+  border: 2px solid rgba(255,255,255,0.3);
+  border-top-color: white;
+  border-radius: 50%;
+  animation: spin 0.6s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ---- Memory Panel ---- */
+.memory-search-bar {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+.memory-search-bar .input { flex: 1; }
+
+/* ---- Responsive ---- */
+@media (max-width: 768px) {
+  .sidebar { width: 60px; min-width: 60px; }
+  .sidebar-logo h1, .sidebar-logo p, .nav-label, .sidebar-footer span { display: none; }
+  .nav-item { padding: 12px; justify-content: center; }
+  .nav-icon { margin: 0; }
+  .main-content { padding: 16px; }
+  .metric-grid { grid-template-columns: repeat(2, 1fr); }
+}
+</style>
+</head>
+<body>
+
+<div class="app-container">
+  <!-- Sidebar -->
+  <nav class="sidebar">
+    <div class="sidebar-logo">
+      <h1>投资进化系统</h1>
+      <p>AI Quant Evolution Platform</p>
+    </div>
+
+    <div class="nav-item active" data-panel="workbench" onclick="switchPanel('workbench')">
+      <span class="nav-icon">🎮</span>
+      <span class="nav-label">Agent 工作台</span>
+    </div>
+    <div class="nav-item" data-panel="dashboard" onclick="switchPanel('dashboard')">
+      <span class="nav-icon">📊</span>
+      <span class="nav-label">仪表盘</span>
+    </div>
+    <div class="nav-item" data-panel="chat" onclick="switchPanel('chat')">
+      <span class="nav-icon">💬</span>
+      <span class="nav-label">智能对话</span>
+    </div>
+    <div class="nav-item" data-panel="train" onclick="switchPanel('train')">
+      <span class="nav-icon">🧬</span>
+      <span class="nav-label">训练中心</span>
+    </div>
+    <div class="nav-item" data-panel="strategies" onclick="switchPanel('strategies')">
+      <span class="nav-icon">🧩</span>
+      <span class="nav-label">策略基因</span>
+    </div>
+    <div class="nav-item" data-panel="cron" onclick="switchPanel('cron')">
+      <span class="nav-icon">⏰</span>
+      <span class="nav-label">调度任务</span>
+    </div>
+    <div class="nav-item" data-panel="memory" onclick="switchPanel('memory')">
+      <span class="nav-icon">🧠</span>
+      <span class="nav-label">记忆搜索</span>
+    </div>
+    <div class="nav-item" data-panel="models" onclick="switchPanel('models')">
+      <span class="nav-icon">🤖</span>
+      <span class="nav-label">模型配置</span>
+    </div>
+    <div class="nav-item" data-panel="data" onclick="switchPanel('data')">
+      <span class="nav-icon">🗄️</span>
+      <span class="nav-label">数据配置</span>
+    </div>
+    <div class="nav-item" data-panel="agents" onclick="switchPanel('agents')">
+      <span class="nav-icon">👤</span>
+      <span class="nav-label">Agent 配置</span>
+    </div>
+
+    <div class="sidebar-footer">
+      <span class="status-dot"></span>
+      <span>系统运行中</span>
+    </div>
+  </nav>
+
+  <!-- Main Content -->
+  <main class="main-content">
+
+    <!-- ===== Workbench ===== -->
+    <div id="panel-workbench" class="panel active">
+      <div class="page-header" style="display:flex;justify-content:space-between;align-items:flex-end;gap:16px;flex-wrap:wrap">
+        <div>
+          <h2>🎮 Agent 工作台</h2>
+          <p>2D 场景化可视化运行态：Agent/任务/消息流/事件时间线</p>
+        </div>
+        <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+          <button class="btn btn-secondary btn-sm" id="wb-btn-reload" onclick="wbRefreshAll()">🔄 刷新</button>
+          <button class="btn btn-secondary btn-sm" id="wb-btn-step" onclick="wbStepOnce()">⏭️ 单步训练</button>
+          <button class="btn btn-primary btn-sm" id="wb-btn-run" onclick="wbStartRun()">▶️ 连续运行</button>
+          <button class="btn btn-danger btn-sm" id="wb-btn-pause" onclick="wbStopRun()" disabled>⏸️ 暂停</button>
+        </div>
+      </div>
+
+      <div class="card" style="padding:16px">
+        <div style="display:grid;grid-template-columns:1fr auto;gap:12px;align-items:center">
+          <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+            <span class="badge badge-blue" id="wb-conn">连接中...</span>
+            <span class="badge badge-yellow" id="wb-run">状态: Idle</span>
+            <span class="badge badge-green" id="wb-metric-total">总轮次: --</span>
+            <span class="badge badge-green" id="wb-metric-success">成功: --</span>
+            <span class="badge badge-red" id="wb-metric-failed">失败: --</span>
+          </div>
+          <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+            <button class="btn btn-secondary btn-sm" onclick="switchPanel('models')">去模型配置</button>
+            <button class="btn btn-secondary btn-sm" onclick="switchPanel('data')">去数据配置</button>
+            <button class="btn btn-secondary btn-sm" onclick="switchPanel('agents')">去Agent配置</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="card" style="padding:0">
+        <div style="display:grid;grid-template-columns:1fr 400px;grid-template-rows:auto 260px;gap:0;border-radius:var(--radius);overflow:hidden">
+          <div style="position:relative;min-height:520px;border-right:1px solid var(--border);background:linear-gradient(180deg, rgba(99,102,241,0.06), rgba(16,185,129,0.03))">
+            <canvas id="wb-canvas" style="display:block;width:100%;height:100%"></canvas>
+            <div id="wb-tooltip" style="position:absolute;left:0;top:0;transform:translate(-9999px,-9999px);pointer-events:none;background:rgba(17,24,39,0.92);border:1px solid var(--border);border-radius:10px;padding:10px 12px;max-width:260px;box-shadow:var(--shadow);font-size:12px;color:var(--text-secondary)"></div>
+          </div>
+
+          <div style="padding:16px;background:var(--bg-secondary)">
+            <div class="card-title" style="margin-bottom:10px">对象检查器</div>
+            <div id="wb-inspector" style="font-size:13px;color:var(--text-secondary)">点击场景中的 Agent/节点 查看详情</div>
+          </div>
+
+          <div style="grid-column:1 / span 2;border-top:1px solid var(--border);background:rgba(17,24,39,0.6);padding:12px 16px">
+            <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">
+              <div class="card-title" style="margin:0">事件时间线</div>
+              <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+                <select class="select" id="wb-filter-level" style="height:34px" onchange="wbRenderTimeline()">
+                  <option value="all">All</option>
+                  <option value="error">Errors</option>
+                </select>
+                <select class="select" id="wb-filter-object" style="height:34px;min-width:180px" onchange="wbRenderTimeline()">
+                  <option value="all">All Objects</option>
+                </select>
+                <button class="btn btn-secondary btn-sm" onclick="wbClearEvents()">清空</button>
+              </div>
+            </div>
+            <div id="wb-timeline" style="margin-top:10px;max-height:200px;overflow:auto;border:1px solid var(--border);border-radius:12px;background:rgba(10,14,23,0.65)"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===== Dashboard ===== -->
+    <div id="panel-dashboard" class="panel">
+      <div class="page-header">
+        <h2>📊 系统仪表盘</h2>
+        <p>实时监控系统运行状态和训练统计</p>
+      </div>
+
+      <div class="metric-grid" id="dashboard-metrics">
+        <div class="metric-card">
+          <div class="metric-label">训练总轮次</div>
+          <div class="metric-value accent" id="m-total-cycles">--</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-label">成功轮次</div>
+          <div class="metric-value green" id="m-success-cycles">--</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-label">失败轮次</div>
+          <div class="metric-value red" id="m-failed-cycles">--</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-label">策略基因</div>
+          <div class="metric-value blue" id="m-strategy-count">--</div>
+          <div class="metric-sub" id="m-strategy-enabled">--</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-label">LLM 模型</div>
+          <div class="metric-value" id="m-model" style="font-size:14px;margin-top:12px">--</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-label">最后训练</div>
+          <div class="metric-value" id="m-last-run" style="font-size:14px;margin-top:12px">--</div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">最新训练结果</div>
+        <div id="dashboard-last-result" style="font-size:13px;color:var(--text-secondary)">
+          暂无训练记录。前往<a href="#" onclick="switchPanel('train')" style="color:var(--accent)">训练中心</a>开始第一轮训练。
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">系统详情</div>
+        <pre id="dashboard-raw" style="font-size:12px;color:var(--text-muted);white-space:pre-wrap;max-height:300px;overflow-y:auto">加载中...</pre>
+      </div>
+    </div>
+
+    <!-- ===== Chat ===== -->
+    <div id="panel-chat" class="panel">
+      <div class="page-header">
+        <h2>💬 智能对话</h2>
+        <p>用自然语言与 Commander 交流 — 查询状态、调整策略、分析市场</p>
+      </div>
+
+      <div class="chat-container card" style="padding:20px">
+        <div class="chat-messages" id="chat-messages">
+          <div class="chat-msg assistant">
+            <div class="chat-avatar">🤖</div>
+            <div class="chat-bubble">你好！我是投资进化 Commander。你可以用自然语言问我任何关于系统状态、训练、策略的问题。</div>
+          </div>
+        </div>
+        <div class="chat-input-bar">
+          <input type="text" class="input" id="chat-input" placeholder="输入消息... (Enter 发送)" onkeydown="if(event.key==='Enter')sendChat()">
+          <button class="btn btn-primary" id="chat-send-btn" onclick="sendChat()">发送</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===== Train ===== -->
+    <div id="panel-train" class="panel">
+      <div class="page-header">
+        <h2>🧬 训练中心</h2>
+        <p>启动模拟交易训练周期，观察策略进化过程</p>
+      </div>
+
+      <div class="card">
+        <div class="card-title">训练配置</div>
+        <div class="train-controls">
+          <div class="form-group">
+            <label class="form-label">训练轮次</label>
+            <input type="number" class="input" id="train-rounds" value="1" min="1" max="100" style="width:100px">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Mock 模式</label>
+            <label class="toggle">
+              <input type="checkbox" id="train-mock" checked>
+              <div class="toggle-track"></div>
+              <div class="toggle-thumb"></div>
+            </label>
+          </div>
+          <button class="btn btn-primary" id="train-start-btn" onclick="startTraining()">
+            🚀 开始训练
+          </button>
+        </div>
+        <div style="font-size:12px;color:var(--text-muted)">
+          💡 Mock 模式使用模拟数据，无需真实行情接口。首次使用建议开启。
+        </div>
+      </div>
+
+      <div class="card" id="train-result-card" style="display:none">
+        <div class="card-title">训练结果</div>
+        <div class="train-result" id="train-result"></div>
+      </div>
+    </div>
+
+    <!-- ===== Strategies ===== -->
+    <div id="panel-strategies" class="panel">
+      <div class="page-header" style="display:flex;justify-content:space-between;align-items:center">
+        <div>
+          <h2>🧩 策略基因</h2>
+          <p>查看和管理可插拔策略文件 (md/json/py)</p>
+        </div>
+        <button class="btn btn-secondary" onclick="reloadStrategies()">🔄 重新加载</button>
+      </div>
+
+      <div class="strategy-grid" id="strategy-list">
+        <div style="color:var(--text-muted)">加载中...</div>
+      </div>
+    </div>
+
+    <!-- ===== Cron ===== -->
+    <div id="panel-cron" class="panel">
+      <div class="page-header">
+        <h2>⏰ 调度任务</h2>
+        <p>管理定时任务 — 自动执行训练、状态检查等</p>
+      </div>
+
+      <div class="card">
+        <div class="card-title">添加新任务</div>
+        <div class="cron-form">
+          <div class="form-group">
+            <label class="form-label">任务名称</label>
+            <input type="text" class="input" id="cron-name" placeholder="如: auto_train" style="width:160px">
+          </div>
+          <div class="form-group">
+            <label class="form-label">执行指令</label>
+            <input type="text" class="input" id="cron-message" placeholder="如: 执行一轮训练" style="width:260px">
+          </div>
+          <div class="form-group">
+            <label class="form-label">间隔 (秒)</label>
+            <input type="number" class="input" id="cron-interval" value="3600" min="5" style="width:120px">
+          </div>
+          <button class="btn btn-primary btn-sm" onclick="addCronJob()">➕ 添加</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">当前任务列表</div>
+        <div class="table-wrapper">
+          <table>
+            <thead>
+              <tr><th>ID</th><th>名称</th><th>指令</th><th>间隔</th><th>操作</th></tr>
+            </thead>
+            <tbody id="cron-table-body">
+              <tr><td colspan="5" style="color:var(--text-muted)">加载中...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===== Memory ===== -->
+    <div id="panel-memory" class="panel">
+      <div class="page-header">
+        <h2>🧠 记忆搜索</h2>
+        <p>搜索 Commander 长期记忆库</p>
+      </div>
+
+      <div class="memory-search-bar">
+        <input type="text" class="input" id="memory-query" placeholder="输入关键词搜索... (留空显示最近记录)" onkeydown="if(event.key==='Enter')searchMemory()">
+        <button class="btn btn-primary" onclick="searchMemory()">🔍 搜索</button>
+      </div>
+
+      <div class="card">
+        <div class="table-wrapper">
+          <table>
+            <thead>
+              <tr><th>时间</th><th>类型</th><th>内容</th></tr>
+            </thead>
+            <tbody id="memory-table-body">
+              <tr><td colspan="3" style="color:var(--text-muted)">输入关键词进行搜索</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===== Agents ===== -->
+    <div id="panel-agents" class="panel">
+      <div class="page-header">
+        <h2>👤 Agent 配置</h2>
+        <p>管理系统中所有 AI Agent 的模型和 System Prompt</p>
+      </div>
+      <div class="strategy-grid" id="agents-list">
+        <div style="color:var(--text-muted)">加载中...</div>
+      </div>
+    </div>
+
+    <!-- ===== Data ===== -->
+    <div id="panel-data" class="panel">
+      <div class="page-header">
+        <h2>🗄️ 数据配置</h2>
+        <p>配置数据相关参数，并查看本地数据状态</p>
+      </div>
+
+      <div class="card">
+        <div class="card-title">数据参数（evolution.yaml）</div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px">
+          <div class="form-group">
+            <label class="form-label">数据源 data_source</label>
+            <input class="input" id="dc-data-source" placeholder="baostock / tushare / akshare">
+          </div>
+          <div class="form-group">
+            <label class="form-label">max_stocks</label>
+            <input class="input" id="dc-max-stocks" type="number" min="1" step="1">
+          </div>
+          <div class="form-group">
+            <label class="form-label">simulation_days</label>
+            <input class="input" id="dc-sim-days" type="number" min="1" step="1">
+          </div>
+          <div class="form-group">
+            <label class="form-label">min_history_days</label>
+            <input class="input" id="dc-min-history" type="number" min="1" step="1">
+          </div>
+          <div class="form-group" style="grid-column:1 / -1">
+            <label class="form-label">index_codes（逗号分隔）</label>
+            <input class="input" id="dc-index-codes" placeholder="000001.SH,399001.SZ,399006.SZ">
+          </div>
+        </div>
+        <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:14px">
+          <button class="btn btn-primary btn-sm" onclick="saveDataConfig()">💾 保存数据配置</button>
+          <span style="font-size:12px;color:var(--text-muted)">保存后建议重启服务以确保所有模块读取到最新配置</span>
+        </div>
+      </div>
+      
+      <div class="card">
+        <div class="card-title">当前数据状态</div>
+        <div class="metric-grid" id="data-status-metrics">
+          <div class="metric-card">
+            <div class="metric-label">数据库大小</div>
+            <div class="metric-value blue" id="ds-size">--</div>
+          </div>
+          <div class="metric-card">
+            <div class="metric-label">股票数量</div>
+            <div class="metric-value" id="ds-stocks">--</div>
+          </div>
+          <div class="metric-card">
+            <div class="metric-label">日线数据条数</div>
+            <div class="metric-value" id="ds-klines">--</div>
+          </div>
+          <div class="metric-card">
+            <div class="metric-label">最新交易日</div>
+            <div class="metric-value green" id="ds-latest" style="font-size:20px;margin-top:12px">--</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">数据下载操作</div>
+        <p style="font-size:13px;color:var(--text-secondary);margin-bottom:16px;">
+          连接 Baostock 下载全部 A 股基本信息及日K线数据，下载过程将在后台异步进行。
+        </p>
+        <button class="btn btn-primary" id="btn-download-data" onclick="downloadData()">⬇️ 触发下载</button>
+      </div>
+      
+      <div class="card" id="data-log-card" style="display:none">
+        <div class="card-title">后台操作日志</div>
+        <div class="train-result" id="data-log"></div>
+      </div>
+    </div>
+
+    <!-- ===== Models ===== -->
+    <div id="panel-models" class="panel">
+      <div class="page-header">
+        <h2>🤖 模型配置</h2>
+        <p>管理 LLM 相关参数（写入 config/evolution.yaml；API Key 默认不回显）</p>
+      </div>
+
+      <div class="card">
+        <div class="card-title">LLM 参数（evolution.yaml）</div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px">
+          <div class="form-group" style="grid-column:1 / -1">
+            <label class="form-label">llm_api_base</label>
+            <input class="input" id="mc-api-base" placeholder="https://api.minimaxi.com/v1">
+          </div>
+          <div class="form-group">
+            <label class="form-label">llm_fast_model</label>
+            <input class="input" id="mc-fast-model" placeholder="minimax/MiniMax-M2.5-highspeed">
+          </div>
+          <div class="form-group">
+            <label class="form-label">llm_deep_model</label>
+            <input class="input" id="mc-deep-model" placeholder="同 fast_model 或推理模型">
+          </div>
+          <div class="form-group">
+            <label class="form-label">llm_timeout（秒）</label>
+            <input class="input" id="mc-timeout" type="number" min="1" step="1">
+          </div>
+          <div class="form-group">
+            <label class="form-label">llm_max_retries</label>
+            <input class="input" id="mc-retries" type="number" min="0" step="1">
+          </div>
+          <div class="form-group" style="grid-column:1 / -1">
+            <label class="form-label">llm_api_key（不回显，留空不修改）</label>
+            <input class="input" id="mc-api-key" type="password" placeholder="留空表示不修改">
+            <div style="font-size:12px;color:var(--text-muted);margin-top:6px">当前: <span id="mc-api-key-masked">--</span></div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">enable_debate</label>
+            <select class="select" id="mc-enable-debate">
+              <option value="true">true</option>
+              <option value="false">false</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">max_debate_rounds</label>
+            <input class="input" id="mc-debate-rounds" type="number" min="0" step="1">
+          </div>
+          <div class="form-group">
+            <label class="form-label">max_risk_discuss_rounds</label>
+            <input class="input" id="mc-risk-rounds" type="number" min="0" step="1">
+          </div>
+        </div>
+        <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:14px">
+          <button class="btn btn-primary btn-sm" onclick="saveModelConfig()">💾 保存模型配置</button>
+          <span style="font-size:12px;color:var(--text-muted)">保存后建议重启服务以确保所有模块读取到最新配置</span>
+        </div>
+      </div>
+    </div>
+
+  </main>
+</div>
+
+<script>
+/* ============================================================
+   JavaScript — App Logic
+   ============================================================ */
+
+// ---- Navigation ----
+function switchPanel(name) {
+  const targetPanel = document.getElementById('panel-' + name);
+  const targetNav = document.querySelector(`[data-panel="${name}"]`);
+  if (!targetPanel || !targetNav) return;
+
+  document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+  targetPanel.classList.add('active');
+  targetNav.classList.add('active');
+
+  if (location.hash !== '#' + name) location.hash = name;
+
+  if (name === 'workbench') wbOnOpen();
+  if (name === 'dashboard') loadDashboard();
+  if (name === 'strategies') loadStrategies();
+  if (name === 'cron') loadCronJobs();
+  if (name === 'agents') loadAgents();
+  if (name === 'data') { loadDataConfig(); loadDataStatus(); }
+  if (name === 'models') loadModelConfig();
+}
+
+// ---- API Helper ----
+async function api(url, opts = {}) {
+  try {
+    const res = await fetch(url, {
+      headers: { 'Content-Type': 'application/json' },
+      ...opts,
+    });
+    return await res.json();
+  } catch (err) {
+    console.error('API error:', err);
+    return { error: err.message };
+  }
+}
+
+// ---- Dashboard ----
+async function loadDashboard() {
+  const data = await api('/api/status');
+  if (data.error) return;
+
+  const body = data.body || {};
+  document.getElementById('m-total-cycles').textContent = body.total_cycles ?? 0;
+  document.getElementById('m-success-cycles').textContent = body.success_cycles ?? 0;
+  document.getElementById('m-failed-cycles').textContent = body.failed_cycles ?? 0;
+
+  const strats = data.strategies || {};
+  document.getElementById('m-strategy-count').textContent = strats.total ?? 0;
+  document.getElementById('m-strategy-enabled').textContent = `${strats.enabled ?? 0} 个已启用`;
+
+  document.getElementById('m-model').textContent = data.model || '--';
+  document.getElementById('m-last-run').textContent = body.last_run_at ? new Date(body.last_run_at).toLocaleString('zh-CN') : '未运行';
+
+  // Last result
+  const lr = body.last_result;
+  if (lr) {
+    const statusEmoji = lr.status === 'ok' ? '✅' : lr.status === 'no_data' ? '⚠️' : '❌';
+    let html = `<div style="margin-bottom:8px">${statusEmoji} 状态: <strong>${lr.status}</strong></div>`;
+    if (lr.return_pct !== undefined) {
+      const color = lr.return_pct >= 0 ? 'var(--green)' : 'var(--red)';
+      html += `<div>收益率: <span style="color:${color};font-weight:700;font-size:18px">${lr.return_pct > 0 ? '+' : ''}${lr.return_pct.toFixed(2)}%</span></div>`;
+      html += `<div style="margin-top:4px">选股: ${lr.selected_count} 只 | 交易: ${lr.trade_count} 笔</div>`;
+    }
+    if (lr.error) html += `<div style="color:var(--red);margin-top:4px">${lr.error}</div>`;
+    document.getElementById('dashboard-last-result').innerHTML = html;
+  }
+
+  // Raw JSON
+  document.getElementById('dashboard-raw').textContent = JSON.stringify(data, null, 2);
+}
+
+// ---- Chat ----
+let chatBusy = false;
+
+async function sendChat() {
+  if (chatBusy) return;
+  const input = document.getElementById('chat-input');
+  const msg = input.value.trim();
+  if (!msg) return;
+  input.value = '';
+
+  appendChatMsg('user', msg);
+  chatBusy = true;
+  document.getElementById('chat-send-btn').innerHTML = '<span class="spinner"></span>';
+  document.getElementById('chat-send-btn').disabled = true;
+
+  const data = await api('/api/chat', {
+    method: 'POST',
+    body: JSON.stringify({ message: msg }),
+  });
+
+  chatBusy = false;
+  document.getElementById('chat-send-btn').innerHTML = '发送';
+  document.getElementById('chat-send-btn').disabled = false;
+
+  if (data.error) {
+    appendChatMsg('assistant', '❌ 错误: ' + data.error);
+  } else {
+    appendChatMsg('assistant', data.reply || '(无回复)');
+  }
+  input.focus();
+}
+
+function appendChatMsg(role, text) {
+  const container = document.getElementById('chat-messages');
+  const div = document.createElement('div');
+  div.className = 'chat-msg ' + role;
+  const avatar = role === 'user' ? '👤' : '🤖';
+  div.innerHTML = `
+    <div class="chat-avatar">${avatar}</div>
+    <div class="chat-bubble">${escapeHtml(text)}</div>
+  `;
+  container.appendChild(div);
+  container.scrollTop = container.scrollHeight;
+}
+
+function escapeHtml(str) {
+  const d = document.createElement('div');
+  d.textContent = str;
+  return d.innerHTML;
+}
+
+// ---- Training ----
+let trainBusy = false;
+
+async function startTraining() {
+  if (trainBusy) return;
+  const rounds = parseInt(document.getElementById('train-rounds').value) || 1;
+  const mock = document.getElementById('train-mock').checked;
+
+  trainBusy = true;
+  const btn = document.getElementById('train-start-btn');
+  btn.innerHTML = '<span class="spinner"></span> 训练中...';
+  btn.disabled = true;
+
+  document.getElementById('train-result-card').style.display = 'block';
+  document.getElementById('train-result').textContent = '⏳ 训练进行中，请耐心等待...\n\n参数: 轮次=' + rounds + ', Mock=' + mock;
+
+  const data = await api('/api/train', {
+    method: 'POST',
+    body: JSON.stringify({ rounds, mock }),
+  });
+
+  trainBusy = false;
+  btn.innerHTML = '🚀 开始训练';
+  btn.disabled = false;
+
+  if (data.error) {
+    document.getElementById('train-result').textContent = '❌ 训练失败:\n' + data.error;
+  } else {
+    let output = '✅ 训练完成\n\n';
+    const results = data.results || [];
+    results.forEach((r, i) => {
+      output += `━━━ 第 ${i + 1} 轮 ━━━\n`;
+      output += `状态: ${r.status}\n`;
+      if (r.return_pct !== undefined) {
+        output += `收益率: ${r.return_pct > 0 ? '+' : ''}${r.return_pct.toFixed(2)}%\n`;
+        output += `选股数: ${r.selected_count}\n`;
+        output += `交易笔数: ${r.trade_count}\n`;
+        output += `初始资金: ¥${r.initial_capital?.toLocaleString()}\n`;
+        output += `最终价值: ¥${r.final_value?.toLocaleString()}\n`;
+      }
+      if (r.error) output += `错误: ${r.error}\n`;
+      output += '\n';
+    });
+
+    const summary = data.summary || {};
+    output += `════ 汇总 ════\n`;
+    output += `总轮次: ${summary.total_cycles ?? '--'}\n`;
+    output += `成功: ${summary.success_cycles ?? '--'} | 失败: ${summary.failed_cycles ?? '--'}\n`;
+    document.getElementById('train-result').textContent = output;
+  }
+}
+
+// ---- Strategies ----
+async function loadStrategies() {
+  const data = await api('/api/strategies');
+  const grid = document.getElementById('strategy-list');
+
+  if (!data.items || data.items.length === 0) {
+    grid.innerHTML = '<div style="color:var(--text-muted)">暂无策略基因</div>';
+    return;
+  }
+
+  grid.innerHTML = data.items.map(g => `
+    <div class="strategy-card">
+      <div class="strategy-header">
+        <div class="strategy-name">${escapeHtml(g.name)}</div>
+        <span class="badge ${g.enabled ? 'badge-green' : 'badge-red'}">${g.enabled ? '已启用' : '已禁用'}</span>
+      </div>
+      <div class="strategy-meta">
+        <span class="badge badge-blue">${g.kind.toUpperCase()}</span>
+        <span class="badge badge-yellow">P${g.priority}</span>
+      </div>
+      <div class="strategy-desc">${escapeHtml(g.description || '无描述')}</div>
+    </div>
+  `).join('');
+}
+
+async function reloadStrategies() {
+  await api('/api/strategies/reload', { method: 'POST' });
+  loadStrategies();
+}
+
+// ---- Cron Jobs ----
+async function loadCronJobs() {
+  const data = await api('/api/cron');
+  const tbody = document.getElementById('cron-table-body');
+
+  if (!data.items || data.items.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="5" style="color:var(--text-muted)">暂无调度任务</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = data.items.map(j => `
+    <tr>
+      <td><code style="font-size:12px">${escapeHtml(j.id || '--')}</code></td>
+      <td>${escapeHtml(j.name)}</td>
+      <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis">${escapeHtml(j.message)}</td>
+      <td>${j.every_sec}s</td>
+      <td><button class="btn btn-danger btn-sm" onclick="removeCronJob('${j.id}')">删除</button></td>
+    </tr>
+  `).join('');
+}
+
+async function addCronJob() {
+  const name = document.getElementById('cron-name').value.trim();
+  const message = document.getElementById('cron-message').value.trim();
+  const every_sec = parseInt(document.getElementById('cron-interval').value) || 3600;
+  if (!name || !message) { alert('请填写任务名称和执行指令'); return; }
+
+  await api('/api/cron', {
+    method: 'POST',
+    body: JSON.stringify({ name, message, every_sec }),
+  });
+
+  document.getElementById('cron-name').value = '';
+  document.getElementById('cron-message').value = '';
+  loadCronJobs();
+}
+
+async function removeCronJob(jobId) {
+  if (!confirm('确定删除此调度任务？')) return;
+  await api('/api/cron/' + jobId, { method: 'DELETE' });
+  loadCronJobs();
+}
+
+// ---- Memory ----
+async function searchMemory() {
+  const query = document.getElementById('memory-query').value.trim();
+  const data = await api('/api/memory?q=' + encodeURIComponent(query) + '&limit=50');
+  const tbody = document.getElementById('memory-table-body');
+
+  if (!data.items || data.items.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="3" style="color:var(--text-muted)">未找到匹配记录</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = data.items.map(item => {
+    const ts = item.ts ? new Date(item.ts).toLocaleString('zh-CN') : '--';
+    const kind = item.kind || '--';
+    const content = (item.content || '').substring(0, 200);
+    const badgeClass = kind === 'user' ? 'badge-blue' : 'badge-green';
+    return `
+      <tr>
+        <td style="white-space:nowrap;font-size:12px">${ts}</td>
+        <td><span class="badge ${badgeClass}">${kind}</span></td>
+        <td style="font-size:13px;max-width:500px;overflow:hidden;text-overflow:ellipsis">${escapeHtml(content)}</td>
+      </tr>
+    `;
+  }).join('');
+}
+
+// ------ Agents ------
+async function loadAgents() {
+  const data = await api('/api/agent_configs');
+  const grid = document.getElementById('agents-list');
+  if (!data.configs || data.configs.length === 0) {
+    grid.innerHTML = '<div style="color:var(--text-muted)">暂无Agent配置</div>';
+    return;
+  }
+  grid.innerHTML = data.configs.map(c => `
+    <div class="strategy-card">
+      <div class="strategy-header">
+        <div class="strategy-name">${escapeHtml(c.name)}</div>
+        <span class="badge badge-blue">${escapeHtml(c.role)}</span>
+      </div>
+      <div style="margin-bottom:12px">
+        <label class="form-label">LLM 模型</label>
+        <input type="text" class="input" style="width:100%" id="agent-model-${c.name}" value="${escapeHtml(c.llm_model || '')}">
+      </div>
+      <div style="margin-bottom:12px">
+        <label class="form-label">System Prompt</label>
+        <textarea class="textarea" id="agent-prompt-${c.name}" style="width:100%;height:140px;line-height:1.4">${escapeHtml(c.system_prompt || '')}</textarea>
+      </div>
+      <button class="btn btn-primary btn-sm" onclick="saveAgentConfig('${c.name}')">💾 保存修改</button>
+    </div>
+  `).join('');
+}
+
+async function saveAgentConfig(name) {
+  const model = document.getElementById(`agent-model-${name}`).value.trim();
+  const prompt = document.getElementById(`agent-prompt-${name}`).value.trim();
+  const res = await api('/api/agent_configs', {
+    method: 'POST',
+    body: JSON.stringify({ name: name, llm_model: model, system_prompt: prompt })
+  });
+  if (res.status === 'ok') {
+    alert('保存成功');
+  } else {
+    alert('保存失败: ' + (res.error || 'Unknown Error'));
+  }
+}
+
+// ------ Model Config ------
+async function loadModelConfig() {
+  const data = await api('/api/evolution_config');
+  if (data.status !== 'ok') return;
+  const c = data.config || {};
+  document.getElementById('mc-api-base').value = c.llm_api_base || '';
+  document.getElementById('mc-fast-model').value = c.llm_fast_model || '';
+  document.getElementById('mc-deep-model').value = c.llm_deep_model || '';
+  document.getElementById('mc-timeout').value = c.llm_timeout ?? 60;
+  document.getElementById('mc-retries').value = c.llm_max_retries ?? 2;
+  document.getElementById('mc-api-key').value = '';
+  document.getElementById('mc-api-key-masked').textContent = c.llm_api_key_masked || '--';
+  document.getElementById('mc-enable-debate').value = String(!!c.enable_debate);
+  document.getElementById('mc-debate-rounds').value = c.max_debate_rounds ?? 1;
+  document.getElementById('mc-risk-rounds').value = c.max_risk_discuss_rounds ?? 1;
+}
+
+async function saveModelConfig() {
+  const patch = {
+    llm_api_base: document.getElementById('mc-api-base').value.trim(),
+    llm_fast_model: document.getElementById('mc-fast-model').value.trim(),
+    llm_deep_model: document.getElementById('mc-deep-model').value.trim(),
+    llm_timeout: parseInt(document.getElementById('mc-timeout').value) || 60,
+    llm_max_retries: parseInt(document.getElementById('mc-retries').value) || 0,
+    enable_debate: document.getElementById('mc-enable-debate').value === 'true',
+    max_debate_rounds: parseInt(document.getElementById('mc-debate-rounds').value) || 0,
+    max_risk_discuss_rounds: parseInt(document.getElementById('mc-risk-rounds').value) || 0,
+  };
+  const apiKey = document.getElementById('mc-api-key').value.trim();
+  if (apiKey) patch.llm_api_key = apiKey;
+
+  const res = await api('/api/evolution_config', {
+    method: 'POST',
+    body: JSON.stringify(patch),
+  });
+  if (res.status === 'ok') {
+    alert('保存成功');
+    loadModelConfig();
+  } else {
+    alert('保存失败: ' + (res.error || 'Unknown Error'));
+  }
+}
+
+// ------ Data Config (evolution.yaml) ------
+async function loadDataConfig() {
+  const data = await api('/api/evolution_config');
+  if (data.status !== 'ok') return;
+  const c = data.config || {};
+  document.getElementById('dc-data-source').value = c.data_source || '';
+  document.getElementById('dc-max-stocks').value = c.max_stocks ?? 50;
+  document.getElementById('dc-sim-days').value = c.simulation_days ?? 30;
+  document.getElementById('dc-min-history').value = c.min_history_days ?? 1095;
+  const idx = Array.isArray(c.index_codes) ? c.index_codes.join(',') : '';
+  document.getElementById('dc-index-codes').value = idx;
+}
+
+async function saveDataConfig() {
+  const idx = document.getElementById('dc-index-codes').value
+    .split(',')
+    .map(s => s.trim())
+    .filter(Boolean);
+
+  const patch = {
+    data_source: document.getElementById('dc-data-source').value.trim(),
+    max_stocks: parseInt(document.getElementById('dc-max-stocks').value) || 50,
+    simulation_days: parseInt(document.getElementById('dc-sim-days').value) || 30,
+    min_history_days: parseInt(document.getElementById('dc-min-history').value) || 1095,
+    index_codes: idx,
+  };
+  const res = await api('/api/evolution_config', {
+    method: 'POST',
+    body: JSON.stringify(patch),
+  });
+  if (res.status === 'ok') {
+    alert('保存成功');
+    loadDataConfig();
+  } else {
+    alert('保存失败: ' + (res.error || 'Unknown Error'));
+  }
+}
+
+// ------ Workbench ------
+let wb = {
+  inited: false,
+  canvas: null,
+  ctx: null,
+  dpr: 1,
+  w: 0,
+  h: 0,
+  nodes: [],
+  nodeById: {},
+  selectedId: null,
+  hoverId: null,
+  particles: [],
+  events: [],
+  pollTimer: null,
+  rafId: null,
+  running: false,
+  runTimer: null,
+  trainBusy: false,
+};
+
+function wbOnOpen() {
+  if (!wb.inited) wbInit();
+  wbRefreshAll();
+  wbStartPolling();
+}
+
+function wbInit() {
+  wb.canvas = document.getElementById('wb-canvas');
+  wb.ctx = wb.canvas.getContext('2d');
+  wb.inited = true;
+
+  if (!wb.ctx.roundRect) {
+    wb.ctx.roundRect = function(x, y, w, h, r) {
+      const rr = Math.max(0, Math.min(r || 0, Math.min(w, h) / 2));
+      this.moveTo(x + rr, y);
+      this.arcTo(x + w, y, x + w, y + h, rr);
+      this.arcTo(x + w, y + h, x, y + h, rr);
+      this.arcTo(x, y + h, x, y, rr);
+      this.arcTo(x, y, x + w, y, rr);
+      this.closePath();
+    };
+  }
+
+  wbResize();
+  window.addEventListener('resize', wbResize);
+
+  wb.canvas.addEventListener('mousemove', wbOnMouseMove);
+  wb.canvas.addEventListener('mouseleave', () => wbSetHover(null));
+  wb.canvas.addEventListener('click', wbOnClick);
+
+  wbRebuildScene([]);
+  wbRenderTimeline();
+  wbDrawLoop();
+}
+
+function wbResize() {
+  const rect = wb.canvas.getBoundingClientRect();
+  wb.dpr = Math.max(1, Math.floor(window.devicePixelRatio || 1));
+  wb.w = Math.max(1, Math.floor(rect.width));
+  wb.h = Math.max(1, Math.floor(rect.height));
+  wb.canvas.width = wb.w * wb.dpr;
+  wb.canvas.height = wb.h * wb.dpr;
+  wb.ctx.setTransform(wb.dpr, 0, 0, wb.dpr, 0, 0);
+}
+
+function wbStartPolling() {
+  if (wb.pollTimer) return;
+  wb.pollTimer = setInterval(() => {
+    const active = document.getElementById('panel-workbench')?.classList.contains('active');
+    if (!active) return;
+    wbRefreshAll();
+  }, 2000);
+}
+
+function wbStopPolling() {
+  if (wb.pollTimer) clearInterval(wb.pollTimer);
+  wb.pollTimer = null;
+}
+
+async function wbRefreshAll() {
+  const connEl = document.getElementById('wb-conn');
+  try {
+    const [status, agents] = await Promise.all([
+      api('/api/status'),
+      api('/api/agent_configs'),
+    ]);
+
+    if (status && !status.error) {
+      connEl.className = 'badge badge-green';
+      connEl.textContent = '已连接';
+      const body = status.body || {};
+      document.getElementById('wb-metric-total').textContent = '总轮次: ' + (body.total_cycles ?? 0);
+      document.getElementById('wb-metric-success').textContent = '成功: ' + (body.success_cycles ?? 0);
+      document.getElementById('wb-metric-failed').textContent = '失败: ' + (body.failed_cycles ?? 0);
+    } else {
+      connEl.className = 'badge badge-red';
+      connEl.textContent = '断开';
+    }
+
+    const list = (agents && agents.configs) ? agents.configs : [];
+    wbRebuildScene(list);
+    wbUpdateObjectFilter();
+  } catch (e) {
+    connEl.className = 'badge badge-red';
+    connEl.textContent = '断开';
+  }
+}
+
+function wbRebuildScene(agentConfigs) {
+  const nodes = [];
+
+  nodes.push({ id: 'commander', type: 'system', label: 'Commander', x: 0.5, y: 0.34 });
+  nodes.push({ id: 'llm', type: 'model', label: 'LLM', x: 0.82, y: 0.20 });
+  nodes.push({ id: 'data', type: 'data', label: 'Data', x: 0.82, y: 0.62 });
+  nodes.push({ id: 'cron', type: 'system', label: 'Cron', x: 0.62, y: 0.82 });
+
+  const cols = 3;
+  const startX = 0.18;
+  const startY = 0.18;
+  const dx = 0.18;
+  const dy = 0.20;
+  agentConfigs.forEach((a, i) => {
+    const r = Math.floor(i / cols);
+    const c = i % cols;
+    nodes.push({
+      id: 'agent:' + a.name,
+      type: 'agent',
+      label: a.name,
+      role: a.role,
+      llm_model: a.llm_model,
+      system_prompt: a.system_prompt,
+      x: startX + c * dx,
+      y: startY + r * dy,
+    });
+  });
+
+  wb.nodes = nodes;
+  wb.nodeById = {};
+  nodes.forEach(n => { wb.nodeById[n.id] = n; });
+
+  if (wb.selectedId && !wb.nodeById[wb.selectedId]) wbSetSelected(null);
+}
+
+function wbUpdateObjectFilter() {
+  const sel = document.getElementById('wb-filter-object');
+  const current = sel.value;
+  const options = ['all', ...wb.nodes.map(n => n.id)];
+  sel.innerHTML = options.map(v => {
+    const label = v === 'all' ? 'All Objects' : (wb.nodeById[v]?.label || v);
+    return `<option value="${escapeHtml(v)}">${escapeHtml(label)}</option>`;
+  }).join('');
+  if (options.includes(current)) sel.value = current;
+}
+
+function wbClearEvents() {
+  wb.events = [];
+  wbRenderTimeline();
+}
+
+function wbPushEvent(ev) {
+  wb.events.unshift(ev);
+  wb.events = wb.events.slice(0, 250);
+  wbRenderTimeline();
+  wbSpawnFlow(ev.objectId || 'commander', 'llm', ev.level === 'error' ? '#EF4444' : '#60A5FA');
+}
+
+function wbRenderTimeline() {
+  const level = document.getElementById('wb-filter-level')?.value || 'all';
+  const obj = document.getElementById('wb-filter-object')?.value || 'all';
+  const list = wb.events.filter(e => {
+    if (level === 'error' && e.level !== 'error') return false;
+    if (obj !== 'all' && e.objectId !== obj) return false;
+    return true;
+  });
+
+  const el = document.getElementById('wb-timeline');
+  if (!el) return;
+  if (list.length === 0) {
+    el.innerHTML = `<div style="padding:14px;color:var(--text-muted);font-size:13px">暂无事件</div>`;
+    return;
+  }
+  el.innerHTML = list.map((e, idx) => {
+    const badge = e.level === 'error' ? 'badge-red' : (e.level === 'warn' ? 'badge-yellow' : 'badge-blue');
+    const t = new Date(e.ts).toLocaleTimeString('zh-CN');
+    const objLabel = e.objectId && wb.nodeById[e.objectId] ? wb.nodeById[e.objectId].label : (e.objectId || '');
+    return `
+      <div onclick="wbSelectFromTimeline(${idx})" style="display:flex;gap:10px;align-items:flex-start;padding:10px 12px;border-bottom:1px solid rgba(255,255,255,0.06);cursor:pointer">
+        <span class="badge ${badge}" style="min-width:58px;text-align:center">${escapeHtml(e.level)}</span>
+        <div style="flex:1">
+          <div style="display:flex;justify-content:space-between;gap:10px">
+            <div style="color:var(--text-primary);font-size:13px;font-weight:600">${escapeHtml(e.title || e.type || 'event')}</div>
+            <div style="color:var(--text-muted);font-size:12px;white-space:nowrap">${escapeHtml(t)}</div>
+          </div>
+          <div style="color:var(--text-secondary);font-size:12px;margin-top:4px">${escapeHtml(objLabel)} ${escapeHtml(e.detail || '')}</div>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+function wbSelectFromTimeline(idx) {
+  const level = document.getElementById('wb-filter-level')?.value || 'all';
+  const obj = document.getElementById('wb-filter-object')?.value || 'all';
+  const list = wb.events.filter(e => {
+    if (level === 'error' && e.level !== 'error') return false;
+    if (obj !== 'all' && e.objectId !== obj) return false;
+    return true;
+  });
+  const ev = list[idx];
+  if (ev && ev.objectId) wbSetSelected(ev.objectId);
+}
+
+function wbOnMouseMove(e) {
+  const rect = wb.canvas.getBoundingClientRect();
+  const x = e.clientX - rect.left;
+  const y = e.clientY - rect.top;
+  const hit = wbHitTest(x, y);
+  wbSetHover(hit ? hit.id : null, x, y);
+}
+
+function wbOnClick(e) {
+  const rect = wb.canvas.getBoundingClientRect();
+  const x = e.clientX - rect.left;
+  const y = e.clientY - rect.top;
+  const hit = wbHitTest(x, y);
+  wbSetSelected(hit ? hit.id : null);
+}
+
+function wbHitTest(px, py) {
+  const r = 22;
+  for (const n of wb.nodes) {
+    const x = n.x * wb.w;
+    const y = n.y * wb.h;
+    const dx = px - x;
+    const dy = py - y;
+    if (dx * dx + dy * dy <= r * r) return n;
+  }
+  return null;
+}
+
+function wbSetHover(id, px, py) {
+  wb.hoverId = id;
+  const tip = document.getElementById('wb-tooltip');
+  if (!tip) return;
+  if (!id) {
+    tip.style.transform = 'translate(-9999px,-9999px)';
+    return;
+  }
+  const n = wb.nodeById[id];
+  if (!n) return;
+  const lines = [
+    `<div style="color:var(--text-primary);font-weight:700;font-size:12px">${escapeHtml(n.label)}</div>`,
+    `<div style="margin-top:4px">type: ${escapeHtml(n.type)}</div>`,
+  ];
+  if (n.type === 'agent') lines.push(`<div>role: ${escapeHtml(n.role || '--')}</div>`);
+  tip.innerHTML = lines.join('');
+  const ox = Math.min(wb.w - 280, Math.max(12, (px || 0) + 12));
+  const oy = Math.min(wb.h - 90, Math.max(12, (py || 0) + 12));
+  tip.style.transform = `translate(${ox}px, ${oy}px)`;
+}
+
+function wbSetSelected(id) {
+  wb.selectedId = id;
+  const el = document.getElementById('wb-inspector');
+  if (!el) return;
+  if (!id) {
+    el.innerHTML = '点击场景中的 Agent/节点 查看详情';
+    return;
+  }
+  const n = wb.nodeById[id];
+  if (!n) return;
+  if (n.type === 'agent') {
+    el.innerHTML = `
+      <div style="display:flex;justify-content:space-between;gap:10px;align-items:flex-start">
+        <div>
+          <div style="font-size:16px;font-weight:800;color:var(--text-primary)">${escapeHtml(n.label)}</div>
+          <div style="margin-top:6px;color:var(--text-muted);font-size:12px">role: ${escapeHtml(n.role || '--')}</div>
+        </div>
+        <span class="badge badge-blue">Agent</span>
+      </div>
+      <div style="margin-top:12px">
+        <div class="form-label">llm_model</div>
+        <div style="margin-top:6px;font-family:SFMono-Regular,Menlo,monospace;font-size:12px;color:var(--text-primary)">${escapeHtml(n.llm_model || '--')}</div>
+      </div>
+      <div style="margin-top:12px">
+        <div class="form-label">system_prompt（预览）</div>
+        <div style="margin-top:6px;white-space:pre-wrap;max-height:180px;overflow:auto;border:1px solid var(--border);border-radius:10px;padding:10px;background:rgba(10,14,23,0.45)">${escapeHtml((n.system_prompt || '').slice(0, 800) || '--')}</div>
+      </div>
+      <div style="margin-top:14px;display:flex;gap:10px;flex-wrap:wrap">
+        <button class="btn btn-primary btn-sm" onclick="wbJumpToAgentConfig('${n.label}')">去配置</button>
+        <button class="btn btn-secondary btn-sm" onclick="wbSpawnFlow('commander','${n.id}','#22C55E')">模拟消息流</button>
+      </div>
+    `;
+  } else if (n.type === 'data') {
+    el.innerHTML = `
+      <div style="display:flex;justify-content:space-between;gap:10px;align-items:flex-start">
+        <div>
+          <div style="font-size:16px;font-weight:800;color:var(--text-primary)">Data</div>
+          <div style="margin-top:6px;color:var(--text-muted);font-size:12px">本地数据与下载任务</div>
+        </div>
+        <span class="badge badge-yellow">Data</span>
+      </div>
+      <div style="margin-top:14px;display:flex;gap:10px;flex-wrap:wrap">
+        <button class="btn btn-secondary btn-sm" onclick="switchPanel('data')">去数据配置</button>
+        <button class="btn btn-primary btn-sm" onclick="downloadData();wbPushEvent({ts:Date.now(),level:'info',type:'data',objectId:'data',title:'数据下载',detail:'已触发后台下载'})">触发下载</button>
+      </div>
+    `;
+  } else if (n.type === 'model') {
+    el.innerHTML = `
+      <div style="display:flex;justify-content:space-between;gap:10px;align-items:flex-start">
+        <div>
+          <div style="font-size:16px;font-weight:800;color:var(--text-primary)">LLM</div>
+          <div style="margin-top:6px;color:var(--text-muted);font-size:12px">模型调用与推理链路</div>
+        </div>
+        <span class="badge badge-blue">Model</span>
+      </div>
+      <div style="margin-top:14px;display:flex;gap:10px;flex-wrap:wrap">
+        <button class="btn btn-secondary btn-sm" onclick="switchPanel('models')">去模型配置</button>
+        <button class="btn btn-secondary btn-sm" onclick="wbSpawnFlow('commander','llm','#60A5FA')">模拟调用</button>
+      </div>
+    `;
+  } else {
+    el.innerHTML = `
+      <div style="display:flex;justify-content:space-between;gap:10px;align-items:flex-start">
+        <div>
+          <div style="font-size:16px;font-weight:800;color:var(--text-primary)">${escapeHtml(n.label)}</div>
+          <div style="margin-top:6px;color:var(--text-muted);font-size:12px">type: ${escapeHtml(n.type)}</div>
+        </div>
+        <span class="badge badge-blue">System</span>
+      </div>
+      <div style="margin-top:14px;color:var(--text-secondary);font-size:13px">使用“单步/连续运行”触发训练，让事件与消息流可视化更新</div>
+    `;
+  }
+}
+
+function wbJumpToAgentConfig(agentName) {
+  switchPanel('agents');
+  setTimeout(() => {
+    const el = document.getElementById('agent-model-' + agentName);
+    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }, 200);
+}
+
+function wbSpawnFlow(fromId, toId, color) {
+  const a = wb.nodeById[fromId];
+  const b = wb.nodeById[toId];
+  if (!a || !b) return;
+  const count = 18;
+  for (let i = 0; i < count; i++) {
+    wb.particles.push({
+      from: fromId,
+      to: toId,
+      t: Math.random() * 0.6,
+      v: 0.015 + Math.random() * 0.02,
+      color: color || '#60A5FA',
+      life: 1,
+    });
+  }
+}
+
+function wbDrawLoop() {
+  if (wb.rafId) cancelAnimationFrame(wb.rafId);
+  const tick = () => {
+    wbDraw();
+    wb.rafId = requestAnimationFrame(tick);
+  };
+  wb.rafId = requestAnimationFrame(tick);
+}
+
+function wbDraw() {
+  const ctx = wb.ctx;
+  if (!ctx) return;
+  ctx.clearRect(0, 0, wb.w, wb.h);
+
+  ctx.fillStyle = 'rgba(10, 14, 23, 0.55)';
+  ctx.fillRect(0, 0, wb.w, wb.h);
+
+  const grid = 32;
+  ctx.strokeStyle = 'rgba(255,255,255,0.04)';
+  ctx.lineWidth = 1;
+  for (let x = 0; x < wb.w; x += grid) {
+    ctx.beginPath();
+    ctx.moveTo(x + 0.5, 0);
+    ctx.lineTo(x + 0.5, wb.h);
+    ctx.stroke();
+  }
+  for (let y = 0; y < wb.h; y += grid) {
+    ctx.beginPath();
+    ctx.moveTo(0, y + 0.5);
+    ctx.lineTo(wb.w, y + 0.5);
+    ctx.stroke();
+  }
+
+  const links = [
+    ['commander', 'llm'],
+    ['commander', 'data'],
+    ['commander', 'cron'],
+  ];
+  wb.nodes.filter(n => n.type === 'agent').forEach(n => links.push(['commander', n.id]));
+  ctx.strokeStyle = 'rgba(255,255,255,0.06)';
+  ctx.lineWidth = 1;
+  links.forEach(([aId, bId]) => {
+    const a = wb.nodeById[aId];
+    const b = wb.nodeById[bId];
+    if (!a || !b) return;
+    ctx.beginPath();
+    ctx.moveTo(a.x * wb.w, a.y * wb.h);
+    ctx.lineTo(b.x * wb.w, b.y * wb.h);
+    ctx.stroke();
+  });
+
+  wb.particles.forEach(p => {
+    p.t += p.v;
+    p.life -= 0.01;
+  });
+  wb.particles = wb.particles.filter(p => p.t <= 1.05 && p.life > 0);
+
+  wb.particles.forEach(p => {
+    const a = wb.nodeById[p.from];
+    const b = wb.nodeById[p.to];
+    if (!a || !b) return;
+    const t = p.t;
+    const x = (a.x + (b.x - a.x) * t) * wb.w;
+    const y = (a.y + (b.y - a.y) * t) * wb.h;
+    const r = 3;
+    ctx.fillStyle = p.color;
+    ctx.globalAlpha = Math.max(0.05, Math.min(1, p.life));
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.globalAlpha = 1;
+  });
+
+  wb.nodes.forEach(n => {
+    const x = n.x * wb.w;
+    const y = n.y * wb.h;
+    const isSel = wb.selectedId === n.id;
+    const isHover = wb.hoverId === n.id;
+    const base = n.type === 'agent' ? '#6366F1' : (n.type === 'data' ? '#F59E0B' : (n.type === 'model' ? '#60A5FA' : '#10B981'));
+    const border = isSel ? '#E6EAF2' : (isHover ? 'rgba(230,234,242,0.6)' : 'rgba(255,255,255,0.18)');
+
+    ctx.fillStyle = 'rgba(17,24,39,0.86)';
+    ctx.strokeStyle = border;
+    ctx.lineWidth = isSel ? 2 : 1;
+
+    if (n.type === 'agent') {
+      const w = 56;
+      const h = 44;
+      ctx.beginPath();
+      ctx.roundRect(x - w / 2, y - h / 2, w, h, 10);
+      ctx.fill();
+      ctx.stroke();
+
+      ctx.fillStyle = base;
+      ctx.beginPath();
+      ctx.moveTo(x - 26, y - 22);
+      ctx.lineTo(x, y - 38);
+      ctx.lineTo(x + 26, y - 22);
+      ctx.closePath();
+      ctx.fill();
+
+      ctx.fillStyle = '#E6EAF2';
+      ctx.font = '12px Inter, -apple-system, BlinkMacSystemFont, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'top';
+      ctx.fillText(n.label, x, y + 26);
+    } else {
+      const r = 20;
+      ctx.beginPath();
+      ctx.arc(x, y, r, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+      ctx.fillStyle = base;
+      ctx.beginPath();
+      ctx.arc(x, y, 10, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.fillStyle = '#E6EAF2';
+      ctx.font = '12px Inter, -apple-system, BlinkMacSystemFont, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'top';
+      ctx.fillText(n.label, x, y + 24);
+    }
+  });
+}
+
+async function wbStepOnce() {
+  if (wb.trainBusy) return;
+  wb.trainBusy = true;
+  document.getElementById('wb-run').textContent = '状态: Running';
+  wbPushEvent({ ts: Date.now(), level: 'info', type: 'train', objectId: 'commander', title: '训练开始', detail: 'rounds=1 mock=true' });
+  wbSpawnFlow('commander', 'llm', '#60A5FA');
+  try {
+    const data = await api('/api/train', { method: 'POST', body: JSON.stringify({ rounds: 1, mock: true }) });
+    if (data && data.error) {
+      wbPushEvent({ ts: Date.now(), level: 'error', type: 'train', objectId: 'commander', title: '训练失败', detail: data.error });
+    } else {
+      const r = (data.results && data.results[0]) ? data.results[0] : null;
+      const detail = r && r.return_pct !== undefined ? `收益 ${r.return_pct.toFixed(2)}%` : '完成';
+      wbPushEvent({ ts: Date.now(), level: 'info', type: 'train', objectId: 'commander', title: '训练完成', detail });
+      if (r && r.status && r.status !== 'ok') wbSpawnFlow('commander', 'data', '#F59E0B');
+    }
+    await wbRefreshAll();
+  } finally {
+    wb.trainBusy = false;
+    if (!wb.running) document.getElementById('wb-run').textContent = '状态: Idle';
+  }
+}
+
+function wbStartRun() {
+  if (wb.running) return;
+  wb.running = true;
+  document.getElementById('wb-run').textContent = '状态: Running';
+  document.getElementById('wb-btn-run').disabled = true;
+  document.getElementById('wb-btn-pause').disabled = false;
+  wb.runTimer = setInterval(() => {
+    const active = document.getElementById('panel-workbench')?.classList.contains('active');
+    if (!active) return;
+    wbStepOnce();
+  }, 3500);
+  wbPushEvent({ ts: Date.now(), level: 'info', type: 'run', objectId: 'commander', title: '进入连续运行', detail: '客户端循环触发训练' });
+}
+
+function wbStopRun() {
+  wb.running = false;
+  if (wb.runTimer) clearInterval(wb.runTimer);
+  wb.runTimer = null;
+  document.getElementById('wb-run').textContent = '状态: Idle';
+  document.getElementById('wb-btn-run').disabled = false;
+  document.getElementById('wb-btn-pause').disabled = true;
+  wbPushEvent({ ts: Date.now(), level: 'info', type: 'run', objectId: 'commander', title: '暂停运行', detail: '停止客户端循环' });
+}
+
+// ------ Data ------
+async function loadDataStatus() {
+  const data = await api('/api/data/status');
+  if (data.error) return;
+  document.getElementById('ds-size').textContent = (data.size_mb || 0).toFixed(2) + ' MB';
+  document.getElementById('ds-stocks').textContent = (data.stock_count || 0).toLocaleString();
+  document.getElementById('ds-klines').textContent = (data.kline_count || 0).toLocaleString();
+  document.getElementById('ds-latest').textContent = data.latest_date || '无';
+}
+
+async function downloadData() {
+  const btn = document.getElementById('btn-download-data');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span> 正在请求...';
+  
+  const data = await api('/api/data/download', { method: 'POST' });
+  document.getElementById('data-log-card').style.display = 'block';
+  
+  if (data.status === 'started') {
+    document.getElementById('data-log').innerText = '后台下载任务已启动，请查看服务端控制台日志，或稍后刷新数据状态。\\n' + data.message;
+  } else {
+    document.getElementById('data-log').innerText = '启动失败: ' + (data.error || 'Unknown Error');
+  }
+  
+  btn.innerHTML = '⬇️ 触发下载';
+  btn.disabled = false;
+  setTimeout(loadDataStatus, 5000); // 5秒后刷新一下状态
+}
+
+// ---- Auto-refresh dashboard ----
+let dashboardTimer = null;
+
+function startAutoRefresh() {
+  loadDashboard();
+  dashboardTimer = setInterval(() => {
+    if (document.getElementById('panel-dashboard').classList.contains('active')) {
+      loadDashboard();
+    }
+  }, 10000);
+}
+
+// ---- Init ----
+document.addEventListener('DOMContentLoaded', () => {
+  startAutoRefresh();
+  const route = (location.hash || '').replace('#', '').trim();
+  switchPanel(route || 'workbench');
+});
+</script>
+
+</body>
+</html>

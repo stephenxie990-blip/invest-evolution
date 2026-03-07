@@ -1,0 +1,36 @@
+# Python virtualenvs and caches
+.venv/
+__pycache__/
+.pytest_cache/
+*.py[cod]
+*.egg-info/
+
+# macOS
+.DS_Store
+
+# Runtime outputs and logs
+logs/
+outputs/
+server.log
+sessions/inbox/
+sessions/outbox/
+
+# Local state and downloaded data
+config/evolution.yaml
+memory/*.jsonl
+data/*.db
+archive/*.tar.gz
+
+# Local tooling artifacts
+workspace/HEARTBEAT.md
+workspace/memory/
+archive/
+参考项目/
+
+.learnings/
+.trae/
+
+# Session planning artifacts
+task_plan.md
+findings.md
+progress.md
