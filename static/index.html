@@ -27,6 +27,8 @@
   --green-glow: rgba(16, 185, 129, 0.2);
   --red: #ef4444;
   --red-glow: rgba(239, 68, 68, 0.2);
+  --success: #10b981;
+  --danger: #ef4444;
   --yellow: #f59e0b;
   --blue: #3b82f6;
   --radius: 12px;
@@ -594,6 +596,205 @@ tr:hover td { background: rgba(99, 102, 241, 0.04); }
   .main-content { padding: 16px; }
   .metric-grid { grid-template-columns: repeat(2, 1fr); }
 }
+
+/* 训练追踪瀑布流样式 */
+.train-tracker {
+  display: flex;
+  gap: 16px;
+  height: calc(100vh - 240px);
+  min-height: 500px;
+}
+
+.train-left, .train-right {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.train-panel-header {
+  padding: 12px 16px;
+  background: var(--bg-dark);
+  border-bottom: 1px solid var(--border);
+  font-weight: 600;
+  font-size: 14px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.train-panel-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px;
+}
+
+/* Agent 卡片 */
+.agent-card {
+  background: var(--bg-dark);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px;
+  margin-bottom: 8px;
+  animation: slideIn 0.3s ease-out;
+}
+
+@keyframes slideIn {
+  from { opacity: 0; transform: translateY(-10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.agent-card.active {
+  border-color: var(--accent);
+  box-shadow: 0 0 10px rgba(0, 122, 204, 0.2);
+}
+
+.agent-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.agent-avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--accent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  font-weight: bold;
+  color: white;
+}
+
+.agent-name {
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.agent-status {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  background: var(--bg-hover);
+}
+
+.agent-status.running { background: #f59e0b; color: white; }
+.agent-status.thinking { background: #8b5cf6; color: white; }
+.agent-status.completed { background: #10b981; color: white; }
+.agent-status.loading { background: #3b82f6; color: white; }
+
+.agent-message {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-bottom: 8px;
+  line-height: 1.5;
+}
+
+.agent-thinking {
+  background: var(--bg);
+  border-radius: 6px;
+  padding: 8px;
+  font-size: 11px;
+  font-family: 'SF Mono', monospace;
+  color: var(--text-secondary);
+  max-height: 80px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+}
+
+/* 系统模块卡片 */
+.module-card {
+  background: var(--bg-dark);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px;
+  margin-bottom: 8px;
+  animation: slideIn 0.3s ease-out;
+}
+
+.module-card.active {
+  border-color: var(--success);
+  box-shadow: 0 0 10px rgba(16, 185, 129, 0.2);
+}
+
+.module-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.module-name {
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.module-timestamp {
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+.module-detail {
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.module-metrics {
+  display: flex;
+  gap: 12px;
+  margin-top: 8px;
+  font-size: 11px;
+}
+
+.module-metric {
+  background: var(--bg);
+  padding: 4px 8px;
+  border-radius: 4px;
+}
+
+.module-metric.positive { color: var(--success); }
+.module-metric.negative { color: var(--danger); }
+
+/* 结果摘要 */
+.result-summary {
+  background: var(--bg-dark);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 16px;
+  margin-top: 12px;
+}
+
+.result-summary h4 {
+  margin: 0 0 8px 0;
+  font-size: 14px;
+}
+
+.result-stats {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.result-stat {
+  text-align: center;
+}
+
+.result-stat-value {
+  font-size: 24px;
+  font-weight: bold;
+}
+
+.result-stat-label {
+  font-size: 11px;
+  color: var(--text-muted);
+}
 </style>
 </head>
 <body>
@@ -791,38 +992,61 @@ tr:hover td { background: rgba(99, 102, 241, 0.04); }
 
     <!-- ===== Train ===== -->
     <div id="panel-train" class="panel">
-      <div class="page-header">
-        <h2>🧬 训练中心</h2>
-        <p>启动模拟交易训练周期，观察策略进化过程</p>
-      </div>
-
-      <div class="card">
-        <div class="card-title">训练配置</div>
-        <div class="train-controls">
-          <div class="form-group">
-            <label class="form-label">训练轮次</label>
-            <input type="number" class="input" id="train-rounds" value="1" min="1" max="100" style="width:100px">
+      <div class="page-header" style="display:flex;justify-content:space-between;align-items:center">
+        <div>
+          <h2>🔄 训练追踪</h2>
+          <p>实时观察 Agent 工作状态和系统运行流程</p>
+        </div>
+        <div style="display:flex;gap:10px;align-items:center">
+          <div class="form-group" style="margin:0">
+            <label class="form-label" style="margin-bottom:4px">轮次</label>
+            <input type="number" class="input" id="train-rounds" value="1" min="1" max="100" style="width:70px">
           </div>
-          <div class="form-group">
-            <label class="form-label">Mock 模式</label>
-            <label class="toggle">
+          <div class="form-group" style="margin:0">
+            <label class="toggle" style="margin-top:18px">
               <input type="checkbox" id="train-mock" checked>
               <div class="toggle-track"></div>
               <div class="toggle-thumb"></div>
             </label>
+            <span style="font-size:12px;margin-left:8px">Mock</span>
           </div>
-          <button class="btn btn-primary" id="train-start-btn" onclick="startTraining()">
+          <button class="btn btn-primary" id="train-start-btn" onclick="startTraining()" style="margin-top:18px">
             🚀 开始训练
           </button>
         </div>
-        <div style="font-size:12px;color:var(--text-muted)">
-          💡 Mock 模式使用模拟数据，无需真实行情接口。首次使用建议开启。
+      </div>
+
+      <!-- 瀑布流布局 -->
+      <div class="train-tracker">
+        <!-- 左侧：Agent 工作窗口 -->
+        <div class="train-left">
+          <div class="train-panel-header">
+            🤖 Agent 工作窗口
+          </div>
+          <div class="train-panel-content" id="agent-workflow">
+            <div style="color:var(--text-muted);text-align:center;padding:40px">
+              点击"开始训练"启动训练追踪
+            </div>
+          </div>
+        </div>
+
+        <!-- 右侧：系统模块工作窗口 -->
+        <div class="train-right">
+          <div class="train-panel-header">
+            ⚙️ 系统模块工作流
+          </div>
+          <div class="train-panel-content" id="system-workflow">
+            <div style="color:var(--text-muted);text-align:center;padding:40px">
+              系统模块状态将实时显示在这里
+            </div>
+          </div>
         </div>
       </div>
 
-      <div class="card" id="train-result-card" style="display:none">
-        <div class="card-title">训练结果</div>
-        <div class="train-result" id="train-result"></div>
+      <!-- 训练结果摘要 -->
+      <div class="result-summary" id="train-result-summary" style="display:none">
+        <h4>📊 训练结果</h4>
+        <div class="result-stats" id="result-stats"></div>
       </div>
     </div>
 
@@ -1101,6 +1325,7 @@ function switchPanel(name) {
 
   if (location.hash !== '#' + name) location.hash = name;
 
+  if (name === 'workbench' || name === 'train') startEventListener();
   if (name === 'workbench') wbOnOpen();
   if (name === 'dashboard') loadDashboard();
   if (name === 'strategies') loadStrategies();
@@ -1212,19 +1437,281 @@ function escapeHtml(str) {
 
 // ---- Training ----
 let trainBusy = false;
+let trainLiveResults = [];
+
+// SSE 事件源
+let eventSource = null;
+
+// Agent 名称映射
+const AGENT_NAMES = {
+  'DataLoader': { name: '数据加载器', icon: '📥' },
+  'MarketRegime': { name: '市场状态分析', icon: '📊' },
+  'SelectionMeeting': { name: '选股会议', icon: '🎯' },
+  'TrendHunter': { name: '趋势猎手', icon: '🚀' },
+  'Contrarian': { name: '逆向交易者', icon: '⏮️' },
+  'SimulatedTrader': { name: '模拟交易', icon: '💹' },
+  'ReviewMeeting': { name: '复盘会议', icon: '📋' },
+  'EvolutionOptimizer': { name: '优化引擎', icon: '⚡' },
+};
+
+function getAgentInfo(agent) {
+  return AGENT_NAMES[agent] || { name: agent, icon: '🤖' };
+}
+
+function formatTime(timestamp) {
+  const d = new Date(timestamp);
+  return d.toLocaleTimeString('zh-CN', { hour12: false });
+}
+
+// 添加 Agent 工作卡片
+function addAgentCard(agent, status, message, thinking = '', selected_stocks = []) {
+  const container = document.getElementById('agent-workflow');
+  const info = getAgentInfo(agent);
+
+  // 移除"点击开始训练"的提示
+  if (container.querySelector('div[style*="text-align:center"]')) {
+    container.innerHTML = '';
+  }
+
+  const card = document.createElement('div');
+  const statusText = status === 'loading'
+    ? '加载中'
+    : status === 'running'
+      ? '运行中'
+      : status === 'thinking'
+        ? '思考中'
+        : status === 'completed'
+          ? '已完成'
+          : status === 'error'
+            ? '异常'
+            : '等待';
+  card.className = `agent-card active`;
+  card.innerHTML = `
+    <div class="agent-header">
+      <div class="agent-avatar">${info.icon}</div>
+      <div class="agent-name">${info.name}</div>
+      <span class="agent-status ${status}">${statusText}</span>
+    </div>
+    <div class="agent-message">${message}</div>
+    ${thinking ? `<div class="agent-thinking">${thinking}</div>` : ''}
+    ${selected_stocks.length > 0 ? `<div style="font-size:11px;color:var(--accent);margin-top:8px">选中: ${selected_stocks.join(', ')}</div>` : ''}
+  `;
+
+  container.appendChild(card);
+  container.scrollTop = container.scrollHeight;
+}
+
+// 添加系统模块卡片
+function addModuleCard(eventType, data) {
+  const container = document.getElementById('system-workflow');
+
+  // 移除提示
+  if (container.querySelector('div[style*="text-align:center"]')) {
+    container.innerHTML = '';
+  }
+
+  const card = document.createElement('div');
+  card.className = 'module-card active';
+
+  let detail = data.message || '';
+  let metrics = '';
+
+  if (eventType === 'cycle_start') {
+    detail = `训练周期 #${data.cycle_id} 开始 | 截断日期: ${data.cutoff_date}`;
+  } else if (eventType === 'cycle_complete') {
+    const profitClass = data.is_profit ? 'positive' : 'negative';
+    const profitSign = data.is_profit ? '+' : '';
+    detail = `周期 #${data.cycle_id} 完成`;
+    metrics = `
+      <div class="module-metrics">
+        <span class="module-metric ${profitClass}">收益: ${profitSign}${data.return_pct?.toFixed(2)}%</span>
+        <span class="module-metric">选股: ${data.selected_count}</span>
+        <span class="module-metric">交易: ${data.trade_count}</span>
+      </div>
+    `;
+  } else if (data.adjustments) {
+    const adjList = Object.keys(data.adjustments).join(', ');
+    detail = `参数调整: ${adjList}`;
+  }
+
+  card.innerHTML = `
+    <div class="module-header">
+      <div class="module-name">${data.agent || eventType}</div>
+      <div class="module-timestamp">${formatTime(data.timestamp)}</div>
+    </div>
+    <div class="module-detail">${detail}</div>
+    ${metrics}
+  `;
+
+  container.appendChild(card);
+  container.scrollTop = container.scrollHeight;
+}
+
+// 显示训练结果摘要
+function showResultSummary(results) {
+  const container = document.getElementById('train-result-summary');
+  const statsContainer = document.getElementById('result-stats');
+
+  let totalReturn = 0;
+  let successCount = 0;
+  let totalTrades = 0;
+
+  results.forEach(r => {
+    if (r.return_pct !== undefined) {
+      totalReturn += r.return_pct;
+      if (r.return_pct > 0) successCount++;
+      totalTrades += r.trade_count || 0;
+    }
+  });
+
+  const avgReturn = results.length > 0 ? (totalReturn / results.length).toFixed(2) : 0;
+  const winRate = results.length > 0 ? ((successCount / results.length) * 100).toFixed(1) : 0;
+
+  statsContainer.innerHTML = `
+    <div class="result-stat">
+      <div class="result-stat-value">${results.length}</div>
+      <div class="result-stat-label">训练轮次</div>
+    </div>
+    <div class="result-stat">
+      <div class="result-stat-value" style="color:${totalReturn >= 0 ? 'var(--success)' : 'var(--danger)'}">${totalReturn >= 0 ? '+' : ''}${totalReturn.toFixed(2)}%</div>
+      <div class="result-stat-label">总收益率</div>
+    </div>
+    <div class="result-stat">
+      <div class="result-stat-value">${avgReturn}%</div>
+      <div class="result-stat-label">平均收益率</div>
+    </div>
+    <div class="result-stat">
+      <div class="result-stat-value">${winRate}%</div>
+      <div class="result-stat-label">胜率</div>
+    </div>
+    <div class="result-stat">
+      <div class="result-stat-value">${totalTrades}</div>
+      <div class="result-stat-label">总交易次数</div>
+    </div>
+  `;
+
+  container.style.display = 'block';
+}
+
+function upsertTrainResult(result) {
+  if (!result || result.cycle_id === undefined) return;
+  const idx = trainLiveResults.findIndex(item => item.cycle_id === result.cycle_id);
+  if (idx >= 0) {
+    trainLiveResults[idx] = { ...trainLiveResults[idx], ...result };
+  } else {
+    trainLiveResults.push(result);
+    trainLiveResults.sort((a, b) => (a.cycle_id || 0) - (b.cycle_id || 0));
+  }
+}
+
+function wbResolveObjectId(eventType, data) {
+  if (eventType === 'cycle_start' || eventType === 'cycle_complete') return 'commander';
+  const map = {
+    DataLoader: 'data',
+    MarketRegime: 'llm',
+    SelectionMeeting: 'commander',
+    TrendHunter: 'llm',
+    Contrarian: 'llm',
+    SimulatedTrader: 'commander',
+    ReviewMeeting: 'commander',
+    EvolutionOptimizer: 'commander',
+  };
+  return map[data.agent] || 'commander';
+}
+
+function wbHandleStreamEvent(eventType, data) {
+  const ts = data.timestamp || new Date().toISOString();
+  let level = data.status === 'error' ? 'error' : 'info';
+  let title = data.agent || eventType;
+  let detail = data.message || '';
+
+  if (eventType === 'cycle_start') {
+    wb.trainBusy = true;
+    document.getElementById('wb-run').textContent = '状态: Running';
+    title = `周期 #${data.cycle_id} 开始`;
+    detail = `截断日期 ${data.cutoff_date || '--'}`;
+  } else if (eventType === 'cycle_complete') {
+    wb.trainBusy = false;
+    if (!wb.running) document.getElementById('wb-run').textContent = '状态: Idle';
+    title = `周期 #${data.cycle_id} 完成`;
+    detail = data.return_pct !== undefined ? `收益 ${Number(data.return_pct).toFixed(2)}%` : '训练完成';
+  } else if (eventType === 'agent_status' && data.status === 'completed' && data.adjustments) {
+    detail = `参数调整: ${Object.keys(data.adjustments).join(', ')}`;
+  }
+
+  wbPushEvent({
+    ts,
+    level,
+    type: eventType,
+    objectId: wbResolveObjectId(eventType, data),
+    title,
+    detail,
+  });
+
+  if (eventType === 'cycle_start') {
+    wbSpawnFlow('commander', 'data', '#60A5FA');
+  } else if (eventType === 'agent_status') {
+    wbSpawnFlow(wbResolveObjectId(eventType, data), 'commander', data.status === 'error' ? '#EF4444' : '#60A5FA');
+  } else if (eventType === 'cycle_complete') {
+    wbSpawnFlow('commander', 'llm', data.is_profit ? '#10B981' : '#EF4444');
+  }
+}
+
+// 启动 SSE 事件监听
+function startEventListener() {
+  if (eventSource) return;
+
+  eventSource = new EventSource('/api/events');
+
+  eventSource.addEventListener('connected', () => {
+    console.log('SSE connected');
+  });
+
+  eventSource.addEventListener('cycle_start', (e) => {
+    const data = JSON.parse(e.data);
+    addModuleCard('cycle_start', data);
+    addAgentCard('System', 'loading', `开始训练周期 #${data.cycle_id}`, '');
+    wbHandleStreamEvent('cycle_start', data);
+  });
+
+  eventSource.addEventListener('agent_status', (e) => {
+    const data = JSON.parse(e.data);
+    addAgentCard(data.agent, data.status, data.message, data.thinking || '', data.selected_stocks || []);
+    addModuleCard('agent_status', data);
+    wbHandleStreamEvent('agent_status', data);
+  });
+
+  eventSource.addEventListener('cycle_complete', (e) => {
+    const data = JSON.parse(e.data);
+    upsertTrainResult(data);
+    addModuleCard('cycle_complete', data);
+    showResultSummary(trainLiveResults);
+    wbHandleStreamEvent('cycle_complete', data);
+  });
+
+  eventSource.onerror = (err) => {
+    console.log('SSE error:', err);
+  };
+}
 
 async function startTraining() {
   if (trainBusy) return;
   const rounds = parseInt(document.getElementById('train-rounds').value) || 1;
   const mock = document.getElementById('train-mock').checked;
 
+  // 清空之前的内容
+  document.getElementById('agent-workflow').innerHTML = '<div style="color:var(--text-muted);text-align:center;padding:40px">等待训练开始...</div>';
+  document.getElementById('system-workflow').innerHTML = '<div style="color:var(--text-muted);text-align:center;padding:40px">等待系统响应...</div>';
+  document.getElementById('train-result-summary').style.display = 'none';
+  trainLiveResults = [];
+
   trainBusy = true;
   const btn = document.getElementById('train-start-btn');
   btn.innerHTML = '<span class="spinner"></span> 训练中...';
   btn.disabled = true;
 
-  document.getElementById('train-result-card').style.display = 'block';
-  document.getElementById('train-result').textContent = '⏳ 训练进行中，请耐心等待...\n\n参数: 轮次=' + rounds + ', Mock=' + mock;
+  // 启动 SSE 监听
+  startEventListener();
 
   const data = await api('/api/train', {
     method: 'POST',
@@ -1236,29 +1723,15 @@ async function startTraining() {
   btn.disabled = false;
 
   if (data.error) {
-    document.getElementById('train-result').textContent = '❌ 训练失败:\n' + data.error;
+    addAgentCard('System', 'error', '训练失败: ' + data.error);
   } else {
-    let output = '✅ 训练完成\n\n';
+    // 显示完整结果
     const results = data.results || [];
-    results.forEach((r, i) => {
-      output += `━━━ 第 ${i + 1} 轮 ━━━\n`;
-      output += `状态: ${r.status}\n`;
-      if (r.return_pct !== undefined) {
-        output += `收益率: ${r.return_pct > 0 ? '+' : ''}${r.return_pct.toFixed(2)}%\n`;
-        output += `选股数: ${r.selected_count}\n`;
-        output += `交易笔数: ${r.trade_count}\n`;
-        output += `初始资金: ¥${r.initial_capital?.toLocaleString()}\n`;
-        output += `最终价值: ¥${r.final_value?.toLocaleString()}\n`;
-      }
-      if (r.error) output += `错误: ${r.error}\n`;
-      output += '\n';
-    });
-
-    const summary = data.summary || {};
-    output += `════ 汇总 ════\n`;
-    output += `总轮次: ${summary.total_cycles ?? '--'}\n`;
-    output += `成功: ${summary.success_cycles ?? '--'} | 失败: ${summary.failed_cycles ?? '--'}\n`;
-    document.getElementById('train-result').textContent = output;
+    if (results.length > 0) {
+      trainLiveResults = results.slice();
+      showResultSummary(trainLiveResults);
+    }
+    addAgentCard('System', 'completed', `训练完成！共 ${results.length} 轮`);
   }
 }
 
@@ -2006,17 +2479,10 @@ async function wbStepOnce() {
   if (wb.trainBusy) return;
   wb.trainBusy = true;
   document.getElementById('wb-run').textContent = '状态: Running';
-  wbPushEvent({ ts: Date.now(), level: 'info', type: 'train', objectId: 'commander', title: '训练开始', detail: 'rounds=1 mock=true' });
-  wbSpawnFlow('commander', 'llm', '#60A5FA');
   try {
     const data = await api('/api/train', { method: 'POST', body: JSON.stringify({ rounds: 1, mock: true }) });
     if (data && data.error) {
       wbPushEvent({ ts: Date.now(), level: 'error', type: 'train', objectId: 'commander', title: '训练失败', detail: data.error });
-    } else {
-      const r = (data.results && data.results[0]) ? data.results[0] : null;
-      const detail = r && r.return_pct !== undefined ? `收益 ${r.return_pct.toFixed(2)}%` : '完成';
-      wbPushEvent({ ts: Date.now(), level: 'info', type: 'train', objectId: 'commander', title: '训练完成', detail });
-      if (r && r.status && r.status !== 'ok') wbSpawnFlow('commander', 'data', '#F59E0B');
     }
     await wbRefreshAll();
   } finally {

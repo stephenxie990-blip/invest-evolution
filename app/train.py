@@ -49,6 +49,24 @@ from invest.meetings import SelectionMeeting, ReviewMeeting, MeetingRecorder
 
 logger = logging.getLogger(__name__)
 
+# 事件发射回调
+_event_callback: Optional[Callable] = None
+
+
+def set_event_callback(callback: Callable):
+    """设置事件回调，用于推送实时事件到前端"""
+    global _event_callback
+    _event_callback = callback
+
+
+def emit_event(event_type: str, data: dict):
+    """发射事件到前端"""
+    if _event_callback:
+        try:
+            _event_callback(event_type, data)
+        except Exception:
+            pass
+
 
 # ============================================================
 # Part 1: 遗传算法
@@ -286,15 +304,28 @@ class SelfLearningController:
         logger.info(f"训练周期 #{cycle_id}")
         logger.info(f"{'='*60}")
 
+        cutoff_date = self.data_manager.random_cutoff_date()
+        logger.info(f"截断日期: {cutoff_date}")
+
+        # 发射周期开始事件
+        emit_event("cycle_start", {
+            "cycle_id": cycle_id,
+            "cutoff_date": cutoff_date,
+            "timestamp": datetime.now().isoformat()
+        })
+
         optimization_events: list[dict[str, Any]] = []
         review_applied = False
         benchmark_passed = False
         llm_used = bool(getattr(self.llm_caller.gateway, "available", False))
 
-        cutoff_date = self.data_manager.random_cutoff_date()
-        logger.info(f"截断日期: {cutoff_date}")
-
         logger.info("加载数据...")
+        emit_event("agent_status", {
+            "agent": "DataLoader",
+            "status": "loading",
+            "message": f"正在加载 {cutoff_date} 的历史数据...",
+            "timestamp": datetime.now().isoformat()
+        })
         min_history_days = max(30, int(getattr(config, "min_history_days", 200)))
         diagnostics = self.data_manager.diagnose_training_data(
             cutoff_date=cutoff_date,
@@ -327,11 +358,24 @@ class SelfLearningController:
             return None
 
         logger.info("Agent 开会讨论选股...")
+        emit_event("agent_status", {
+            "agent": "SelectionMeeting",
+            "status": "running",
+            "message": "Agent 开会讨论选股...",
+            "timestamp": datetime.now().isoformat()
+        })
         market_stats = compute_market_stats(stock_data, cutoff_date)
         regime_perception = self.agents["regime"].perceive(market_stats)
         regime_reasoning = self.agents["regime"].reason(regime_perception)
         regime_result = self.agents["regime"].act(regime_reasoning)
         logger.info(f"市场状态: {regime_result.get('regime', 'unknown')}")
+        emit_event("agent_status", {
+            "agent": "MarketRegime",
+            "status": "thinking",
+            "message": f"分析当前市场状态: {regime_result.get('regime', 'unknown')}",
+            "thinking": regime_reasoning[:200] if regime_reasoning else "",
+            "timestamp": datetime.now().isoformat()
+        })
 
         meeting_data = self.selection_meeting.run_with_data(regime_result, stock_data, cutoff_date)
         trading_plan = meeting_data["trading_plan"]
@@ -371,6 +415,13 @@ class SelfLearningController:
                 return None
 
         logger.info(f"最终选中股票: {selected}")
+        emit_event("agent_status", {
+            "agent": "SelectionMeeting",
+            "status": "completed",
+            "message": f"选股完成，共选中 {len(selected)} 只股票",
+            "selected_stocks": selected[:10],
+            "timestamp": datetime.now().isoformat()
+        })
         self.agent_tracker.mark_selected(cycle_id, selected)
 
         selected_data = {code: stock_data[code] for code in selected if code in stock_data}
@@ -398,6 +449,13 @@ class SelfLearningController:
         if len(dates_after) < simulation_days:
             logger.warning(f"截断日期后交易日不足: {len(dates_after)} < {simulation_days}")
             return None
+
+        emit_event("agent_status", {
+            "agent": "SimulatedTrader",
+            "status": "running",
+            "message": f"模拟交易中... 初始资金 {trader.capital:.2f}",
+            "timestamp": datetime.now().isoformat()
+        })
 
         trading_dates = dates_after[:simulation_days]
         sim_result = trader.run_simulation(trading_dates[0], trading_dates)
@@ -472,6 +530,12 @@ class SelfLearningController:
             logger.info(f"盈利！收益率: {sim_result.return_pct:.2f}%")
 
         logger.info("周期结语：复盘会议自省...")
+        emit_event("agent_status", {
+            "agent": "ReviewMeeting",
+            "status": "running",
+            "message": "复盘会议自省中...",
+            "timestamp": datetime.now().isoformat()
+        })
         self.cycle_records.append(cycle_dict)
         recent_cycle_dicts = self.cycle_records[-max(1, self.freeze_total_cycles):]
         agent_accuracy = self.agent_tracker.compute_accuracy(last_n_cycles=20)
@@ -495,6 +559,13 @@ class SelfLearningController:
             review_applied = True
             review_event.applied_change.update({"params": dict(review_decision["param_adjustments"])})
             logger.info(f"根据复盘调整参数: {review_decision['param_adjustments']}")
+            emit_event("agent_status", {
+                "agent": "ReviewMeeting",
+                "status": "completed",
+                "message": f"参数已调整: {list(review_decision.get('param_adjustments', {}).keys())}",
+                "adjustments": review_decision.get("param_adjustments", {}),
+                "timestamp": datetime.now().isoformat()
+            })
 
         if review_decision.get("agent_weight_adjustments"):
             self.selection_meeting.update_weights(review_decision["agent_weight_adjustments"])
@@ -543,6 +614,17 @@ class SelfLearningController:
 
         self._save_cycle_result(cycle_result)
 
+        # 发射周期完成事件
+        emit_event("cycle_complete", {
+            "cycle_id": cycle_id,
+            "return_pct": sim_result.return_pct,
+            "is_profit": bool(is_profit),
+            "selected_count": len(selected),
+            "trade_count": len(trade_dicts),
+            "final_value": sim_result.final_value,
+            "timestamp": datetime.now().isoformat()
+        })
+
         if self.on_cycle_complete:
             self.on_cycle_complete(cycle_result)
 
@@ -561,6 +643,12 @@ class SelfLearningController:
         2. 遗传算法进化（用历史 return_pct 作适应度）
         """
         logger.info(f"⚠️ 连续 {self.consecutive_losses} 次亏损，触发自我优化...")
+        emit_event("agent_status", {
+            "agent": "EvolutionOptimizer",
+            "status": "running",
+            "message": f"连续 {self.consecutive_losses} 次亏损，触发自我优化...",
+            "timestamp": datetime.now().isoformat()
+        })
         events: List[Dict[str, Any]] = []
 
         try:
@@ -784,6 +872,11 @@ class SelfLearningController:
     def _save_cycle_result(self, result: TrainingResult):
         """将周期结果写入 JSON"""
         path = self.output_dir / f"cycle_{result.cycle_id}.json"
+
+        def _bool(v):
+            """将可能为 numpy.bool 的值转换为 Python bool"""
+            return bool(v)
+
         data = {
             "cycle_id": result.cycle_id,
             "cutoff_date": result.cutoff_date,
@@ -791,16 +884,16 @@ class SelfLearningController:
             "initial_capital": result.initial_capital,
             "final_value": result.final_value,
             "return_pct": result.return_pct,
-            "is_profit": result.is_profit,
+            "is_profit": _bool(result.is_profit),
             "params": result.params,
             "trade_count": len(result.trade_history),
             "analysis": result.analysis,
             "data_mode": result.data_mode,
             "selection_mode": result.selection_mode,
-            "agent_used": result.agent_used,
-            "llm_used": result.llm_used,
-            "benchmark_passed": result.benchmark_passed,
-            "review_applied": result.review_applied,
+            "agent_used": _bool(result.agent_used),
+            "llm_used": _bool(result.llm_used),
+            "benchmark_passed": _bool(result.benchmark_passed),
+            "review_applied": _bool(result.review_applied),
             "config_snapshot_path": result.config_snapshot_path,
             "optimization_events": result.optimization_events,
             "audit_tags": result.audit_tags,

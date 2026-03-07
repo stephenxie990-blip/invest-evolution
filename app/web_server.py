@@ -13,15 +13,18 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+from collections import deque
 import json
 import logging
+from queue import Full, Queue
 import threading
 from pathlib import Path
 from typing import Any
 
-from flask import Flask, jsonify, request, send_from_directory
+from flask import Flask, jsonify, request, send_from_directory, Response, stream_with_context
 
 from app.commander import CommanderConfig, CommanderRuntime, _apply_runtime_path_overrides
+from app.train import set_event_callback
 from config.services import EvolutionConfigService, RuntimePathConfigService
 from invest.meetings import MeetingRecorder
 
@@ -33,6 +36,68 @@ logger = logging.getLogger(__name__)
 
 _loop: asyncio.AbstractEventLoop | None = None
 _runtime: CommanderRuntime | None = None
+
+# SSE 事件队列
+_EVENT_HISTORY_LIMIT = 200
+_EVENT_BUFFER_LIMIT = 512
+_EVENT_WAIT_TIMEOUT = 15.0
+
+_event_history: deque[dict[str, Any]] = deque(maxlen=_EVENT_HISTORY_LIMIT)
+_event_buffer: Queue[dict[str, Any]] = Queue(maxsize=_EVENT_BUFFER_LIMIT)
+_event_condition = threading.Condition()
+_event_dispatcher_started = False
+_event_seq = 0
+
+
+def _event_sink(event_type: str, data: dict):
+    """事件接收器：仅负责轻量入队，避免影响训练主流程。"""
+    _ensure_event_dispatcher()
+    try:
+        _event_buffer.put_nowait({
+            "type": event_type,
+            "data": dict(data),
+        })
+    except Full:
+        logger.warning("SSE event buffer full, dropping event: %s", event_type)
+
+
+def _ensure_event_dispatcher() -> None:
+    global _event_dispatcher_started
+    if _event_dispatcher_started:
+        return
+    with _event_condition:
+        if _event_dispatcher_started:
+            return
+        t = threading.Thread(target=_event_dispatch_loop, name="web-sse-dispatcher", daemon=True)
+        t.start()
+        _event_dispatcher_started = True
+
+
+def _event_dispatch_loop() -> None:
+    global _event_seq
+    while True:
+        event = _event_buffer.get()
+        with _event_condition:
+            _event_seq += 1
+            _event_history.append({
+                "id": _event_seq,
+                "type": event["type"],
+                "data": event["data"],
+            })
+            _event_condition.notify_all()
+
+
+def _snapshot_events_since(last_id: int) -> tuple[list[dict[str, Any]], int]:
+    with _event_condition:
+        if not _event_history:
+            return [], last_id
+        oldest_id = _event_history[0]["id"]
+        if last_id < oldest_id - 1:
+            last_id = oldest_id - 1
+        pending = [event for event in _event_history if event["id"] > last_id]
+        if pending:
+            last_id = pending[-1]["id"]
+        return pending, last_id
 
 
 def _start_event_loop(loop: asyncio.AbstractEventLoop) -> None:
@@ -98,7 +163,7 @@ def _runtime_not_ready_response():
 
 app = Flask(
     __name__,
-    static_folder=str(Path(__file__).parent / "static"),
+    static_folder=str(Path(__file__).parent.parent / "static"),
     static_url_path="/static",
 )
 
@@ -116,6 +181,45 @@ def api_status():
     if runtime is None:
         return _runtime_not_ready_response()
     return jsonify(runtime.status())
+
+
+# ---- SSE (Server-Sent Events) ----
+
+@app.route("/api/events")
+def api_events():
+    """SSE 实时事件流"""
+    def generate():
+        # 发送初始事件
+        yield "event: connected\ndata: {\"status\":\"connected\"}\n\n"
+
+        _, last_id = _snapshot_events_since(0)
+        while True:
+            with _event_condition:
+                has_new_event = _event_condition.wait_for(
+                    lambda: bool(_event_history) and _event_history[-1]["id"] > last_id,
+                    timeout=_EVENT_WAIT_TIMEOUT,
+                )
+            if not has_new_event:
+                yield ": keepalive\n\n"
+                continue
+
+            pending, last_id = _snapshot_events_since(last_id)
+            for event in pending:
+                yield (
+                    f"id: {event['id']}\n"
+                    f"event: {event['type']}\n"
+                    f"data: {json.dumps(event['data'], ensure_ascii=False)}\n\n"
+                )
+
+    return Response(
+        stream_with_context(generate()),
+        mimetype="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+            "Connection": "keep-alive",
+        }
+    )
 
 
 # ---- Chat ----
@@ -408,6 +512,9 @@ def main() -> None:
     cfg.autopilot_enabled = False  # Web mode: manual trigger only
     cfg.heartbeat_enabled = False
     cfg.bridge_enabled = False
+
+    # 设置训练事件回调
+    set_event_callback(_event_sink)
 
     _runtime = CommanderRuntime(cfg)
 
