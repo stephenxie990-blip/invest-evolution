@@ -5,6 +5,7 @@ from datetime import datetime
 from typing import Any, Sequence
 
 from config import normalize_date
+from .quality import DataQualityService
 from .repository import MarketDataRepository
 
 logger = logging.getLogger(__name__)
@@ -36,6 +37,7 @@ class DataIngestionService:
         self.repository = repository or MarketDataRepository(db_path)
         self.tushare_token = tushare_token or os.environ.get("TUSHARE_TOKEN", "")
         self.repository.initialize_schema()
+        self.quality_service = DataQualityService(repository=self.repository)
 
     def sync_security_master(self) -> dict[str, Any]:
         import baostock as bs
@@ -77,7 +79,8 @@ class DataIngestionService:
                 "security_master_source": "baostock",
             }
         )
-        return {"stock_count": count, "source": "baostock"}
+        quality = self.quality_service.persist_audit()
+        return {"stock_count": count, "source": "baostock", "quality": quality}
 
     def sync_daily_bars(
         self,
@@ -150,7 +153,8 @@ class DataIngestionService:
                 "daily_bar_source": "baostock",
             }
         )
-        return {"stock_count": synced_codes, "row_count": total_rows, "source": "baostock", "latest_date": end}
+        quality = self.quality_service.persist_audit()
+        return {"stock_count": synced_codes, "row_count": total_rows, "source": "baostock", "latest_date": end, "quality": quality}
 
     def sync_daily_bars_from_tushare(
         self,
@@ -232,4 +236,5 @@ class DataIngestionService:
                 "daily_bar_source": "tushare",
             }
         )
-        return {"stock_count": processed, "row_count": total_rows, "source": "tushare", "latest_date": end}
+        quality = self.quality_service.persist_audit()
+        return {"stock_count": processed, "row_count": total_rows, "source": "tushare", "latest_date": end, "quality": quality}

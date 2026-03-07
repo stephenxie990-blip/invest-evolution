@@ -221,6 +221,19 @@ class MarketDataRepository:
             )
         return len(rows)
 
+    def get_meta(self, keys: Sequence[str] | None = None) -> dict[str, str]:
+        self.initialize_schema()
+        with self.connect() as conn:
+            if keys:
+                placeholders = ",".join(["?"] * len(keys))
+                rows = conn.execute(
+                    f"SELECT key, value FROM ingestion_meta WHERE key IN ({placeholders})",
+                    list(keys),
+                ).fetchall()
+            else:
+                rows = conn.execute("SELECT key, value FROM ingestion_meta").fetchall()
+        return {str(row[0]): str(row[1]) for row in rows}
+
     def has_daily_bars(self) -> bool:
         self.initialize_schema()
         with self.connect() as conn:

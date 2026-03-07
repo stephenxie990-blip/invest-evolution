@@ -6,6 +6,7 @@ from typing import Any, Dict, Sequence
 import pandas as pd
 
 from config import normalize_date
+from .quality import DataQualityService
 from .repository import MarketDataRepository
 
 logger = logging.getLogger(__name__)
@@ -107,7 +108,16 @@ class WebDatasetService:
         self.repository.initialize_schema()
 
     def get_status_summary(self) -> dict[str, Any]:
-        return self.repository.get_status_summary()
+        summary = self.repository.get_status_summary()
+        quality = DataQualityService(repository=self.repository).audit()
+        summary["quality"] = {
+            "healthy": quality["healthy"],
+            "health_status": quality["health_status"],
+            "issues": quality["issues"],
+            "date_range": quality["date_range"],
+            "meta": quality["meta"],
+        }
+        return summary
 
 
 class T0DatasetBuilder:

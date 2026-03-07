@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import time
 import uuid
 from dataclasses import dataclass, asdict
@@ -24,6 +25,7 @@ class MemoryStore:
     def __init__(self, path: Path, max_records: int = 10000, create: bool = True):
         self.path = Path(path)
         self.max_records = max(100, int(max_records))
+        self.audit_path = self.path.with_name(self.path.stem + "_audit.jsonl")
         if create:
             self.ensure_storage()
 
@@ -52,6 +54,19 @@ class MemoryStore:
             rows = [x for x in rows if x.get("kind") == kind]
         return rows[-max(1, int(limit)):]
 
+    def append_audit(self, event: str, session_key: str, payload: dict[str, Any] | None = None) -> None:
+        self.audit_path.parent.mkdir(parents=True, exist_ok=True)
+        row = {
+            "id": uuid.uuid4().hex[:12],
+            "ts_ms": int(time.time() * 1000),
+            "event": str(event),
+            "session_key": str(session_key),
+            "payload": payload or {},
+            "pid": os.getpid(),
+        }
+        with self.audit_path.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(row, ensure_ascii=False) + "\n")
+
     def search(self, query: str, limit: int = 20) -> list[dict[str, Any]]:
         q = str(query or "").strip().lower()
         rows = self._load_all()
@@ -62,9 +77,17 @@ class MemoryStore:
 
     def stats(self) -> dict[str, Any]:
         rows = self._load_all()
+        audit_records = 0
+        if self.audit_path.exists():
+            try:
+                audit_records = len([line for line in self.audit_path.read_text(encoding="utf-8").splitlines() if line.strip()])
+            except Exception:
+                audit_records = 0
         return {
             "path": str(self.path),
+            "audit_path": str(self.audit_path),
             "records": len(rows),
+            "audit_records": audit_records,
             "max_records": self.max_records,
         }
 

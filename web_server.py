@@ -22,6 +22,7 @@ from typing import Any
 from flask import Flask, jsonify, request, send_from_directory
 
 from commander import CommanderConfig, CommanderRuntime
+from config.services import EvolutionConfigService
 
 logger = logging.getLogger(__name__)
 
@@ -264,126 +265,21 @@ def api_agent_configs_update():
 
 @app.route("/api/evolution_config", methods=["GET"])
 def api_evolution_config_get():
-    from config import PROJECT_ROOT, config as cfg
+    import config as config_module
 
-    cfg_path = PROJECT_ROOT / "config" / "evolution.yaml"
-    llm_key_masked = ""
-    if getattr(cfg, "llm_api_key", ""):
-        v = str(getattr(cfg, "llm_api_key"))
-        llm_key_masked = ("*" * max(0, len(v) - 4)) + v[-4:]
-
-    payload = {
-        "config_path": str(cfg_path),
-        "config_file_exists": cfg_path.exists(),
-        "llm_fast_model": cfg.llm_fast_model,
-        "llm_deep_model": cfg.llm_deep_model,
-        "llm_api_base": cfg.llm_api_base,
-        "llm_api_key_masked": llm_key_masked,
-        "llm_timeout": cfg.llm_timeout,
-        "llm_max_retries": cfg.llm_max_retries,
-        "enable_debate": cfg.enable_debate,
-        "max_debate_rounds": cfg.max_debate_rounds,
-        "max_risk_discuss_rounds": cfg.max_risk_discuss_rounds,
-        "data_source": cfg.data_source,
-        "max_stocks": cfg.max_stocks,
-        "simulation_days": cfg.simulation_days,
-        "min_history_days": cfg.min_history_days,
-        "initial_capital": cfg.initial_capital,
-        "max_positions": cfg.max_positions,
-        "position_size_pct": cfg.position_size_pct,
-        "index_codes": list(cfg.index_codes or []),
-    }
-    return jsonify({"status": "ok", "config": payload})
+    service = EvolutionConfigService(project_root=config_module.PROJECT_ROOT, live_config=config_module.config)
+    return jsonify({"status": "ok", "config": service.get_masked_payload()})
 
 
 @app.route("/api/evolution_config", methods=["POST"])
 def api_evolution_config_update():
-    from config import PROJECT_ROOT, config as cfg
+    import config as config_module
 
     data = request.get_json(force=True) or {}
-    editable_keys = {
-        "llm_fast_model",
-        "llm_deep_model",
-        "llm_api_base",
-        "llm_api_key",
-        "llm_timeout",
-        "llm_max_retries",
-        "enable_debate",
-        "max_debate_rounds",
-        "max_risk_discuss_rounds",
-        "data_source",
-        "max_stocks",
-        "simulation_days",
-        "min_history_days",
-        "initial_capital",
-        "max_positions",
-        "position_size_pct",
-        "index_codes",
-    }
-
-    patch = {k: v for k, v in data.items() if k in editable_keys}
-
+    service = EvolutionConfigService(project_root=config_module.PROJECT_ROOT, live_config=config_module.config)
     try:
-        if "llm_timeout" in patch:
-            patch["llm_timeout"] = int(patch["llm_timeout"])
-        if "llm_max_retries" in patch:
-            patch["llm_max_retries"] = int(patch["llm_max_retries"])
-        if "max_debate_rounds" in patch:
-            patch["max_debate_rounds"] = int(patch["max_debate_rounds"])
-        if "max_risk_discuss_rounds" in patch:
-            patch["max_risk_discuss_rounds"] = int(patch["max_risk_discuss_rounds"])
-        if "max_stocks" in patch:
-            patch["max_stocks"] = int(patch["max_stocks"])
-        if "simulation_days" in patch:
-            patch["simulation_days"] = int(patch["simulation_days"])
-        if "min_history_days" in patch:
-            patch["min_history_days"] = int(patch["min_history_days"])
-        if "initial_capital" in patch:
-            patch["initial_capital"] = float(patch["initial_capital"])
-        if "max_positions" in patch:
-            patch["max_positions"] = int(patch["max_positions"])
-        if "position_size_pct" in patch:
-            patch["position_size_pct"] = float(patch["position_size_pct"])
-        if "enable_debate" in patch:
-            patch["enable_debate"] = _parse_bool(patch["enable_debate"], "enable_debate")
-        if "index_codes" in patch:
-            if patch["index_codes"] is None:
-                patch["index_codes"] = []
-            if not isinstance(patch["index_codes"], list):
-                return jsonify({"status": "error", "error": "index_codes must be a list"}), 400
-            patch["index_codes"] = [str(x) for x in patch["index_codes"]]
-
-        for k, v in patch.items():
-            if k == "llm_api_key":
-                if v is None:
-                    continue
-                v = str(v).strip()
-                if v:
-                    setattr(cfg, k, v)
-                continue
-            setattr(cfg, k, v)
-
-        cfg_path = PROJECT_ROOT / "config" / "evolution.yaml"
-        cfg_path.parent.mkdir(parents=True, exist_ok=True)
-
-        try:
-            import yaml
-        except Exception:
-            return jsonify({
-                "status": "error",
-                "error": "PyYAML 未安装，无法写入 YAML。请安装 pyyaml 后重试。",
-            }), 500
-
-        persisted = {k: getattr(cfg, k) for k in editable_keys if hasattr(cfg, k)}
-        if "llm_api_key" in persisted and not str(persisted["llm_api_key"] or "").strip():
-            persisted.pop("llm_api_key", None)
-
-        cfg_path.write_text(
-            yaml.safe_dump(persisted, allow_unicode=True, sort_keys=True),
-            encoding="utf-8",
-        )
-
-        return jsonify({"status": "ok", "updated": sorted(list(patch.keys()))})
+        payload = service.apply_patch(data, source="web_api")
+        return jsonify({"status": "ok", "updated": payload["updated"], "config": payload["config"]})
     except ValueError as exc:
         return jsonify({"status": "error", "error": str(exc)}), 400
     except Exception as exc:

@@ -34,6 +34,7 @@ from typing import Callable, Dict, List, Optional
 import numpy as np
 
 from config import OUTPUT_DIR, PROJECT_ROOT, config, normalize_date
+from config.services import EvolutionConfigService
 from invest.core import AgentTracker, compute_market_stats, make_simple_plan
 from market_data import DataManager, MockDataProvider
 from invest.optimization import AdaptiveSelector, LLMOptimizer, StrategyEvolutionOptimizer, EvolutionEngine
@@ -104,16 +105,49 @@ class ReinforcementLearningOptimizer:
 @dataclass
 class TrainingResult:
     """单次训练周期结果"""
-    cycle_id:        int
-    cutoff_date:     str
+    cycle_id: int
+    cutoff_date: str
     selected_stocks: List[str]
     initial_capital: float
-    final_value:     float
-    return_pct:      float
-    is_profit:       bool
-    trade_history:   List[Dict]
-    params:          Dict
-    analysis:        str = ""  # LLM 分析摘要
+    final_value: float
+    return_pct: float
+    is_profit: bool
+    trade_history: List[Dict]
+    params: Dict
+    analysis: str = ""
+    data_mode: str = "unknown"
+    selection_mode: str = "unknown"
+    agent_used: bool = False
+    llm_used: bool = False
+    benchmark_passed: bool = False
+    review_applied: bool = False
+    config_snapshot_path: str = ""
+    optimization_events: List[Dict[str, Any]] = field(default_factory=list)
+    audit_tags: Dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class OptimizationEvent:
+    trigger: str
+    stage: str
+    status: str = "ok"
+    suggestions: List[str] = field(default_factory=list)
+    decision: Dict[str, Any] = field(default_factory=dict)
+    applied_change: Dict[str, Any] = field(default_factory=dict)
+    notes: str = ""
+    ts: str = field(default_factory=lambda: datetime.now().isoformat())
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "trigger": self.trigger,
+            "stage": self.stage,
+            "status": self.status,
+            "suggestions": list(self.suggestions),
+            "decision": dict(self.decision),
+            "applied_change": dict(self.applied_change),
+            "notes": self.notes,
+            "ts": self.ts,
+        }
 
 
 @dataclass
@@ -204,6 +238,7 @@ class SelfLearningController:
             commander=self.agents["commander"],
         )
         self.meeting_recorder = MeetingRecorder()
+        self.config_service = EvolutionConfigService(project_root=PROJECT_ROOT, live_config=config)
 
         # 状态
         self.cycle_history:   List[TrainingResult] = []
@@ -212,6 +247,7 @@ class SelfLearningController:
         self.consecutive_losses = 0
         self.current_params   = dict(self.DEFAULT_PARAMS)
         self.assessment_history: List[SelfAssessmentSnapshot] = []
+        self.optimization_events_history: List[OptimizationEvent] = []
 
         # 条件
         self.freeze_total_cycles       = freeze_total_cycles
@@ -242,11 +278,14 @@ class SelfLearningController:
         logger.info(f"训练周期 #{cycle_id}")
         logger.info(f"{'='*60}")
 
-        # 1. 随机截断日期
+        optimization_events: list[dict[str, Any]] = []
+        review_applied = False
+        benchmark_passed = False
+        llm_used = bool(getattr(self.llm_caller.gateway, "available", False))
+
         cutoff_date = self.data_manager.random_cutoff_date()
         logger.info(f"截断日期: {cutoff_date}")
 
-        # 2. 加载数据（含 T0 后训练窗口，选股时仍会按 cutoff 过滤）
         logger.info("加载数据...")
         stock_data = self.data_manager.load_stock_data(
             cutoff_date,
@@ -254,38 +293,38 @@ class SelfLearningController:
             min_history_days=200,
             include_future_days=max(30, getattr(config, "simulation_days", 30)),
         )
+        data_mode = getattr(self.data_manager, "last_source", "unknown")
 
         if not stock_data:
             logger.error("没有加载到数据")
             return None
 
-        # 3. Agent 驱动选股流程 (认知环路)
         logger.info("Agent 开会讨论选股...")
-        
-        # 3.1 市场状态判断 (Regime Agent)
         market_stats = compute_market_stats(stock_data, cutoff_date)
         regime_perception = self.agents["regime"].perceive(market_stats)
-        regime_reasoning  = self.agents["regime"].reason(regime_perception)
-        regime_result     = self.agents["regime"].act(regime_reasoning)
+        regime_reasoning = self.agents["regime"].reason(regime_perception)
+        regime_result = self.agents["regime"].act(regime_reasoning)
         logger.info(f"市场状态: {regime_result.get('regime', 'unknown')}")
 
-        # 3.2 选股会议 (Hunter Agents)
-        meeting_data = self.selection_meeting.run_with_data(
-            regime_result, stock_data, cutoff_date
-        )
+        meeting_data = self.selection_meeting.run_with_data(regime_result, stock_data, cutoff_date)
         trading_plan = meeting_data["trading_plan"]
         meeting_log = meeting_data.get("meeting_log", {})
         self.meeting_recorder.save_selection(meeting_log, cycle_id)
 
-        # 记录 Agent 推荐（供后续复盘归因）
         for hunter in meeting_log.get("hunters", []):
             picks = hunter.get("result", {}).get("picks", [])
             if picks:
                 self.agent_tracker.record_predictions(cycle_id, hunter.get("name", "unknown"), picks)
-        
+
         selected = [p.code for p in trading_plan.positions]
+        agent_used = bool(meeting_log.get("hunters"))
+        selection_mode = "meeting" if selected else "meeting_empty"
+        if selected and trading_plan.source and trading_plan.source != "llm":
+            selection_mode = f"{trading_plan.source}_selection"
+
         if not selected:
             logger.warning("Agent 会议未选中股票，使用算法降级")
+            selection_mode = "algorithm_fallback"
             self.selector = AdaptiveSelector(self.current_params)
             selected = self.selector.select(stock_data, cutoff_date, top_n=config.max_positions)
             if selected:
@@ -307,7 +346,6 @@ class SelfLearningController:
         logger.info(f"最终选中股票: {selected}")
         self.agent_tracker.mark_selected(cycle_id, selected)
 
-        # 4. 30 天模拟交易
         selected_data = {code: stock_data[code] for code in selected if code in stock_data}
         if not selected_data:
             logger.warning("选股结果在数据集中不可用，跳过本周期")
@@ -321,7 +359,6 @@ class SelfLearningController:
         trader.set_stock_data(selected_data)
         trader.set_trading_plan(trading_plan)
 
-        # 提取截断日期之后的交易日（使用选中股票日期并集）
         all_dates = set()
         for df in selected_data.values():
             date_col = "trade_date" if "trade_date" in df.columns else "date"
@@ -330,7 +367,6 @@ class SelfLearningController:
             all_dates.update(df[date_col].apply(normalize_date).tolist())
 
         dates_after = sorted(d for d in all_dates if d > cutoff_date)
-
         simulation_days = max(1, getattr(config, "simulation_days", 30))
         if len(dates_after) < simulation_days:
             logger.warning(f"截断日期后交易日不足: {len(dates_after)} < {simulation_days}")
@@ -340,36 +376,39 @@ class SelfLearningController:
         sim_result = trader.run_simulation(trading_dates[0], trading_dates)
         is_profit = sim_result.return_pct > 0
 
-        # 5. 评估
         self.agent_tracker.record_outcomes(cycle_id, sim_result.per_stock_pnl)
-
         cycle_dict = {
-            "cycle_id":        cycle_id,
-            "cutoff_date":     cutoff_date,
-            "return_pct":      sim_result.return_pct,
-            "profit_loss":     sim_result.total_pnl,
-            "total_trades":    sim_result.total_trades,
-            "winning_trades":  sim_result.winning_trades,
-            "losing_trades":   sim_result.losing_trades,
-            "win_rate":        sim_result.win_rate,
+            "cycle_id": cycle_id,
+            "cutoff_date": cutoff_date,
+            "return_pct": sim_result.return_pct,
+            "profit_loss": sim_result.total_pnl,
+            "total_trades": sim_result.total_trades,
+            "winning_trades": sim_result.winning_trades,
+            "losing_trades": sim_result.losing_trades,
+            "win_rate": sim_result.win_rate,
             "selected_stocks": selected,
-            "is_profit":       is_profit,
-            "regime":          regime_result.get("regime", "unknown"),
-            "plan_source":     trading_plan.source,
+            "is_profit": is_profit,
+            "regime": regime_result.get("regime", "unknown"),
+            "plan_source": trading_plan.source,
+            "data_mode": data_mode,
+            "selection_mode": selection_mode,
+            "agent_used": agent_used,
+            "llm_used": llm_used,
+            "initial_capital": sim_result.initial_capital,
+            "final_value": sim_result.final_value,
         }
         trade_dicts = [
             {
-                "date":    t.date,
-                "action":  t.action.value if hasattr(t.action, "value") else str(t.action),
+                "date": t.date,
+                "action": t.action.value if hasattr(t.action, "value") else str(t.action),
                 "ts_code": t.ts_code,
-                "price":   t.price,
-                "pnl":     t.pnl,
-                "reason":  t.reason,
+                "price": t.price,
+                "pnl": t.pnl,
+                "reason": t.reason,
             }
             for t in sim_result.trade_history
         ]
 
-        # 基准评估（用于自我评估门控）
         daily_values = [r.get("total_value") for r in sim_result.daily_records if r.get("total_value") is not None]
         benchmark_metrics = None
         if len(daily_values) >= 2:
@@ -377,7 +416,7 @@ class SelfLearningController:
                 daily_values=daily_values,
                 trade_history=trade_dicts,
             )
-            quality_passed = (
+            benchmark_passed = (
                 benchmark_metrics.total_return > 0
                 and benchmark_metrics.sharpe_ratio >= 0.8
                 and benchmark_metrics.max_drawdown < 15.0
@@ -387,41 +426,69 @@ class SelfLearningController:
                 "sharpe_ratio": benchmark_metrics.sharpe_ratio,
                 "max_drawdown": benchmark_metrics.max_drawdown,
                 "excess_return": benchmark_metrics.excess_return,
-                "benchmark_passed": quality_passed,
+                "benchmark_passed": benchmark_passed,
                 "benchmark_strict_passed": benchmark_metrics.passed,
             })
+        else:
+            cycle_dict["benchmark_passed"] = False
+            cycle_dict["benchmark_strict_passed"] = False
 
         self.strategy_evaluator.evaluate(cycle_dict, trade_dicts, sim_result.daily_records)
 
-        # 6. 亏损触发优化
         if not is_profit:
             self.consecutive_losses += 1
             logger.warning(f"亏损！连续亏损: {self.consecutive_losses}")
             if self.consecutive_losses >= self.max_losses_before_optimize:
-                self._trigger_optimization(cycle_dict, trade_dicts)
+                optimization_events.extend(self._trigger_optimization(cycle_dict, trade_dicts))
         else:
             self.consecutive_losses = 0
             logger.info(f"盈利！收益率: {sim_result.return_pct:.2f}%")
 
-        # 6.5 复盘与反思 (Review Agent Loop)
         logger.info("周期结语：复盘会议自省...")
         self.cycle_records.append(cycle_dict)
         recent_cycle_dicts = self.cycle_records[-max(1, self.freeze_total_cycles):]
         agent_accuracy = self.agent_tracker.compute_accuracy(last_n_cycles=20)
-        review_decision = self.review_meeting.run(
-            recent_cycle_dicts, agent_accuracy, self.current_params
-        )
+        review_decision = self.review_meeting.run(recent_cycle_dicts, agent_accuracy, self.current_params)
         self.meeting_recorder.save_review(review_decision, cycle_dict, cycle_id)
-        
-        # 应用复盘建议 (Commander & EvoJudge 决策)
+
+        review_event = OptimizationEvent(
+            trigger="review_meeting",
+            stage="review_decision",
+            decision={
+                "strategy_suggestions": review_decision.get("strategy_suggestions", []),
+                "param_adjustments": review_decision.get("param_adjustments", {}),
+                "agent_weight_adjustments": review_decision.get("agent_weight_adjustments", {}),
+            },
+            applied_change={},
+            notes=review_decision.get("reasoning", ""),
+        )
+
         if review_decision.get("param_adjustments"):
             self.current_params.update(review_decision["param_adjustments"])
+            review_applied = True
+            review_event.applied_change.update({"params": dict(review_decision["param_adjustments"])})
             logger.info(f"根据复盘调整参数: {review_decision['param_adjustments']}")
-        
+
         if review_decision.get("agent_weight_adjustments"):
             self.selection_meeting.update_weights(review_decision["agent_weight_adjustments"])
+            review_applied = True
+            review_event.applied_change.update({"agent_weights": dict(review_decision["agent_weight_adjustments"])})
 
-        # 7. 记录周期结果
+        optimization_events.append(review_event.to_dict())
+        cycle_dict["review_applied"] = review_applied
+
+        config_snapshot_path = str(self.config_service.write_runtime_snapshot(cycle_id=cycle_id, output_dir=self.output_dir))
+        audit_tags = {
+            "data_mode": data_mode,
+            "selection_mode": selection_mode,
+            "meeting_fallback": selection_mode == "algorithm_fallback",
+            "agent_used": agent_used,
+            "llm_used": llm_used,
+            "mock_data_used": data_mode == "mock",
+            "benchmark_passed": benchmark_passed,
+            "review_applied": review_applied,
+        }
+
         cycle_result = TrainingResult(
             cycle_id=cycle_id,
             cutoff_date=cutoff_date,
@@ -433,6 +500,15 @@ class SelfLearningController:
             trade_history=trade_dicts,
             params=dict(self.current_params),
             analysis=review_decision.get("reasoning", ""),
+            data_mode=data_mode,
+            selection_mode=selection_mode,
+            agent_used=agent_used,
+            llm_used=llm_used,
+            benchmark_passed=benchmark_passed,
+            review_applied=review_applied,
+            config_snapshot_path=config_snapshot_path,
+            optimization_events=optimization_events,
+            audit_tags=audit_tags,
         )
         self.cycle_history.append(cycle_result)
         self.current_cycle_id += 1
@@ -450,7 +526,7 @@ class SelfLearningController:
         )
         return cycle_result
 
-    def _trigger_optimization(self, cycle_dict: Dict, trade_dicts: List[Dict]):
+    def _trigger_optimization(self, cycle_dict: Dict, trade_dicts: List[Dict]) -> List[Dict[str, Any]]:
         """
         触发优化流程
 
@@ -458,27 +534,32 @@ class SelfLearningController:
         2. 遗传算法进化（用历史 return_pct 作适应度）
         """
         logger.info(f"⚠️ 连续 {self.consecutive_losses} 次亏损，触发自我优化...")
+        events: List[Dict[str, Any]] = []
 
         try:
-            # LLM 分析
             analysis = self.llm_optimizer.analyze_loss(cycle_dict, trade_dicts)
             logger.info(f"LLM 分析: {analysis.cause}")
             logger.info(f"建议: {analysis.suggestions}")
+            llm_event = OptimizationEvent(
+                trigger="consecutive_losses",
+                stage="llm_analysis",
+                decision={"cause": analysis.cause},
+                suggestions=list(getattr(analysis, "suggestions", []) or []),
+            )
 
             adjustments = self.llm_optimizer.generate_strategy_fix(analysis)
             if adjustments:
                 self.current_params.update(adjustments)
+                llm_event.applied_change = dict(adjustments)
                 logger.info(f"参数已更新: {self.current_params}")
+            events.append(llm_event.to_dict())
+            self._append_optimization_event(llm_event)
 
-            # 遗传算法
             if len(self.cycle_history) >= 3:
-                fitness_scores = [
-                    max(r.return_pct, -50) for r in self.cycle_history[-10:]
-                ]
+                fitness_scores = [max(r.return_pct, -50) for r in self.cycle_history[-10:]]
                 if len(self.evolution_engine.population) == 0:
                     self.evolution_engine.initialize_population(self.current_params)
 
-                # 种群大小与适应度对齐
                 pop_size = len(self.evolution_engine.population)
                 if len(fitness_scores) > pop_size:
                     fitness_scores = fitness_scores[-pop_size:]
@@ -487,11 +568,28 @@ class SelfLearningController:
 
                 self.evolution_engine.evolve(fitness_scores)
                 best_params = self.evolution_engine.get_best_params()
+                evo_event = OptimizationEvent(
+                    trigger="consecutive_losses",
+                    stage="evolution_engine",
+                    decision={"fitness_scores": fitness_scores[-5:]},
+                    applied_change=dict(best_params or {}),
+                    notes="population evolved",
+                )
                 if best_params:
                     self.current_params.update(best_params)
                     logger.info(f"遗传算法优化参数: {best_params}")
+                events.append(evo_event.to_dict())
+                self._append_optimization_event(evo_event)
 
         except Exception as e:
+            err_event = OptimizationEvent(
+                trigger="consecutive_losses",
+                stage="optimization_error",
+                status="error",
+                notes=str(e),
+            )
+            events.append(err_event.to_dict())
+            self._append_optimization_event(err_event)
             logger.error(f"优化过程出错: {e}")
 
         self.consecutive_losses = 0
@@ -499,6 +597,13 @@ class SelfLearningController:
 
         if self.on_optimize:
             self.on_optimize(self.current_params)
+        return events
+
+    def _append_optimization_event(self, event: OptimizationEvent) -> None:
+        self.optimization_events_history.append(event)
+        path = self.output_dir / "optimization_events.jsonl"
+        with open(path, "a", encoding="utf-8") as f:
+            f.write(json.dumps(event.to_dict(), ensure_ascii=False) + "\n")
 
     def run_continuous(self, max_cycles: int = 100) -> Dict:
         """
@@ -653,16 +758,25 @@ class SelfLearningController:
         """将周期结果写入 JSON"""
         path = self.output_dir / f"cycle_{result.cycle_id}.json"
         data = {
-            "cycle_id":        result.cycle_id,
-            "cutoff_date":     result.cutoff_date,
+            "cycle_id": result.cycle_id,
+            "cutoff_date": result.cutoff_date,
             "selected_stocks": result.selected_stocks,
             "initial_capital": result.initial_capital,
-            "final_value":     result.final_value,
-            "return_pct":      result.return_pct,
-            "is_profit":       result.is_profit,
-            "params":          result.params,
-            "trade_count":     len(result.trade_history),
-            "analysis":        result.analysis,
+            "final_value": result.final_value,
+            "return_pct": result.return_pct,
+            "is_profit": result.is_profit,
+            "params": result.params,
+            "trade_count": len(result.trade_history),
+            "analysis": result.analysis,
+            "data_mode": result.data_mode,
+            "selection_mode": result.selection_mode,
+            "agent_used": result.agent_used,
+            "llm_used": result.llm_used,
+            "benchmark_passed": result.benchmark_passed,
+            "review_applied": result.review_applied,
+            "config_snapshot_path": result.config_snapshot_path,
+            "optimization_events": result.optimization_events,
+            "audit_tags": result.audit_tags,
         }
         snapshot = next((s for s in self.assessment_history if s.cycle_id == result.cycle_id), None)
         if snapshot:

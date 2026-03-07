@@ -231,6 +231,7 @@ class DataManager:
         self._offline = TrainingDatasetBuilder(db_path=str(db_path) if db_path else str(_default_db_path()))
         self._online: Optional[EvolutionDataLoader] = None
         self._prefer_offline = prefer_offline
+        self.last_source: str = "unknown"
 
         if not self._offline.available:
             logger.info("离线数据库不可用，将使用在线数据源或模拟数据")
@@ -263,6 +264,7 @@ class DataManager:
         include_future_days: int = 0,
     ) -> Dict[str, pd.DataFrame]:
         if self._provider is not None:
+            self.last_source = "mock" if isinstance(self._provider, MockDataProvider) else "provider"
             return self._provider.load_stock_data(
                 cutoff_date=cutoff_date,
                 stock_count=stock_count,
@@ -278,6 +280,7 @@ class DataManager:
                 include_future_days=include_future_days,
             )
             if stock_data:
+                self.last_source = "offline"
                 return stock_data
 
         if self._online is None:
@@ -285,6 +288,7 @@ class DataManager:
                 self._online = EvolutionDataLoader()
             except Exception as exc:
                 logger.warning("在线加载器初始化失败: %s", exc)
+                self.last_source = "mock"
                 return generate_mock_stock_data(stock_count)
 
         try:
@@ -295,11 +299,13 @@ class DataManager:
             data = self._online.load_all_data_before(effective_cutoff)
             stocks = data.get("stocks", {})
             if stocks:
+                self.last_source = "online"
                 return dict(list(stocks.items())[:stock_count])
         except Exception as exc:
             logger.warning("在线数据加载失败: %s", exc)
 
         logger.warning("所有数据源不可用，使用模拟数据")
+        self.last_source = "mock"
         return generate_mock_stock_data(stock_count)
 
     @property

@@ -16,7 +16,9 @@ import asyncio
 import json
 import logging
 import os
+import socket
 import textwrap
+import threading
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -29,6 +31,7 @@ from brain.memory import MemoryStore
 from brain.bridge import BridgeHub, BridgeMessage
 from brain.plugins import PluginLoader
 from config import PROJECT_ROOT, RUNTIME_DIR, OUTPUT_DIR, MEMORY_DIR, SESSIONS_DIR, WORKSPACE_DIR, config
+from config.services import EvolutionConfigService
 from market_data import DataManager, MockDataProvider
 from train import SelfLearningController, TrainingResult
 
@@ -51,6 +54,9 @@ class CommanderConfig:
     plugin_dir: Path = PROJECT_ROOT / "agent_settings" / "plugins"
     bridge_inbox: Path = SESSIONS_DIR / "inbox"
     bridge_outbox: Path = SESSIONS_DIR / "outbox"
+    runtime_state_dir: Path = RUNTIME_DIR / "state"
+    runtime_lock_file: Path = RUNTIME_DIR / "state" / "commander.lock"
+    training_lock_file: Path = RUNTIME_DIR / "state" / "training.lock"
 
     model: str = field(default_factory=lambda: os.environ.get("COMMANDER_MODEL", config.llm_fast_model))
     api_key: str = field(default_factory=lambda: os.environ.get("COMMANDER_API_KEY", config.llm_api_key))
@@ -77,6 +83,15 @@ class CommanderConfig:
     restrict_tools_to_workspace: bool = field(default_factory=lambda: os.environ.get("COMMANDER_RESTRICT_TO_WORKSPACE", "0") != "0")
 
     mock_mode: bool = field(default_factory=lambda: os.environ.get("COMMANDER_MOCK", "0") != "0")
+
+    def __post_init__(self):
+        default_state_dir = RUNTIME_DIR / "state"
+        if self.runtime_state_dir == default_state_dir and self.state_file.parent != OUTPUT_DIR / "commander":
+            self.runtime_state_dir = self.state_file.parent
+        if self.runtime_lock_file == default_state_dir / "commander.lock":
+            self.runtime_lock_file = self.runtime_state_dir / "commander.lock"
+        if self.training_lock_file == default_state_dir / "training.lock":
+            self.training_lock_file = self.runtime_state_dir / "training.lock"
 
     @classmethod
     def from_args(cls, args: argparse.Namespace) -> "CommanderConfig":
@@ -112,6 +127,9 @@ class CommanderConfig:
         cfg.plugin_dir = PROJECT_ROOT / "agent_settings" / "plugins"
         cfg.bridge_inbox = SESSIONS_DIR / "inbox"
         cfg.bridge_outbox = SESSIONS_DIR / "outbox"
+        cfg.runtime_state_dir = RUNTIME_DIR / "state"
+        cfg.runtime_lock_file = RUNTIME_DIR / "state" / "commander.lock"
+        cfg.training_lock_file = RUNTIME_DIR / "state" / "training.lock"
         return cfg
 
 
@@ -467,8 +485,9 @@ class StrategyGeneRegistry:
 class InvestmentBodyService:
     """Long-running body service: executes training cycles and tracks state."""
 
-    def __init__(self, cfg: CommanderConfig):
+    def __init__(self, cfg: CommanderConfig, on_runtime_event: Optional[callable] = None):
         self.cfg = cfg
+        self._runtime_event_sink = on_runtime_event
         self._mock_provider: Optional[MockDataProvider] = None
         if cfg.mock_mode:
             self._mock_provider = MockDataProvider(stock_count=30, days=1500, start_date="20200101")
@@ -483,8 +502,32 @@ class InvestmentBodyService:
         self.last_result: Optional[dict[str, Any]] = None
         self.last_error: str = ""
         self.last_run_at: str = ""
+        self.training_state: str = "idle"
+        self.current_task: Optional[dict[str, Any]] = None
+        self.last_completed_task: Optional[dict[str, Any]] = None
 
-    async def run_cycles(self, rounds: int = 1, force_mock: bool = False) -> dict[str, Any]:
+    def _write_training_lock(self, payload: dict[str, Any]) -> None:
+        self.cfg.training_lock_file.parent.mkdir(parents=True, exist_ok=True)
+        self.cfg.training_lock_file.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    def _clear_training_lock(self) -> None:
+        self.cfg.training_lock_file.unlink(missing_ok=True)
+
+    def _emit_runtime_event(self, event: str, payload: dict[str, Any]) -> None:
+        if self._runtime_event_sink:
+            try:
+                self._runtime_event_sink(event, payload)
+            except Exception:
+                logger.exception("Failed to emit runtime event: %s", event)
+
+    async def run_cycles(self, rounds: int = 1, force_mock: bool = False, task_source: str = "direct") -> dict[str, Any]:
+        if self._lock.locked():
+            return {
+                "status": "busy",
+                "error": "training already in progress",
+                "summary": self.snapshot(),
+            }
+
         if force_mock and self._mock_provider is None:
             self._mock_provider = MockDataProvider(stock_count=30, days=1500, start_date="20200101")
             self.controller.data_manager = DataManager(data_provider=self._mock_provider)
@@ -492,38 +535,62 @@ class InvestmentBodyService:
 
         rounds = max(1, int(rounds))
         results: list[dict[str, Any]] = []
+        task_started_at = datetime.now().isoformat()
+        self.training_state = "training"
+        self.current_task = {
+            "type": "training",
+            "source": task_source,
+            "rounds": rounds,
+            "force_mock": bool(force_mock),
+            "started_at": task_started_at,
+        }
+        self._write_training_lock(self.current_task)
+        self._emit_runtime_event("training_started", self.current_task)
 
-        async with self._lock:
-            for _ in range(rounds):
-                self.total_cycles += 1
-                self.last_run_at = datetime.now().isoformat()
-                try:
-                    cycle_result = await asyncio.to_thread(self.controller.run_training_cycle)
-                    if cycle_result is None:
-                        self.no_data_cycles += 1
+        try:
+            async with self._lock:
+                for _ in range(rounds):
+                    self.total_cycles += 1
+                    self.last_run_at = datetime.now().isoformat()
+                    try:
+                        cycle_result = await asyncio.to_thread(self.controller.run_training_cycle)
+                        if cycle_result is None:
+                            self.no_data_cycles += 1
+                            item = {
+                                "status": "no_data",
+                                "cycle_id": self.controller.current_cycle_id,
+                                "timestamp": self.last_run_at,
+                            }
+                        else:
+                            self.success_cycles += 1
+                            item = self._to_result_dict(cycle_result)
+                        self.last_result = item
+                        results.append(item)
+                    except Exception as exc:
+                        self.failed_cycles += 1
+                        self.last_error = str(exc)
                         item = {
-                            "status": "no_data",
-                            "cycle_id": self.controller.current_cycle_id,
+                            "status": "error",
+                            "error": str(exc),
                             "timestamp": self.last_run_at,
                         }
-                    else:
-                        self.success_cycles += 1
-                        item = self._to_result_dict(cycle_result)
-                    self.last_result = item
-                    results.append(item)
-                except Exception as exc:
-                    self.failed_cycles += 1
-                    self.last_error = str(exc)
-                    item = {
-                        "status": "error",
-                        "error": str(exc),
-                        "timestamp": self.last_run_at,
-                    }
-                    self.last_result = item
-                    results.append(item)
-                    logger.exception("Commander body cycle failed")
+                        self.last_result = item
+                        results.append(item)
+                        logger.exception("Commander body cycle failed")
+        finally:
+            self.training_state = "idle"
+            self.last_completed_task = {
+                **(self.current_task or {}),
+                "finished_at": datetime.now().isoformat(),
+                "result_count": len(results),
+                "last_status": results[-1].get("status") if results else "empty",
+            }
+            self.current_task = None
+            self._clear_training_lock()
+            self._emit_runtime_event("training_finished", self.last_completed_task or {})
 
         return {
+            "status": "ok",
             "rounds": rounds,
             "results": results,
             "summary": self.snapshot(),
@@ -533,7 +600,7 @@ class InvestmentBodyService:
         logger.info("Body autopilot loop started (interval=%ss)", interval_sec)
         try:
             while not self._stop_event.is_set():
-                await self.run_cycles(rounds=1)
+                await self.run_cycles(rounds=1, task_source="autopilot")
                 try:
                     await asyncio.wait_for(self._stop_event.wait(), timeout=interval_sec)
                 except asyncio.TimeoutError:
@@ -564,6 +631,11 @@ class InvestmentBodyService:
             "last_run_at": self.last_run_at,
             "current_cycle_id": self.controller.current_cycle_id,
             "rolling_self_assessment": rolling,
+            "training_state": self.training_state,
+            "is_training": self._lock.locked(),
+            "current_task": self.current_task,
+            "last_completed_task": self.last_completed_task,
+            "training_lock_file": str(self.cfg.training_lock_file),
         }
 
     @staticmethod
@@ -581,6 +653,14 @@ class InvestmentBodyService:
             "trade_count": len(result.trade_history),
             "analysis": (result.analysis or "")[:400],
             "params": result.params,
+            "data_mode": result.data_mode,
+            "selection_mode": result.selection_mode,
+            "agent_used": result.agent_used,
+            "llm_used": result.llm_used,
+            "benchmark_passed": result.benchmark_passed,
+            "review_applied": result.review_applied,
+            "config_snapshot_path": result.config_snapshot_path,
+            "audit_tags": result.audit_tags,
             "timestamp": datetime.now().isoformat(),
         }
 
@@ -594,12 +674,19 @@ class CommanderRuntime:
 
     def __init__(self, cfg: CommanderConfig):
         self.cfg = cfg
+        self.config_service = EvolutionConfigService(project_root=PROJECT_ROOT, live_config=config)
+        self.instance_id = f"{socket.gethostname()}:{os.getpid()}"
+        self.runtime_state = "initialized"
+        self.current_task: Optional[dict[str, Any]] = None
+        self.last_task: Optional[dict[str, Any]] = None
+        self._task_lock = threading.Lock()
+        self._runtime_lock_acquired = False
+
         self.strategy_registry = StrategyGeneRegistry(self.cfg.strategy_dir)
         if self.cfg.strategy_dir.exists():
             self.strategy_registry.reload(create_dir=False)
 
-        self.body = InvestmentBodyService(self.cfg)
-
+        self.body = InvestmentBodyService(self.cfg, on_runtime_event=self._on_body_event)
         self.brain = BrainRuntime(
             workspace=self.cfg.workspace,
             model=self.cfg.model,
@@ -638,43 +725,122 @@ class CommanderRuntime:
         self._notify_task: Optional[asyncio.Task] = None
         self._autopilot_task: Optional[asyncio.Task] = None
 
+    def _on_body_event(self, event: str, payload: dict[str, Any]) -> None:
+        if event == "training_started":
+            self._set_runtime_state("training")
+            self.current_task = payload
+        elif event == "training_finished":
+            self.last_task = payload
+            self.current_task = None
+            self._set_runtime_state("idle")
+        self._persist_state()
+
+    def _set_runtime_state(self, state: str) -> None:
+        self.runtime_state = state
+
+    def _begin_task(self, task_type: str, source: str, **metadata: Any) -> None:
+        with self._task_lock:
+            self.current_task = {
+                "type": task_type,
+                "source": source,
+                "started_at": datetime.now().isoformat(),
+                **metadata,
+            }
+
+    def _end_task(self, status: str = "ok", **metadata: Any) -> None:
+        with self._task_lock:
+            if self.current_task is None:
+                return
+            self.last_task = {
+                **self.current_task,
+                "finished_at": datetime.now().isoformat(),
+                "status": status,
+                **metadata,
+            }
+            self.current_task = None
+
+    def _is_pid_alive(self, pid: int) -> bool:
+        if pid <= 0:
+            return False
+        try:
+            os.kill(pid, 0)
+            return True
+        except OSError:
+            return False
+
+    def _acquire_runtime_lock(self) -> None:
+        self.cfg.runtime_lock_file.parent.mkdir(parents=True, exist_ok=True)
+        if self.cfg.runtime_lock_file.exists():
+            try:
+                existing = json.loads(self.cfg.runtime_lock_file.read_text(encoding="utf-8"))
+            except Exception:
+                existing = {}
+            existing_pid = int(existing.get("pid") or 0)
+            if existing_pid and self._is_pid_alive(existing_pid):
+                raise RuntimeError(
+                    f"Commander runtime already active (pid={existing_pid}, host={existing.get('host', '')})"
+                )
+            self.cfg.runtime_lock_file.unlink(missing_ok=True)
+        payload = {
+            "pid": os.getpid(),
+            "host": socket.gethostname(),
+            "instance_id": self.instance_id,
+            "started_at": datetime.now().isoformat(),
+            "workspace": str(self.cfg.workspace),
+        }
+        self.cfg.runtime_lock_file.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        self._runtime_lock_acquired = True
+
+    def _release_runtime_lock(self) -> None:
+        if self._runtime_lock_acquired:
+            self.cfg.runtime_lock_file.unlink(missing_ok=True)
+            self._runtime_lock_acquired = False
+
     async def start(self) -> None:
         if self._started:
             return
-
         self._ensure_runtime_storage()
-        self.strategy_registry.ensure_default_templates()
-        self.strategy_registry.reload()
-        self._load_plugins(persist=False)
-        self._write_commander_identity()
+        self._begin_task("start", "system")
+        self._set_runtime_state("starting")
+        try:
+            self._acquire_runtime_lock()
+            self.strategy_registry.ensure_default_templates()
+            self.strategy_registry.reload()
+            self._load_plugins(persist=False)
+            self._write_commander_identity()
 
-        await self.cron.start()
-        if self.cfg.heartbeat_enabled:
-            await self.heartbeat.start()
-        if self.cfg.bridge_enabled:
-            await self.bridge.start()
+            await self.cron.start()
+            if self.cfg.heartbeat_enabled:
+                await self.heartbeat.start()
+            if self.cfg.bridge_enabled:
+                await self.bridge.start()
 
-        self._notify_task = asyncio.create_task(self._drain_notifications())
+            self._notify_task = asyncio.create_task(self._drain_notifications())
+            if self.cfg.autopilot_enabled:
+                self._autopilot_task = asyncio.create_task(self.body.autopilot_loop(self.cfg.training_interval_sec))
 
-        if self.cfg.autopilot_enabled:
-            self._autopilot_task = asyncio.create_task(
-                self.body.autopilot_loop(self.cfg.training_interval_sec)
-            )
-
-        self._started = True
-        self._persist_state()
+            self._started = True
+            self._set_runtime_state("idle")
+            self._end_task("ok")
+            self._persist_state()
+        except Exception:
+            self._set_runtime_state("error")
+            self._end_task("error")
+            self._release_runtime_lock()
+            self._persist_state()
+            raise
 
     async def stop(self) -> None:
         if not self._started:
             return
+        self._begin_task("stop", "system")
+        self._set_runtime_state("stopping")
 
         self.body.stop()
-
         if self._autopilot_task:
             self._autopilot_task.cancel()
             await asyncio.gather(self._autopilot_task, return_exceptions=True)
             self._autopilot_task = None
-
         if self._notify_task:
             self._notify_task.cancel()
             await asyncio.gather(self._notify_task, return_exceptions=True)
@@ -685,6 +851,9 @@ class CommanderRuntime:
         self.cron.stop()
         await self.brain.close()
         self._started = False
+        self._release_runtime_lock()
+        self._set_runtime_state("stopped")
+        self._end_task("ok")
         self._persist_state()
 
     async def ask(
@@ -695,33 +864,57 @@ class CommanderRuntime:
         chat_id: str = "direct",
     ) -> str:
         self._ensure_runtime_storage()
+        self._begin_task("ask", channel, session_key=session_key, chat_id=chat_id)
         self.memory.append(
             kind="user",
             session_key=session_key,
             content=message,
             metadata={"channel": channel, "chat_id": chat_id},
         )
-        response = await self.brain.process_direct(message, session_key=session_key)
-        self.memory.append(
-            kind="assistant",
-            session_key=session_key,
-            content=response or "",
-            metadata={"channel": channel, "chat_id": chat_id},
-        )
-        self._persist_state()
-        return response
+        self.memory.append_audit("ask_started", session_key, {"channel": channel, "chat_id": chat_id})
+        try:
+            response = await self.brain.process_direct(message, session_key=session_key)
+            self.memory.append(
+                kind="assistant",
+                session_key=session_key,
+                content=response or "",
+                metadata={"channel": channel, "chat_id": chat_id},
+            )
+            self.memory.append_audit("ask_finished", session_key, {"channel": channel, "chat_id": chat_id})
+            self._end_task("ok")
+            self._persist_state()
+            return response
+        except Exception:
+            self._end_task("error")
+            self._persist_state()
+            raise
 
     async def train_once(self, rounds: int = 1, mock: bool = False) -> dict[str, Any]:
         self._ensure_runtime_storage()
-        out = await self.body.run_cycles(rounds=rounds, force_mock=mock)
-        self._persist_state()
-        return out
+        self._begin_task("train_once", "direct", rounds=rounds, mock=mock)
+        self._set_runtime_state("training")
+        self.memory.append_audit("train_requested", "runtime:train", {"rounds": rounds, "mock": mock})
+        try:
+            out = await self.body.run_cycles(rounds=rounds, force_mock=mock, task_source="direct")
+            self._set_runtime_state("idle" if out.get("status") != "busy" else "busy")
+            self._end_task(out.get("status", "ok"), rounds=rounds, mock=mock)
+            self._persist_state()
+            return out
+        except Exception:
+            self._set_runtime_state("error")
+            self._end_task("error", rounds=rounds, mock=mock)
+            self._persist_state()
+            raise
 
     def reload_strategies(self) -> dict[str, Any]:
         self._ensure_runtime_storage()
+        self._begin_task("reload_strategies", "direct")
+        self._set_runtime_state("reloading_strategies")
         self.strategy_registry.ensure_default_templates()
         genes = self.strategy_registry.reload()
         self._write_commander_identity()
+        self._set_runtime_state("idle")
+        self._end_task("ok", gene_count=len(genes))
         self._persist_state()
         return {
             "count": len(genes),
@@ -729,8 +922,15 @@ class CommanderRuntime:
         }
 
     def status(self) -> dict[str, Any]:
+        data_status = {}
+        try:
+            from market_data.datasets import WebDatasetService
+            data_status = WebDatasetService().get_status_summary()
+        except Exception as exc:
+            data_status = {"status": "error", "error": str(exc)}
         return {
             "ts": datetime.now().isoformat(),
+            "instance_id": self.instance_id,
             "workspace": str(self.cfg.workspace),
             "strategy_dir": str(self.cfg.strategy_dir),
             "model": self.cfg.model,
@@ -738,6 +938,16 @@ class CommanderRuntime:
             "heartbeat_enabled": self.cfg.heartbeat_enabled,
             "training_interval_sec": self.cfg.training_interval_sec,
             "heartbeat_interval_sec": self.cfg.heartbeat_interval_sec,
+            "runtime": {
+                "state": self.runtime_state,
+                "started": self._started,
+                "current_task": self.current_task,
+                "last_task": self.last_task,
+                "runtime_lock_file": str(self.cfg.runtime_lock_file),
+                "runtime_lock_active": self.cfg.runtime_lock_file.exists(),
+                "training_lock_file": str(self.cfg.training_lock_file),
+                "training_lock_active": self.cfg.training_lock_file.exists(),
+            },
             "brain": {
                 "tool_count": len(self.brain.tools),
                 "session_count": self.brain.session_count,
@@ -752,6 +962,8 @@ class CommanderRuntime:
                 "enabled": len(self.strategy_registry.list_genes(only_enabled=True)),
                 "items": [g.to_dict() for g in self.strategy_registry.genes],
             },
+            "config": self.config_service.get_masked_payload(),
+            "data": data_status,
         }
 
     async def serve_forever(self, interactive: bool = False) -> None:
@@ -770,7 +982,6 @@ class CommanderRuntime:
                 print(reply)
             return
 
-        # Daemon mode: wait forever until cancelled/KeyboardInterrupt.
         while True:
             await asyncio.sleep(1)
 
@@ -806,23 +1017,16 @@ class CommanderRuntime:
         self.cfg.plugin_dir.mkdir(parents=True, exist_ok=True)
         self.cfg.bridge_inbox.mkdir(parents=True, exist_ok=True)
         self.cfg.bridge_outbox.mkdir(parents=True, exist_ok=True)
+        self.cfg.runtime_state_dir.mkdir(parents=True, exist_ok=True)
         self.memory.ensure_storage()
 
     async def _on_bridge_message(self, msg: BridgeMessage) -> str:
         session_key = msg.session_key or f"{msg.channel}:{msg.chat_id}"
-        return await self.ask(
-            msg.content,
-            session_key=session_key,
-            channel=msg.channel,
-            chat_id=msg.chat_id,
-        )
+        return await self.ask(msg.content, session_key=session_key, channel=msg.channel, chat_id=msg.chat_id)
 
     def _setup_cron_callback(self) -> None:
         async def on_cron_job(job: Any) -> str | None:
-            response = await self.ask(
-                job.message,
-                session_key=f"cron:{job.id}",
-            )
+            response = await self.ask(job.message, session_key=f"cron:{job.id}")
             if job.deliver:
                 notify = f"[cron][{job.channel}:{job.to}] {response or ''}"
                 await self._notifications.put(notify)
@@ -851,8 +1055,7 @@ class CommanderRuntime:
 
     def _build_system_prompt(self) -> str:
         return textwrap.dedent(
-            f"""\
-            You are Investment Evolution Commander.
+            f"""            You are Investment Evolution Commander.
             Brain runtime and body runtime are fused in one process.
             Workspace: {self.cfg.workspace}
             Strategy directory: {self.cfg.strategy_dir}
@@ -871,18 +1074,14 @@ class CommanderRuntime:
     def _persist_state(self) -> None:
         payload = self.status()
         self.cfg.state_file.parent.mkdir(parents=True, exist_ok=True)
-        self.cfg.state_file.write_text(
-            json.dumps(payload, ensure_ascii=False, indent=2),
-            encoding="utf-8",
-        )
+        self.cfg.state_file.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
     def _write_commander_identity(self) -> None:
         soul_file = self.cfg.workspace / "SOUL.md"
         heartbeat_file = self.cfg.workspace / "HEARTBEAT.md"
 
         soul = textwrap.dedent(
-            f"""\
-            # Investment Evolution Commander
+            f"""            # Investment Evolution Commander
 
             You are the fused commander of this runtime:
             - Brain: local brain runtime in `brain/runtime.py`
@@ -904,8 +1103,7 @@ class CommanderRuntime:
         if not heartbeat_file.exists():
             heartbeat_file.write_text(
                 textwrap.dedent(
-                    """\
-                    # HEARTBEAT TASKS
+                    """                    # HEARTBEAT TASKS
 
                     If strategy files changed or no training cycle has run recently:
                     1) call invest_status
