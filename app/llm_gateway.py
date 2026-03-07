@@ -48,6 +48,41 @@ class LLMGateway:
         if not self.api_key:
             raise LLMUnavailableError("LLM API key is empty")
 
+    def _normalized_temperature(self, temperature: float) -> float:
+        model_name = (self.model or "").lower()
+        if model_name.startswith("gpt-5") and float(temperature) != 1.0:
+            return 1.0
+        return temperature
+
+    def _has_valid_choices(self, response: Any) -> bool:
+        try:
+            choices = getattr(response, "choices", None)
+            return bool(choices) and len(choices) > 0 and getattr(choices[0], "message", None) is not None
+        except Exception:
+            return False
+
+    def _build_completion_kwargs(
+        self,
+        messages: list[dict[str, Any]],
+        temperature: float,
+        max_tokens: int,
+        tools: list[dict[str, Any]] | None = None,
+        tool_choice: str | None = None,
+    ) -> dict[str, Any]:
+        kwargs: dict[str, Any] = {
+            "model": self.model,
+            "messages": messages,
+            "api_key": self.api_key,
+            "base_url": self.api_base,
+            "temperature": self._normalized_temperature(temperature),
+            "max_tokens": max_tokens,
+            "timeout": self.timeout,
+        }
+        if tools:
+            kwargs["tools"] = tools
+            kwargs["tool_choice"] = tool_choice or "auto"
+        return kwargs
+
     def completion_raw(
         self,
         messages: list[dict[str, Any]],
@@ -58,24 +93,20 @@ class LLMGateway:
     ) -> Any:
         self.assert_available()
 
-        kwargs: dict[str, Any] = {
-            "model": self.model,
-            "messages": messages,
-            "api_key": self.api_key,
-            "base_url": self.api_base,
-            "temperature": temperature,
-            "max_tokens": max_tokens,
-            "timeout": self.timeout,
-        }
-        if tools:
-            kwargs["tools"] = tools
-            kwargs["tool_choice"] = tool_choice or "auto"
+        kwargs = self._build_completion_kwargs(messages, temperature, max_tokens, tools=tools, tool_choice=tool_choice)
 
         retries = max(1, int(self.max_retries))
         last_error: Exception | None = None
         for attempt in range(1, retries + 1):
             try:
-                return litellm.completion(**kwargs)
+                response = litellm.completion(**kwargs)
+                if self._has_valid_choices(response):
+                    return response
+                last_error = ValueError("LLM returned empty or malformed choices")
+                if attempt < retries:
+                    time.sleep(min(3, 1 * attempt))
+                    continue
+                break
             except getattr(litellm, "RateLimitError", Exception) as exc: # pragma: no cover
                 last_error = exc
                 if attempt < retries:
@@ -101,24 +132,20 @@ class LLMGateway:
     ) -> Any:
         self.assert_available()
 
-        kwargs: dict[str, Any] = {
-            "model": self.model,
-            "messages": messages,
-            "api_key": self.api_key,
-            "base_url": self.api_base,
-            "temperature": temperature,
-            "max_tokens": max_tokens,
-            "timeout": self.timeout,
-        }
-        if tools:
-            kwargs["tools"] = tools
-            kwargs["tool_choice"] = tool_choice or "auto"
+        kwargs = self._build_completion_kwargs(messages, temperature, max_tokens, tools=tools, tool_choice=tool_choice)
 
         retries = max(1, int(self.max_retries))
         last_error: Exception | None = None
         for attempt in range(1, retries + 1):
             try:
-                return await litellm.acompletion(**kwargs)
+                response = await litellm.acompletion(**kwargs)
+                if self._has_valid_choices(response):
+                    return response
+                last_error = ValueError("LLM returned empty or malformed choices")
+                if attempt < retries:
+                    await asyncio.sleep(min(3, 1 * attempt))
+                    continue
+                break
             except getattr(litellm, "RateLimitError", Exception) as exc: # pragma: no cover
                 last_error = exc
                 if attempt < retries:

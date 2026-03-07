@@ -342,12 +342,14 @@ class CommanderAgent(InvestAgent):
             code = p.get("code", "")
             if code not in valid_codes:
                 continue
+            trailing_raw = p.get("trailing_pct", 0.10)
+            trailing_pct = None if trailing_raw in (None, "", "null") else max(0.05, min(0.20, float(trailing_raw)))
             valid_positions.append({
                 "code": code,
                 "weight": max(0.03, min(0.25, float(p.get("weight", 0.15)))),
                 "stop_loss_pct": max(0.01, min(0.15, float(p.get("stop_loss_pct", 0.05)))),
                 "take_profit_pct": max(0.05, min(0.50, float(p.get("take_profit_pct", 0.15)))),
-                "trailing_pct": max(0.05, min(0.20, float(p.get("trailing_pct", 0.10)))),
+                "trailing_pct": trailing_pct,
                 "entry_method": p.get("entry_method", "market"),
                 "source": p.get("source", "commander"),
                 "reasoning": str(p.get("reasoning", "")),
