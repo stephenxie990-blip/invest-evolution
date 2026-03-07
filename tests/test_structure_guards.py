@@ -12,7 +12,7 @@ EXCLUDED_PARTS = {
     "logs",
     "outputs",
     "runtime",
-    "archive",
+    "历史归档区",
     ".learnings",
     ".trae",
 }

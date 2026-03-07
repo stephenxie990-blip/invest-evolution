@@ -9,29 +9,15 @@ __pycache__/
 .DS_Store
 
 # Runtime outputs and logs
-runtime/
-logs/
-outputs/
-server.log
-sessions/inbox/
-sessions/outbox/
+runtime/**
+!runtime/
+!runtime/README.md
 
 # Local state and downloaded data
 config/evolution.yaml
-memory/*.jsonl
 data/*.db
-archive/*.tar.gz
+历史归档区/**
+!历史归档区/
+!历史归档区/README.md
 
 # Local tooling artifacts
-workspace/HEARTBEAT.md
-workspace/memory/
-archive/
-参考项目/
-
-.learnings/
-.trae/
-
-# Session planning artifacts
-task_plan.md
-findings.md
-progress.md
