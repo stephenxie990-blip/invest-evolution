@@ -35,7 +35,7 @@ import numpy as np
 
 from config import config, PROJECT_ROOT, normalize_date
 from core import AgentTracker, compute_market_stats, make_simple_plan
-from data import DataManager, MockDataProvider
+from market_data import DataManager, MockDataProvider
 from optimization import AdaptiveSelector, LLMOptimizer, StrategyEvolutionOptimizer, EvolutionEngine
 from trading import SimulatedTrader
 from evaluation import StrategyEvaluator, BenchmarkEvaluator

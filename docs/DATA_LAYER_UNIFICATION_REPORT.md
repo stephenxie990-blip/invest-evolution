@@ -17,7 +17,7 @@
   - `metadata` → `ingestion_meta`
 
 ### Phase 1：统一仓储层
-- 新增 `data_repository.py`
+- 新增 `market_data/repository.py`
 - 建立 canonical schema：
   - `security_master`
   - `daily_bar`
@@ -26,14 +26,14 @@
 - 新增旧表导入和旧表清理能力
 
 ### Phase 2：统一写入入口
-- 新增 `data_ingestion.py`
+- 新增 `market_data/ingestion.py`
 - `DataCache.download_stock_info()` → `DataIngestionService.sync_security_master()`
 - `DataCache.download_daily_kline()` → `DataIngestionService.sync_daily_bars()`
 - `DataDownloader.download_all()` → `DataIngestionService.sync_daily_bars_from_tushare()`
 - Web `/api/data/download` 已切换到统一写入服务
 
 ### Phase 3：统一读取入口
-- 新增 `data_datasets.py`
+- 新增 `market_data/datasets.py`
 - `OfflineDataLoader` 已退化为 `TrainingDatasetBuilder` façade
 - `DataManager` 读取链路统一走 canonical schema
 - Web `/api/data/status` 已切换到 `WebDatasetService`
@@ -45,17 +45,17 @@
 
 ### Phase 5：删除旧双轨逻辑
 - 业务代码已不再直接读写 `stock_daily` / `daily_kline` / `stock_info` / `metadata`
-- `data.py` 已收敛为干净主入口，仅保留 `DataManager` / `MockDataProvider` / `EvolutionDataLoader`
+- `market_data/manager.py` 已收敛为干净主入口，仅保留 `DataManager` / `MockDataProvider` / `EvolutionDataLoader`
 - 旧类 façade 与 legacy 表清理辅助代码已删除
 - 项目运行时只认 canonical schema
 
 ## 新的模块边界
 
-- `data_repository.py`：唯一数据仓储与 schema 管理者
-- `data_ingestion.py`：唯一写入入口
-- `data_datasets.py`：训练/T0/Web 三套读取构造器
-- `data_quality.py`：结构化健康巡检
-- `data.py`：向外暴露兼容 façade、mock 数据和在线兜底
+- `market_data/repository.py`：唯一数据仓储与 schema 管理者
+- `market_data/ingestion.py`：唯一写入入口
+- `market_data/datasets.py`：训练/T0/Web 三套读取构造器
+- `market_data/quality.py`：结构化健康巡检
+- `market_data/manager.py`：向外暴露兼容 façade、mock 数据和在线兜底
 
 ## 保留与删除原则
 
@@ -80,6 +80,6 @@
 
 ## 迁移后的操作建议
 
-1. 首次同步 canonical 数据：`python data.py --source baostock --start 20180101`
+1. 首次同步 canonical 数据：`python -m market_data --source baostock --start 20180101`
 2. 确认状态：访问 Web `/api/data/status` 或调用 `DataQualityService.audit()`
 3. 旧表已执行物理清理；后续仅维护 canonical schema

@@ -2,7 +2,7 @@ import asyncio
 from types import SimpleNamespace
 from pathlib import Path
 
-from brain_runtime import BrainRuntime, BrainTool
+from brain.runtime import BrainRuntime, BrainTool
 
 
 class EchoTool(BrainTool):

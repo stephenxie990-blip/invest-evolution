@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from brain_scheduler import CronService
+from brain.scheduler import CronService
 
 
 def test_cron_service_add_remove(tmp_path: Path):

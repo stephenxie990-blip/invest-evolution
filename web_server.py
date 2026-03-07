@@ -395,7 +395,7 @@ def api_evolution_config_update():
 
 @app.route("/api/data/status", methods=["GET"])
 def api_data_status():
-    from data_datasets import WebDatasetService
+    from market_data.datasets import WebDatasetService
 
     status = WebDatasetService().get_status_summary()
     return jsonify(status)
@@ -403,7 +403,7 @@ def api_data_status():
 @app.route("/api/data/download", methods=["POST"])
 def api_data_download():
     def _do_download():
-        from data_ingestion import DataIngestionService
+        from market_data.ingestion import DataIngestionService
 
         try:
             service = DataIngestionService()

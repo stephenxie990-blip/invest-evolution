@@ -1,10 +1,10 @@
 import pandas as pd
 
 import web_server
-from data import DataManager
-from data_datasets import T0DatasetBuilder
-from data_ingestion import DataIngestionService
-from data_repository import MarketDataRepository
+from market_data import DataManager
+from market_data.datasets import T0DatasetBuilder
+from market_data.ingestion import DataIngestionService
+from market_data.repository import MarketDataRepository
 
 
 def test_data_manager_reads_canonical_schema(tmp_path):

@@ -1,8 +1,8 @@
 from pathlib import Path
 
-from brain_bridge import BridgeHub, BridgeMessage, FileBridgeChannel
-from brain_memory import MemoryStore
-from brain_plugins import PluginLoader
+from brain.bridge import BridgeHub, BridgeMessage, FileBridgeChannel
+from brain.memory import MemoryStore
+from brain.plugins import PluginLoader
 from commander import CommanderConfig, CommanderRuntime
 
 

@@ -22,14 +22,14 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional
 
-from brain_runtime import BrainRuntime
-from brain_scheduler import CronService, HeartbeatService
-from brain_tools import build_commander_tools
-from brain_memory import MemoryStore
-from brain_bridge import BridgeHub, BridgeMessage
-from brain_plugins import PluginLoader
+from brain.runtime import BrainRuntime
+from brain.scheduler import CronService, HeartbeatService
+from brain.tools import build_commander_tools
+from brain.memory import MemoryStore
+from brain.bridge import BridgeHub, BridgeMessage
+from brain.plugins import PluginLoader
 from config import PROJECT_ROOT, config
-from data import DataManager, MockDataProvider
+from market_data import DataManager, MockDataProvider
 from train import SelfLearningController, TrainingResult
 
 logger = logging.getLogger(__name__)
@@ -885,7 +885,7 @@ class CommanderRuntime:
             # Investment Evolution Commander
 
             You are the fused commander of this runtime:
-            - Brain: local brain runtime in `brain_runtime.py`
+            - Brain: local brain runtime in `brain/runtime.py`
             - Body: in-process investment engine (`*.py` modules in project root)
             - Genes: pluggable strategy files in `{self.cfg.strategy_dir}`
 

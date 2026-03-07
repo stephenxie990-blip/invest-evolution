@@ -5,7 +5,7 @@
 - `commander.py`：推荐的统一 CLI 入口，适合状态检查、守护运行、策略热重载和单轮训练。
 - `train.py`：面向训练流程本身的专用入口，适合批量 cycle 和研究型实验。
 - `web_server.py`：Flask Web 前端/API 入口，适合手动触发训练、查看状态、编辑配置和数据同步。
-- `data.py`：统一数据同步命令入口；内部已收口到 canonical 数据层。
+- `market_data/manager.py`：统一数据同步命令入口；内部已收口到 canonical 数据层。
 
 ## 从入口到执行的主链路
 
@@ -27,7 +27,7 @@
    - 暴露 `/api/status`、`/api/train`、`/api/strategies`、`/api/evolution_config`
    - 通过 `WebDatasetService` 提供 `/api/data/status`
    - 通过 `DataIngestionService` 提供 `/api/data/download`
-4. `data.py`
+4. `market_data/manager.py`
    - 仅保留 `DataManager`、`MockDataProvider`、`EvolutionDataLoader` 与数据同步 CLI
    - 训练读取直接由 `TrainingDatasetBuilder` 提供
    - T0 读取直接由 `T0DatasetBuilder` 提供
@@ -48,11 +48,11 @@
 
 ## 模块映射
 
-- `data_repository.py`：SQLite canonical schema、迁移、查询与旧表清理
-- `data_ingestion.py`：Baostock/Tushare 接入与统一写入
-- `data_datasets.py`：训练集、T0 数据集、Web 读取构造器
-- `data_quality.py`：数据覆盖率和健康检查
-- `data.py`：对外 façade、mock 数据、在线兜底和命令行同步入口
+- `market_data/repository.py`：SQLite canonical schema、迁移、查询与旧表清理
+- `market_data/ingestion.py`：Baostock/Tushare 接入与统一写入
+- `market_data/datasets.py`：训练集、T0 数据集、Web 读取构造器
+- `market_data/quality.py`：数据覆盖率和健康检查
+- `market_data/manager.py`：对外 façade、mock 数据、在线兜底和命令行同步入口
 - `core.py`：公共数据结构、指标计算、市场统计、追踪器
 - `agents.py`：各类 Agent 定义
 - `meetings.py`：选股会议与复盘会议编排

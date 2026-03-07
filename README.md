@@ -14,7 +14,7 @@ python3 -m pip install --upgrade pip
 python3 -m pip install -e ".[dev]"
 
 # 初始化统一离线库（推荐首次执行）
-python data.py --source baostock --start 20180101
+python -m market_data --source baostock --start 20180101
 
 # CLI 状态检查
 python commander.py status
@@ -35,10 +35,10 @@ python web_server.py --mock
 ## 主链路说明
 
 - `commander.py`：统一 CLI 与守护入口，负责拼装 `CommanderRuntime`、调度、Bridge、策略基因与训练执行。
-- `brain_runtime.py` + `brain_tools.py`：提供多轮推理与 tool-calling 外壳，把训练、状态、策略、记忆、定时任务暴露给 Commander。
+- `brain/runtime.py` + `brain/tools.py`：提供多轮推理与 tool-calling 外壳，把训练、状态、策略、记忆、定时任务暴露给 Commander。
 - `train.py`：训练主控制器 `SelfLearningController`，负责“加载数据 → 市场判断 → 选股会议 → 模拟交易 → 评估 → 优化”。
-- `data_repository.py` + `data_ingestion.py` + `data_datasets.py`：统一数据仓储、同步服务、训练/T0/Web 读取构造器。
-- `data.py`：保留对外 façade，统一转发到 canonical 数据层。
+- `market_data/repository.py` + `market_data/ingestion.py` + `market_data/datasets.py`：统一数据仓储、同步服务、训练/T0/Web 读取构造器。
+- `market_data/manager.py`：保留对外 façade，统一转发到 canonical 数据层。
 - `meetings.py`：`SelectionMeeting` 生成交易计划，`ReviewMeeting` 进行复盘与权重调整。
 - `trading.py`：`SimulatedTrader`、风险控制、调度执行。
 - `evaluation.py`：收益、基准、冻结与策略管理评估。
@@ -49,19 +49,19 @@ python web_server.py --mock
 ## 当前目录结构（与代码一致）
 
 - `commander.py`: 融合主入口（守护进程、调度、工具编排）
-- `brain_runtime.py`: 指挥官多轮推理 + tool-calling 运行时
-- `brain_scheduler.py`: 本地 heartbeat + interval job 调度
-- `brain_tools.py`: 投资工具注册（status/train/strategies/cron/memory/plugins）
-- `brain_memory.py`: 持久记忆存储（jsonl）
-- `brain_bridge.py`: 多通道桥接总线（file inbox/outbox）
-- `brain_plugins.py`: 插件工具加载（plugins/*.json）
+- `brain/runtime.py`: 指挥官多轮推理 + tool-calling 运行时
+- `brain/scheduler.py`: 本地 heartbeat + interval job 调度
+- `brain/tools.py`: 投资工具注册（status/train/strategies/cron/memory/plugins）
+- `brain/memory.py`: 持久记忆存储（jsonl）
+- `brain/bridge.py`: 多通道桥接总线（file inbox/outbox）
+- `brain/plugins.py`: 插件工具加载（plugins/*.json）
 - `llm_gateway.py`: 全系统唯一外部 LLM 通道（训练与指挥官共用）
 - `core.py`: 基础模型、LLMCaller、技术指标与公共能力
-- `data_repository.py`: SQLite canonical schema 与查询仓储
-- `data_ingestion.py`: Baostock/Tushare 同步写入服务
-- `data_datasets.py`: 训练集、T0 数据集、Web 状态读取
-- `data_quality.py`: 数据质量巡检
-- `data.py`: 向后兼容 façade 与命令行同步入口
+- `market_data/repository.py`: SQLite canonical schema 与查询仓储
+- `market_data/ingestion.py`: Baostock/Tushare 同步写入服务
+- `market_data/datasets.py`: 训练集、T0 数据集、Web 状态读取
+- `market_data/quality.py`: 数据质量巡检
+- `market_data/manager.py`: 向后兼容 façade 与命令行同步入口
 - `agents.py`: 多 Agent 定义（regime/trend/contrarian/commander 等）
 - `meetings.py`: 选股会议与复盘会议编排
 - `trading.py`: 交易执行与风控

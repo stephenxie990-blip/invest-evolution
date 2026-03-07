@@ -25,6 +25,7 @@ dev = ["pytest>=8.0"]
 [project.scripts]
 invest-commander = "commander:main"
 invest-train = "train:train_main"
+invest-data = "market_data.__main__:main"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -33,22 +34,12 @@ pythonpath = ["."]
 addopts = "-q"
 
 [tool.setuptools]
+packages = ["brain", "market_data"]
 py-modules = [
   "agents",
-  "brain_bridge",
-  "brain_memory",
-  "brain_plugins",
-  "brain_runtime",
-  "brain_scheduler",
-  "brain_tools",
   "commander",
   "config",
   "core",
-  "data",
-  "data_datasets",
-  "data_ingestion",
-  "data_quality",
-  "data_repository",
   "debate",
   "evaluation",
   "llm_gateway",

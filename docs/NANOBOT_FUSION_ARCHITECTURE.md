@@ -30,17 +30,17 @@
 - heartbeat 周期唤醒任务
 - cron 作业执行回调（调用融合后指挥官）
 
-5. 运行时代码统一在项目根目录
-- 新增 `brain_runtime.py`（本地 AgentLoop/Tool 调用核心）
-- 新增 `brain_scheduler.py`（本地 cron + heartbeat）
-- 新增 `brain_tools.py`（投资工具集）
+5. 运行时代码统一在明确分层的包目录
+- 新增 `brain/runtime.py`（本地 AgentLoop/Tool 调用核心）
+- 新增 `brain/scheduler.py`（本地 cron + heartbeat）
+- 新增 `brain/tools.py`（投资工具集）
 
 ## 运行架构
 
 ```mermaid
 flowchart LR
     U["User / Channel"] --> C["Commander (commander.py)"]
-    C --> B["Local Brain\nbrain_runtime + brain_tools + brain_scheduler"]
+    C --> B["Local Brain\nbrain/runtime + brain/tools + brain/scheduler"]
     C --> I["Invest Body\nSelfLearningController"]
     C --> G["Strategy Genes\nstrategies/*.md|*.json|*.py"]
 
@@ -56,11 +56,11 @@ flowchart LR
     I --> O["outputs/commander/state.json"]
 ```
 
-## 关键代码边界（统一到项目根目录）
+## 关键代码边界（按包分层）
 - 主入口: `commander.py`
-- Brain核心: `brain_runtime.py`
-- 调度核心: `brain_scheduler.py`
-- 工具核心: `brain_tools.py`
+- Brain核心: `brain/runtime.py`
+- 调度核心: `brain/scheduler.py`
+- 工具核心: `brain/tools.py`
 - 训练/评估主体: `train.py`, `evaluation.py`, `trading.py`
 
 > 说明：根目录 `nanobot-main_副本/` 现作为参考代码保留，不再是 Commander 运行时必需依赖。
