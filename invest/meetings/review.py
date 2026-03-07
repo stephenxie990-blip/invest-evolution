@@ -1,9 +1,6 @@
-import json
 import logging
-from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-from config import config
 from invest.shared import AgentTracker, LLMCaller
 
 try:
@@ -13,6 +10,77 @@ except ImportError:
     _HAS_DEBATE = False
 
 logger = logging.getLogger(__name__)
+
+_REVIEW_STRATEGIST_SYSTEM = """你是投资复盘会议中的策略分析师，负责基于已给出的交易事实总结“策略层面”的问题与改进建议。
+
+任务目标：
+1. 只基于输入事实做诊断，不编造不存在的市场事件。
+2. problems 聚焦策略缺陷、风格偏差、风险控制问题。
+3. suggestions 聚焦可执行改进，而不是空泛口号。
+
+稳定性约束：
+- 只输出一个 JSON 对象，不要输出 Markdown、代码块或额外说明。
+- problems 与 suggestions 各保留 0-4 条。
+- confidence 必须是 0 到 1 的数字。
+
+少样本示例：
+示例1（合格）
+输出：{"problems":["胜率偏低且回撤集中在追涨型交易"],"suggestions":["收紧趋势确认阈值","降低高波动标的仓位"],"confidence":0.76}
+
+负例约束：
+- 错误示例1：输出长篇复盘文章。
+- 错误示例2：直接替 Commander 做最终采纳决策。
+- 错误示例3：只说“注意风险”，却没有具体问题。
+
+严格输出：{"problems":["问题1"],"suggestions":["建议1"],"confidence":0.0}"""
+
+_REVIEW_EVO_JUDGE_SYSTEM = """你是复盘会议中的进化裁判，负责根据策略问题和近期表现，提出参数层面的调整方向。
+
+任务目标：
+1. 给出 param_adjustments。
+2. 给出 evolution_direction，只能是 aggressive / conservative / maintain。
+3. 给出简洁 suggestions 与 reasoning。
+
+稳定性约束：
+- 只输出一个 JSON 对象。
+- 不要输出未定义字段、Markdown 或解释性前缀。
+- 若没有足够证据，不要过度激进调参。
+
+少样本示例：
+示例1（合格）
+输出：{"param_adjustments":{"stop_loss_pct":0.04,"position_size":0.15},"evolution_direction":"conservative","suggestions":["先收紧止损与仓位"],"confidence":0.73,"reasoning":"连续亏损说明当前应先降风险暴露。"}
+
+负例约束：
+- 错误示例1：输出 none/unknown 等未定义方向。
+- 错误示例2：给出离谱参数，如仓位 0.9。
+- 错误示例3：没有 param_adjustments 却强行给 aggressive。
+
+严格输出：{"param_adjustments":{"stop_loss_pct":null,"take_profit_pct":null,"position_size":null},"evolution_direction":"maintain","suggestions":["建议1"],"confidence":0.0,"reasoning":"一句话说明依据"}"""
+
+_REVIEW_COMMANDER_SYSTEM = """你是复盘会议的最终指挥官，负责综合策略分析与进化评估，输出“下一轮执行层面”的采纳决策。
+
+任务目标：
+1. 产出 strategy_suggestions。
+2. 决定 param_adjustments 是否采纳。
+3. 调整 agent_weight_adjustments。
+4. reasoning 解释采纳依据。
+
+稳定性约束：
+- 只输出一个 JSON 对象。
+- 不要编造不存在的 agent 名称。
+- agent_weight_adjustments 只对输入里已有的 agent 调整。
+- 若证据偏弱，可维持权重接近 1.0，而不是极端调整。
+
+少样本示例：
+示例1（合格）
+输出：{"strategy_suggestions":["减少追高型交易"],"param_adjustments":{"position_size":0.15},"agent_weight_adjustments":{"trend_hunter":0.9,"contrarian":1.1},"reasoning":"逆向侧近期相对稳定，应小幅提高其权重。"}
+
+负例约束：
+- 错误示例1：输出 Markdown、代码块或会议纪要。
+- 错误示例2：给不存在的 agent 分配权重。
+- 错误示例3：把所有权重都拉到 2.0 以上。
+
+严格输出：{"strategy_suggestions":["建议1"],"param_adjustments":{"key":0.1},"agent_weight_adjustments":{"trend_hunter":1.0,"contrarian":1.0},"reasoning":"一句话说明依据"}"""
 
 
 class ReviewMeeting:
@@ -305,14 +373,23 @@ class ReviewMeeting:
 
     def _evo_judge_fallback(self, facts: dict) -> dict:
         adjustments, direction = {}, "maintain"
+        suggestions = []
         win_rate = facts.get("win_rate", 0.5)
         if win_rate < 0.35:
             adjustments = {"stop_loss_pct": 0.03, "position_size": 0.15}
             direction = "conservative"
+            suggestions = ["先收紧止损并降低仓位暴露"]
         elif win_rate > 0.65:
             adjustments = {"position_size": 0.25}
             direction = "aggressive"
-        return {"param_adjustments": adjustments, "evolution_direction": direction, "confidence": 0.4}
+            suggestions = ["在保持纪律前提下可小幅提高仓位"]
+        return {
+            "param_adjustments": adjustments,
+            "evolution_direction": direction,
+            "suggestions": suggestions,
+            "confidence": 0.4,
+            "reasoning": f"算法判断当前方向为 {direction}",
+        }
 
     def _commander_fallback(self, facts: dict, evo_assessment: dict) -> dict:
         weight_adjustments = {}
@@ -333,16 +410,96 @@ class ReviewMeeting:
             f"## 近期交易表现（最近{facts['total_cycles']}轮）",
             f"- 胜率: {facts['win_rate']:.0%} ({facts['wins']}胜{facts['losses']}负)",
             f"- 平均收益: {facts['avg_return']:+.2f}%",
+            f"- 会议方案胜率: {facts.get('meeting_stats', {}).get('win_rate', 0):.0%}",
+            f"- 算法方案胜率: {facts.get('algo_stats', {}).get('win_rate', 0):.0%}",
         ]
         for rg, rs in facts.get("regime_stats", {}).items():
-            lines.append(f"- {rg}: {rs['total']}轮, 胜率{rs['win_rate']:.0%}")
+            lines.append(f"- {rg}: {rs['total']}轮, 胜率{rs['win_rate']:.0%}, 平均收益{rs['avg_return']:+.2f}%")
+        if facts.get("agent_accuracy"):
+            lines.append("\n## Agent 准确率")
+            for name, stats in facts.get("agent_accuracy", {}).items():
+                lines.append(
+                    f"- {name}: 准确率{stats.get('accuracy', 0):.0%}, 交易{stats.get('traded_count', 0)}次, 平均评分{stats.get('avg_score', 0):.2f}"
+                )
         lines.append(f"\n## 当前参数\n{params}")
-        lines.append("\n请分析存在的问题，给出改进建议。")
+        lines.append("\n请基于这些事实识别策略问题并提出改进建议。")
         return "\n".join(lines)
 
+    def _build_evo_user_message(self, facts: dict, strategy_analysis: dict) -> str:
+        lines = [
+            f"## 近期表现\n- 胜率: {facts['win_rate']:.0%}\n- 平均收益: {facts['avg_return']:+.2f}%",
+            f"## 策略问题\n{strategy_analysis.get('problems', [])}",
+            f"## 策略建议\n{strategy_analysis.get('suggestions', [])}",
+            "请输出参数调整方向，保持风险口径清晰。",
+        ]
+        return "\n\n".join(lines)
+
+    def _build_commander_user_message(
+        self,
+        facts: dict,
+        strategy_analysis: dict,
+        evo_assessment: dict,
+        current_params: dict,
+    ) -> str:
+        aa = facts.get("agent_accuracy", {})
+        agent_lines = [
+            f"- {name}: 准确率{stats['accuracy']:.0%}, 盈利{stats['profitable_count']}/{stats['traded_count']}, 平均评分{stats.get('avg_score', 0):.2f}"
+            for name, stats in aa.items()
+        ]
+        return (
+            f"## 近期表现\n胜率{facts['win_rate']:.0%}，平均收益{facts['avg_return']:+.2f}%\n\n"
+            f"## Agent准确率\n" + "\n".join(agent_lines) + "\n\n"
+            f"## 策略分析师意见\n问题：{strategy_analysis.get('problems', [])}\n建议：{strategy_analysis.get('suggestions', [])}\n\n"
+            f"## 进化裁判意见\n方向：{evo_assessment.get('evolution_direction', 'maintain')}\n"
+            f"参数调整：{evo_assessment.get('param_adjustments', {})}\n"
+            f"补充建议：{evo_assessment.get('suggestions', [])}\n\n"
+            f"## 当前参数\n{current_params}\n\n"
+            "请综合以上信息，给出下一轮可执行决策。"
+        )
+    def _validate_strategy_analysis(self, result: dict) -> dict:
+        problems = result.get("problems") if isinstance(result.get("problems"), list) else []
+        suggestions = result.get("suggestions") if isinstance(result.get("suggestions"), list) else []
+        result["problems"] = [str(item).strip() for item in problems if str(item).strip()][:4]
+        result["suggestions"] = [str(item).strip() for item in suggestions if str(item).strip()][:4]
+        try:
+            result["confidence"] = max(0.0, min(1.0, float(result.get("confidence", 0.5))))
+        except (TypeError, ValueError):
+            result["confidence"] = 0.5
+        return result
+
+    def _validate_evo_assessment(self, result: dict) -> dict:
+        if not isinstance(result.get("param_adjustments"), dict):
+            result["param_adjustments"] = {}
+        clean_params = {}
+        for key, value in result.get("param_adjustments", {}).items():
+            if value is None:
+                continue
+            try:
+                value = float(value)
+            except (TypeError, ValueError):
+                continue
+            if key == "stop_loss_pct":
+                clean_params[key] = max(0.02, min(0.15, value))
+            elif key == "take_profit_pct":
+                clean_params[key] = max(0.05, min(0.50, value))
+            elif key == "position_size":
+                clean_params[key] = max(0.05, min(0.30, value))
+        result["param_adjustments"] = clean_params
+        if result.get("evolution_direction") not in {"aggressive", "conservative", "maintain"}:
+            result["evolution_direction"] = "maintain"
+        suggestions = result.get("suggestions") if isinstance(result.get("suggestions"), list) else []
+        result["suggestions"] = [str(item).strip() for item in suggestions if str(item).strip()][:4]
+        try:
+            result["confidence"] = max(0.0, min(1.0, float(result.get("confidence", 0.5))))
+        except (TypeError, ValueError):
+            result["confidence"] = 0.5
+        if not isinstance(result.get("reasoning"), str):
+            result["reasoning"] = ""
+        return result
+
     def _validate_decision(self, result: dict, facts: dict) -> dict:
-        if not isinstance(result.get("strategy_suggestions"), list):
-            result["strategy_suggestions"] = []
+        suggestions = result.get("strategy_suggestions") if isinstance(result.get("strategy_suggestions"), list) else []
+        result["strategy_suggestions"] = [str(item).strip() for item in suggestions if str(item).strip()][:6]
         if not isinstance(result.get("param_adjustments"), dict):
             result["param_adjustments"] = {}
 
@@ -352,16 +509,22 @@ class ReviewMeeting:
                 continue
             try:
                 v = float(v)
-                if k == "stop_loss_pct":    v = max(0.02, min(0.15, v))
-                elif k == "take_profit_pct": v = max(0.05, min(0.50, v))
-                elif k == "position_size":   v = max(0.05, min(0.30, v))
+                if k == "stop_loss_pct":
+                    v = max(0.02, min(0.15, v))
+                elif k == "take_profit_pct":
+                    v = max(0.05, min(0.50, v))
+                elif k == "position_size":
+                    v = max(0.05, min(0.30, v))
                 clean_params[k] = v
             except (TypeError, ValueError):
                 continue
         result["param_adjustments"] = clean_params
 
+        valid_agents = set(facts.get("agent_accuracy", {}).keys())
         clean_weights = {}
         for agent, w in result.get("agent_weight_adjustments", {}).items():
+            if valid_agents and agent not in valid_agents:
+                continue
             try:
                 clean_weights[agent] = round(max(0.3, min(2.0, float(w))), 2)
             except (TypeError, ValueError):

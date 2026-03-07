@@ -1,9 +1,6 @@
-import json
 import logging
-from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-from config import config
 from invest.shared import (
     AgentTracker,
     LLMCaller,
@@ -21,72 +18,6 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
-
-_SM_TREND_SYSTEM = "你是专业的A股趋势猎手，专注于寻找处于上升趋势的股票。"
-_SM_CONTRARIAN_SYSTEM = "你是专业的A股逆向投资者，专注于寻找被过度抛售、有反弹潜力的股票。"
-
-_SM_TREND_PROMPT = """你是一个专业的趋势交易猎手，专注于寻找A股中处于上升趋势的股票。
-
-分析依据（按重要性排序）：
-1. 均线状态：优先选择MA趋势为"多头"的股票
-2. MACD信号：优先选择"金叉"或"看多"的股票
-3. RSI水平：优先选择RSI在35-70区间的股票
-4. 近期走势：优先选择5日和20日涨幅为正的股票
-
-注意：
-- 不要设置过于严格的硬性门槛，根据整体表现综合评判
-- 必须从提供的候选列表中选择，不要编造股票代码
-
-市场背景：{regime_info}
-
-候选股票：
-{stock_table}
-
-严格以JSON格式输出：
-{{
-    "picks": [
-        {{
-            "code": "候选列表中的股票代码",
-            "score": 0.0到1.0的评分,
-            "reasoning": "一句话选择理由",
-            "stop_loss_pct": 0.03到0.07之间的止损比例,
-            "take_profit_pct": 0.10到0.25之间的止盈比例
-        }}
-    ],
-    "overall_view": "一句话总结",
-    "confidence": 0.0到1.0
-}}"""
-
-_SM_CONTRARIAN_PROMPT = """你是一个专业的逆向投资猎手，专注于寻找A股中超跌反弹机会。
-
-分析依据（按重要性排序）：
-1. RSI水平：优先选择RSI低于40的超卖股票
-2. 布林带位置：优先选择BB位置低于0.3的股票
-3. 近期跌幅：优先选择20日跌幅较大但近5日企稳的股票
-
-注意：
-- 超跌反弹的风险较大，止损应比趋势股更宽
-- 必须从提供的候选列表中选择，不要编造股票代码
-
-市场背景：{regime_info}
-
-候选股票：
-{stock_table}
-
-严格以JSON格式输出：
-{{
-    "picks": [
-        {{
-            "code": "候选列表中的股票代码",
-            "score": 0.0到1.0的评分,
-            "reasoning": "一句话选择理由",
-            "stop_loss_pct": 0.06到0.12之间的止损比例,
-            "take_profit_pct": 0.12到0.30之间的止盈比例
-        }}
-    ],
-    "overall_view": "一句话总结",
-    "confidence": 0.0到1.0
-}}"""
 
 
 class SelectionMeeting:
@@ -153,14 +84,8 @@ class SelectionMeeting:
         if not stock_summaries:
             return self._fallback_empty()
 
-        stock_table = format_stock_table(stock_summaries[:30])
-        regime_info = (
-            f"当前市场状态: {regime.get('regime', 'unknown')}, "
-            f"置信度: {regime.get('confidence', 0):.0%}"
-        )
-
         if self.llm:
-            return self._run_llm(regime_info, stock_table, top_n, regime, stock_summaries)
+            return self._run_llm(top_n, regime, stock_summaries)
         return self._run_algorithm(stock_summaries, top_n)
 
     def run_with_data(
@@ -212,8 +137,6 @@ class SelectionMeeting:
 
     def _run_llm(
         self,
-        regime_info: str,
-        stock_table: str,
         top_n: int,
         regime: Dict,
         stock_summaries: List[Dict],
@@ -284,7 +207,7 @@ class SelectionMeeting:
 
             logger.info("Debate complete: %d candidates screened", len(debate_results))
 
-        return self._aggregate(hunter_outputs, regime)
+        return self._aggregate(hunter_outputs, regime, top_n)
 
     def _run_algorithm(self, stock_summaries: List[Dict], top_n: int) -> Dict:
         sorted_stocks = sorted(stock_summaries, key=lambda x: x.get("algo_score", 0), reverse=True)
@@ -297,44 +220,100 @@ class SelectionMeeting:
             "hunters": [],
         }
 
-    def _aggregate(self, hunter_outputs: List[Dict], regime: Dict) -> Dict:
+    def _aggregate(self, hunter_outputs: List[Dict], regime: Dict, top_n: int) -> Dict:
         if not hunter_outputs:
             return self._fallback_empty()
 
         stock_scores: Dict[str, float] = {}
+        pick_meta: Dict[str, Dict[str, Any]] = {}
         all_reasons = []
 
         for hunter in hunter_outputs:
-            r = hunter["result"]
-            confidence = r.get("confidence", 0.5)
-            reason = r.get("overall_view", "")
+            source_name = hunter["name"]
+            result = hunter["result"]
+            confidence = result.get("confidence", 0.5)
+            reason = str(result.get("overall_view", "")).strip()
             if reason:
-                all_reasons.append(f"{hunter['name']}: {reason}")
+                all_reasons.append(f"{source_name}: {reason}")
 
-            picks = r.get("picks", [])
+            picks = result.get("picks", [])
             if not picks:
-                picks = [{"code": c, "score": confidence} for c in r.get("selected", [])]
+                picks = [{"code": code, "score": confidence} for code in result.get("selected", [])]
 
-            for p in picks:
-                code = p.get("code", "")
+            for pick in picks:
+                code = pick.get("code", "")
                 if not code:
                     continue
-                ws = p.get("score", confidence) * confidence
-                stock_scores[code] = stock_scores.get(code, 0) + ws
+                raw_score = float(pick.get("score", confidence) or confidence)
+                weighted_score = raw_score * confidence
+                stock_scores[code] = stock_scores.get(code, 0.0) + weighted_score
 
-        sorted_codes = sorted(stock_scores.items(), key=lambda x: x[1], reverse=True)
-        max_pos = regime.get("params", {}).get("max_positions", 2)
+                trailing_pct = pick.get("trailing_pct")
+                if trailing_pct in ("", "null"):
+                    trailing_pct = None
+                if trailing_pct is None and source_name == "trend_hunter":
+                    trailing_pct = 0.10
+
+                meta = pick_meta.setdefault(
+                    code,
+                    {
+                        "code": code,
+                        "agg_score": 0.0,
+                        "best_score": -1.0,
+                        "reasonings": [],
+                        "sources": [],
+                        "source": source_name,
+                        "stop_loss_pct": pick.get("stop_loss_pct"),
+                        "take_profit_pct": pick.get("take_profit_pct"),
+                        "trailing_pct": trailing_pct,
+                    },
+                )
+                meta["agg_score"] += weighted_score
+                if source_name not in meta["sources"]:
+                    meta["sources"].append(source_name)
+                reasoning = str(pick.get("reasoning", "")).strip()
+                if reasoning and reasoning not in meta["reasonings"]:
+                    meta["reasonings"].append(reasoning)
+                if weighted_score >= meta.get("best_score", -1.0):
+                    meta["best_score"] = weighted_score
+                    meta["source"] = source_name
+                    meta["stop_loss_pct"] = pick.get("stop_loss_pct")
+                    meta["take_profit_pct"] = pick.get("take_profit_pct")
+                    meta["trailing_pct"] = trailing_pct
+
+        sorted_codes = sorted(stock_scores.items(), key=lambda item: item[1], reverse=True)
+        max_pos = min(max(1, int(top_n)), regime.get("params", {}).get("max_positions", 2))
         final_selected = [code for code, _ in sorted_codes[:max_pos]]
 
+        selected_meta = []
+        for code in final_selected:
+            meta = pick_meta.get(code, {"code": code, "reasonings": [], "sources": []})
+            selected_meta.append(
+                {
+                    "code": code,
+                    "score": round(meta.get("agg_score", stock_scores.get(code, 0.0)), 3),
+                    "source": meta.get("source", "meeting"),
+                    "sources": meta.get("sources", []),
+                    "stop_loss_pct": meta.get("stop_loss_pct"),
+                    "take_profit_pct": meta.get("take_profit_pct"),
+                    "trailing_pct": meta.get("trailing_pct"),
+                    "reasoning": "；".join(meta.get("reasonings", [])[:2]),
+                }
+            )
+
         regime_name = regime.get("regime", "unknown")
-        hint = {"bull": "牛市环境，倾向趋势策略", "bear": "熊市，控制风险为主"}.get(regime_name, "震荡市，灵活配置")
-        reasoning = f"{hint}。{' '.join(all_reasons)}"
+        hint = {
+            "bull": "牛市环境，倾向趋势策略",
+            "bear": "熊市环境，控制风险为主",
+        }.get(regime_name, "震荡市，灵活配置")
+        reasoning = f"{hint}。{' '.join(all_reasons)}".strip()
 
         return {
             "selected": final_selected,
+            "selected_meta": selected_meta,
             "reasoning": reasoning,
             "confidence": (
-                sum(s for _, s in sorted_codes[:len(final_selected)]) / max(len(final_selected), 1)
+                sum(score for _, score in sorted_codes[: len(final_selected)]) / max(len(final_selected), 1)
             ),
             "source": "llm",
             "hunters": hunter_outputs,
@@ -343,30 +322,44 @@ class SelectionMeeting:
     def _to_trading_plan(
         self, meeting_result: Dict[str, Any], regime: Dict[str, Any], date: str
     ) -> TradingPlan:
-        selected = meeting_result.get("selected", [])
+        selected_meta = meeting_result.get("selected_meta") or [
+            {"code": code} for code in meeting_result.get("selected", [])
+        ]
         max_positions = regime.get("params", {}).get("max_positions", 2)
         regime_params = regime.get("params", {})
+        suggested_exposure = float(regime.get("suggested_exposure", 0.7) or 0.7)
+        cash_reserve = round(max(0.0, min(0.7, 1.0 - suggested_exposure)), 3)
+        available_weight = max(0.0, 1.0 - cash_reserve)
+        default_weight = round(min(0.25, available_weight / max(len(selected_meta), 1)), 3) if selected_meta else 0.20
 
-        positions = [
-            PositionPlan(
-                code=code,
-                priority=i + 1,
-                weight=0.20,
-                entry_method="market",
-                stop_loss_pct=regime_params.get("stop_loss_pct", 0.05),
-                take_profit_pct=regime_params.get("take_profit_pct", 0.15),
-                trailing_pct=0.10,
-                max_hold_days=30,
-                reason=meeting_result.get("reasoning", "选股会议推荐"),
-                source="meeting",
+        positions = []
+        for i, item in enumerate(selected_meta):
+            source = str(item.get("source", "meeting"))
+            trailing_pct = item.get("trailing_pct")
+            if trailing_pct is None and source == "trend_hunter":
+                trailing_pct = 0.10
+            if trailing_pct is not None:
+                trailing_pct = max(0.05, min(0.20, float(trailing_pct)))
+
+            positions.append(
+                PositionPlan(
+                    code=item["code"],
+                    priority=i + 1,
+                    weight=default_weight,
+                    entry_method="market",
+                    stop_loss_pct=max(0.01, min(0.15, float(item.get("stop_loss_pct", regime_params.get("stop_loss_pct", 0.05))))),
+                    take_profit_pct=max(0.05, min(0.50, float(item.get("take_profit_pct", regime_params.get("take_profit_pct", 0.15))))),
+                    trailing_pct=trailing_pct,
+                    max_hold_days=30,
+                    reason=str(item.get("reasoning") or meeting_result.get("reasoning", "选股会议推荐")),
+                    source=source,
+                )
             )
-            for i, code in enumerate(selected)
-        ]
 
         return TradingPlan(
             date=date,
             positions=positions,
-            cash_reserve=0.30,
+            cash_reserve=cash_reserve,
             max_positions=max_positions,
             source=meeting_result.get("source", "algorithm"),
             reasoning=meeting_result.get("reasoning", ""),
