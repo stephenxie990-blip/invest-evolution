@@ -1,30 +1,22 @@
-"""兼容层：历史 `invest.optimization` 已拆分为 `invest.selection` 与 `invest.evolution`。"""
-
-from .selection import (
-    StockSelector,
-    AdaptiveSelector,
-    FactorResult,
-    DynamicFactorWeight,
-    AlphaFactorModel,
-    RiskFactorModel,
-)
-from .evolution import (
-    AnalysisResult,
-    LLMOptimizer,
-    Individual,
-    EvolutionEngine,
+from .llm_optimizer import AnalysisResult, LLMOptimizer
+from .engine import Individual, EvolutionEngine
+from .orchestrator import (
     StrategyEvolutionOptimizer,
     FrozenStrategy,
     EnsembleSignal,
     StrategyLibrary,
     DynamicWeightAllocator,
     StrategyEnsemble,
+)
+from .optimizers import (
     OptimizedParams,
     GaussianProcessModel,
     BayesianOptimizer,
     GeneticOptimizer,
     RobustnessValidator,
     ThreeStageOptimizer,
+)
+from .analyzers import (
     TradeDetail,
     FactorPerformance,
     StopLossAnalysis,
@@ -35,12 +27,6 @@ from .evolution import (
 )
 
 __all__ = [
-    "StockSelector",
-    "AdaptiveSelector",
-    "FactorResult",
-    "DynamicFactorWeight",
-    "AlphaFactorModel",
-    "RiskFactorModel",
     "AnalysisResult",
     "LLMOptimizer",
     "Individual",

@@ -35,9 +35,10 @@ import numpy as np
 
 from config import OUTPUT_DIR, PROJECT_ROOT, config, normalize_date
 from config.services import EvolutionConfigService
-from invest.core import AgentTracker, compute_market_stats, make_simple_plan
+from invest.shared import AgentTracker, LLMCaller, compute_market_stats, make_simple_plan
 from market_data import DataManager, MockDataProvider
-from invest.optimization import AdaptiveSelector, LLMOptimizer, StrategyEvolutionOptimizer, EvolutionEngine
+from invest.selection import AdaptiveSelector
+from invest.evolution import LLMOptimizer, StrategyEvolutionOptimizer, EvolutionEngine
 from invest.trading import SimulatedTrader
 from invest.evaluation import StrategyEvaluator, BenchmarkEvaluator
 from invest.agents import (
@@ -212,7 +213,6 @@ class SelfLearningController:
         self.data_manager      = DataManager(data_provider=data_provider)
 
         # Agent 团队 & 会议组件
-        from invest.core import LLMCaller
         self.llm_caller = LLMCaller()
         
         self.agents = {

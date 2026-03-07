@@ -1,54 +1,19 @@
-# Task Plan: 投资进化系统模块运转审查
+# invest/ legacy 清零执行计划（已完成）
 
-## Goal
-基于仓库代码，审查 `market_data/`、`invest/`、`brain/`、`commander.py`、`web_server.py` 的职责边界、调用链、数据流和依赖关系，并给出结构化结论。
+## 目标
+清空 `invest/` 各子包中的 `legacy.py` / `_optimization_legacy.py`，让新目录结构承载真实实现，而不是继续依赖历史实现缓冲层。
 
-## Current Phase
-Phase 1
+## 已完成阶段
+- [x] `shared/`：真实实现落入 `llm.py`、`contracts.py`、`indicators.py`、`summaries.py`、`tracking.py`
+- [x] `agents/`：真实实现落入 `base.py`、`regime.py`、`hunters.py`、`reviewers.py`
+- [x] `meetings/`：真实实现落入 `selection.py`、`review.py`、`recorder.py`
+- [x] `trading/`：真实实现落入 `contracts.py`、`risk.py`、`helpers.py`、`engine.py`
+- [x] `evaluation/`：真实实现落入 `cycle.py`、`benchmark.py`、`freeze.py`、`reports.py`
+- [x] `selection/ + evolution/`：真实实现落入 `selectors.py`、`factors.py`、`risk_models.py`、`llm_optimizer.py`、`engine.py`、`orchestrator.py`、`optimizers.py`、`analyzers.py`
+- [x] 删除全部 `legacy.py` 与 `invest/_optimization_legacy.py`
+- [x] 完成全量回归测试
 
-## Phases
-### Phase 1: Requirements & Discovery
-- [x] Understand user intent
-- [x] Identify constraints and requirements
-- [ ] Document findings in findings.md
-- **Status:** in_progress
-
-### Phase 2: Entry Points & Structure
-- [ ] Identify startup entrypoints
-- [ ] Map core packages and files
-- [ ] Document initial dependencies
-- **Status:** pending
-
-### Phase 3: Call Graph & Data Flow
-- [ ] Trace runtime assembly path
-- [ ] Trace business workflows and data handoff
-- [ ] Trace API/UI exposure path
-- **Status:** pending
-
-### Phase 4: Synthesis & Verification
-- [ ] Summarize architecture and dependency directions
-- [ ] Validate conclusions against code references
-- [ ] Note risks / coupling points
-- **Status:** pending
-
-### Phase 5: Delivery
-- [ ] Deliver concise review to user
-- **Status:** pending
-
-## Key Questions
-1. 系统从启动到对外服务的主路径是什么？
-2. `brain/` 与 `invest/` 是如何装配成统一 runtime 的？
-3. `market_data/` 的事实数据如何进入投资决策链路？
-4. API/UI 调用最终落到哪些核心对象与方法？
-5. 当前模块依赖是单向分层还是存在回流耦合？
-
-## Decisions Made
-| Decision | Rationale |
-|----------|-----------|
-| 使用文件化审查记录 | 任务涉及多目录多入口，便于跨多次查看保持上下文 |
-| 以入口文件为主线追踪 | 先抓 runtime 装配和服务暴露，再下钻到业务流最稳妥 |
-
-## Errors Encountered
-| Error | Attempt | Resolution |
-|-------|---------|------------|
-| `python` command not found when running skill helper | 1 | Switch to `python3` or shell-native file creation |
+## 结果
+- `invest/` 目录已不再存在 `legacy.py`
+- 新包结构已承载真实业务代码
+- 兼容层仅保留在对外入口 `invest/core.py`、`invest/optimization.py`

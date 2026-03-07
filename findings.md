@@ -1,36 +1,17 @@
-# Findings: 投资进化系统模块运转审查
+# invest/ legacy 清零发现
 
-## Task Context
-- 目标是审查模块职责、数据流、调用关系、依赖边界，不修改业务逻辑。
-- 用户已给出高层边界假设，需要用代码验证与细化。
+## 结果结论
+- 本轮已从“目录治理”进入“实现治理”：新目录不再只是 re-export 壳层，而是承载真实实现。
+- `legacy.py` 的主要作用曾是迁移缓冲层；现在该阶段已完成，可以物理删除。
+- 当前 `invest/` 已进入更干净的稳态：真实实现按子域落位，对外兼容入口保留在少量稳定壳层中。
 
-## Architecture Findings
-| Finding | Evidence |
-|---------|----------|
-| 待补充 | 待补充 |
+## 结构收益
+- 共享能力集中在 `shared/`，不再依赖单个大公共文件。
+- Agent、会议、交易、评估、选股、进化的实现边界比上一轮更真实，不再只是名义分包。
+- 后续继续深拆时，可以按单文件优化，而不需要先处理 legacy 迁移包袱。
 
-## Code Patterns
-| Pattern | Location | Notes |
-|---------|----------|-------|
-| 待补充 | 待补充 | 待补充 |
-
-## Decisions & Rationale
-| Decision | Rationale |
-|----------|-----------|
-| 先审查入口，再审查目录内部 | 便于建立从外到内的调用图 |
-
-## Issues Encountered
-| Issue | Resolution |
-|-------|------------|
-| `python` 不可用，技能脚本无法直接运行 | 改用 `python3`/shell，继续人工建立 planning files |
-
-## Resources
-- `README.md`
-- `commander.py`
-- `web_server.py`
-- `brain/`
-- `invest/`
-- `market_data/`
-
-## Visual/Browser Findings
-- 本次任务未使用浏览器或图片/PDF查看。
+## 后续建议
+- 下一轮若继续洁癖式治理，重点应转向：
+  1. 缩减超大实现文件的体量
+  2. 统一同层模块的导入风格
+  3. 对 `app/` 与 `invest/` 之间的调用面继续收口
