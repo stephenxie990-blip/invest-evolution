@@ -1,8 +1,19 @@
-# invest/ legacy 清零进度
+# 审查收口进度（归档）
 
-- 已完成 `shared/` 真实实现迁移，并删除 `invest/shared/legacy.py`。
-- 已完成 `agents/`、`meetings/` 真实实现迁移，并删除对应 `legacy.py`。
-- 已完成 `trading/`、`evaluation/` 真实实现迁移，并删除对应 `legacy.py`。
-- 已完成 `selection/`、`evolution/` 真实实现迁移，并删除 `invest/_optimization_legacy.py`。
-- 已修复迁移过程中暴露的少量导入/装饰器缺失问题。
-- 已完成全量 `pytest` 回归，当前通过。
+归档时间：2026-03-07
+状态：全部完成
+
+## 已完成
+- 已完成仓库结构、真实入口、数据层、训练主链、brain 调度、配置治理与测试覆盖审查。
+- 已完成 README / 主流程文档 / 架构文档对齐。
+- 已完成 `pyproject.toml` 打包修复与安装校验。
+- 已完成训练副产物路径治理，并统一到 `Web / Commander / Train` 共用配置。
+- 已完成相关测试补充与回归验证。
+
+## 验证结果
+- `pytest -q` 全量通过。
+- `python -m pip install -e '.[dev]'` 通过。
+
+## 当前结论
+- 本轮“重新审查 + 工程收口”任务已经结束。
+- 当前文件保留为归档摘要，不再作为活跃进度文档继续滚动更新。

@@ -1,19 +1,21 @@
-# invest/ legacy 清零执行计划（已完成）
+# 审查任务归档
 
-## 目标
-清空 `invest/` 各子包中的 `legacy.py` / `_optimization_legacy.py`，让新目录结构承载真实实现，而不是继续依赖历史实现缓冲层。
+归档时间：2026-03-07
+状态：Closed
 
 ## 已完成阶段
-- [x] `shared/`：真实实现落入 `llm.py`、`contracts.py`、`indicators.py`、`summaries.py`、`tracking.py`
-- [x] `agents/`：真实实现落入 `base.py`、`regime.py`、`hunters.py`、`reviewers.py`
-- [x] `meetings/`：真实实现落入 `selection.py`、`review.py`、`recorder.py`
-- [x] `trading/`：真实实现落入 `contracts.py`、`risk.py`、`helpers.py`、`engine.py`
-- [x] `evaluation/`：真实实现落入 `cycle.py`、`benchmark.py`、`freeze.py`、`reports.py`
-- [x] `selection/ + evolution/`：真实实现落入 `selectors.py`、`factors.py`、`risk_models.py`、`llm_optimizer.py`、`engine.py`、`orchestrator.py`、`optimizers.py`、`analyzers.py`
-- [x] 删除全部 `legacy.py` 与 `invest/_optimization_legacy.py`
-- [x] 完成全量回归测试
+- [x] Phase 1: 盘点当前仓库结构与真实入口
+- [x] Phase 2: 审查数据层、数据流与训练主链路
+- [x] Phase 3: 审查 invest/ 与 brain/ 的职责边界与调用关系
+- [x] Phase 4: 审查配置、runtime、兼容壳与治理约束
+- [x] Phase 5: 审查测试覆盖与主要风险点
+- [x] Phase 6: 输出完整审查结论与下一步建议
 
-## 结果
-- `invest/` 目录已不再存在 `legacy.py`
-- 新包结构已承载真实业务代码
-- 兼容层仅保留在对外入口 `invest/core.py`、`invest/optimization.py`
+## 本轮产出
+- 审计结论：`docs/项目审计0307.md`
+- 去兼容化归档：`docs/COMPAT_CLEANUP_REPORT.md`
+- 收口摘要：`findings.md`、`progress.md`
+
+## 说明
+- 本文件已从“执行计划”转换为“任务归档”。
+- 若后续开启新一轮重构，请新建新的任务计划文件，不再在本文件上继续追加过程记录。
