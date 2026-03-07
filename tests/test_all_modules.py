@@ -187,6 +187,7 @@ def test_llm_caller_json_parsing():
         ('{"key": "value"}', {"key": "value"}),
         ('```json\n{"key": "value"}\n```', {"key": "value"}),
         ('prefix {"key": "value"} suffix', {"key": "value"}),
+        ('\n{"key": "value"}}', {"key": "value"}),
         ('no json here', None),  # 应该返回 _parse_error
         ('', None),
     ]

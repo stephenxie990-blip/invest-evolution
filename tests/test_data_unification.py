@@ -163,3 +163,52 @@ def test_web_data_download_uses_unified_ingestion_service(monkeypatch):
     assert res.status_code == 200
     assert res.get_json()["status"] == "started"
     assert calls == ["security", "daily"]
+
+
+def test_data_manager_diagnose_training_data_reports_empty_repository(tmp_path):
+    manager = DataManager(db_path=str(tmp_path / "empty.db"))
+
+    diagnostics = manager.diagnose_training_data("20240105", stock_count=20, min_history_days=60)
+
+    assert diagnostics["ready"] is False
+    assert diagnostics["eligible_stock_count"] == 0
+    assert any("daily_bar" in issue for issue in diagnostics["issues"])
+    assert any("python3 -m market_data" in item for item in diagnostics["suggestions"])
+
+
+def test_data_manager_diagnose_training_data_reports_eligible_counts(tmp_path):
+    db_path = tmp_path / "diagnostics.db"
+    repo = MarketDataRepository(db_path)
+    repo.initialize_schema()
+    repo.upsert_security_master([
+        {"code": "sh.600010", "name": "Foo", "list_date": "20200101", "source": "test"},
+        {"code": "sh.600011", "name": "Bar", "list_date": "20200101", "source": "test"},
+    ])
+    bars = []
+    dates = pd.date_range("2023-10-09", periods=80, freq="B")
+    for code, base in [("sh.600010", 10.0), ("sh.600011", 20.0)]:
+        for idx, trade_date in enumerate(dates, start=1):
+            close = base + idx * 0.1
+            bars.append(
+                {
+                    "code": code,
+                    "trade_date": trade_date.strftime("%Y%m%d"),
+                    "open": close - 0.1,
+                    "high": close + 0.1,
+                    "low": close - 0.2,
+                    "close": close,
+                    "volume": 1000 + idx,
+                    "amount": 5000 + idx,
+                    "pct_chg": 0.5,
+                    "turnover": 2.0,
+                    "source": "test",
+                }
+            )
+    repo.upsert_daily_bars(bars)
+
+    manager = DataManager(db_path=str(db_path))
+    diagnostics = manager.diagnose_training_data("20240105", stock_count=5, min_history_days=60)
+
+    assert diagnostics["ready"] is True
+    assert diagnostics["eligible_stock_count"] == 2
+    assert any("低于目标 5 只" in issue for issue in diagnostics["issues"])

@@ -288,6 +288,30 @@ class MarketDataRepository:
             row = conn.execute("SELECT COUNT(DISTINCT code) FROM daily_bar WHERE adj_flag='hfq'").fetchone()
         return int(row[0]) if row else 0
 
+    def count_codes_with_history(
+        self,
+        cutoff_date: str,
+        min_history_days: int,
+        adj_flag: str = "hfq",
+    ) -> int:
+        self.initialize_schema()
+        cutoff = normalize_date(cutoff_date)
+        with self.connect() as conn:
+            row = conn.execute(
+                """
+                SELECT COUNT(*)
+                FROM (
+                    SELECT code
+                    FROM daily_bar
+                    WHERE trade_date <= ? AND adj_flag = ?
+                    GROUP BY code
+                    HAVING COUNT(*) >= ?
+                ) eligible
+                """,
+                (cutoff, adj_flag, max(1, int(min_history_days))),
+            ).fetchone()
+        return int(row[0]) if row and row[0] is not None else 0
+
     def select_codes_with_history(
         self,
         cutoff_date: str,

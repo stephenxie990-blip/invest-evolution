@@ -1,6 +1,7 @@
 """投资进化系统 - 干净的数据主入口。"""
 
 import argparse
+import json
 import logging
 import os
 import random
@@ -14,6 +15,7 @@ import pandas as pd
 from config import PROJECT_ROOT, config, normalize_date
 from .datasets import T0DatasetBuilder, TrainingDatasetBuilder
 from .ingestion import DataIngestionService
+from .quality import DataQualityService
 
 logger = logging.getLogger(__name__)
 
@@ -106,6 +108,14 @@ class DataProvider(Protocol):
     def random_cutoff_date(self, min_date: str = "20180101", max_date: str | None = None) -> str:
         ...
 
+    def diagnose_training_data(
+        self,
+        cutoff_date: str,
+        stock_count: int = 50,
+        min_history_days: int = 200,
+    ) -> dict[str, object]:
+        ...
+
     def load_stock_data(
         self,
         cutoff_date: str,
@@ -138,6 +148,32 @@ class MockDataProvider:
         if len(self._dates) < (self._seed_cutoff_min + self._seed_cutoff_tail + 1):
             return self._dates[-1] if self._dates else "20231201"
         return random.choice(self._dates[self._seed_cutoff_min : -self._seed_cutoff_tail])
+
+    def diagnose_training_data(
+        self,
+        cutoff_date: str,
+        stock_count: int = 50,
+        min_history_days: int = 200,
+    ) -> dict[str, object]:
+        cutoff = normalize_date(cutoff_date)
+        eligible_count = 0
+        for df in self.data.values():
+            if int((df["trade_date"] <= cutoff).sum()) >= max(1, int(min_history_days)):
+                eligible_count += 1
+        dates = self._dates or [None]
+        return {
+            "cutoff_date": cutoff,
+            "target_stock_count": max(1, int(stock_count)),
+            "min_history_days": int(min_history_days),
+            "eligible_stock_count": eligible_count,
+            "ready": eligible_count > 0,
+            "issues": [],
+            "suggestions": [],
+            "offline_available": False,
+            "status": {"stock_count": len(self.data), "kline_count": sum(len(df) for df in self.data.values())},
+            "date_range": {"min": dates[0], "max": dates[-1]},
+            "quality_checks": {},
+        }
 
     def load_stock_data(
         self,
@@ -211,7 +247,9 @@ class EvolutionDataLoader:
                 df["turnover"] = pd.to_numeric(df.get("turn"), errors="coerce")
                 for column in ("open", "high", "low", "close", "volume", "amount"):
                     df[column] = pd.to_numeric(df[column], errors="coerce")
-                stock_data[code] = df[["date", "trade_date", "open", "high", "low", "close", "volume", "amount", "pct_chg", "turnover", "code"]]
+                stock_data[code] = df[
+                    ["date", "trade_date", "open", "high", "low", "close", "volume", "amount", "pct_chg", "turnover", "code"]
+                ]
         finally:
             bs.logout()
 
@@ -232,6 +270,7 @@ class DataManager:
         self._online: Optional[EvolutionDataLoader] = None
         self._prefer_offline = prefer_offline
         self.last_source: str = "unknown"
+        self.last_diagnostics: dict[str, object] = {}
 
         if not self._offline.available:
             logger.info("离线数据库不可用，将使用在线数据源或模拟数据")
@@ -256,6 +295,62 @@ class DataManager:
 
         return _random_cutoff_date(min_date, max_date, config.min_history_days)
 
+    def diagnose_training_data(
+        self,
+        cutoff_date: str,
+        stock_count: int = 50,
+        min_history_days: int = 200,
+    ) -> dict[str, object]:
+        if self._provider is not None:
+            diagnostics = self._provider.diagnose_training_data(cutoff_date, stock_count, min_history_days)
+            self.last_diagnostics = diagnostics
+            return diagnostics
+
+        cutoff = normalize_date(cutoff_date)
+        quality = DataQualityService(repository=self._offline.repository).audit()
+        status = quality["status"]
+        date_range = quality["date_range"]
+        eligible_count = self._offline.repository.count_codes_with_history(
+            cutoff_date=cutoff,
+            min_history_days=min_history_days,
+        )
+        target_stock_count = max(1, int(stock_count))
+        issues: list[str] = []
+        suggestions: list[str] = []
+
+        if status["stock_count"] <= 0:
+            issues.append("security_master 为空")
+            suggestions.append("先执行 python3 -m market_data --source baostock --start 20180101 初始化股票主数据")
+        if status["kline_count"] <= 0:
+            issues.append("daily_bar 为空")
+            suggestions.append("先执行 python3 -m market_data --source baostock --start 20180101 下载历史日线")
+        if status["kline_count"] > 0 and eligible_count <= 0:
+            issues.append(f"截至 {cutoff} 没有股票满足至少 {int(min_history_days)} 个交易日历史")
+            suggestions.append("降低 min_history_days，或把 start 日期调早后重新补数")
+        if eligible_count > 0 and eligible_count < target_stock_count:
+            issues.append(f"满足历史长度要求的股票只有 {eligible_count} 只，低于目标 {target_stock_count} 只")
+            suggestions.append("扩大数据覆盖范围，或临时下调 max_stocks")
+        if date_range.get("max") and date_range["max"] < cutoff:
+            issues.append(f"离线库最新日期 {date_range['max']} 早于训练截断日 {cutoff}")
+            suggestions.append("补齐最近日线，避免训练截断日超出离线库覆盖范围")
+
+        ready = status["kline_count"] > 0 and eligible_count > 0
+        diagnostics = {
+            "cutoff_date": cutoff,
+            "target_stock_count": target_stock_count,
+            "min_history_days": int(min_history_days),
+            "eligible_stock_count": eligible_count,
+            "ready": ready,
+            "issues": issues,
+            "suggestions": suggestions,
+            "offline_available": self._offline.available,
+            "status": status,
+            "date_range": date_range,
+            "quality_checks": quality["checks"],
+        }
+        self.last_diagnostics = diagnostics
+        return diagnostics
+
     def load_stock_data(
         self,
         cutoff_date: str,
@@ -273,6 +368,11 @@ class DataManager:
             )
 
         if self._prefer_offline and self._offline.available:
+            offline_diagnostics = self.diagnose_training_data(
+                cutoff_date=cutoff_date,
+                stock_count=stock_count,
+                min_history_days=min_history_days,
+            )
             stock_data = self._offline.get_stocks(
                 cutoff_date=cutoff_date,
                 stock_count=stock_count,
@@ -282,6 +382,13 @@ class DataManager:
             if stock_data:
                 self.last_source = "offline"
                 return stock_data
+            logger.warning(
+                "离线数据未命中: cutoff=%s eligible=%s target=%s issues=%s",
+                offline_diagnostics["cutoff_date"],
+                offline_diagnostics["eligible_stock_count"],
+                offline_diagnostics["target_stock_count"],
+                "; ".join(str(x) for x in offline_diagnostics["issues"]) or "none",
+            )
 
         if self._online is None:
             try:
@@ -321,19 +428,36 @@ def _cli_main():
     parser.add_argument("--token", type=str, default=None, help="Tushare Token")
     parser.add_argument("--test", action="store_true", help="测试模式（只下3只）")
     parser.add_argument("--source", choices=["baostock", "tushare"], default="baostock", help="数据源")
+    parser.add_argument("--status", action="store_true", help="输出当前离线库审计结果并退出")
+    parser.add_argument("--cutoff", type=str, default=None, help="配合 --status 输出训练截断日诊断")
+    parser.add_argument("--min-history-days", type=int, default=None, help="配合 --status 指定最小历史天数")
     args = parser.parse_args()
+
+    if args.status:
+        manager = DataManager()
+        payload = DataQualityService(repository=manager._offline.repository).audit()
+        if args.cutoff:
+            payload["training_readiness"] = manager.diagnose_training_data(
+                cutoff_date=args.cutoff,
+                stock_count=args.stocks,
+                min_history_days=args.min_history_days or config.min_history_days,
+            )
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
+        return
 
     service = DataIngestionService(tushare_token=args.token)
     if args.source == "baostock":
-        service.sync_security_master()
-        service.sync_daily_bars(start_date=args.start, end_date=args.end)
+        security = service.sync_security_master()
+        daily = service.sync_daily_bars(start_date=args.start, end_date=args.end)
+        print(json.dumps({"security": security, "daily": daily}, ensure_ascii=False, indent=2))
     else:
-        service.sync_daily_bars_from_tushare(
+        daily = service.sync_daily_bars_from_tushare(
             start_date=args.start,
             end_date=args.end,
             stock_limit=args.stocks,
             test_mode=args.test,
         )
+        print(json.dumps({"daily": daily}, ensure_ascii=False, indent=2))
 
 
 if __name__ == "__main__":

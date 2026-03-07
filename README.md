@@ -14,22 +14,25 @@ python3 -m pip install --upgrade pip
 python3 -m pip install -e ".[dev]"
 
 # 初始化统一离线库（推荐首次执行）
-python -m market_data --source baostock --start 20180101
+python3 -m market_data --source baostock --start 20180101
+
+# 检查离线库状态 / 训练可用性
+python3 -m market_data --status --cutoff 20241231 --stocks 200
 
 # CLI 状态检查
-python commander.py status
+python3 commander.py status
 
 # 查看并热重载策略基因
-python commander.py strategies --reload
+python3 commander.py strategies --reload
 
 # 单轮训练（mock）
-python commander.py train-once --rounds 1 --mock
+python3 commander.py train-once --rounds 1 --mock
 
 # 常驻运行
-python commander.py run
+python3 commander.py run
 
 # Web 前端
-python web_server.py --mock
+python3 web_server.py --mock
 ```
 
 ## 主链路说明

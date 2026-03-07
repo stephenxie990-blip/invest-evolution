@@ -295,16 +295,35 @@ class SelfLearningController:
         logger.info(f"截断日期: {cutoff_date}")
 
         logger.info("加载数据...")
+        min_history_days = max(30, int(getattr(config, "min_history_days", 200)))
+        diagnostics = self.data_manager.diagnose_training_data(
+            cutoff_date=cutoff_date,
+            stock_count=config.max_stocks,
+            min_history_days=min_history_days,
+        )
+        if not diagnostics.get("ready", False):
+            logger.warning(
+                "训练前数据诊断: eligible=%s target=%s range=%s~%s issues=%s",
+                diagnostics.get("eligible_stock_count", 0),
+                diagnostics.get("target_stock_count", 0),
+                diagnostics.get("date_range", {}).get("min"),
+                diagnostics.get("date_range", {}).get("max"),
+                "；".join(diagnostics.get("issues", [])) or "none",
+            )
+
         stock_data = self.data_manager.load_stock_data(
             cutoff_date,
             stock_count=config.max_stocks,
-            min_history_days=200,
+            min_history_days=min_history_days,
             include_future_days=max(30, getattr(config, "simulation_days", 30)),
         )
         data_mode = getattr(self.data_manager, "last_source", "unknown")
 
         if not stock_data:
-            logger.error("没有加载到数据")
+            latest = getattr(self.data_manager, "last_diagnostics", diagnostics)
+            logger.error("没有加载到数据: %s", "；".join(latest.get("issues", [])) or "未知原因")
+            for suggestion in latest.get("suggestions", []):
+                logger.error("建议: %s", suggestion)
             return None
 
         logger.info("Agent 开会讨论选股...")

@@ -118,22 +118,64 @@ class LLMCaller:
         if not text or not text.strip():
             return {"_parse_error": True, "_raw": "", "_error": "llm_unavailable_or_empty"}
 
+        candidates: list[str] = []
+
         block_match = re.search(r"```(?:json)?\s*\n?(.*?)\n?\s*```", text, re.DOTALL)
         if block_match:
-            try:
-                return json.loads(block_match.group(1).strip())
-            except json.JSONDecodeError:
-                pass
+            candidates.append(block_match.group(1).strip())
+
+        candidates.extend(self._extract_balanced_json_objects(text))
 
         brace_match = re.search(r"\{.*\}", text, re.DOTALL)
         if brace_match:
+            candidates.append(brace_match.group())
+
+        seen: set[str] = set()
+        for candidate in candidates:
+            candidate = candidate.strip()
+            if not candidate or candidate in seen:
+                continue
+            seen.add(candidate)
             try:
-                return json.loads(brace_match.group())
+                return json.loads(candidate)
             except json.JSONDecodeError:
-                pass
+                continue
 
         logger.warning("Failed to parse JSON from LLM response: %s...", text[:200])
         return {"_parse_error": True, "_raw": text}
+
+    @staticmethod
+    def _extract_balanced_json_objects(text: str) -> list[str]:
+        results: list[str] = []
+        in_string = False
+        escape = False
+        depth = 0
+        start = -1
+
+        for idx, ch in enumerate(text):
+            if escape:
+                escape = False
+                continue
+            if ch == "\\":
+                escape = True
+                continue
+            if ch == '"':
+                in_string = not in_string
+                continue
+            if in_string:
+                continue
+            if ch == '{':
+                if depth == 0:
+                    start = idx
+                depth += 1
+            elif ch == '}':
+                if depth == 0:
+                    continue
+                depth -= 1
+                if depth == 0 and start >= 0:
+                    results.append(text[start:idx + 1])
+                    start = -1
+        return results
 
     def get_stats(self) -> dict:
         return {
