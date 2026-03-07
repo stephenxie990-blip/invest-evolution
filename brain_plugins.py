@@ -45,9 +45,10 @@ class DeclarativePluginTool(BrainTool):
 
 
 class PluginLoader:
-    def __init__(self, plugin_dir: Path):
+    def __init__(self, plugin_dir: Path, create_dir: bool = True):
         self.plugin_dir = Path(plugin_dir)
-        self.plugin_dir.mkdir(parents=True, exist_ok=True)
+        if create_dir:
+            self.plugin_dir.mkdir(parents=True, exist_ok=True)
 
     def ensure_templates(self) -> None:
         sample = self.plugin_dir / "risk_note.json"

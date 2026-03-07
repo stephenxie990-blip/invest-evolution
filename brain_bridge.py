@@ -4,11 +4,15 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import time
 import uuid
 from dataclasses import dataclass, asdict
 from pathlib import Path
 from typing import Awaitable, Callable, Optional
+
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -31,17 +35,21 @@ class FileBridgeChannel:
     - commander writes response json into outbox_dir/*.json
     """
 
-    def __init__(self, inbox_dir: Path, outbox_dir: Path):
+    def __init__(self, inbox_dir: Path, outbox_dir: Path, create_dirs: bool = True):
         self.inbox_dir = Path(inbox_dir)
         self.outbox_dir = Path(outbox_dir)
-        self.inbox_dir.mkdir(parents=True, exist_ok=True)
-        self.outbox_dir.mkdir(parents=True, exist_ok=True)
+        self.invalid_dir = self.inbox_dir / "_invalid"
+        if create_dirs:
+            self.inbox_dir.mkdir(parents=True, exist_ok=True)
+            self.outbox_dir.mkdir(parents=True, exist_ok=True)
 
     def poll_inbox(self) -> list[BridgeMessage]:
         msgs: list[BridgeMessage] = []
         for path in sorted(self.inbox_dir.glob("*.json")):
             try:
                 data = json.loads(path.read_text(encoding="utf-8"))
+                if not isinstance(data, dict):
+                    raise ValueError("bridge message must be a JSON object")
                 msg = BridgeMessage(
                     id=str(data.get("id") or uuid.uuid4().hex[:12]),
                     channel=str(data.get("channel") or "file"),
@@ -53,16 +61,26 @@ class FileBridgeChannel:
                     metadata=data.get("metadata") or {},
                 )
                 msgs.append(msg)
-            except Exception:
-                pass
-            finally:
-                try:
-                    path.unlink(missing_ok=True)
-                except Exception:
-                    pass
+                path.unlink(missing_ok=True)
+            except Exception as exc:
+                logger.warning("Failed to decode bridge message %s: %s", path, exc)
+                self._quarantine(path, reason=str(exc))
         return msgs
 
+    def _quarantine(self, path: Path, reason: str) -> None:
+        try:
+            self.invalid_dir.mkdir(parents=True, exist_ok=True)
+            target = self.invalid_dir / path.name
+            if target.exists():
+                target = self.invalid_dir / f"{int(time.time() * 1000)}_{path.name}"
+            path.rename(target)
+            sidecar = target.with_suffix(target.suffix + ".error.txt")
+            sidecar.write_text(reason, encoding="utf-8")
+        except Exception as exc:
+            logger.exception("Failed to quarantine malformed bridge message %s: %s", path, exc)
+
     def emit(self, message: BridgeMessage) -> Path:
+        self.outbox_dir.mkdir(parents=True, exist_ok=True)
         ts = int(time.time() * 1000)
         out = self.outbox_dir / f"{ts}_{message.id}.json"
         out.write_text(json.dumps(asdict(message), ensure_ascii=False, indent=2), encoding="utf-8")
@@ -78,7 +96,7 @@ class BridgeHub:
         poll_interval_sec: float = 1.0,
         enabled: bool = True,
     ):
-        self.file_channel = FileBridgeChannel(inbox_dir=inbox_dir, outbox_dir=outbox_dir)
+        self.file_channel = FileBridgeChannel(inbox_dir=inbox_dir, outbox_dir=outbox_dir, create_dirs=False)
         self.on_message = on_message
         self.poll_interval_sec = max(0.2, float(poll_interval_sec))
         self.enabled = enabled
@@ -117,7 +135,11 @@ class BridgeHub:
                     await asyncio.sleep(self.poll_interval_sec)
                     continue
                 for msg in batch:
-                    await self._handle(msg)
+                    try:
+                        await self._handle(msg)
+                    except Exception:
+                        self.failed += 1
+                        logger.exception("Unhandled bridge message failure for %s", msg.id)
         except asyncio.CancelledError:
             return
 
@@ -151,4 +173,7 @@ class BridgeHub:
                 ts_ms=int(time.time() * 1000),
                 metadata={"reply_to": msg.id, "error": True},
             )
-            self.file_channel.emit(err)
+            try:
+                self.file_channel.emit(err)
+            except Exception:
+                logger.exception("Failed to emit bridge error reply for %s", msg.id)

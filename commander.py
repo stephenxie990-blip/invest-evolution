@@ -236,8 +236,12 @@ class StrategyGeneRegistry:
                 encoding="utf-8",
             )
 
-    def reload(self) -> list[StrategyGene]:
-        self.strategy_dir.mkdir(parents=True, exist_ok=True)
+    def reload(self, create_dir: bool = True) -> list[StrategyGene]:
+        if create_dir:
+            self.strategy_dir.mkdir(parents=True, exist_ok=True)
+        elif not self.strategy_dir.exists():
+            self.genes = []
+            return []
         genes: list[StrategyGene] = []
 
         for path in sorted(self.strategy_dir.glob("*")):
@@ -590,20 +594,11 @@ class CommanderRuntime:
 
     def __init__(self, cfg: CommanderConfig):
         self.cfg = cfg
-        self.cfg.workspace.mkdir(parents=True, exist_ok=True)
-        self.cfg.strategy_dir.mkdir(parents=True, exist_ok=True)
-        self.cfg.state_file.parent.mkdir(parents=True, exist_ok=True)
-        self.cfg.memory_store.parent.mkdir(parents=True, exist_ok=True)
-        self.cfg.plugin_dir.mkdir(parents=True, exist_ok=True)
-        self.cfg.bridge_inbox.mkdir(parents=True, exist_ok=True)
-        self.cfg.bridge_outbox.mkdir(parents=True, exist_ok=True)
-
         self.strategy_registry = StrategyGeneRegistry(self.cfg.strategy_dir)
-        self.strategy_registry.ensure_default_templates()
-        self.strategy_registry.reload()
+        if self.cfg.strategy_dir.exists():
+            self.strategy_registry.reload(create_dir=False)
 
         self.body = InvestmentBodyService(self.cfg)
-        self._write_commander_identity()
 
         self.brain = BrainRuntime(
             workspace=self.cfg.workspace,
@@ -625,9 +620,8 @@ class CommanderRuntime:
             enabled=self.cfg.heartbeat_enabled,
         )
         self._notifications: asyncio.Queue[str] = asyncio.Queue()
-        self.memory = MemoryStore(self.cfg.memory_store)
-        self.plugin_loader = PluginLoader(self.cfg.plugin_dir)
-        self.plugin_loader.ensure_templates()
+        self.memory = MemoryStore(self.cfg.memory_store, create=False)
+        self.plugin_loader = PluginLoader(self.cfg.plugin_dir, create_dir=False)
         self._plugin_tool_names: set[str] = set()
         self.bridge = BridgeHub(
             inbox_dir=self.cfg.bridge_inbox,
@@ -647,6 +641,12 @@ class CommanderRuntime:
     async def start(self) -> None:
         if self._started:
             return
+
+        self._ensure_runtime_storage()
+        self.strategy_registry.ensure_default_templates()
+        self.strategy_registry.reload()
+        self._load_plugins(persist=False)
+        self._write_commander_identity()
 
         await self.cron.start()
         if self.cfg.heartbeat_enabled:
@@ -694,6 +694,7 @@ class CommanderRuntime:
         channel: str = "cli",
         chat_id: str = "direct",
     ) -> str:
+        self._ensure_runtime_storage()
         self.memory.append(
             kind="user",
             session_key=session_key,
@@ -711,11 +712,14 @@ class CommanderRuntime:
         return response
 
     async def train_once(self, rounds: int = 1, mock: bool = False) -> dict[str, Any]:
+        self._ensure_runtime_storage()
         out = await self.body.run_cycles(rounds=rounds, force_mock=mock)
         self._persist_state()
         return out
 
     def reload_strategies(self) -> dict[str, Any]:
+        self._ensure_runtime_storage()
+        self.strategy_registry.ensure_default_templates()
         genes = self.strategy_registry.reload()
         self._write_commander_identity()
         self._persist_state()
@@ -773,9 +777,9 @@ class CommanderRuntime:
     def _register_fusion_tools(self) -> None:
         for tool in build_commander_tools(self):
             self.brain.tools.register(tool)
-        self.reload_plugins()
+        self._load_plugins(persist=False)
 
-    def reload_plugins(self) -> dict[str, Any]:
+    def _load_plugins(self, persist: bool = True) -> dict[str, Any]:
         for name in list(self._plugin_tool_names):
             self.brain.tools.unregister(name)
         self._plugin_tool_names.clear()
@@ -786,8 +790,23 @@ class CommanderRuntime:
             self._plugin_tool_names.add(tool.name)
             loaded.append(tool.name)
 
-        self._persist_state()
+        if persist:
+            self._persist_state()
         return {"count": len(loaded), "tools": loaded, "plugin_dir": str(self.cfg.plugin_dir)}
+
+    def reload_plugins(self) -> dict[str, Any]:
+        self._ensure_runtime_storage()
+        return self._load_plugins(persist=True)
+
+    def _ensure_runtime_storage(self) -> None:
+        self.cfg.workspace.mkdir(parents=True, exist_ok=True)
+        self.cfg.strategy_dir.mkdir(parents=True, exist_ok=True)
+        self.cfg.state_file.parent.mkdir(parents=True, exist_ok=True)
+        self.cfg.memory_store.parent.mkdir(parents=True, exist_ok=True)
+        self.cfg.plugin_dir.mkdir(parents=True, exist_ok=True)
+        self.cfg.bridge_inbox.mkdir(parents=True, exist_ok=True)
+        self.cfg.bridge_outbox.mkdir(parents=True, exist_ok=True)
+        self.memory.ensure_storage()
 
     async def _on_bridge_message(self, msg: BridgeMessage) -> str:
         session_key = msg.session_key or f"{msg.channel}:{msg.chat_id}"

@@ -20,6 +20,10 @@ from llm_gateway import LLMGateway, LLMGatewayError, LLMUnavailableError
 logger = logging.getLogger(__name__)
 
 
+class ToolArgumentParseError(ValueError):
+    """Raised when tool-call arguments cannot be parsed into a JSON object."""
+
+
 # ---------------------------------------------------------------------------
 # Tool abstractions
 # ---------------------------------------------------------------------------
@@ -297,13 +301,17 @@ class BrainRuntime:
                 )
 
                 for tc in tool_calls:
-                    args = self._parse_tool_args(tc.function.arguments)
                     if on_progress:
                         try:
                             await on_progress(f"tool: {tc.function.name}")
                         except Exception:
                             pass
-                    result = await self.tools.execute(tc.function.name, args)
+                    try:
+                        args = self._parse_tool_args(tc.function.arguments)
+                    except ToolArgumentParseError as exc:
+                        result = f"Error: invalid tool arguments for {tc.function.name}: {exc}"
+                    else:
+                        result = await self.tools.execute(tc.function.name, args)
                     messages.append(
                         {
                             "role": "tool",
@@ -350,10 +358,13 @@ class BrainRuntime:
             return {}
         if isinstance(raw, str):
             try:
-                return json.loads(raw)
-            except Exception:
-                return {}
-        return {}
+                parsed = json.loads(raw)
+            except Exception as exc:
+                raise ToolArgumentParseError(str(exc)) from exc
+            if not isinstance(parsed, dict):
+                raise ToolArgumentParseError("tool arguments must decode to a JSON object")
+            return parsed
+        raise ToolArgumentParseError("tool arguments must be a JSON object or JSON string")
 
     async def _try_explicit_tool(self, content: str) -> Optional[str]:
         stripped = content.strip()

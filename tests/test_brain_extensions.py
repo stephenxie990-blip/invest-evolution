@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from brain_bridge import BridgeMessage, FileBridgeChannel
+from brain_bridge import BridgeHub, BridgeMessage, FileBridgeChannel
 from brain_memory import MemoryStore
 from brain_plugins import PluginLoader
 from commander import CommanderConfig, CommanderRuntime
@@ -73,3 +73,43 @@ def test_plugin_loader_and_commander_reload(tmp_path: Path):
     payload = rt.reload_plugins()
     assert payload["count"] >= 1
     assert any(name.startswith("plugin_") for name in payload["tools"])
+
+
+def test_file_bridge_channel_quarantines_malformed_messages(tmp_path: Path):
+    inbox = tmp_path / "inbox"
+    outbox = tmp_path / "outbox"
+    channel = FileBridgeChannel(inbox, outbox)
+
+    (inbox / "bad.json").write_text('{"content":', encoding="utf-8")
+
+    batch = channel.poll_inbox()
+    assert batch == []
+    quarantined = channel.invalid_dir / "bad.json"
+    assert quarantined.exists()
+    assert quarantined.with_suffix('.json.error.txt').exists()
+
+
+def test_bridge_handle_survives_error_emit_failure(tmp_path: Path):
+    async def boom(_msg):
+        raise RuntimeError("handler failed")
+
+    hub = BridgeHub(tmp_path / "inbox", tmp_path / "outbox", on_message=boom, enabled=True)
+
+    def broken_emit(_message):
+        raise OSError("disk full")
+
+    hub.file_channel.emit = broken_emit
+    msg = BridgeMessage(
+        id="m1",
+        channel="file",
+        chat_id="c1",
+        session_key="file:c1",
+        role="user",
+        content="hello",
+        ts_ms=1,
+        metadata={},
+    )
+
+    import asyncio
+    asyncio.run(hub._handle(msg))
+    assert hub.failed == 1

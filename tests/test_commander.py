@@ -86,10 +86,10 @@ async def test_commander_runtime_init(tmp_path):
         bridge_enabled=False,
     )
     runtime = CommanderRuntime(cfg)
-    assert runtime.cfg.workspace.exists()
-    assert runtime.cfg.strategy_dir.exists()
+    assert runtime.cfg.workspace.exists() is False
+    assert runtime.cfg.strategy_dir.exists() is False
     assert runtime.body is not None
-    
+
     status = runtime.status()
     assert status["autopilot_enabled"] is False
     assert status["workspace"] == str(cfg.workspace)
@@ -115,3 +115,30 @@ async def test_commander_runtime_start_stop(tmp_path):
     assert runtime._started is True
     await runtime.stop()
     assert runtime._started is False
+
+
+@pytest.mark.asyncio
+async def test_commander_runtime_init_is_read_only(tmp_path):
+    cfg = CommanderConfig(
+        workspace=tmp_path / "workspace",
+        strategy_dir=tmp_path / "strategies",
+        state_file=tmp_path / "state.json",
+        cron_store=tmp_path / "cron.json",
+        memory_store=tmp_path / "memory.jsonl",
+        plugin_dir=tmp_path / "plugins",
+        bridge_inbox=tmp_path / "inbox",
+        bridge_outbox=tmp_path / "outbox",
+        mock_mode=True,
+        autopilot_enabled=False,
+        heartbeat_enabled=False,
+        bridge_enabled=False,
+    )
+    runtime = CommanderRuntime(cfg)
+    runtime.status()
+    assert not cfg.workspace.exists()
+    assert not cfg.strategy_dir.exists()
+    assert not cfg.plugin_dir.exists()
+    assert not cfg.bridge_inbox.exists()
+    assert not cfg.bridge_outbox.exists()
+    assert not cfg.memory_store.exists()
+    assert not cfg.state_file.exists()

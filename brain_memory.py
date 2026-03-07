@@ -21,9 +21,13 @@ class MemoryRecord:
 
 
 class MemoryStore:
-    def __init__(self, path: Path, max_records: int = 10000):
+    def __init__(self, path: Path, max_records: int = 10000, create: bool = True):
         self.path = Path(path)
         self.max_records = max(100, int(max_records))
+        if create:
+            self.ensure_storage()
+
+    def ensure_storage(self) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         if not self.path.exists():
             self.path.write_text("", encoding="utf-8")
