@@ -395,27 +395,29 @@ def api_evolution_config_update():
 
 @app.route("/api/data/status", methods=["GET"])
 def api_data_status():
-    from data import DataCache
-    status = DataCache().get_status_summary()
+    from data_datasets import WebDatasetService
+
+    status = WebDatasetService().get_status_summary()
     return jsonify(status)
 
 @app.route("/api/data/download", methods=["POST"])
 def api_data_download():
     def _do_download():
-        from data import DataCache
+        from data_ingestion import DataIngestionService
+
         try:
-            logger.info("开始后台下载股票基本信息...")
-            DataCache().download_stock_info()
-            logger.info("开始后台下载日K线...")
-            # 默认下载最近的数据
-            DataCache().download_daily_kline()
-            logger.info("后台数据下载完成")
+            service = DataIngestionService()
+            logger.info("开始后台同步股票主数据...")
+            service.sync_security_master()
+            logger.info("开始后台同步日线数据...")
+            service.sync_daily_bars()
+            logger.info("后台数据同步完成")
         except Exception as e:
-            logger.exception(f"后台数据下载失败: {e}")
+            logger.exception(f"后台数据同步失败: {e}")
 
     t = threading.Thread(target=_do_download, daemon=True)
     t.start()
-    return jsonify({"status": "started", "message": "后台下载已启动"})
+    return jsonify({"status": "started", "message": "后台同步已启动"})
 
 
 # ---------------------------------------------------------------------------

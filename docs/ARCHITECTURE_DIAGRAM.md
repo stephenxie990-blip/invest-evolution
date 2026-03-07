@@ -127,12 +127,17 @@
           │
           ▼
 ┌─────────────────────────────────────────────────────────────────────────────────────────┐
-│                              数据源层 (Data Source Layer)                               │
+│                           统一数据平台层 (Unified Data Layer)                           │
 │                                                                                         │
-│   ┌──────────────────┐  ┌──────────────────┐  ┌──────────────────┐                   │
-│   │   Baostock      │  │    Tushare       │  │   DataCache     │                   │
-│   │  (实时/历史行情) │  │   (财务数据)      │  │   (数据缓存)     │                   │
-│   └──────────────────┘  └──────────────────┘  └──────────────────┘                   │
+│   ┌──────────────────┐  ┌────────────────────┐  ┌────────────────────┐                │
+│   │    Baostock      │  │ DataIngestionService│  │ MarketDataRepository│               │
+│   │   (行情/主数据)   │  │   (统一写入入口)     │  │ (canonical SQLite)  │               │
+│   └──────────────────┘  └────────────────────┘  └────────────────────┘                │
+│                                                                                         │
+│   ┌──────────────────┐  ┌────────────────────┐  ┌────────────────────┐                │
+│   │     Tushare      │  │ Training/T0/Web    │  │ DataQualityService │                │
+│   │   (补充行情源)    │  │ Dataset Builders   │  │   (质量巡检)        │                │
+│   └──────────────────┘  └────────────────────┘  └────────────────────┘                │
 └─────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -179,10 +184,11 @@
 - **AgentTracker**: Agent 性能追踪
 - **MeetingRecorder**: 会议记录持久化
 
-### 8. 数据源层 (Data Source Layer)
-- **Baostock**: A股历史/实时行情
-- **Tushare**: 财务数据
-- **DataCache**: 数据缓存
+### 8. 统一数据平台层 (Unified Data Layer)
+- **DataIngestionService**: Baostock/Tushare 统一写入入口
+- **MarketDataRepository**: canonical schema（`security_master` / `daily_bar` / `financial_snapshot` / `ingestion_meta`）
+- **TrainingDatasetBuilder / T0DatasetBuilder / WebDatasetService**: 训练、T0、Web 统一读取
+- **DataQualityService**: 数据覆盖率与健康巡检
 
 ## 数据流
 
@@ -193,7 +199,7 @@
      CommanderRuntime / SelfLearningController
               │
               ▼
-         数据加载 (Baostock)
+         数据加载 (canonical SQLite + 在线兜底)
               │
               ▼
          市场分析 (MarketStats)

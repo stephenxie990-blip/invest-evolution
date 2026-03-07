@@ -13,6 +13,9 @@ source .venv/bin/activate
 python3 -m pip install --upgrade pip
 python3 -m pip install -e ".[dev]"
 
+# 初始化统一离线库（推荐首次执行）
+python data.py --source baostock --start 20180101
+
 # CLI 状态检查
 python commander.py status
 
@@ -34,7 +37,8 @@ python web_server.py --mock
 - `commander.py`：统一 CLI 与守护入口，负责拼装 `CommanderRuntime`、调度、Bridge、策略基因与训练执行。
 - `brain_runtime.py` + `brain_tools.py`：提供多轮推理与 tool-calling 外壳，把训练、状态、策略、记忆、定时任务暴露给 Commander。
 - `train.py`：训练主控制器 `SelfLearningController`，负责“加载数据 → 市场判断 → 选股会议 → 模拟交易 → 评估 → 优化”。
-- `data.py`：离线数据缓存、下载、模拟数据和统一 `DataManager`。
+- `data_repository.py` + `data_ingestion.py` + `data_datasets.py`：统一数据仓储、同步服务、训练/T0/Web 读取构造器。
+- `data.py`：保留对外 façade，统一转发到 canonical 数据层。
 - `meetings.py`：`SelectionMeeting` 生成交易计划，`ReviewMeeting` 进行复盘与权重调整。
 - `trading.py`：`SimulatedTrader`、风险控制、调度执行。
 - `evaluation.py`：收益、基准、冻结与策略管理评估。
@@ -53,7 +57,11 @@ python web_server.py --mock
 - `brain_plugins.py`: 插件工具加载（plugins/*.json）
 - `llm_gateway.py`: 全系统唯一外部 LLM 通道（训练与指挥官共用）
 - `core.py`: 基础模型、LLMCaller、技术指标与公共能力
-- `data.py`: 数据下载/离线加载/T0约束/模拟数据
+- `data_repository.py`: SQLite canonical schema 与查询仓储
+- `data_ingestion.py`: Baostock/Tushare 同步写入服务
+- `data_datasets.py`: 训练集、T0 数据集、Web 状态读取
+- `data_quality.py`: 数据质量巡检
+- `data.py`: 向后兼容 façade 与命令行同步入口
 - `agents.py`: 多 Agent 定义（regime/trend/contrarian/commander 等）
 - `meetings.py`: 选股会议与复盘会议编排
 - `trading.py`: 交易执行与风控
