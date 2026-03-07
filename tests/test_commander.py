@@ -142,3 +142,28 @@ async def test_commander_runtime_init_is_read_only(tmp_path):
     assert not cfg.bridge_outbox.exists()
     assert not cfg.memory_store.exists()
     assert not cfg.state_file.exists()
+
+
+@pytest.mark.asyncio
+async def test_commander_system_prompt_includes_tool_policy(tmp_path):
+    cfg = CommanderConfig(
+        workspace=tmp_path / "workspace",
+        strategy_dir=tmp_path / "strategies",
+        state_file=tmp_path / "state.json",
+        cron_store=tmp_path / "cron.json",
+        memory_store=tmp_path / "memory.jsonl",
+        plugin_dir=tmp_path / "plugins",
+        bridge_inbox=tmp_path / "inbox",
+        bridge_outbox=tmp_path / "outbox",
+        mock_mode=True,
+        autopilot_enabled=False,
+        heartbeat_enabled=False,
+        bridge_enabled=False,
+    )
+    runtime = CommanderRuntime(cfg)
+
+    prompt = runtime._build_system_prompt()
+    assert "prefer `invest_status` first" in prompt
+    assert "invest_quick_test" in prompt
+    assert "Read-only questions should stay read-only" in prompt
+    assert "verified facts first, then risks" in prompt

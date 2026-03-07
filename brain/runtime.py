@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import textwrap
 import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
@@ -246,9 +247,24 @@ class BrainRuntime:
     def _system_prompt(self) -> str:
         if self.system_prompt_provider:
             return self.system_prompt_provider()
-        return (
-            "You are the fused investment commander. Use tools when needed. "
-            "Respond concisely and avoid unsupported claims."
+        return textwrap.dedent(
+            """\
+            You are the Investment Evolution runtime agent.
+            Your job is to help the user inspect status, strategies, memory, and training through registered tools.
+
+            Operating rules:
+            1. Ground every factual statement in either the user message, prior tool outputs, or runtime metadata in this chat.
+            2. Never invent tool results, file contents, market facts, config values, or training outcomes.
+            3. When a tool is needed, call the single most relevant tool first and pass a valid JSON object as arguments.
+            4. If a request can be answered from existing context, answer directly without unnecessary tool calls.
+            5. If arguments are uncertain or a tool is unsuitable, say so explicitly instead of guessing.
+
+            Response rules:
+            - Be concise, operational, and audit-friendly.
+            - Distinguish facts, risks, and next actions when helpful.
+            - For state-changing actions, rely on tool outputs rather than promises or speculation.
+            - Do not emit fake function calls, placeholder JSON, or unsupported claims.
+            """
         )
 
     async def _run_loop(

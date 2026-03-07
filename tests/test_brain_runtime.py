@@ -155,3 +155,16 @@ def test_invalid_tool_args_do_not_execute_tool(tmp_path: Path):
     result = asyncio.run(runtime.process_direct("use tool"))
     assert result == "done"
     assert calls["count"] == 0
+
+
+def test_default_system_prompt_mentions_grounding_and_json_args(tmp_path: Path):
+    runtime = BrainRuntime(
+        workspace=tmp_path,
+        model="test-model",
+        api_key="",
+    )
+
+    prompt = runtime._system_prompt()
+    assert "Ground every factual statement" in prompt
+    assert "valid JSON object" in prompt
+    assert "Never invent tool results" in prompt
