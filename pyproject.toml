@@ -34,7 +34,6 @@ pythonpath = ["."]
 addopts = "-q"
 
 [tool.setuptools]
-packages = ["app", "brain", "market_data", "invest", "config"]
 py-modules = [
   "commander",
   "llm_gateway",
@@ -42,3 +41,6 @@ py-modules = [
   "train",
   "web_server",
 ]
+
+[tool.setuptools.packages.find]
+include = ["app*", "brain*", "market_data*", "invest*", "config*"]

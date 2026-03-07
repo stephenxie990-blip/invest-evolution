@@ -4,8 +4,8 @@
 把 `nanobot` 与投资进化系统从“两个独立程序”改为“一个统一主程序”。
 
 融合后定义：
-- 大脑（Brain）: 迁入项目根目录的本地 brain runtime（保留 nanobot 思路）
-- 身体（Body）: 本地投资训练与交易执行引擎（项目根目录模块）
+- 大脑（Brain）: `brain/` 包内的本地 runtime（保留 nanobot 思路）
+- 身体（Body）: `app/` + `invest/` 包内的投资训练与交易执行引擎
 - 基因（Genes）: 可插拔策略资产（`md/json/py`）
 - 指挥官入口（Commander）: `python commander.py`
 
@@ -61,7 +61,7 @@ flowchart LR
 - Brain核心: `brain/runtime.py`
 - 调度核心: `brain/scheduler.py`
 - 工具核心: `brain/tools.py`
-- 训练/评估主体: `train.py`, `invest/evaluation.py`, `invest/trading.py`
+- 训练/评估主体: `app/train.py`, `invest/evaluation/`, `invest/trading/`, `invest/selection/`, `invest/evolution/`
 
 > 说明：根目录 `nanobot-main_副本/` 现作为参考代码保留，不再是 Commander 运行时必需依赖。
 
@@ -81,7 +81,7 @@ python commander.py run
 ```
 
 ## 设计取舍
-- 保留 nanobot 设计理念，但运行时代码迁入项目根目录，避免跨目录强依赖。
+- 保留 nanobot 设计理念，但真实运行时代码已收口到 `app/` 与 `brain/` 包，根目录仅保留兼容入口。
 - 将投资工具内聚到同进程，避免“系统作为插件被调用”的反向关系。
 - 策略层保留文件形态，保障可编辑、可替换、可审计。
 

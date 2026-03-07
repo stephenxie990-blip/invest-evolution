@@ -7,7 +7,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from config import EvolutionConfig, PROJECT_ROOT, config, load_config
+from config import EvolutionConfig, LOGS_DIR, OUTPUT_DIR, PROJECT_ROOT, RUNTIME_DIR, config, load_config
 
 try:
     import yaml
@@ -38,21 +38,31 @@ class EvolutionConfigService:
         "index_codes",
     }
 
-    def __init__(self, project_root: Path | None = None, live_config: EvolutionConfig | None = None):
+    def __init__(
+        self,
+        project_root: Path | None = None,
+        live_config: EvolutionConfig | None = None,
+        config_path: Path | None = None,
+        audit_log_path: Path | None = None,
+        snapshot_dir: Path | None = None,
+    ):
         self.project_root = Path(project_root or PROJECT_ROOT)
         self.live_config = live_config or config
+        self._config_path = Path(config_path) if config_path else None
+        self._audit_log_path = Path(audit_log_path) if audit_log_path else None
+        self._snapshot_dir = Path(snapshot_dir) if snapshot_dir else None
 
     @property
     def config_path(self) -> Path:
-        return self.project_root / "config" / "evolution.yaml"
+        return self._config_path or (self.project_root / "config" / "evolution.yaml")
 
     @property
     def audit_log_path(self) -> Path:
-        return self.project_root / "runtime" / "state" / "config_changes.jsonl"
+        return self._audit_log_path or (self.project_root / "runtime" / "state" / "config_changes.jsonl")
 
     @property
     def snapshot_dir(self) -> Path:
-        return self.project_root / "runtime" / "state" / "config_snapshots"
+        return self._snapshot_dir or (self.project_root / "runtime" / "state" / "config_snapshots")
 
     def get_masked_payload(self) -> dict[str, Any]:
         cfg = self.live_config
@@ -230,3 +240,82 @@ class EvolutionConfigService:
             return ""
         value = str(value)
         return ("*" * max(0, len(value) - 4)) + value[-4:]
+
+class RuntimePathConfigService:
+    """Persist and expose injectable runtime artifact paths for Web/Commander/Train."""
+
+    EDITABLE_KEYS = {
+        "training_output_dir",
+        "meeting_log_dir",
+        "config_audit_log_path",
+        "config_snapshot_dir",
+    }
+
+    def __init__(self, project_root: Path | None = None, config_path: Path | None = None):
+        self.project_root = Path(project_root or PROJECT_ROOT)
+        self._config_path = Path(config_path) if config_path else None
+
+    @property
+    def config_path(self) -> Path:
+        return self._config_path or (self.project_root / "runtime" / "state" / "runtime_paths.json")
+
+    def get_payload(self) -> dict[str, Any]:
+        payload = self.default_payload()
+        payload.update(self._load_raw())
+        payload["config_path"] = str(self.config_path)
+        payload["config_file_exists"] = self.config_path.exists()
+        return payload
+
+    def default_payload(self) -> dict[str, str]:
+        runtime_dir = self.project_root / "runtime"
+        return {
+            "training_output_dir": str(runtime_dir / "outputs" / "training"),
+            "meeting_log_dir": str(runtime_dir / "logs" / "meetings"),
+            "config_audit_log_path": str(runtime_dir / "state" / "config_changes.jsonl"),
+            "config_snapshot_dir": str(runtime_dir / "state" / "config_snapshots"),
+        }
+
+    def load_overrides(self) -> dict[str, str]:
+        return self._load_raw()
+
+    def normalize_patch(self, patch: dict[str, Any]) -> dict[str, str]:
+        out: dict[str, str] = {}
+        for key in self.EDITABLE_KEYS:
+            if key not in patch or patch[key] is None:
+                continue
+            value = str(patch[key]).strip()
+            if not value:
+                raise ValueError(f"{key} must be a non-empty path")
+            out[key] = str(self._normalize_path(value))
+        return out
+
+    def apply_patch(self, patch: dict[str, Any]) -> dict[str, Any]:
+        normalized = self.normalize_patch(patch)
+        current = self._load_raw()
+        current.update(normalized)
+        self.config_path.parent.mkdir(parents=True, exist_ok=True)
+        self.config_path.write_text(json.dumps(current, ensure_ascii=False, indent=2), encoding="utf-8")
+        return {
+            "updated": sorted(normalized.keys()),
+            "config": self.get_payload(),
+        }
+
+    def _load_raw(self) -> dict[str, str]:
+        if not self.config_path.exists():
+            return {}
+        try:
+            data = json.loads(self.config_path.read_text(encoding="utf-8"))
+        except Exception:
+            return {}
+        normalized = {}
+        for key, value in data.items():
+            if key in self.EDITABLE_KEYS and value:
+                normalized[key] = str(self._normalize_path(value))
+        return normalized
+
+    def _normalize_path(self, value: str | Path) -> Path:
+        path = Path(value).expanduser()
+        if not path.is_absolute():
+            path = self.project_root / path
+        return path.resolve()
+

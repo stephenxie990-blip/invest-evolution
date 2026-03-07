@@ -68,3 +68,52 @@ def test_agent_configs_update_persists_json(monkeypatch, tmp_path):
     assert stored["A"]["llm_model"] == "m"
     assert stored["A"]["system_prompt"] == "p"
 
+
+
+def test_runtime_paths_get_ok(monkeypatch, tmp_path):
+    monkeypatch.setattr(config_module, "PROJECT_ROOT", tmp_path)
+    monkeypatch.setattr(web_server, "_runtime", None)
+
+    client = web_server.app.test_client()
+    res = client.get("/api/runtime_paths")
+    assert res.status_code == 200
+
+    data = res.get_json()
+    assert data["status"] == "ok"
+    cfg = data["config"]
+    assert cfg["training_output_dir"].endswith("runtime/outputs/training")
+    assert cfg["meeting_log_dir"].endswith("runtime/logs/meetings")
+    assert cfg["config_audit_log_path"].endswith("runtime/state/config_changes.jsonl")
+    assert cfg["config_snapshot_dir"].endswith("runtime/state/config_snapshots")
+
+
+def test_runtime_paths_update_persists_and_updates_runtime(monkeypatch, tmp_path):
+    from commander import CommanderConfig, CommanderRuntime
+
+    monkeypatch.setattr(config_module, "PROJECT_ROOT", tmp_path)
+    runtime = CommanderRuntime(CommanderConfig(mock_mode=True, autopilot_enabled=False, heartbeat_enabled=False, bridge_enabled=False))
+    monkeypatch.setattr(web_server, "_runtime", runtime)
+
+    client = web_server.app.test_client()
+    payload = {
+        "training_output_dir": str(tmp_path / "custom" / "training"),
+        "meeting_log_dir": str(tmp_path / "custom" / "meetings"),
+        "config_audit_log_path": str(tmp_path / "custom" / "config_changes.jsonl"),
+        "config_snapshot_dir": str(tmp_path / "custom" / "config_snapshots"),
+    }
+    res = client.post(
+        "/api/runtime_paths",
+        data=json.dumps(payload),
+        content_type="application/json",
+    )
+    assert res.status_code == 200
+    body = res.get_json()
+    assert body["status"] == "ok"
+
+    saved = json.loads((tmp_path / "runtime" / "state" / "runtime_paths.json").read_text(encoding="utf-8"))
+    assert saved["training_output_dir"] == payload["training_output_dir"]
+    assert runtime.cfg.training_output_dir == tmp_path / "custom" / "training"
+    assert runtime.body.controller.output_dir == tmp_path / "custom" / "training"
+    assert runtime.body.controller.meeting_recorder.base_dir == tmp_path / "custom" / "meetings"
+    assert runtime.body.controller.config_service.audit_log_path == tmp_path / "custom" / "config_changes.jsonl"
+    assert runtime.body.controller.config_service.snapshot_dir == tmp_path / "custom" / "config_snapshots"

@@ -86,3 +86,34 @@ def test_web_dataset_service_exposes_quality_summary(tmp_path: Path):
     payload = WebDatasetService(repository=repo).get_status_summary()
     assert payload["quality"]["healthy"] == quality["healthy"]
     assert "meta" in payload["quality"]
+
+
+def test_commander_config_derives_runtime_artifact_paths(tmp_path: Path):
+    cfg = CommanderConfig(state_file=tmp_path / "state" / "state.json")
+
+    assert cfg.runtime_state_dir == tmp_path / "state"
+    assert cfg.training_output_dir == tmp_path / "state" / "training"
+    assert cfg.meeting_log_dir == tmp_path / "state" / "meetings"
+    assert cfg.config_audit_log_path == tmp_path / "state" / "config_changes.jsonl"
+    assert cfg.config_snapshot_dir == tmp_path / "state" / "config_snapshots"
+
+
+def test_train_controller_accepts_injected_artifact_paths(tmp_path: Path):
+    from app.train import SelfLearningController
+
+    output_dir = tmp_path / "outputs"
+    meeting_dir = tmp_path / "meetings"
+    audit_log = tmp_path / "runtime" / "state" / "config_changes.jsonl"
+    snapshot_dir = tmp_path / "runtime" / "state" / "config_snapshots"
+
+    controller = SelfLearningController(
+        output_dir=str(output_dir),
+        meeting_log_dir=str(meeting_dir),
+        config_audit_log_path=str(audit_log),
+        config_snapshot_dir=str(snapshot_dir),
+    )
+
+    assert controller.output_dir == output_dir
+    assert controller.meeting_recorder.base_dir == meeting_dir
+    assert controller.config_service.audit_log_path == audit_log
+    assert controller.config_service.snapshot_dir == snapshot_dir

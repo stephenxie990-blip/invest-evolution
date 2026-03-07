@@ -30,12 +30,23 @@ from brain.tools import build_commander_tools
 from brain.memory import MemoryStore
 from brain.bridge import BridgeHub, BridgeMessage
 from brain.plugins import PluginLoader
-from config import PROJECT_ROOT, RUNTIME_DIR, OUTPUT_DIR, MEMORY_DIR, SESSIONS_DIR, WORKSPACE_DIR, config
-from config.services import EvolutionConfigService
+from config import PROJECT_ROOT, RUNTIME_DIR, OUTPUT_DIR, LOGS_DIR, MEMORY_DIR, SESSIONS_DIR, WORKSPACE_DIR, config
+from config.services import EvolutionConfigService, RuntimePathConfigService
 from market_data import DataManager, MockDataProvider
 from app.train import SelfLearningController, TrainingResult
 
 logger = logging.getLogger(__name__)
+
+
+def _apply_runtime_path_overrides(cfg: "CommanderConfig", overrides: dict[str, Any]) -> "CommanderConfig":
+    for key in RuntimePathConfigService.EDITABLE_KEYS:
+        value = overrides.get(key)
+        if value:
+            setattr(cfg, key, Path(value).expanduser().resolve())
+    cfg.__post_init__()
+    return cfg
+
+
 
 
 # ---------------------------------------------------------------------------
@@ -57,6 +68,10 @@ class CommanderConfig:
     runtime_state_dir: Path = RUNTIME_DIR / "state"
     runtime_lock_file: Path = RUNTIME_DIR / "state" / "commander.lock"
     training_lock_file: Path = RUNTIME_DIR / "state" / "training.lock"
+    training_output_dir: Path = OUTPUT_DIR / "training"
+    meeting_log_dir: Path = LOGS_DIR / "meetings"
+    config_audit_log_path: Path = RUNTIME_DIR / "state" / "config_changes.jsonl"
+    config_snapshot_dir: Path = RUNTIME_DIR / "state" / "config_snapshots"
 
     model: str = field(default_factory=lambda: os.environ.get("COMMANDER_MODEL", config.llm_fast_model))
     api_key: str = field(default_factory=lambda: os.environ.get("COMMANDER_API_KEY", config.llm_api_key))
@@ -92,10 +107,20 @@ class CommanderConfig:
             self.runtime_lock_file = self.runtime_state_dir / "commander.lock"
         if self.training_lock_file == default_state_dir / "training.lock":
             self.training_lock_file = self.runtime_state_dir / "training.lock"
+        if self.training_output_dir == OUTPUT_DIR / "training" and self.state_file.parent != OUTPUT_DIR / "commander":
+            self.training_output_dir = self.state_file.parent / "training"
+        if self.meeting_log_dir == LOGS_DIR / "meetings" and self.state_file.parent != OUTPUT_DIR / "commander":
+            self.meeting_log_dir = self.state_file.parent / "meetings"
+        if self.config_audit_log_path == default_state_dir / "config_changes.jsonl":
+            self.config_audit_log_path = self.runtime_state_dir / "config_changes.jsonl"
+        if self.config_snapshot_dir == default_state_dir / "config_snapshots":
+            self.config_snapshot_dir = self.runtime_state_dir / "config_snapshots"
 
     @classmethod
     def from_args(cls, args: argparse.Namespace) -> "CommanderConfig":
         cfg = cls()
+        runtime_paths = RuntimePathConfigService(project_root=PROJECT_ROOT).load_overrides()
+        _apply_runtime_path_overrides(cfg, runtime_paths)
 
         if getattr(args, "workspace", None):
             cfg.workspace = Path(args.workspace).expanduser().resolve()
@@ -121,15 +146,6 @@ class CommanderConfig:
         if getattr(args, "heartbeat_interval_sec", None):
             cfg.heartbeat_interval_sec = max(60, int(args.heartbeat_interval_sec))
 
-        cfg.state_file = OUTPUT_DIR / "commander" / "state.json"
-        cfg.cron_store = OUTPUT_DIR / "commander" / "cron_jobs.json"
-        cfg.memory_store = MEMORY_DIR / "commander_memory.jsonl"
-        cfg.plugin_dir = PROJECT_ROOT / "agent_settings" / "plugins"
-        cfg.bridge_inbox = SESSIONS_DIR / "inbox"
-        cfg.bridge_outbox = SESSIONS_DIR / "outbox"
-        cfg.runtime_state_dir = RUNTIME_DIR / "state"
-        cfg.runtime_lock_file = RUNTIME_DIR / "state" / "commander.lock"
-        cfg.training_lock_file = RUNTIME_DIR / "state" / "training.lock"
         return cfg
 
 
@@ -491,7 +507,13 @@ class InvestmentBodyService:
         self._mock_provider: Optional[MockDataProvider] = None
         if cfg.mock_mode:
             self._mock_provider = MockDataProvider(stock_count=30, days=1500, start_date="20200101")
-        self.controller = SelfLearningController(data_provider=self._mock_provider)
+        self.controller = SelfLearningController(
+            data_provider=self._mock_provider,
+            output_dir=str(self.cfg.training_output_dir),
+            meeting_log_dir=str(self.cfg.meeting_log_dir),
+            config_audit_log_path=str(self.cfg.config_audit_log_path),
+            config_snapshot_dir=str(self.cfg.config_snapshot_dir),
+        )
         self._lock = asyncio.Lock()
         self._stop_event = asyncio.Event()
 

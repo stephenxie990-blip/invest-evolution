@@ -34,7 +34,7 @@ from typing import Callable, Dict, List, Optional
 import numpy as np
 
 from config import OUTPUT_DIR, PROJECT_ROOT, config, normalize_date
-from config.services import EvolutionConfigService
+from config.services import EvolutionConfigService, RuntimePathConfigService
 from invest.shared import AgentTracker, LLMCaller, compute_market_stats, make_simple_plan
 from market_data import DataManager, MockDataProvider
 from invest.selection import AdaptiveSelector
@@ -198,6 +198,9 @@ class SelfLearningController:
     def __init__(
         self,
         output_dir: Optional[str] = None,
+        meeting_log_dir: Optional[str] = None,
+        config_audit_log_path: Optional[str] = None,
+        config_snapshot_dir: Optional[str] = None,
         freeze_total_cycles:    int = 10,
         freeze_profit_required: int = 7,
         max_losses_before_optimize: int = 3,
@@ -237,8 +240,13 @@ class SelfLearningController:
             evo_judge=self.agents["evo_judge"],
             commander=self.agents["commander"],
         )
-        self.meeting_recorder = MeetingRecorder()
-        self.config_service = EvolutionConfigService(project_root=PROJECT_ROOT, live_config=config)
+        self.meeting_recorder = MeetingRecorder(base_dir=meeting_log_dir)
+        self.config_service = EvolutionConfigService(
+            project_root=PROJECT_ROOT,
+            live_config=config,
+            audit_log_path=Path(config_audit_log_path) if config_audit_log_path else None,
+            snapshot_dir=Path(config_snapshot_dir) if config_snapshot_dir else None,
+        )
 
         # 状态
         self.cycle_history:   List[TrainingResult] = []
@@ -807,7 +815,10 @@ def train_main():
     parser = argparse.ArgumentParser(description="投资进化系统 - 训练主程序")
     parser.add_argument("--cycles",    type=int,  default=20,    help="最大训练周期数")
     parser.add_argument("--mock",      action="store_true",       help="使用模拟数据（无需数据库）")
-    parser.add_argument("--output",    type=str,  default=None,  help="输出目录")
+    parser.add_argument("--output",    type=str,  default=None,  help="训练输出目录")
+    parser.add_argument("--meeting-log-dir", type=str, default=None, help="会议记录输出目录")
+    parser.add_argument("--config-audit-log-path", type=str, default=None, help="配置变更审计日志路径")
+    parser.add_argument("--config-snapshot-dir", type=str, default=None, help="配置快照输出目录")
     parser.add_argument("--freeze-n",  type=int,  default=10,    help="固化评估窗口大小")
     parser.add_argument("--freeze-m",  type=int,  default=7,     help="固化要求最低盈利次数")
     parser.add_argument("--log-level", type=str,  default="INFO", help="日志级别")
@@ -821,8 +832,17 @@ def train_main():
 
     logger.info(f"训练参数: cycles={args.cycles}, mock={args.mock}")
 
+    runtime_paths = RuntimePathConfigService(project_root=PROJECT_ROOT).get_payload()
+    output_dir = args.output or runtime_paths["training_output_dir"]
+    meeting_log_dir = args.meeting_log_dir or runtime_paths["meeting_log_dir"]
+    config_audit_log_path = args.config_audit_log_path or runtime_paths["config_audit_log_path"]
+    config_snapshot_dir = args.config_snapshot_dir or runtime_paths["config_snapshot_dir"]
+
     controller = SelfLearningController(
-        output_dir=args.output,
+        output_dir=output_dir,
+        meeting_log_dir=meeting_log_dir,
+        config_audit_log_path=config_audit_log_path,
+        config_snapshot_dir=config_snapshot_dir,
         freeze_total_cycles=args.freeze_n,
         freeze_profit_required=args.freeze_m,
     )
@@ -831,7 +851,10 @@ def train_main():
         logger.info("使用模拟数据模式")
         mock_provider = MockDataProvider(stock_count=30, days=1500, start_date="20200101")
         controller = SelfLearningController(
-            output_dir=args.output,
+            output_dir=output_dir,
+            meeting_log_dir=meeting_log_dir,
+            config_audit_log_path=config_audit_log_path,
+            config_snapshot_dir=config_snapshot_dir,
             freeze_total_cycles=args.freeze_n,
             freeze_profit_required=args.freeze_m,
             data_provider=mock_provider,

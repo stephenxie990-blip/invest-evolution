@@ -53,15 +53,17 @@
 - `market_data/datasets.py`：训练集、T0 数据集、Web 读取构造器
 - `market_data/quality.py`：数据覆盖率和健康检查
 - `market_data/manager.py`：对外 façade、mock 数据、在线兜底和命令行同步入口
-- `invest/core.py`：公共数据结构、指标计算、市场统计、追踪器
-- `invest/agents.py`：各类 Agent 定义
-- `invest/meetings.py`：选股会议与复盘会议编排
-- `invest/trading.py`：交易执行与风控
-- `invest/evaluation.py` / `invest/optimization.py`：评估、优化、进化
+- `invest/core.py`：`invest.shared` 的兼容入口，保留历史公共导入路径
+- `invest/shared/`：公共数据结构、指标计算、市场统计、追踪器
+- `invest/agents/`：各类 Agent 定义
+- `invest/meetings/`：选股会议、复盘会议与会议记录
+- `invest/trading/`：交易执行与风控
+- `invest/evaluation/`：评估、冻结与策略管理
+- `invest/selection/` / `invest/evolution/`：选股、优化、进化与分析
 
 ## 代码结构约束
 
-- 根目录模块是唯一真实源码入口。
+- `app/` 是顶层应用真实入口；根目录同名模块仅保留兼容启动壳。
 - 数据库 canonical schema 只有一套：`security_master`、`daily_bar`、`financial_snapshot`、`ingestion_meta`。
 - 训练、Web、T0 统一从 canonical schema 读数据。
 - 安装与运行统一以 `pyproject.toml` 为单一依赖来源。

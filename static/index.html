@@ -1048,6 +1048,36 @@ tr:hover td { background: rgba(99, 102, 241, 0.04); }
           <span style="font-size:12px;color:var(--text-muted)">保存后建议重启服务以确保所有模块读取到最新配置</span>
         </div>
       </div>
+
+      <div class="card">
+        <div class="card-title">训练运行路径（Commander / Train / Web 共用）</div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px">
+          <div class="form-group" style="grid-column:1 / -1">
+            <label class="form-label">training_output_dir</label>
+            <input class="input" id="rp-training-output" placeholder="runtime/outputs/training">
+          </div>
+          <div class="form-group" style="grid-column:1 / -1">
+            <label class="form-label">meeting_log_dir</label>
+            <input class="input" id="rp-meeting-log" placeholder="runtime/logs/meetings">
+          </div>
+          <div class="form-group" style="grid-column:1 / -1">
+            <label class="form-label">config_audit_log_path</label>
+            <input class="input" id="rp-config-audit" placeholder="runtime/state/config_changes.jsonl">
+          </div>
+          <div class="form-group" style="grid-column:1 / -1">
+            <label class="form-label">config_snapshot_dir</label>
+            <input class="input" id="rp-config-snapshot" placeholder="runtime/state/config_snapshots">
+          </div>
+          <div class="form-group" style="grid-column:1 / -1">
+            <label class="form-label">当前状态</label>
+            <div style="font-size:12px;color:var(--text-muted)" id="rp-runtime-status">--</div>
+          </div>
+        </div>
+        <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:14px">
+          <button class="btn btn-primary btn-sm" onclick="saveRuntimePathConfig()">💾 保存运行路径</button>
+          <span style="font-size:12px;color:var(--text-muted)">保存后 Web 会立即应用；Commander / Train 下次启动会读取同一份配置</span>
+        </div>
+      </div>
     </div>
 
   </main>
@@ -1077,7 +1107,7 @@ function switchPanel(name) {
   if (name === 'cron') loadCronJobs();
   if (name === 'agents') loadAgents();
   if (name === 'data') { loadDataConfig(); loadDataStatus(); }
-  if (name === 'models') loadModelConfig();
+  if (name === 'models') { loadModelConfig(); loadRuntimePathConfig(); }
 }
 
 // ---- API Helper ----
@@ -1410,6 +1440,38 @@ async function saveModelConfig() {
   if (res.status === 'ok') {
     alert('保存成功');
     loadModelConfig();
+  } else {
+    alert('保存失败: ' + (res.error || 'Unknown Error'));
+  }
+}
+
+async function loadRuntimePathConfig() {
+  const data = await api('/api/runtime_paths');
+  if (data.status !== 'ok') return;
+  const c = data.config || {};
+  document.getElementById('rp-training-output').value = c.training_output_dir || '';
+  document.getElementById('rp-meeting-log').value = c.meeting_log_dir || '';
+  document.getElementById('rp-config-audit').value = c.config_audit_log_path || '';
+  document.getElementById('rp-config-snapshot').value = c.config_snapshot_dir || '';
+  document.getElementById('rp-runtime-status').textContent = c.runtime_loaded
+    ? '当前 Web 运行时已加载；后续手动训练会立即使用新路径'
+    : '当前仅保存配置；待运行时启动后生效';
+}
+
+async function saveRuntimePathConfig() {
+  const patch = {
+    training_output_dir: document.getElementById('rp-training-output').value.trim(),
+    meeting_log_dir: document.getElementById('rp-meeting-log').value.trim(),
+    config_audit_log_path: document.getElementById('rp-config-audit').value.trim(),
+    config_snapshot_dir: document.getElementById('rp-config-snapshot').value.trim(),
+  };
+  const res = await api('/api/runtime_paths', {
+    method: 'POST',
+    body: JSON.stringify(patch),
+  });
+  if (res.status === 'ok') {
+    alert('运行路径已保存');
+    loadRuntimePathConfig();
   } else {
     alert('保存失败: ' + (res.error || 'Unknown Error'));
   }

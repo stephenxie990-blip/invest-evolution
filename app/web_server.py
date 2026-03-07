@@ -21,8 +21,9 @@ from typing import Any
 
 from flask import Flask, jsonify, request, send_from_directory
 
-from app.commander import CommanderConfig, CommanderRuntime
-from config.services import EvolutionConfigService
+from app.commander import CommanderConfig, CommanderRuntime, _apply_runtime_path_overrides
+from config.services import EvolutionConfigService, RuntimePathConfigService
+from invest.meetings import MeetingRecorder
 
 logger = logging.getLogger(__name__)
 
@@ -65,6 +66,24 @@ def _parse_bool(value: Any, field_name: str) -> bool:
         if normalized in _FALSE_VALUES:
             return False
     raise ValueError(f"{field_name} must be a boolean")
+
+
+def _sync_runtime_path_config(runtime: CommanderRuntime, payload: dict[str, Any]) -> None:
+    import config as config_module
+
+    _apply_runtime_path_overrides(runtime.cfg, payload)
+    controller = runtime.body.controller
+    controller.output_dir = Path(runtime.cfg.training_output_dir)
+    controller.output_dir.mkdir(parents=True, exist_ok=True)
+    controller.meeting_recorder = MeetingRecorder(base_dir=str(runtime.cfg.meeting_log_dir))
+    controller.config_service = EvolutionConfigService(
+        project_root=config_module.PROJECT_ROOT,
+        live_config=config_module.config,
+        audit_log_path=Path(runtime.cfg.config_audit_log_path),
+        snapshot_dir=Path(runtime.cfg.config_snapshot_dir),
+    )
+
+
 
 
 def _runtime_not_ready_response():
@@ -261,6 +280,54 @@ def api_agent_configs_update():
     return jsonify({"status": "ok" if ok else "error"})
 
 
+# ---- Runtime Paths ----
+
+@app.route("/api/runtime_paths", methods=["GET"])
+def api_runtime_paths_get():
+    import config as config_module
+
+    service = RuntimePathConfigService(project_root=config_module.PROJECT_ROOT)
+    payload = service.get_payload()
+    if _runtime is not None:
+        payload.update({
+            "training_output_dir": str(_runtime.cfg.training_output_dir),
+            "meeting_log_dir": str(_runtime.cfg.meeting_log_dir),
+            "config_audit_log_path": str(_runtime.cfg.config_audit_log_path),
+            "config_snapshot_dir": str(_runtime.cfg.config_snapshot_dir),
+            "runtime_loaded": True,
+        })
+    else:
+        payload["runtime_loaded"] = False
+    return jsonify({"status": "ok", "config": payload})
+
+
+@app.route("/api/runtime_paths", methods=["POST"])
+def api_runtime_paths_update():
+    import config as config_module
+
+    data = request.get_json(force=True) or {}
+    service = RuntimePathConfigService(project_root=config_module.PROJECT_ROOT)
+    try:
+        payload = service.apply_patch(data)
+        if _runtime is not None:
+            _sync_runtime_path_config(_runtime, payload["config"])
+            payload["config"].update({
+                "training_output_dir": str(_runtime.cfg.training_output_dir),
+                "meeting_log_dir": str(_runtime.cfg.meeting_log_dir),
+                "config_audit_log_path": str(_runtime.cfg.config_audit_log_path),
+                "config_snapshot_dir": str(_runtime.cfg.config_snapshot_dir),
+                "runtime_loaded": True,
+            })
+        else:
+            payload["config"]["runtime_loaded"] = False
+        return jsonify({"status": "ok", "updated": payload["updated"], "config": payload["config"]})
+    except ValueError as exc:
+        return jsonify({"status": "error", "error": str(exc)}), 400
+    except Exception as exc:
+        logger.exception("Failed to update runtime path config")
+        return jsonify({"status": "error", "error": str(exc)}), 500
+
+
 # ---- Evolution Config (Models/Data) ----
 
 @app.route("/api/evolution_config", methods=["GET"])
@@ -335,7 +402,7 @@ def main() -> None:
     )
 
     # Build commander runtime
-    cfg = CommanderConfig()
+    cfg = CommanderConfig.from_args(argparse.Namespace())
     if args.mock:
         cfg.mock_mode = True
     cfg.autopilot_enabled = False  # Web mode: manual trigger only
