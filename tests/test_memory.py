@@ -8,7 +8,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 
 def _make_memory(save_dir=None):
-    from memory import MarketSituationMemory
+    from invest.memory import MarketSituationMemory
     return MarketSituationMemory("test_agent", save_dir)
 
 

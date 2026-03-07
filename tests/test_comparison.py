@@ -145,9 +145,9 @@ def run_single_cycle(
     Returns:
         dict: 本轮结果
     """
-    from core import compute_market_stats
-    from core import make_simple_plan
-    from trading import SimulatedTrader
+    from invest.core import compute_market_stats
+    from invest.core import make_simple_plan
+    from invest.trading import SimulatedTrader
 
     # 1. 市场状态
     market_stats = compute_market_stats(stock_data, cutoff_date)
@@ -316,10 +316,10 @@ def run_experiment(
         mode: "algo" 或 "agent"
         seed: 随机种子（两组用相同种子确保选择相同的截断日期）
     """
-    from core import LLMCaller
-    from meetings import SelectionMeeting
-    from agents import MarketRegimeAgent
-    from optimization import AdaptiveSelector
+    from invest.core import LLMCaller
+    from invest.meetings import SelectionMeeting
+    from invest.agents import MarketRegimeAgent
+    from invest.optimization import AdaptiveSelector
 
     np.random.seed(seed)
 

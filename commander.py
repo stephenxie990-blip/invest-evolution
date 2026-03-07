@@ -28,7 +28,7 @@ from brain.tools import build_commander_tools
 from brain.memory import MemoryStore
 from brain.bridge import BridgeHub, BridgeMessage
 from brain.plugins import PluginLoader
-from config import PROJECT_ROOT, config
+from config import PROJECT_ROOT, RUNTIME_DIR, OUTPUT_DIR, MEMORY_DIR, SESSIONS_DIR, WORKSPACE_DIR, config
 from market_data import DataManager, MockDataProvider
 from train import SelfLearningController, TrainingResult
 
@@ -43,14 +43,14 @@ logger = logging.getLogger(__name__)
 class CommanderConfig:
     """Runtime config for the fused commander."""
 
-    workspace: Path = PROJECT_ROOT / "workspace"
+    workspace: Path = WORKSPACE_DIR
     strategy_dir: Path = PROJECT_ROOT / "strategies"
-    state_file: Path = PROJECT_ROOT / "outputs" / "commander" / "state.json"
-    cron_store: Path = PROJECT_ROOT / "outputs" / "commander" / "cron_jobs.json"
-    memory_store: Path = PROJECT_ROOT / "memory" / "commander_memory.jsonl"
+    state_file: Path = OUTPUT_DIR / "commander" / "state.json"
+    cron_store: Path = OUTPUT_DIR / "commander" / "cron_jobs.json"
+    memory_store: Path = MEMORY_DIR / "commander_memory.jsonl"
     plugin_dir: Path = PROJECT_ROOT / "agent_settings" / "plugins"
-    bridge_inbox: Path = PROJECT_ROOT / "sessions" / "inbox"
-    bridge_outbox: Path = PROJECT_ROOT / "sessions" / "outbox"
+    bridge_inbox: Path = SESSIONS_DIR / "inbox"
+    bridge_outbox: Path = SESSIONS_DIR / "outbox"
 
     model: str = field(default_factory=lambda: os.environ.get("COMMANDER_MODEL", config.llm_fast_model))
     api_key: str = field(default_factory=lambda: os.environ.get("COMMANDER_API_KEY", config.llm_api_key))
@@ -106,12 +106,12 @@ class CommanderConfig:
         if getattr(args, "heartbeat_interval_sec", None):
             cfg.heartbeat_interval_sec = max(60, int(args.heartbeat_interval_sec))
 
-        cfg.state_file = PROJECT_ROOT / "outputs" / "commander" / "state.json"
-        cfg.cron_store = PROJECT_ROOT / "outputs" / "commander" / "cron_jobs.json"
-        cfg.memory_store = PROJECT_ROOT / "memory" / "commander_memory.jsonl"
+        cfg.state_file = OUTPUT_DIR / "commander" / "state.json"
+        cfg.cron_store = OUTPUT_DIR / "commander" / "cron_jobs.json"
+        cfg.memory_store = MEMORY_DIR / "commander_memory.jsonl"
         cfg.plugin_dir = PROJECT_ROOT / "agent_settings" / "plugins"
-        cfg.bridge_inbox = PROJECT_ROOT / "sessions" / "inbox"
-        cfg.bridge_outbox = PROJECT_ROOT / "sessions" / "outbox"
+        cfg.bridge_inbox = SESSIONS_DIR / "inbox"
+        cfg.bridge_outbox = SESSIONS_DIR / "outbox"
         return cfg
 
 
@@ -886,7 +886,7 @@ class CommanderRuntime:
 
             You are the fused commander of this runtime:
             - Brain: local brain runtime in `brain/runtime.py`
-            - Body: in-process investment engine (`*.py` modules in project root)
+            - Body: in-process investment engine (`invest/` package + entry modules)
             - Genes: pluggable strategy files in `{self.cfg.strategy_dir}`
 
             Core rules:

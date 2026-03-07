@@ -52,14 +52,14 @@ def generate_test_stock_data(n=50, days=300, seed=42):
 
 def test_real_llm():
     """使用真实 LLM 测试端到端流程"""
-    from core import LLMCaller
-    from core import compute_market_stats
-    from meetings import SelectionMeeting
-    from core import AgentTracker
-    from meetings import ReviewMeeting
-    from meetings import MeetingRecorder
-    from agents import MarketRegimeAgent
-    from trading import SimulatedTrader
+    from invest.core import LLMCaller
+    from invest.core import compute_market_stats
+    from invest.meetings import SelectionMeeting
+    from invest.core import AgentTracker
+    from invest.meetings import ReviewMeeting
+    from invest.meetings import MeetingRecorder
+    from invest.agents import MarketRegimeAgent
+    from invest.trading import SimulatedTrader
 
     print("=" * 60)
     print("真实 LLM 端到端测试")

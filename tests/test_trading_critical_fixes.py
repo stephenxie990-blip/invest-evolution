@@ -3,7 +3,7 @@ import math
 import numpy as np
 import pandas as pd
 
-from trading import Position, SimulatedTrader
+from invest.trading import Position, SimulatedTrader
 
 
 def test_missing_price_does_not_use_other_symbol_price():

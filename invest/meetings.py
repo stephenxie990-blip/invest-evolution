@@ -13,7 +13,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from core import (
+from invest.core import (
     LLMCaller,
     TradingPlan,
     PositionPlan,
@@ -24,7 +24,7 @@ from core import (
 from config import config
 
 try:
-    from debate import DebateOrchestrator, RiskDebateOrchestrator
+    from invest.debate import DebateOrchestrator, RiskDebateOrchestrator
     _HAS_DEBATE = True
 except ImportError:
     _HAS_DEBATE = False
@@ -127,7 +127,7 @@ class SelectionMeeting:
         max_debate_rounds: int = 1,
         deep_llm_caller: Optional[LLMCaller] = None,
     ):
-        from agents import TrendHunterAgent, ContrarianAgent
+        from invest.agents import TrendHunterAgent, ContrarianAgent
         self.llm = llm_caller
         self.agent_weights = agent_weights or {"trend_hunter": 1.0, "contrarian": 1.0}
         self.trend_hunter = trend_hunter or TrendHunterAgent()
@@ -422,7 +422,7 @@ class ReviewMeeting:
         max_risk_discuss_rounds: int = 1,
         deep_llm_caller: Optional[LLMCaller] = None,
     ):
-        from agents import StrategistAgent, EvoJudgeAgent, CommanderAgent
+        from invest.agents import StrategistAgent, EvoJudgeAgent, CommanderAgent
         self.llm = llm_caller
         self.tracker = agent_tracker
         self.strategist = strategist or StrategistAgent()

@@ -53,7 +53,7 @@ flowchart LR
     H --> B
     R --> B
 
-    I --> O["outputs/commander/state.json"]
+    I --> O["runtime/outputs/commander/state.json"]
 ```
 
 ## 关键代码边界（按包分层）
@@ -61,7 +61,7 @@ flowchart LR
 - Brain核心: `brain/runtime.py`
 - 调度核心: `brain/scheduler.py`
 - 工具核心: `brain/tools.py`
-- 训练/评估主体: `train.py`, `evaluation.py`, `trading.py`
+- 训练/评估主体: `train.py`, `invest/evaluation.py`, `invest/trading.py`
 
 > 说明：根目录 `nanobot-main_副本/` 现作为参考代码保留，不再是 Commander 运行时必需依赖。
 

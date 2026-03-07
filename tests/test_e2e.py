@@ -49,18 +49,18 @@ def make_large_stock_data(n=100, days=300):
 
 
 def test_e2e():
-    from core import LLMCaller
-    from core import compute_market_stats
-    from core import make_simple_plan
-    from meetings import SelectionMeeting
-    from core import AgentTracker
-    from meetings import ReviewMeeting
-    from meetings import MeetingRecorder
-    from agents import MarketRegimeAgent
-    from optimization import AdaptiveSelector
-    from trading import SimulatedTrader
-    from optimization import EvolutionEngine
-    from core import summarize_stocks
+    from invest.core import LLMCaller
+    from invest.core import compute_market_stats
+    from invest.core import make_simple_plan
+    from invest.meetings import SelectionMeeting
+    from invest.core import AgentTracker
+    from invest.meetings import ReviewMeeting
+    from invest.meetings import MeetingRecorder
+    from invest.agents import MarketRegimeAgent
+    from invest.optimization import AdaptiveSelector
+    from invest.trading import SimulatedTrader
+    from invest.optimization import EvolutionEngine
+    from invest.core import summarize_stocks
 
     print("=" * 60)
     print("端到端全流程测试")

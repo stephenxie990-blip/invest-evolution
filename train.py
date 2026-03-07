@@ -33,17 +33,17 @@ from typing import Callable, Dict, List, Optional
 
 import numpy as np
 
-from config import config, PROJECT_ROOT, normalize_date
-from core import AgentTracker, compute_market_stats, make_simple_plan
+from config import OUTPUT_DIR, PROJECT_ROOT, config, normalize_date
+from invest.core import AgentTracker, compute_market_stats, make_simple_plan
 from market_data import DataManager, MockDataProvider
-from optimization import AdaptiveSelector, LLMOptimizer, StrategyEvolutionOptimizer, EvolutionEngine
-from trading import SimulatedTrader
-from evaluation import StrategyEvaluator, BenchmarkEvaluator
-from agents import (
+from invest.optimization import AdaptiveSelector, LLMOptimizer, StrategyEvolutionOptimizer, EvolutionEngine
+from invest.trading import SimulatedTrader
+from invest.evaluation import StrategyEvaluator, BenchmarkEvaluator
+from invest.agents import (
     MarketRegimeAgent, TrendHunterAgent, ContrarianAgent,
     CommanderAgent, StrategistAgent, EvoJudgeAgent
 )
-from meetings import SelectionMeeting, ReviewMeeting, MeetingRecorder
+from invest.meetings import SelectionMeeting, ReviewMeeting, MeetingRecorder
 
 logger = logging.getLogger(__name__)
 
@@ -178,7 +178,7 @@ class SelfLearningController:
         self.data_manager      = DataManager(data_provider=data_provider)
 
         # Agent 团队 & 会议组件
-        from core import LLMCaller
+        from invest.core import LLMCaller
         self.llm_caller = LLMCaller()
         
         self.agents = {
@@ -224,7 +224,7 @@ class SelfLearningController:
 
         # 输出目录
         self.output_dir = Path(output_dir) if output_dir else (
-            PROJECT_ROOT / "outputs" / "training"
+            OUTPUT_DIR / "training"
         )
         self.output_dir.mkdir(parents=True, exist_ok=True)
 

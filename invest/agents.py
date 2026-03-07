@@ -21,7 +21,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Dict, List, Optional, TypedDict
 
-from core import (
+from invest.core import (
     LLMCaller,
     format_stock_table,
     compute_rsi,
@@ -33,7 +33,7 @@ logger = logging.getLogger(__name__)
 
 # 延迟导入避免循环依赖
 try:
-    from memory import MarketSituationMemory as _MarketSituationMemory
+    from invest.memory import MarketSituationMemory as _MarketSituationMemory
 except ImportError:
     _MarketSituationMemory = None
 
@@ -115,7 +115,7 @@ class InvestAgent(ABC):
             api_base = self.config.llm_api_base
             # 即便是全量 fallback，我们也应当为每个 Agent 造出一个独立的实例以追踪 token 消耗
             # 所以只要外部想剥离 (llm is None)，我们就主动孵化。无值则自动fallback全局设置
-            from core import LLMCaller
+            from invest.core import LLMCaller
             self.llm = LLMCaller(
                 model=model if model else None,
                 api_key=api_key if api_key else None,

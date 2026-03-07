@@ -43,14 +43,14 @@ def test_full_pipeline():
     DataLoader → MarketStats → MarketRegime → SelectionMeeting → TradingPlan → Trader → Result
     → AgentTracker → ReviewMeeting → 权重调整
     """
-    from core import LLMCaller
-    from core import compute_market_stats
-    from meetings import SelectionMeeting
-    from core import AgentTracker
-    from meetings import ReviewMeeting
-    from agents import MarketRegimeAgent
-    from optimization import AdaptiveSelector
-    from trading import SimulatedTrader
+    from invest.core import LLMCaller
+    from invest.core import compute_market_stats
+    from invest.meetings import SelectionMeeting
+    from invest.core import AgentTracker
+    from invest.meetings import ReviewMeeting
+    from invest.agents import MarketRegimeAgent
+    from invest.optimization import AdaptiveSelector
+    from invest.trading import SimulatedTrader
 
     np.random.seed(42)
 

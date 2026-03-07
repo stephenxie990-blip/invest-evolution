@@ -53,11 +53,11 @@
 - `market_data/datasets.py`：训练集、T0 数据集、Web 读取构造器
 - `market_data/quality.py`：数据覆盖率和健康检查
 - `market_data/manager.py`：对外 façade、mock 数据、在线兜底和命令行同步入口
-- `core.py`：公共数据结构、指标计算、市场统计、追踪器
-- `agents.py`：各类 Agent 定义
-- `meetings.py`：选股会议与复盘会议编排
-- `trading.py`：交易执行与风控
-- `evaluation.py` / `optimization.py`：评估、优化、进化
+- `invest/core.py`：公共数据结构、指标计算、市场统计、追踪器
+- `invest/agents.py`：各类 Agent 定义
+- `invest/meetings.py`：选股会议与复盘会议编排
+- `invest/trading.py`：交易执行与风控
+- `invest/evaluation.py` / `invest/optimization.py`：评估、优化、进化
 
 ## 代码结构约束
 

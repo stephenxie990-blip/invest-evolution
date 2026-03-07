@@ -7,7 +7,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 
 def _make_dry_callers():
-    from core import LLMCaller
+    from invest.core import LLMCaller
     fast = LLMCaller(dry_run=True)
     deep = LLMCaller(dry_run=True)
     return fast, deep
@@ -39,7 +39,7 @@ def _make_regime():
 
 
 def _make_trading_plan():
-    from core import TradingPlan, PositionPlan
+    from invest.core import TradingPlan, PositionPlan
     positions = [
         PositionPlan(
             code="sh.600001",
@@ -62,7 +62,7 @@ def _make_trading_plan():
 
 def test_debate_dry_run_returns_valid_structure():
     """DebateOrchestrator 在 dry_run 下能完成流程并返回正确结构"""
-    from debate import DebateOrchestrator
+    from invest.debate import DebateOrchestrator
     fast, deep = _make_dry_callers()
     debate = DebateOrchestrator(fast, deep, max_rounds=1)
 
@@ -78,7 +78,7 @@ def test_debate_dry_run_returns_valid_structure():
 
 def test_debate_fallback():
     """debate_fallback 能正确执行算法兜底"""
-    from debate import DebateOrchestrator
+    from invest.debate import DebateOrchestrator
     fast, deep = _make_dry_callers()
     debate = DebateOrchestrator(fast, deep)
 
@@ -92,7 +92,7 @@ def test_debate_fallback():
 
 def test_debate_bear_trend():
     """空头趋势股票的算法兜底应倾向 hold 或 avoid"""
-    from debate import DebateOrchestrator
+    from invest.debate import DebateOrchestrator
     fast, deep = _make_dry_callers()
     debate = DebateOrchestrator(fast, deep)
 
@@ -113,7 +113,7 @@ def test_debate_bear_trend():
 
 def test_debate_max_rounds():
     """max_rounds=2 时流程不崩溃"""
-    from debate import DebateOrchestrator
+    from invest.debate import DebateOrchestrator
     fast, deep = _make_dry_callers()
     debate = DebateOrchestrator(fast, deep, max_rounds=2)
 
@@ -125,7 +125,7 @@ def test_debate_max_rounds():
 
 def test_risk_debate_dry_run_returns_valid_structure():
     """RiskDebateOrchestrator 在 dry_run 下能完成流程并返回正确结构"""
-    from debate import RiskDebateOrchestrator
+    from invest.debate import RiskDebateOrchestrator
     fast, deep = _make_dry_callers()
     risk_debate = RiskDebateOrchestrator(fast, deep, max_rounds=1)
 
@@ -141,7 +141,7 @@ def test_risk_debate_dry_run_returns_valid_structure():
 
 def test_risk_debate_fallback():
     """assess_risk_fallback 在纯算法模式下返回正确格式"""
-    from debate import RiskDebateOrchestrator
+    from invest.debate import RiskDebateOrchestrator
     fast, deep = _make_dry_callers()
     risk_debate = RiskDebateOrchestrator(fast, deep)
 
@@ -154,7 +154,7 @@ def test_risk_debate_fallback():
 
 def test_risk_debate_bear_market():
     """熊市下风险评级应更高"""
-    from debate import RiskDebateOrchestrator
+    from invest.debate import RiskDebateOrchestrator
     fast, deep = _make_dry_callers()
     risk_debate = RiskDebateOrchestrator(fast, deep)
 
@@ -169,7 +169,7 @@ def test_risk_debate_bear_market():
 
 def test_risk_debate_with_portfolio_state():
     """传入 portfolio_state 不崩溃"""
-    from debate import RiskDebateOrchestrator
+    from invest.debate import RiskDebateOrchestrator
     fast, deep = _make_dry_callers()
     risk_debate = RiskDebateOrchestrator(fast, deep)
 

@@ -34,20 +34,11 @@ pythonpath = ["."]
 addopts = "-q"
 
 [tool.setuptools]
-packages = ["brain", "market_data"]
+packages = ["brain", "market_data", "invest", "config"]
 py-modules = [
-  "agents",
   "commander",
-  "config",
-  "core",
-  "debate",
-  "evaluation",
   "llm_gateway",
   "llm_router",
-  "meetings",
-  "memory",
-  "optimization",
-  "trading",
   "train",
   "web_server",
 ]

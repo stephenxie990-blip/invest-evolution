@@ -11,10 +11,10 @@ EXCLUDED_PARTS = {
     ".pytest_cache",
     "logs",
     "outputs",
+    "runtime",
     "archive",
     ".learnings",
     ".trae",
-    "参考项目",
 }
 
 
@@ -52,7 +52,7 @@ def test_project_code_does_not_import_src_package_internally():
 
 def test_root_modules_import_cleanly():
     import commander
-    import trading
+    from invest import trading
 
     assert hasattr(commander, "CommanderRuntime")
     assert hasattr(commander, "StrategyGeneRegistry")

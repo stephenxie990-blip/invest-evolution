@@ -39,10 +39,10 @@ python web_server.py --mock
 - `train.py`：训练主控制器 `SelfLearningController`，负责“加载数据 → 市场判断 → 选股会议 → 模拟交易 → 评估 → 优化”。
 - `market_data/repository.py` + `market_data/ingestion.py` + `market_data/datasets.py`：统一数据仓储、同步服务、训练/T0/Web 读取构造器。
 - `market_data/manager.py`：保留对外 façade，统一转发到 canonical 数据层。
-- `meetings.py`：`SelectionMeeting` 生成交易计划，`ReviewMeeting` 进行复盘与权重调整。
-- `trading.py`：`SimulatedTrader`、风险控制、调度执行。
-- `evaluation.py`：收益、基准、冻结与策略管理评估。
-- `optimization.py`：LLM 亏损分析、遗传进化、参数优化与交易分析。
+- `invest/meetings.py`：`SelectionMeeting` 生成交易计划，`ReviewMeeting` 进行复盘与权重调整。
+- `invest/trading.py`：`SimulatedTrader`、风险控制、调度执行。
+- `invest/evaluation.py`：收益、基准、冻结与策略管理评估。
+- `invest/optimization.py`：LLM 亏损分析、遗传进化、参数优化与交易分析。
 - `web_server.py`：Flask Web API/前端入口，复用 `CommanderRuntime` 提供状态、训练、策略与配置操作。
 - 详细说明见 `docs/MAIN_FLOW.md`。
 
@@ -56,27 +56,27 @@ python web_server.py --mock
 - `brain/bridge.py`: 多通道桥接总线（file inbox/outbox）
 - `brain/plugins.py`: 插件工具加载（plugins/*.json）
 - `llm_gateway.py`: 全系统唯一外部 LLM 通道（训练与指挥官共用）
-- `core.py`: 基础模型、LLMCaller、技术指标与公共能力
+- `invest/core.py`: 基础模型、LLMCaller、技术指标与公共能力
 - `market_data/repository.py`: SQLite canonical schema 与查询仓储
 - `market_data/ingestion.py`: Baostock/Tushare 同步写入服务
 - `market_data/datasets.py`: 训练集、T0 数据集、Web 状态读取
 - `market_data/quality.py`: 数据质量巡检
 - `market_data/manager.py`: 向后兼容 façade 与命令行同步入口
-- `agents.py`: 多 Agent 定义（regime/trend/contrarian/commander 等）
-- `meetings.py`: 选股会议与复盘会议编排
-- `trading.py`: 交易执行与风控
-- `optimization.py`: 参数优化、进化与策略库
+- `invest/agents.py`: 多 Agent 定义（regime/trend/contrarian/commander 等）
+- `invest/meetings.py`: 选股会议与复盘会议编排
+- `invest/trading.py`: 交易执行与风控
+- `invest/optimization.py`: 参数优化、进化与策略库
 - `train.py`: 训练流程控制器
 
 ## 融合运行模型
 
 - 单进程：Brain (nanobot风格)+ Body (投资训练引擎)
-- 多通道桥接：`sessions/inbox` 输入，`sessions/outbox` 输出（24h 守护）
+- 多通道桥接：`runtime/sessions/inbox` 输入，`runtime/sessions/outbox` 输出（24h 守护）
 - 插件能力：`agent_settings/plugins/*.json` 声明式工具热加载
-- 长期记忆：`memory/commander_memory.jsonl` 检索与审计
+- 长期记忆：`runtime/memory/commander_memory.jsonl` 检索与审计
 - 策略基因：`strategies/*.md|*.json|*.py`（可编辑、可替换、可热重载）
 - 数据路径：统一默认到项目内 `data/stock_history.db`
-- 输出路径：`outputs/`，日志路径：`logs/`
+- 输出路径：`runtime/outputs/`，日志路径：`runtime/logs/`
 
 ## 测试
 

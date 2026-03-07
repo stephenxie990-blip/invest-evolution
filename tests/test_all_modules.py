@@ -88,7 +88,7 @@ def make_rising_stock():
 # ===== Phase 0 测试 =====
 
 def test_trading_plan_creation():
-    from core import TradingPlan, PositionPlan
+    from invest.core import TradingPlan, PositionPlan
 
     plan = TradingPlan(
         date="20240101",
@@ -111,7 +111,7 @@ def test_trading_plan_creation():
 
 
 def test_plan_builder():
-    from core import make_simple_plan
+    from invest.core import make_simple_plan
 
     plan = make_simple_plan(
         selected_stocks=["sh.600000", "sh.600001", "sh.600002"],
@@ -129,8 +129,8 @@ def test_plan_builder():
 
 
 def test_trader_with_plan():
-    from core import TradingPlan, PositionPlan
-    from trading import SimulatedTrader
+    from invest.core import TradingPlan, PositionPlan
+    from invest.trading import SimulatedTrader
 
     stock_data = make_stock_data(5, 60)
     codes = list(stock_data.keys())
@@ -162,7 +162,7 @@ def test_trader_with_plan():
 # ===== Phase 1 测试 =====
 
 def test_llm_caller_dry_run():
-    from core import LLMCaller
+    from invest.core import LLMCaller
 
     caller = LLMCaller(dry_run=True)
 
@@ -178,7 +178,7 @@ def test_llm_caller_dry_run():
 
 
 def test_llm_caller_json_parsing():
-    from core import LLMCaller
+    from invest.core import LLMCaller
 
     caller = LLMCaller(dry_run=True)
 
@@ -200,7 +200,7 @@ def test_llm_caller_json_parsing():
 
 
 def test_market_stats():
-    from core import compute_market_stats
+    from invest.core import compute_market_stats
 
     stock_data = make_stock_data(50, 200)
     stats = compute_market_stats(stock_data, "20231001")
@@ -214,7 +214,7 @@ def test_market_stats():
 
 
 def test_market_stats_empty():
-    from core import compute_market_stats
+    from invest.core import compute_market_stats
 
     stats = compute_market_stats({}, "20231001")
     assert stats["valid_stocks"] == 0
@@ -222,7 +222,7 @@ def test_market_stats_empty():
 
 
 def test_market_regime_fallback():
-    from agents import MarketRegimeAgent, REGIME_PARAMS
+    from invest.agents import MarketRegimeAgent, REGIME_PARAMS
 
     agent = MarketRegimeAgent(llm_caller=None)
 
@@ -253,8 +253,8 @@ def test_market_regime_fallback():
 
 
 def test_market_regime_with_dry_llm():
-    from core import LLMCaller
-    from agents import MarketRegimeAgent
+    from invest.core import LLMCaller
+    from invest.agents import MarketRegimeAgent
 
     caller = LLMCaller(dry_run=True)
     agent = MarketRegimeAgent(llm_caller=caller)
@@ -271,7 +271,7 @@ def test_market_regime_with_dry_llm():
 # ===== Phase 2 测试 =====
 
 def test_stock_analyzer():
-    from core import summarize_stocks, format_stock_table
+    from invest.core import summarize_stocks, format_stock_table
 
     stock_data = make_stock_data(20, 200)
     codes = list(stock_data.keys())
@@ -299,8 +299,8 @@ def test_stock_analyzer():
 
 
 def test_trend_hunter_prefilter():
-    from core import summarize_stocks
-    from agents import TrendHunterAgent
+    from invest.core import summarize_stocks
+    from invest.agents import TrendHunterAgent
 
     stock_data = make_stock_data(50, 200)
     codes = list(stock_data.keys())
@@ -317,8 +317,8 @@ def test_trend_hunter_prefilter():
 
 
 def test_trend_hunter_fallback():
-    from core import summarize_stocks
-    from agents import TrendHunterAgent
+    from invest.core import summarize_stocks
+    from invest.agents import TrendHunterAgent
 
     stock_data = make_stock_data(50, 200)
     codes = list(stock_data.keys())
@@ -342,8 +342,8 @@ def test_trend_hunter_fallback():
 
 
 def test_contrarian_prefilter():
-    from core import summarize_stocks
-    from agents import ContrarianAgent
+    from invest.core import summarize_stocks
+    from invest.agents import ContrarianAgent
 
     stock_data = make_stock_data(50, 200)
     codes = list(stock_data.keys())
@@ -359,7 +359,7 @@ def test_contrarian_prefilter():
 
 
 def test_contrarian_fallback():
-    from agents import ContrarianAgent
+    from invest.agents import ContrarianAgent
 
     agent = ContrarianAgent(llm_caller=None)
     result = agent.analyze_fallback([
@@ -373,7 +373,7 @@ def test_contrarian_fallback():
 
 
 def test_strategist_fallback():
-    from agents import StrategistAgent
+    from invest.agents import StrategistAgent
 
     agent = StrategistAgent(llm_caller=None)
 
@@ -390,7 +390,7 @@ def test_strategist_fallback():
 
 
 def test_commander_fallback():
-    from agents import CommanderAgent
+    from invest.agents import CommanderAgent
 
     agent = CommanderAgent(llm_caller=None)
 
@@ -421,7 +421,7 @@ def test_commander_fallback():
 
 def test_commander_trailing_pct():
     """趋势股应该有 trailing_pct"""
-    from agents import CommanderAgent
+    from invest.agents import CommanderAgent
 
     agent = CommanderAgent(llm_caller=None)
     result = agent.integrate_fallback(
@@ -445,8 +445,8 @@ def test_commander_trailing_pct():
 
 def test_selection_meeting_fallback():
     """数据不足时回退到算法选股"""
-    from core import LLMCaller
-    from meetings import SelectionMeeting
+    from invest.core import LLMCaller
+    from invest.meetings import SelectionMeeting
 
     caller = LLMCaller(dry_run=True)
 
@@ -467,8 +467,8 @@ def test_selection_meeting_fallback():
 
 
 def test_selection_meeting_with_data():
-    from core import LLMCaller
-    from meetings import SelectionMeeting
+    from invest.core import LLMCaller
+    from invest.meetings import SelectionMeeting
 
     caller = LLMCaller(dry_run=True)
 
@@ -492,8 +492,8 @@ def test_selection_meeting_with_data():
 
 def test_trailing_stop():
     """跟踪止盈：先涨后跌，应该在回落时卖出，而不是固定止盈"""
-    from core import TradingPlan, PositionPlan
-    from trading import SimulatedTrader
+    from invest.core import TradingPlan, PositionPlan
+    from invest.trading import SimulatedTrader
 
     stock_data = make_rising_stock()
     code = list(stock_data.keys())[0]
@@ -535,8 +535,8 @@ def test_trailing_stop():
 
 def test_position_source_tracking():
     """持仓来源追踪"""
-    from core import TradingPlan, PositionPlan
-    from trading import SimulatedTrader
+    from invest.core import TradingPlan, PositionPlan
+    from invest.trading import SimulatedTrader
 
     stock_data = make_stock_data(5, 60)
     codes = list(stock_data.keys())
@@ -567,8 +567,8 @@ def test_position_source_tracking():
 
 
 def test_emergency_detector():
-    from trading import EmergencyDetector, EmergencyType
-    from trading import SimulatedTrader, Position
+    from invest.trading import EmergencyDetector, EmergencyType
+    from invest.trading import SimulatedTrader, Position
 
     detector = EmergencyDetector(single_stock_crash_pct=-7.0)
 
@@ -597,8 +597,8 @@ def test_emergency_detector():
 
 def test_limit_order_expiry():
     """限价单过期：5天到不了目标价就放弃"""
-    from core import TradingPlan, PositionPlan
-    from trading import SimulatedTrader
+    from invest.core import TradingPlan, PositionPlan
+    from invest.trading import SimulatedTrader
 
     stock_data = make_stock_data(3, 60)
     code = list(stock_data.keys())[0]
@@ -633,7 +633,7 @@ def test_limit_order_expiry():
 # ===== Phase 4 测试 =====
 
 def test_agent_tracker():
-    from core import AgentTracker
+    from invest.core import AgentTracker
 
     tracker = AgentTracker()
 
@@ -686,7 +686,7 @@ def test_agent_tracker():
 
 
 def test_review_meeting_fallback():
-    from meetings import ReviewMeeting
+    from invest.meetings import ReviewMeeting
 
     review = ReviewMeeting(llm_caller=None)
 
@@ -719,7 +719,7 @@ def test_review_meeting_fallback():
 
 def test_meeting_recorder():
     import tempfile
-    from meetings import MeetingRecorder
+    from invest.meetings import MeetingRecorder
 
     with tempfile.TemporaryDirectory() as tmpdir:
         recorder = MeetingRecorder(base_dir=tmpdir)
@@ -766,8 +766,8 @@ def test_meeting_recorder():
 
 
 def test_selection_meeting_weights():
-    from core import LLMCaller
-    from meetings import SelectionMeeting
+    from invest.core import LLMCaller
+    from invest.meetings import SelectionMeeting
 
     caller = LLMCaller(dry_run=True)
 
@@ -792,10 +792,10 @@ def test_selection_meeting_weights():
 def test_all_imports():
     """确保所有模块都能正常导入"""
     modules = [
-        "core",
-        "agents",
-        "trading",
-        "meetings",
+        "invest.core",
+        "invest.agents",
+        "invest.trading",
+        "invest.meetings",
         "config",
     ]
 

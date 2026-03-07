@@ -29,7 +29,7 @@ from typing import Dict, List, Optional, Tuple
 import numpy as np
 import pandas as pd
 
-from core import TradingPlan, PositionPlan
+from invest.core import TradingPlan, PositionPlan
 
 logger = logging.getLogger(__name__)
 
@@ -555,7 +555,7 @@ class DailyRanker:
         return score
 
     def _calc_rsi(self, close: np.ndarray, period: int = 14) -> float:
-        from core import compute_rsi
+        from invest.core import compute_rsi
         return compute_rsi(pd.Series(close), period)
 
     def _macd_bullish(self, close: np.ndarray) -> bool:

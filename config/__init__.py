@@ -30,10 +30,14 @@ except ImportError:
 # 路径常量
 # ===========================================================
 
-PROJECT_ROOT = Path(__file__).resolve().parent
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DATA_DIR = PROJECT_ROOT / "data"
-OUTPUT_DIR = PROJECT_ROOT / "outputs"
-LOGS_DIR = PROJECT_ROOT / "logs"
+RUNTIME_DIR = PROJECT_ROOT / "runtime"
+OUTPUT_DIR = RUNTIME_DIR / "outputs"
+LOGS_DIR = RUNTIME_DIR / "logs"
+MEMORY_DIR = RUNTIME_DIR / "memory"
+SESSIONS_DIR = RUNTIME_DIR / "sessions"
+WORKSPACE_DIR = RUNTIME_DIR / "workspace"
 
 
 # ===========================================================

@@ -17,7 +17,7 @@ import logging
 from typing import TYPE_CHECKING, Dict, List, Optional
 
 if TYPE_CHECKING:
-    from core import LLMCaller, TradingPlan
+    from invest.core import LLMCaller, TradingPlan
 
 logger = logging.getLogger(__name__)
 

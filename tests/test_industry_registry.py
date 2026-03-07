@@ -76,7 +76,7 @@ class TestConsumersUseRegistry:
 
     def test_risk_factor_model(self):
         """RiskFactorModel.get_industry() 走注册表"""
-        from optimization import RiskFactorModel
+        from invest.optimization import RiskFactorModel
         model = RiskFactorModel()
         assert model.get_industry("sh.600036") == "银行"
         assert model.get_industry("sz.300750") == "新能源"
@@ -84,7 +84,7 @@ class TestConsumersUseRegistry:
 
     def test_portfolio_risk_manager(self):
         """PortfolioRiskManager.get_industry() 走注册表"""
-        from trading import PortfolioRiskManager
+        from invest.trading import PortfolioRiskManager
         mgr = PortfolioRiskManager()
         assert mgr.get_industry("sh.601398") == "银行"
         assert mgr.get_industry("sh.600276") == "医药"
@@ -92,15 +92,15 @@ class TestConsumersUseRegistry:
 
     def test_trading_analyzer(self):
         """TradingAnalyzer.get_industry() 走注册表"""
-        from optimization import TradingAnalyzer
+        from invest.optimization import TradingAnalyzer
         analyzer = TradingAnalyzer()
         assert analyzer.get_industry("sh.600519") == "白酒"
         assert analyzer.get_industry("xx.999999") == "其他"
 
     def test_all_consumers_consistent(self):
         """三个消费端对同一代码返回相同行业"""
-        from optimization import RiskFactorModel, TradingAnalyzer
-        from trading import PortfolioRiskManager
+        from invest.optimization import RiskFactorModel, TradingAnalyzer
+        from invest.trading import PortfolioRiskManager
 
         code = "sh.600036"
         results = {

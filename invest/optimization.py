@@ -26,7 +26,7 @@ import numpy as np
 import pandas as pd
 
 from config import config
-from core import LLMCaller, compute_rsi, compute_macd_signal, compute_bb_position
+from invest.core import LLMCaller, compute_rsi, compute_macd_signal, compute_bb_position
 
 logger = logging.getLogger(__name__)
 

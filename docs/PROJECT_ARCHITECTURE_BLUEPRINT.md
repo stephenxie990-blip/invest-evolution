@@ -172,7 +172,7 @@ flowchart TB
 
     subgraph DataLayer ["底层驱动与基建层 (Infrastructure)"]
         DAT["📊 data.py<br/>(下载API/读取/Mock/处理)"]
-        CFG["⚙️ config.py<br/>(系统核心参数/配置中心/配置组)"]
+        CFG["⚙️ config/__init__.py<br/>(系统核心参数/配置中心/配置组)"]
         GW["🔌 llm_gateway.py / router.py<br/>(模型通道/API路由管理)"]
     end
 

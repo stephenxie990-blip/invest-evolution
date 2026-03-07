@@ -15,7 +15,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import numpy as np
 import pandas as pd
-from optimization import (
+from invest.optimization import (
     StockSelector,
     AdaptiveSelector,
     DynamicFactorWeight,
