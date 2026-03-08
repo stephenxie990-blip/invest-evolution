@@ -51,3 +51,10 @@
 - `ReviewMeeting._validate_decision()` 会裁剪 `position_size` 等参数，但原始 `reasoning` 不会随之同步，导致“文案说 10%，实际落盘 30%”这种不一致。
 - 最稳妥的修法不是改写 LLM 原文，而是补充结构化的 `applied_summary`，让 Markdown 和记忆详情都能展示“最终真正执行的参数/权重”。
 - 本地测试需统一使用 `uv run pytest`，因为系统环境没有直接安装 `pytest`。
+
+## 2026-03-08 数据库升级 V2 发现
+- 当前库里 `security_master` 已有完整行业字段，但运行时行业判断仍主要依赖 `data/industry_map.json`；后者当前仅 13 条映射，已成为明显瓶颈。
+- 当前库 `financial_snapshot` 为 0 行，且仓储层仅有 upsert，没有读侧查询接口，导致价值/质量策略无法真正消费财务数据。
+- 大盘/基准数据此前没有进入统一数据库，`invest/evaluation/freeze.py` 仍在运行时直接抓取沪深300，削弱了离线复现能力。
+- 最适合作为 P0 的切入口是 `index_bar`：改动集中、风险低、能立刻提升 benchmark 与市场状态一致性。
+- `config.index_codes` 原默认只含上证/深成/创业板三大指数，不含 `000300.SH`，会导致 benchmark 使用的沪深300未被同步；本轮已补入默认配置并在同步逻辑中强制兜底追加。

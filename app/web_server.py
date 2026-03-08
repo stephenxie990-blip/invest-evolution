@@ -738,6 +738,8 @@ def api_data_download():
             service.sync_security_master()
             logger.info("开始后台同步日线数据...")
             service.sync_daily_bars()
+            logger.info("开始后台同步指数数据...")
+            service.sync_index_bars()
             logger.info("后台数据同步完成")
         except Exception as e:
             logger.exception(f"后台数据同步失败: {e}")

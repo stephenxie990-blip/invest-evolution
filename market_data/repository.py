@@ -89,6 +89,26 @@ class MarketDataRepository:
             conn.execute("CREATE INDEX IF NOT EXISTS idx_daily_bar_trade_date ON daily_bar(trade_date)")
             conn.execute(
                 """
+                CREATE TABLE IF NOT EXISTS index_bar (
+                    index_code TEXT NOT NULL,
+                    trade_date TEXT NOT NULL,
+                    open REAL,
+                    high REAL,
+                    low REAL,
+                    close REAL,
+                    volume REAL,
+                    amount REAL,
+                    pct_chg REAL,
+                    source TEXT NOT NULL DEFAULT '',
+                    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    PRIMARY KEY (index_code, trade_date)
+                )
+                """
+            )
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_index_bar_code_date ON index_bar(index_code, trade_date)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_index_bar_trade_date ON index_bar(trade_date)")
+            conn.execute(
+                """
                 CREATE TABLE IF NOT EXISTS financial_snapshot (
                     code TEXT NOT NULL,
                     report_date TEXT NOT NULL,
@@ -180,6 +200,37 @@ class MarketDataRepository:
             )
         return len(rows)
 
+    def upsert_index_bars(self, records: Iterable[Mapping[str, Any]]) -> int:
+        rows = [
+            (
+                str(record.get("index_code", "")).strip(),
+                _normalize_optional_date(record.get("trade_date")),
+                _to_float(record.get("open")),
+                _to_float(record.get("high")),
+                _to_float(record.get("low")),
+                _to_float(record.get("close")),
+                _to_float(record.get("volume")),
+                _to_float(record.get("amount")),
+                _to_float(record.get("pct_chg")),
+                str(record.get("source", "") or "").strip(),
+            )
+            for record in records
+            if str(record.get("index_code", "")).strip() and _normalize_optional_date(record.get("trade_date"))
+        ]
+        if not rows:
+            return 0
+        with self.connect() as conn:
+            conn.executemany(
+                """
+                INSERT OR REPLACE INTO index_bar (
+                    index_code, trade_date, open, high, low, close, volume, amount,
+                    pct_chg, source, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                """,
+                rows,
+            )
+        return len(rows)
+
     def upsert_financial_snapshots(self, records: Iterable[Mapping[str, Any]]) -> int:
         rows = [
             (
@@ -247,6 +298,10 @@ class MarketDataRepository:
             kline_count = conn.execute("SELECT COUNT(*) FROM daily_bar").fetchone()[0]
             latest_row = conn.execute("SELECT MAX(trade_date) FROM daily_bar").fetchone()
             latest_date = latest_row[0] if latest_row and latest_row[0] else ""
+            index_count = conn.execute("SELECT COUNT(DISTINCT index_code) FROM index_bar").fetchone()[0]
+            index_kline_count = conn.execute("SELECT COUNT(*) FROM index_bar").fetchone()[0]
+            index_latest_row = conn.execute("SELECT MAX(trade_date) FROM index_bar").fetchone()
+            index_latest_date = index_latest_row[0] if index_latest_row and index_latest_row[0] else ""
             financial_count = conn.execute("SELECT COUNT(*) FROM financial_snapshot").fetchone()[0]
         size_mb = round(self.db_path.stat().st_size / (1024 * 1024), 2) if self.db_path.exists() else 0.0
         return {
@@ -256,6 +311,9 @@ class MarketDataRepository:
             "kline_count": kline_count,
             "financial_count": financial_count,
             "latest_date": latest_date,
+            "index_count": index_count,
+            "index_kline_count": index_kline_count,
+            "index_latest_date": index_latest_date,
             "schema": "canonical_v1",
         }
 
@@ -287,6 +345,51 @@ class MarketDataRepository:
         with self.connect() as conn:
             row = conn.execute("SELECT COUNT(DISTINCT code) FROM daily_bar WHERE adj_flag='hfq'").fetchone()
         return int(row[0]) if row else 0
+
+    def get_index_count(self) -> int:
+        self.initialize_schema()
+        with self.connect() as conn:
+            row = conn.execute("SELECT COUNT(DISTINCT index_code) FROM index_bar").fetchone()
+        return int(row[0]) if row else 0
+
+    def get_index_available_date_range(self) -> tuple[Optional[str], Optional[str]]:
+        self.initialize_schema()
+        with self.connect() as conn:
+            row = conn.execute("SELECT MIN(trade_date), MAX(trade_date) FROM index_bar").fetchone()
+        if not row:
+            return None, None
+        return row[0], row[1]
+
+    def query_index_bars(
+        self,
+        index_codes: Sequence[str] | None = None,
+        start_date: str | None = None,
+        end_date: str | None = None,
+    ) -> pd.DataFrame:
+        self.initialize_schema()
+        clauses: list[str] = []
+        params: list[Any] = []
+
+        if index_codes:
+            placeholders = ",".join(["?"] * len(index_codes))
+            clauses.append(f"index_code IN ({placeholders})")
+            params.extend(index_codes)
+        if start_date:
+            clauses.append("trade_date >= ?")
+            params.append(normalize_date(start_date))
+        if end_date:
+            clauses.append("trade_date <= ?")
+            params.append(normalize_date(end_date))
+
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        query = f"""
+            SELECT index_code, trade_date, open, high, low, close, volume, amount, pct_chg
+            FROM index_bar
+            {where}
+            ORDER BY index_code, trade_date
+        """
+        with self.connect() as conn:
+            return pd.read_sql_query(query, conn, params=params)
 
     def count_codes_with_history(
         self,

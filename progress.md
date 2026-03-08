@@ -35,3 +35,12 @@
 - 已修改 `/Users/zhangsan/Desktop/投资进化系统v1.0/invest/meetings/recorder.py`：Markdown 新增“最终执行摘要”展示。
 - 已修改 `/Users/zhangsan/Desktop/投资进化系统v1.0/tests/test_meeting_refinement.py`：补充统计口径和执行摘要一致性测试。
 - 验证结果：`uv run pytest tests/test_meeting_refinement.py -q` 通过；`uv run pytest tests/test_meeting_refinement.py tests/test_all_modules.py -q` 通过。
+
+## 2026-03-08 数据库升级 V2 进展
+- 已启用 `pi-planning-with-files` 接管本轮数据库升级任务，并将方案落盘到 `docs/DATABASE_UPGRADE_V2.md`。
+- 已在 `market_data/repository.py` 增加 `index_bar` 表、状态字段和查询接口。
+- 已在 `market_data/ingestion.py` 增加 `sync_index_bars()`，支持按配置指数或默认指数同步。
+- 已在 `app/web_server.py` 的后台数据下载链路中接入指数同步。
+- 已在 `market_data/quality.py` 增加指数覆盖状态输出，准备进行定向测试验证。
+- 2026-03-08：完成 `uv run pytest tests/test_data_unification.py tests/test_governance_phase_a_f.py -q` 定向回归，相关数据层改造通过。
+- 2026-03-08：已将 `sh.000001`、`sz.399001`、`sz.399006`、`sh.000300` 的指数日线补入当前库，覆盖 `20150105` 至 `20260306`。

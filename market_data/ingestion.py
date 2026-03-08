@@ -4,7 +4,7 @@ import time
 from datetime import datetime, timedelta
 from typing import Any, Sequence
 
-from config import normalize_date
+from config import config, normalize_date
 from .quality import DataQualityService
 from .repository import MarketDataRepository
 
@@ -23,6 +23,20 @@ def _is_a_share(code: str) -> bool:
 def _ts_code_to_local(ts_code: str) -> str:
     symbol, market = ts_code.split(".")
     return f"{market.lower()}.{symbol}"
+
+
+def _normalize_index_code(code: str) -> str:
+    value = str(code or "").strip()
+    if not value:
+        return ""
+    if value.startswith(("sh.", "sz.")):
+        return value
+    if "." in value:
+        symbol, market = value.split(".")
+        return f"{market.lower()}.{symbol}"
+    if value.startswith("6"):
+        return f"sh.{value}"
+    return f"sz.{value}"
 
 
 def _safe_float(value: Any) -> float | None:
@@ -193,6 +207,84 @@ class DataIngestionService:
         )
         quality = self.quality_service.persist_audit()
         return {"stock_count": synced_codes, "row_count": total_rows, "source": "baostock", "latest_date": end, "quality": quality}
+
+    def sync_index_bars(
+        self,
+        index_codes: Sequence[str] | None = None,
+        start_date: str = "20160101",
+        end_date: str | None = None,
+    ) -> dict[str, Any]:
+        import baostock as bs
+
+        start = normalize_date(start_date)
+        end = normalize_date(end_date or datetime.now().strftime("%Y%m%d"))
+        codes = [_normalize_index_code(code) for code in (index_codes or config.index_codes or [])]
+        codes = [code for code in codes if code]
+        if not codes:
+            codes = ["sh.000001", "sz.399001", "sz.399006", "sh.000300"]
+        if "sh.000300" not in codes:
+            codes.append("sh.000300")
+
+        login = bs.login()
+        if getattr(login, "error_code", "0") != "0":
+            raise RuntimeError(f"Baostock 登录失败: {getattr(login, 'error_msg', '')}")
+
+        total_rows = 0
+        synced_codes = 0
+        try:
+            for code in codes:
+                rs = bs.query_history_k_data_plus(
+                    code,
+                    "date,code,open,high,low,close,volume,amount,pctChg",
+                    start_date=_format_bs_date(start),
+                    end_date=_format_bs_date(end),
+                    frequency="d",
+                    adjustflag="2",
+                )
+                if getattr(rs, "error_code", "0") != "0":
+                    logger.warning("Baostock 指数K线下载失败: %s %s", code, getattr(rs, "error_msg", ""))
+                    continue
+
+                records: list[dict[str, Any]] = []
+                while rs.next():
+                    row = dict(zip(rs.fields, rs.get_row_data()))
+                    records.append(
+                        {
+                            "index_code": row.get("code", code),
+                            "trade_date": row.get("date", ""),
+                            "open": row.get("open"),
+                            "high": row.get("high"),
+                            "low": row.get("low"),
+                            "close": row.get("close"),
+                            "volume": row.get("volume"),
+                            "amount": row.get("amount"),
+                            "pct_chg": row.get("pctChg"),
+                            "source": "baostock",
+                        }
+                    )
+
+                inserted = self.repository.upsert_index_bars(records)
+                if inserted:
+                    synced_codes += 1
+                    total_rows += inserted
+        finally:
+            bs.logout()
+
+        self.repository.upsert_meta(
+            {
+                "last_index_bar_sync": datetime.now().isoformat(timespec="seconds"),
+                "index_bar_latest_date": end,
+                "index_bar_source": "baostock",
+            }
+        )
+        quality = self.quality_service.persist_audit()
+        return {
+            "index_count": synced_codes,
+            "row_count": total_rows,
+            "source": "baostock",
+            "latest_date": end,
+            "quality": quality,
+        }
 
     def sync_financial_snapshots_from_tushare(
         self,

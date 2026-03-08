@@ -460,7 +460,8 @@ def _cli_main():
     if args.source == "baostock":
         security = service.sync_security_master()
         daily = service.sync_daily_bars(start_date=args.start, end_date=args.end)
-        print(json.dumps({"security": security, "daily": daily}, ensure_ascii=False, indent=2))
+        index = service.sync_index_bars(start_date=args.start, end_date=args.end)
+        print(json.dumps({"security": security, "daily": daily, "index": index}, ensure_ascii=False, indent=2))
     else:
         daily = service.sync_daily_bars_from_tushare(
             start_date=args.start,

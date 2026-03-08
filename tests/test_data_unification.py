@@ -4,6 +4,7 @@ import web_server
 from market_data import DataManager
 from market_data.datasets import T0DatasetBuilder
 from market_data.ingestion import DataIngestionService
+from market_data.quality import DataQualityService
 from market_data.repository import MarketDataRepository
 
 
@@ -153,17 +154,22 @@ def test_web_data_download_uses_unified_ingestion_service(monkeypatch):
         calls.append("daily")
         return {"row_count": 1}
 
+    def _sync_index(self):
+        calls.append("index")
+        return {"row_count": 1}
+
     monkeypatch.setattr(web_server.threading, "Thread", InlineThread)
     monkeypatch.setattr(web_server, "_data_download_running", False)
     monkeypatch.setattr(DataIngestionService, "sync_security_master", _sync_security)
     monkeypatch.setattr(DataIngestionService, "sync_daily_bars", _sync_daily)
+    monkeypatch.setattr(DataIngestionService, "sync_index_bars", _sync_index)
 
     client = web_server.app.test_client()
     res = client.post("/api/data/download")
 
     assert res.status_code == 200
     assert res.get_json()["status"] == "started"
-    assert calls == ["security", "daily"]
+    assert calls == ["security", "daily", "index"]
 
 
 def test_web_data_download_deduplicates_running_job(monkeypatch):
@@ -329,3 +335,33 @@ def test_market_data_cli_financials_requires_tushare_source(monkeypatch):
         assert "仅支持 --source tushare" in str(exc)
     else:
         raise AssertionError("expected RuntimeError")
+
+
+def test_repository_tracks_index_bars_in_status(tmp_path):
+    db_path = tmp_path / "index.db"
+    repo = MarketDataRepository(db_path)
+    repo.initialize_schema()
+    inserted = repo.upsert_index_bars([
+        {
+            "index_code": "sh.000300",
+            "trade_date": "20240108",
+            "open": 3500,
+            "high": 3510,
+            "low": 3490,
+            "close": 3505,
+            "volume": 1000000,
+            "amount": 2000000,
+            "pct_chg": 0.5,
+            "source": "test",
+        }
+    ])
+
+    status = repo.get_status_summary()
+    quality = DataQualityService(repository=repo).audit()
+
+    assert inserted == 1
+    assert status["index_count"] == 1
+    assert status["index_kline_count"] == 1
+    assert status["index_latest_date"] == "20240108"
+    assert quality["checks"]["has_index_bars"] is True
+    assert quality["index_date_range"]["min"] == "20240108"

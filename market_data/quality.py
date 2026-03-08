@@ -16,6 +16,9 @@ class DataQualityService:
         "last_daily_bar_sync",
         "daily_bar_latest_date",
         "daily_bar_source",
+        "last_index_bar_sync",
+        "index_bar_latest_date",
+        "index_bar_source",
         "last_financial_snapshot_sync",
         "financial_snapshot_source",
         "last_quality_audit",
@@ -31,11 +34,14 @@ class DataQualityService:
         status = self.repository.get_status_summary()
         date_range = self.repository.get_available_date_range()
         meta = self.repository.get_meta(self.META_KEYS)
+        index_date_range = self.repository.get_index_available_date_range()
         checks = {
             "has_security_master": status["stock_count"] > 0,
             "has_daily_bars": status["kline_count"] > 0,
+            "has_index_bars": status.get("index_kline_count", 0) > 0,
             "has_latest_date": bool(status["latest_date"]),
             "date_range_valid": bool(date_range[0] and date_range[1]),
+            "index_date_range_valid": bool(index_date_range[0] and index_date_range[1]) if status.get("index_kline_count", 0) > 0 else True,
         }
         issues = []
         if not checks["has_security_master"]:
@@ -48,6 +54,7 @@ class DataQualityService:
         return {
             "status": status,
             "date_range": {"min": date_range[0], "max": date_range[1]},
+            "index_date_range": {"min": index_date_range[0], "max": index_date_range[1]},
             "meta": meta,
             "checks": checks,
             "issues": issues,
