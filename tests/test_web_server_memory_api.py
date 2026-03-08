@@ -119,7 +119,7 @@ def test_memory_api_detail_returns_training_artifacts(tmp_path, monkeypatch):
                     "trade_count": 1,
                     "selected_count": 2,
                     "selected_stocks": ["000002.SZ", "000003.SZ"],
-                    "selection_mode": "algorithm_fallback",
+                    "selection_mode": "meeting",
                     "review_applied": False,
                     "llm_used": False,
                     "benchmark_passed": True,
@@ -186,5 +186,5 @@ def test_memory_api_detail_returns_training_artifacts(tmp_path, monkeypatch):
     assert body["details"]["compare"]["metrics"]["return_pct"]["delta"] == pytest.approx(0.73)
     assert body["details"]["compare"]["selected_stocks"]["added"] == ["000001.SZ"]
     assert body["details"]["compare"]["selected_stocks"]["removed"] == ["000002.SZ", "000003.SZ"]
-    assert body["details"]["compare"]["flags"]["selection_mode"]["changed"] is True
+    assert body["details"]["compare"]["flags"]["selection_mode"]["changed"] is False
     assert body["details"]["compare"]["params"]["changed_count"] == 3

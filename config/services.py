@@ -36,6 +36,8 @@ class EvolutionConfigService:
         "max_positions",
         "position_size_pct",
         "index_codes",
+        "investment_model",
+        "investment_model_config",
     }
 
     def __init__(
@@ -90,6 +92,8 @@ class EvolutionConfigService:
             "max_positions": cfg.max_positions,
             "position_size_pct": cfg.position_size_pct,
             "index_codes": list(cfg.index_codes or []),
+            "investment_model": cfg.investment_model,
+            "investment_model_config": cfg.investment_model_config,
             "audit_log_path": str(self.audit_log_path),
             "snapshot_dir": str(self.snapshot_dir),
         }
@@ -116,6 +120,11 @@ class EvolutionConfigService:
             out["max_positions"] = int(out["max_positions"])
         if "position_size_pct" in out:
             out["position_size_pct"] = float(out["position_size_pct"])
+        if "investment_model" in out:
+            out["investment_model"] = str(out["investment_model"]).strip() or "momentum"
+        if "investment_model_config" in out:
+            out["investment_model_config"] = str(out["investment_model_config"]).strip()
+
         if "enable_debate" in out:
             val = out["enable_debate"]
             if isinstance(val, bool):

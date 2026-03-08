@@ -1,6 +1,7 @@
 import ast
 import json
 import logging
+import os
 import re
 import time
 
@@ -77,6 +78,14 @@ class LLMCaller:
             logger.info("[DRY RUN] LLM call skipped. Prompt length: %s", len(user_message))
             return '{"dry_run": true}'
 
+        if os.environ.get("PYTEST_CURRENT_TEST") and not os.environ.get("INVEST_ENABLE_LIVE_LLM_TESTS"):
+            logger.info("[PYTEST] Live LLM call disabled; using fallback path.")
+            return ""
+
+        if os.environ.get("INVEST_DISABLE_LIVE_LLM"):
+            logger.info("[RUNTIME] Live LLM disabled by INVEST_DISABLE_LIVE_LLM; using fallback path.")
+            return ""
+
         messages = [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_message},
@@ -115,13 +124,15 @@ class LLMCaller:
         self,
         system_prompt: str,
         user_message: str,
+        *,
+        warn_on_parse_error: bool = True,
         **kwargs,
     ) -> dict:
         raw = self.call(system_prompt, user_message, **kwargs)
-        return self._parse_json(raw)
+        return self._parse_json(raw, warn_on_parse_error=warn_on_parse_error)
 
     @classmethod
-    def parse_json_text(cls, text: str) -> dict:
+    def parse_json_text(cls, text: str, warn_on_failure: bool = True) -> dict:
         normalized = cls._normalize_text(text)
         if not normalized:
             return {"_parse_error": True, "_raw": "", "_error": "llm_unavailable_or_empty"}
@@ -137,11 +148,12 @@ class LLMCaller:
             if parsed is not None:
                 return parsed
 
-        logger.warning("Failed to parse JSON from LLM response: %s...", normalized[:200])
+        if warn_on_failure:
+            logger.warning("Failed to parse JSON from LLM response: %s...", normalized[:200])
         return {"_parse_error": True, "_raw": normalized}
 
-    def _parse_json(self, text: str) -> dict:
-        return self.parse_json_text(text)
+    def _parse_json(self, text: str, warn_on_parse_error: bool = True) -> dict:
+        return self.parse_json_text(text, warn_on_failure=warn_on_parse_error)
 
     @staticmethod
     def _normalize_text(text: str) -> str:
@@ -257,12 +269,77 @@ class LLMCaller:
             return candidate[start:end + 1].strip()
         return candidate[start:].strip()
 
+    @staticmethod
+    def _sanitize_string_controls(candidate: str) -> str:
+        if not candidate:
+            return candidate
+        out: list[str] = []
+        in_string = False
+        escape = False
+        for ch in candidate:
+            if escape:
+                out.append(ch)
+                escape = False
+                continue
+            if ch == "\\":
+                out.append(ch)
+                escape = True
+                continue
+            if ch == '"':
+                out.append(ch)
+                in_string = not in_string
+                continue
+            if in_string and ch in {'\n', '\r', '\t'}:
+                out.append(' ')
+                continue
+            out.append(ch)
+        return ''.join(out)
+
+    @staticmethod
+    def _escape_unescaped_string_quotes(candidate: str) -> str:
+        if not candidate:
+            return candidate
+        out: list[str] = []
+        in_string = False
+        escape = False
+        length = len(candidate)
+        for idx, ch in enumerate(candidate):
+            if escape:
+                out.append(ch)
+                escape = False
+                continue
+            if ch == "\\":
+                out.append(ch)
+                escape = True
+                continue
+            if ch == '"':
+                if not in_string:
+                    out.append(ch)
+                    in_string = True
+                    continue
+
+                look_ahead = idx + 1
+                while look_ahead < length and candidate[look_ahead].isspace():
+                    look_ahead += 1
+                next_sig = candidate[look_ahead] if look_ahead < length else ''
+                if next_sig in {',', '}', ']', ':'} or not next_sig:
+                    out.append(ch)
+                    in_string = False
+                else:
+                    out.append('\\"')
+                continue
+
+            out.append(ch)
+        return ''.join(out)
+
     @classmethod
     def _repair_common_json_issues(cls, candidate: str) -> str:
         repaired = cls._trim_to_outer_object(candidate)
         if not repaired:
             return repaired
 
+        repaired = cls._sanitize_string_controls(repaired)
+        repaired = cls._escape_unescaped_string_quotes(repaired)
         repaired = re.sub(r',\s*([}\]])', r'\1', repaired)
 
         stack: list[str] = []

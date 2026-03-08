@@ -12,10 +12,10 @@
     SelfLearningController.run_continuous()
     ↳ run_training_cycle()                每轮：
         1. DataManager.load_stock_data()  加载 T0 历史数据
-        2. AdaptiveSelector.select()      多因子选股
-        3. MeetingRunner.run_selection_meeting()  Agent 开会讨论（若启用）
+        2. InvestmentModel.process()     输出 SignalPacket + AgentContext
+        3. SelectionMeeting.run_with_model_output()  Agent 会议协作
         4. SimulatedTrader.run_simulation()  30天模拟交易
-        5. StrategyEvaluator.evaluate()   评估结果
+        5. StrategyEvaluator / BenchmarkEvaluator 评估结果
         6. 连续亏损 ≥ 3 次 → 触发优化：
            LLMOptimizer.analyze_loss()   + EvolutionEngine.evolve()
         7. should_freeze() → 固化模型
@@ -36,17 +36,17 @@ import numpy as np
 
 from config import OUTPUT_DIR, PROJECT_ROOT, config, normalize_date
 from config.services import EvolutionConfigService, RuntimePathConfigService
-from invest.shared import AgentTracker, LLMCaller, compute_market_stats, make_simple_plan
+from invest.shared import AgentTracker, LLMCaller
 from market_data import DataManager, MockDataProvider
-from invest.selection import AdaptiveSelector
-from invest.evolution import LLMOptimizer, StrategyEvolutionOptimizer, EvolutionEngine
-from invest.trading import SimulatedTrader
-from invest.evaluation import StrategyEvaluator, BenchmarkEvaluator
+from invest.evolution import LLMOptimizer, StrategyEvolutionOptimizer, EvolutionEngine, YamlConfigMutator
+from invest.foundation import BenchmarkEvaluator, SimulatedTrader, StrategyEvaluator
 from invest.agents import (
     MarketRegimeAgent, TrendHunterAgent, ContrarianAgent,
     CommanderAgent, StrategistAgent, EvoJudgeAgent
 )
 from invest.meetings import SelectionMeeting, ReviewMeeting, MeetingRecorder
+from invest.contracts import EvalReport, ModelOutput
+from invest.models import create_investment_model
 
 logger = logging.getLogger(__name__)
 
@@ -241,13 +241,13 @@ class SelfLearningController:
         data_provider=None,
     ):
         # 组件
-        self.selector          = AdaptiveSelector()
         self.llm_optimizer     = LLMOptimizer()
         self.evo_optimizer     = StrategyEvolutionOptimizer()
         self.evolution_engine  = EvolutionEngine(population_size=10)
         self.strategy_evaluator = StrategyEvaluator()
         self.benchmark_evaluator = BenchmarkEvaluator()
         self.data_manager      = DataManager(data_provider=data_provider)
+        self.current_params    = dict(self.DEFAULT_PARAMS)
 
         # Agent 团队 & 会议组件
         self.llm_caller = LLMCaller()
@@ -287,13 +287,23 @@ class SelfLearningController:
             audit_log_path=Path(config_audit_log_path) if config_audit_log_path else None,
             snapshot_dir=Path(config_snapshot_dir) if config_snapshot_dir else None,
         )
+        self.model_name = str(getattr(config, "investment_model", "momentum") or "momentum")
+        self.model_config_path = str(getattr(config, "investment_model_config", "invest/models/configs/momentum_v1.yaml"))
+        self.model_mutator = YamlConfigMutator()
+        self.investment_model = create_investment_model(
+            self.model_name,
+            config_path=self.model_config_path,
+            runtime_overrides=self.current_params,
+        )
 
         # 状态
         self.cycle_history:   List[TrainingResult] = []
         self.cycle_records:   List[Dict] = []
         self.current_cycle_id = 0
         self.consecutive_losses = 0
-        self.current_params   = dict(self.DEFAULT_PARAMS)
+        if getattr(self, "investment_model", None) is not None:
+            self.investment_model.update_runtime_overrides(self.current_params)
+
         self.assessment_history: List[SelfAssessmentSnapshot] = []
         self.optimization_events_history: List[OptimizationEvent] = []
         self.last_cycle_meta: Dict[str, Any] = {}
@@ -329,6 +339,15 @@ class SelfLearningController:
             llm = getattr(component, "llm", None)
             if llm is not None and hasattr(llm, "dry_run"):
                 llm.dry_run = dry_run
+
+    def _reload_investment_model(self, config_path: Optional[str] = None) -> None:
+        if config_path:
+            self.model_config_path = str(config_path)
+        self.investment_model = create_investment_model(
+            self.model_name,
+            config_path=self.model_config_path,
+            runtime_overrides=self.current_params,
+        )
 
     def _thinking_excerpt(self, reasoning: Any, limit: int = 200) -> str:
         """将多种推理结果安全转换为前端展示文本。"""
@@ -667,11 +686,52 @@ class SelfLearningController:
         logger.info("Agent 开会讨论选股...")
         self._emit_agent_status("SelectionMeeting", "running", "Agent 开会讨论选股...", cycle_id=cycle_id, stage="selection_meeting", progress_pct=26, step=2, total_steps=6)
         self._emit_module_log("selection", "进入选股会议", "系统开始汇总市场状态和候选标的", cycle_id=cycle_id, kind="phase_start")
-        market_stats = compute_market_stats(stock_data, cutoff_date)
-        regime_perception = self.agents["regime"].perceive(market_stats)
-        regime_reasoning = self.agents["regime"].reason(regime_perception)
-        regime_result = self.agents["regime"].act(regime_reasoning)
-        logger.info(f"市场状态: {regime_result.get('regime', 'unknown')}")
+        self.investment_model.update_runtime_overrides(self.current_params)
+        model_output = self.investment_model.process(stock_data, cutoff_date)
+        signal_packet = model_output.signal_packet
+        agent_context = model_output.agent_context
+        regime_result = {
+            "regime": signal_packet.regime,
+            "confidence": float(agent_context.metadata.get("confidence", 0.72) or 0.72),
+            "reasoning": agent_context.summary,
+            "suggested_exposure": max(0.0, min(1.0, 1.0 - float(signal_packet.cash_reserve))),
+            "params": {
+                **dict(signal_packet.params or {}),
+                "top_n": max(len(signal_packet.selected_codes), len(signal_packet.signals)),
+                "max_positions": signal_packet.max_positions,
+                "stop_loss_pct": signal_packet.params.get("stop_loss_pct", self.current_params.get("stop_loss_pct", 0.05)),
+                "take_profit_pct": signal_packet.params.get("take_profit_pct", self.current_params.get("take_profit_pct", 0.15)),
+                "position_size": signal_packet.params.get("position_size", self.current_params.get("position_size", 0.20)),
+            },
+        }
+        logger.info(f"市场状态(v2): {regime_result.get('regime', 'unknown')}")
+        self._emit_agent_status(
+            "InvestmentModel",
+            "completed",
+            f"{self.model_name} 已输出结构化信号与叙事上下文",
+            cycle_id=cycle_id,
+            stage="model_extraction",
+            progress_pct=30,
+            step=2,
+            total_steps=6,
+            details=model_output.to_dict(),
+        )
+        self._emit_module_log(
+            "model_extraction",
+            "模型输出完成",
+            agent_context.summary,
+            cycle_id=cycle_id,
+            kind="model_output",
+            details={
+                "model_name": model_output.model_name,
+                "config_name": model_output.config_name,
+                "selected_codes": signal_packet.selected_codes,
+            },
+            metrics={
+                "signal_count": len(signal_packet.signals),
+                "max_positions": signal_packet.max_positions,
+            },
+        )
         self._emit_agent_status(
             "MarketRegime",
             "thinking",
@@ -681,7 +741,7 @@ class SelfLearningController:
             progress_pct=32,
             step=2,
             total_steps=6,
-            thinking=self._thinking_excerpt(regime_reasoning),
+            thinking=self._thinking_excerpt(agent_context.summary),
             details=regime_result,
         )
         self._emit_module_log(
@@ -690,16 +750,17 @@ class SelfLearningController:
             f"当前市场状态: {regime_result.get('regime', 'unknown')}",
             cycle_id=cycle_id,
             kind="market_regime",
-            details=regime_result.get("reasoning") or regime_result,
+            details=agent_context.summary,
             metrics={
                 "confidence": regime_result.get("confidence"),
                 "suggested_exposure": regime_result.get("suggested_exposure"),
             },
         )
+        meeting_data = self.selection_meeting.run_with_model_output(model_output)
 
-        meeting_data = self.selection_meeting.run_with_data(regime_result, stock_data, cutoff_date)
         trading_plan = meeting_data["trading_plan"]
         meeting_log = meeting_data.get("meeting_log", {})
+        strategy_advice = meeting_data.get("strategy_advice", {})
         self.meeting_recorder.save_selection(meeting_log, cycle_id)
 
         for hunter in meeting_log.get("hunters", []):
@@ -723,26 +784,9 @@ class SelfLearningController:
             selection_mode = f"{trading_plan.source}_selection"
 
         if not selected:
-            logger.warning("Agent 会议未选中股票，使用算法降级")
-            selection_mode = "algorithm_fallback"
-            self.selector = AdaptiveSelector(self.current_params)
-            selected = self.selector.select(stock_data, cutoff_date, top_n=config.max_positions)
-            if selected:
-                regime_params = regime_result.get("params", {})
-                trading_plan = make_simple_plan(
-                    selected_stocks=selected,
-                    cutoff_date=cutoff_date,
-                    stop_loss_pct=regime_params.get("stop_loss_pct", self.current_params.get("stop_loss_pct", 0.05)),
-                    take_profit_pct=regime_params.get("take_profit_pct", self.current_params.get("take_profit_pct", 0.15)),
-                    trailing_pct=0.10,
-                    position_size=regime_params.get("position_size", self.current_params.get("position_size", 0.20)),
-                    max_positions=regime_params.get("max_positions", config.max_positions),
-                    max_hold_days=max(30, getattr(config, "simulation_days", 30)),
-                )
-            else:
-                logger.warning("算法降级后仍无可交易标的，跳过本周期")
-                self._mark_cycle_skipped(cycle_id, cutoff_date, stage="selection", reason="算法降级后仍无可交易标的")
-                return None
+            logger.warning("模型与会议未产出可交易标的，跳过本周期")
+            self._mark_cycle_skipped(cycle_id, cutoff_date, stage="selection", reason="模型与会议未产出可交易标的")
+            return None
 
         logger.info(f"最终选中股票: {selected}")
         self._emit_agent_status(
@@ -920,10 +964,34 @@ class SelfLearningController:
         logger.info("周期结语：复盘会议自省...")
         self._emit_agent_status("ReviewMeeting", "running", "复盘会议自省中...", cycle_id=cycle_id, stage="review_meeting", progress_pct=84, step=4, total_steps=6)
         self._emit_module_log("review", "进入复盘会议", "开始汇总交易表现与策略偏差", cycle_id=cycle_id, kind="phase_start")
+        eval_report = EvalReport(
+            cycle_id=cycle_id,
+            as_of_date=cutoff_date,
+            return_pct=sim_result.return_pct,
+            total_pnl=sim_result.total_pnl,
+            total_trades=sim_result.total_trades,
+            win_rate=sim_result.win_rate,
+            regime=regime_result.get("regime", "unknown"),
+            is_profit=bool(is_profit),
+            selected_codes=list(selected),
+            benchmark_passed=bool(cycle_dict.get("benchmark_passed", False)),
+            benchmark_strict_passed=bool(cycle_dict.get("benchmark_strict_passed", False)),
+            sharpe_ratio=float(cycle_dict.get("sharpe_ratio", 0.0) or 0.0),
+            max_drawdown=float(cycle_dict.get("max_drawdown", 0.0) or 0.0),
+            excess_return=float(cycle_dict.get("excess_return", 0.0) or 0.0),
+            data_mode=data_mode,
+            selection_mode=selection_mode,
+            agent_used=bool(agent_used),
+            llm_used=bool(llm_used),
+            metadata={
+                "model_name": getattr(model_output, "model_name", self.model_name) if 'model_output' in locals() else self.model_name,
+                "config_name": getattr(model_output, "config_name", self.model_name) if 'model_output' in locals() and model_output is not None else self.model_config_path,
+                "trade_count": len(trade_dicts),
+            },
+        )
         self.cycle_records.append(cycle_dict)
-        recent_cycle_dicts = self.cycle_records[-max(1, self.freeze_total_cycles):]
         agent_accuracy = self.agent_tracker.compute_accuracy(last_n_cycles=20)
-        review_decision = self.review_meeting.run(recent_cycle_dicts, agent_accuracy, self.current_params)
+        review_decision = self.review_meeting.run_with_eval_report(eval_report, agent_accuracy, self.current_params)
         review_facts = getattr(self.review_meeting, "last_facts", None) or cycle_dict
         self.meeting_recorder.save_review(review_decision, review_facts, cycle_id)
 
@@ -941,6 +1009,8 @@ class SelfLearningController:
 
         if review_decision.get("param_adjustments"):
             self.current_params.update(review_decision["param_adjustments"])
+            if getattr(self, "investment_model", None) is not None:
+                self.investment_model.update_runtime_overrides(review_decision["param_adjustments"])
             review_applied = True
             review_event.applied_change.update({"params": dict(review_decision["param_adjustments"])})
             logger.info(f"根据复盘调整参数: {review_decision['param_adjustments']}")
@@ -985,7 +1055,7 @@ class SelfLearningController:
         audit_tags = {
             "data_mode": data_mode,
             "selection_mode": selection_mode,
-            "meeting_fallback": selection_mode == "algorithm_fallback",
+            "meeting_fallback": False,
             "agent_used": agent_used,
             "llm_used": llm_used,
             "mock_data_used": data_mode == "mock",
@@ -1098,6 +1168,7 @@ class SelfLearningController:
             level="warn",
         )
         events: List[Dict[str, Any]] = []
+        config_adjustments: Dict[str, Any] = {}
 
         try:
             analysis = self.llm_optimizer.analyze_loss(cycle_dict, trade_dicts)
@@ -1113,6 +1184,9 @@ class SelfLearningController:
             adjustments = self.llm_optimizer.generate_strategy_fix(analysis)
             if adjustments:
                 self.current_params.update(adjustments)
+                if getattr(self, "investment_model", None) is not None:
+                    self.investment_model.update_runtime_overrides(adjustments)
+                config_adjustments.update(adjustments)
                 llm_event.applied_change = dict(adjustments)
                 logger.info(f"参数已更新: {self.current_params}")
             events.append(llm_event.to_dict())
@@ -1158,6 +1232,9 @@ class SelfLearningController:
                 )
                 if best_params:
                     self.current_params.update(best_params)
+                    if getattr(self, "investment_model", None) is not None:
+                        self.investment_model.update_runtime_overrides(best_params)
+                    config_adjustments.update(best_params)
                     logger.info(f"遗传算法优化参数: {best_params}")
                 events.append(evo_event.to_dict())
                 self._append_optimization_event(evo_event)
@@ -1169,6 +1246,34 @@ class SelfLearningController:
                     kind="evolution_engine",
                     details=best_params or {},
                     metrics={"fitness_samples": fitness_scores[-5:]},
+                )
+
+            if config_adjustments:
+                mutation = self.model_mutator.mutate(
+                    self.model_config_path,
+                    param_adjustments=config_adjustments,
+                    narrative_adjustments={"last_trigger": "consecutive_losses"},
+                    generation_label=f"cycle_{int(cycle_id or 0):04d}",
+                    parent_meta={"cycle_id": cycle_id, "trigger": "consecutive_losses"},
+                )
+                self._reload_investment_model(mutation["config_path"])
+                mutation_event = OptimizationEvent(
+                    trigger="consecutive_losses",
+                    stage="yaml_mutation",
+                    decision={"config_path": mutation["config_path"]},
+                    applied_change=dict(config_adjustments),
+                    notes="active model config mutated",
+                )
+                events.append(mutation_event.to_dict())
+                self._append_optimization_event(mutation_event)
+                self._emit_module_log(
+                    "optimization",
+                    "模型配置已变异",
+                    f"新的模型配置已生成：{mutation['config_path']}",
+                    cycle_id=cycle_id,
+                    kind="yaml_mutation",
+                    details=mutation["meta"],
+                    metrics={"adjustment_count": len(config_adjustments)},
                 )
 
         except Exception as e:

@@ -1,6 +1,8 @@
 import logging
+import re
 from typing import Any, Dict, List, Optional
 
+from invest.contracts import AgentContext
 from invest.shared import (
     LLMCaller,
     compute_bb_position,
@@ -8,10 +10,112 @@ from invest.shared import (
     compute_rsi,
     format_stock_table,
 )
-from .base import AgentConfig, InvestAgent
+from .base import AgentConfig, InvestAgent, RegimeResult
 
 logger = logging.getLogger(__name__)
 
+
+def _extract_jsonish_segment(raw: str, key: str, next_keys: List[str] | None = None) -> str:
+    text = (raw or '').strip()
+    if not text:
+        return ''
+    key_pattern = rf'["\']?{re.escape(key)}["\']?\s*:\s*'
+    match = re.search(key_pattern, text, flags=re.IGNORECASE | re.DOTALL)
+    if not match:
+        return ''
+    segment = text[match.end():]
+    if next_keys:
+        next_alt = '|'.join(re.escape(item) for item in next_keys)
+        end_match = re.search(
+            rf',\s*["\']?(?:{next_alt})["\']?\s*:',
+            segment,
+            flags=re.IGNORECASE | re.DOTALL,
+        )
+        if end_match:
+            segment = segment[:end_match.start()]
+    return segment.strip().rstrip(',').strip()
+
+
+def _extract_jsonish_string(raw: str, key: str, next_keys: List[str] | None = None) -> str:
+    segment = _extract_jsonish_segment(raw, key, next_keys)
+    if not segment:
+        return ''
+    if segment.startswith(('"', "'")):
+        segment = segment[1:]
+    if segment.endswith(('"', "'")):
+        segment = segment[:-1]
+    segment = segment.rstrip('}').rstrip(']').strip()
+    return segment.replace('\\n', ' ').replace('\n', ' ').replace('\\"', '"').strip()
+
+
+def _extract_jsonish_float(raw: str, key: str, next_keys: List[str] | None = None) -> float | None:
+    segment = _extract_jsonish_segment(raw, key, next_keys)
+    if not segment:
+        return None
+    match = re.search(r'-?\d+(?:\.\d+)?', segment)
+    if not match:
+        return None
+    return float(match.group(0))
+
+
+def _recover_hunter_result(
+    raw: str,
+    valid_codes: List[str],
+    default_stop_loss: float,
+    default_take_profit: float,
+) -> dict:
+    confidence = _extract_jsonish_float(raw, 'confidence')
+    overall_view = _extract_jsonish_string(raw, 'overall_view', ['confidence'])
+
+    code_matches = list(re.finditer(r'["\']?code["\']?\s*:\s*["\']', raw or '', flags=re.IGNORECASE))
+    picks: List[Dict[str, object]] = []
+    for idx, match in enumerate(code_matches):
+        start = match.start()
+        end = code_matches[idx + 1].start() if idx + 1 < len(code_matches) else len(raw or '')
+        segment = (raw or '')[start:end]
+        code_match = re.search(r'["\']?code["\']?\s*:\s*["\']([^"\']+)', segment, flags=re.IGNORECASE)
+        if not code_match:
+            continue
+        code = _normalize_candidate_code(code_match.group(1), valid_codes)
+        if not code:
+            continue
+        score = _extract_jsonish_float(segment, 'score', ['reasoning', 'stop_loss_pct', 'take_profit_pct'])
+        reasoning = _extract_jsonish_string(segment, 'reasoning', ['stop_loss_pct', 'take_profit_pct', 'code'])
+        stop_loss = _extract_jsonish_float(segment, 'stop_loss_pct', ['take_profit_pct', 'code'])
+        take_profit = _extract_jsonish_float(segment, 'take_profit_pct', ['code'])
+        picks.append({
+            'code': code,
+            'score': float(score if score is not None else 0.5),
+            'reasoning': reasoning or 'LLM 输出截断，已自动恢复',
+            'stop_loss_pct': float(stop_loss if stop_loss is not None else default_stop_loss),
+            'take_profit_pct': float(take_profit if take_profit is not None else default_take_profit),
+        })
+
+    return {
+        'picks': picks,
+        'overall_view': overall_view or 'LLM 输出截断，已自动恢复',
+        'confidence': float(confidence if confidence is not None else 0.5),
+    }
+
+
+def _normalize_candidate_code(code: str, valid_codes: List[str]) -> str:
+    raw = str(code or '').strip()
+    if not raw:
+        return ''
+    if raw in valid_codes:
+        return raw
+
+    compact = raw.lower().replace('.', '').replace('_', '')
+    digits = ''.join(ch for ch in compact if ch.isdigit())
+
+    for valid in valid_codes:
+        valid_compact = valid.lower().replace('.', '').replace('_', '')
+        if compact == valid_compact:
+            return valid
+        valid_digits = ''.join(ch for ch in valid_compact if ch.isdigit())
+        if digits and digits == valid_digits:
+            return valid
+    return ''
 
 _TREND_HUNTER_SYSTEM_PROMPT = """你是一个专业的趋势交易猎手，专注于寻找A股中处于上升趋势的股票。
 
@@ -104,10 +208,14 @@ class TrendHunterAgent(InvestAgent):
         logger.info(f"🔍 TrendHunter预筛: {len(summaries)}只 → {len(result)}只趋势候选")
         return result
 
+    def analyze_context(self, agent_context: AgentContext) -> dict:
+        regime = {"regime": agent_context.regime, "reasoning": agent_context.summary}
+        return self.analyze(agent_context.stock_summaries, regime)
+
     def analyze(self, candidates: List[dict], regime: dict) -> dict:
         """LLM 精选，可选为插入历史情境记忆。"""
         if not self.llm or not candidates:
-            return self.analyze_fallback(candidates)
+            return self._fallback_analysis(candidates)
 
         # 检索 BM25 历史教训并构建提示文本
         memory_section = ""
@@ -129,22 +237,26 @@ class TrendHunterAgent(InvestAgent):
         )
 
         try:
-            result = self.llm.call_json(self.config.system_prompt, user_msg)
+            result = self.llm.call_json(self.config.system_prompt, user_msg, warn_on_parse_error=False)
         except (ValueError, TypeError) as e:
             logger.warning(f"TrendHunter LLM调用异常(数据/参数): {e}")
-            return self.analyze_fallback(candidates)
+            return self._fallback_analysis(candidates)
         except Exception as e:
             logger.exception(f"TrendHunter LLM调用失败(网络/未知): {e}")
-            return self.analyze_fallback(candidates)
+            return self._fallback_analysis(candidates)
 
         if result.get("_parse_error"):
-            return self.analyze_fallback(candidates)
+            recovered = _recover_hunter_result(result.get("_raw", ""), [c["code"] for c in candidates], 0.05, 0.15)
+            if recovered.get("picks"):
+                result = recovered
+            else:
+                return self._fallback_analysis(candidates)
 
         result = self._validate(result, [c["code"] for c in candidates])
         logger.info(f"🎯 TrendHunter(LLM): 推荐{len(result['picks'])}只, 置信度{result['confidence']:.0%}")
         return result
 
-    def analyze_fallback(self, candidates: List[dict]) -> dict:
+    def _fallback_analysis(self, candidates: List[dict]) -> dict:
         """算法兜底：按趋势评分取前 5"""
         if not candidates:
             return {"picks": [], "overall_view": "无候选", "confidence": 0.0}
@@ -163,8 +275,8 @@ class TrendHunterAgent(InvestAgent):
     def _validate(self, result: dict, valid_codes: List[str]) -> dict:
         valid_picks = []
         for p in result.get("picks", []):
-            code = p.get("code", "")
-            if code not in valid_codes:
+            code = _normalize_candidate_code(p.get("code", ""), valid_codes)
+            if not code:
                 continue
             valid_picks.append({
                 "code": code,
@@ -174,7 +286,7 @@ class TrendHunterAgent(InvestAgent):
                 "take_profit_pct": max(0.05, min(0.50, float(p.get("take_profit_pct", 0.15)))),
             })
         if not valid_picks and valid_codes:
-            return self.analyze_fallback([
+            return self._fallback_analysis([
                 {"code": c, "trend_score": 0.5, "algo_score": 0.5,
                  "ma_trend": "?", "macd": "?", "rsi": 50}
                 for c in valid_codes[:3]
@@ -276,7 +388,7 @@ class ContrarianAgent(InvestAgent):
     def analyze(self, candidates: List[dict], regime: dict) -> dict:
         """LLM 精选，可选为插入历史情境记忆。"""
         if not self.llm or not candidates:
-            return self.analyze_fallback(candidates)
+            return self._fallback_analysis(candidates)
 
         # 检索 BM25 历史教训
         memory_section = ""
@@ -298,22 +410,26 @@ class ContrarianAgent(InvestAgent):
         )
 
         try:
-            result = self.llm.call_json(self.config.system_prompt, user_msg)
+            result = self.llm.call_json(self.config.system_prompt, user_msg, warn_on_parse_error=False)
         except (ValueError, TypeError) as e:
             logger.warning(f"Contrarian LLM调用异常(数据/参数): {e}")
-            return self.analyze_fallback(candidates)
+            return self._fallback_analysis(candidates)
         except Exception as e:
             logger.exception(f"Contrarian LLM调用失败(网络/未知): {e}")
-            return self.analyze_fallback(candidates)
+            return self._fallback_analysis(candidates)
 
         if result.get("_parse_error"):
-            return self.analyze_fallback(candidates)
+            recovered = _recover_hunter_result(result.get("_raw", ""), [c["code"] for c in candidates], 0.03, 0.10)
+            if recovered.get("picks"):
+                result = recovered
+            else:
+                return self._fallback_analysis(candidates)
 
         result = self._validate(result, [c["code"] for c in candidates])
         logger.info(f"🎯 Contrarian(LLM): 推荐{len(result['picks'])}只, 置信度{result['confidence']:.0%}")
         return result
 
-    def analyze_fallback(self, candidates: List[dict]) -> dict:
+    def _fallback_analysis(self, candidates: List[dict]) -> dict:
         """算法兜底：按反弹潜力评分取前 5"""
         if not candidates:
             return {"picks": [], "overall_view": "无候选", "confidence": 0.0}
@@ -331,8 +447,8 @@ class ContrarianAgent(InvestAgent):
     def _validate(self, result: dict, valid_codes: List[str]) -> dict:
         valid_picks = []
         for p in result.get("picks", []):
-            code = p.get("code", "")
-            if code not in valid_codes:
+            code = _normalize_candidate_code(p.get("code", ""), valid_codes)
+            if not code:
                 continue
             valid_picks.append({
                 "code": code,
@@ -342,7 +458,7 @@ class ContrarianAgent(InvestAgent):
                 "take_profit_pct": max(0.05, min(0.50, float(p.get("take_profit_pct", 0.10)))),
             })
         if not valid_picks and valid_codes:
-            return self.analyze_fallback([
+            return self._fallback_analysis([
                 {"code": c, "contrarian_score": 0.5, "algo_score": 0.5,
                  "rsi": 30, "bb_pos": 0.2, "change_5d": -5}
                 for c in valid_codes[:3]

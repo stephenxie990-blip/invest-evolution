@@ -52,9 +52,17 @@ def test_project_code_does_not_import_src_package_internally():
 
 def test_root_modules_import_cleanly():
     import commander
-    from invest import trading
+    from invest import foundation
 
     assert hasattr(commander, "CommanderRuntime")
     assert hasattr(commander, "StrategyGeneRegistry")
-    assert hasattr(trading, "SimulatedTrader")
-    assert hasattr(trading, "Position")
+    assert hasattr(foundation, "SimulatedTrader")
+    assert hasattr(foundation, "Position")
+
+
+def test_legacy_invest_packages_are_removed():
+    assert not (PROJECT_ROOT / "invest" / "selection").exists()
+    assert not (PROJECT_ROOT / "invest" / "trading").exists()
+    assert not (PROJECT_ROOT / "invest" / "evaluation").exists()
+    assert not (PROJECT_ROOT / "invest" / "optimization.py").exists()
+    assert not (PROJECT_ROOT / "invest" / "core.py").exists()

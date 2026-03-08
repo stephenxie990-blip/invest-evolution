@@ -7,7 +7,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 
 def _make_dry_callers():
-    from invest.core import LLMCaller
+    from invest.shared import LLMCaller
     fast = LLMCaller(dry_run=True)
     deep = LLMCaller(dry_run=True)
     return fast, deep
@@ -39,7 +39,7 @@ def _make_regime():
 
 
 def _make_trading_plan():
-    from invest.core import TradingPlan, PositionPlan
+    from invest.shared import TradingPlan, PositionPlan
     positions = [
         PositionPlan(
             code="sh.600001",
@@ -180,3 +180,33 @@ def test_risk_debate_with_portfolio_state():
     }
     result = risk_debate.assess_risk(_make_trading_plan(), _make_regime(), portfolio_state)
     assert "risk_level" in result
+
+def test_debate_recovers_truncated_judge_json():
+    from invest.debate import DebateOrchestrator
+    fast, deep = _make_dry_callers()
+    debate = DebateOrchestrator(fast, deep)
+
+    recovered = debate._recover_judge_result(  # pylint: disable=protected-access
+        '{"verdict": "hold", "confidence": 0.65, "bull_summary": "MACD金叉，均线走强", "bear_summary": "估值略高", "reasoning": "等待更清晰信号'
+    )
+
+    assert recovered is not None
+    assert recovered["verdict"] == "hold"
+    assert recovered["confidence"] == 0.65
+    assert "MACD" in recovered["bull_summary"]
+
+
+def test_risk_debate_recovers_truncated_judge_json():
+    from invest.debate import RiskDebateOrchestrator
+    fast, deep = _make_dry_callers()
+    risk_debate = RiskDebateOrchestrator(fast, deep)
+
+    recovered = risk_debate._recover_risk_judge_result(  # pylint: disable=protected-access
+        '{"risk_level": "medium", "position_size_suggestion": 0.18, "stop_loss_suggestion": 0.05, "take_profit_suggestion": 0.16, "key_concerns": ["波动放大"], "reasoning": "适中仓位更稳健'
+    )
+
+    assert recovered is not None
+    assert recovered["risk_level"] == "medium"
+    assert recovered["position_size_suggestion"] == 0.18
+    assert recovered["key_concerns"] == ["波动放大"]
+

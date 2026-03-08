@@ -1,4 +1,5 @@
 from .llm_optimizer import AnalysisResult, LLMOptimizer
+from .mutators import YamlConfigMutator
 from .engine import Individual, EvolutionEngine
 from .orchestrator import (
     StrategyEvolutionOptimizer,
@@ -28,6 +29,7 @@ from .analyzers import (
 
 __all__ = [
     "AnalysisResult",
+    "YamlConfigMutator",
     "LLMOptimizer",
     "Individual",
     "EvolutionEngine",

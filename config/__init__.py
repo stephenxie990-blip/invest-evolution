@@ -116,6 +116,8 @@ class EvolutionConfig:
         "bear": {"ma_short_weight": 0.2, "ma_long_weight": 0.5, "rsi_weight": 0.1, "vol_weight": 0.2},
         "shock": {"ma_short_weight": 0.3, "ma_long_weight": 0.2, "rsi_weight": 0.4, "vol_weight": 0.1},
     })
+    investment_model: str = "momentum"  # 当前激活的投资模型
+    investment_model_config: str = "invest/models/configs/momentum_v1.yaml"
     rsi_thresholds: dict = field(default_factory=lambda: {
         "oversold": 25,
         "overbought": 75,

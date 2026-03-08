@@ -688,6 +688,8 @@ class InvestmentBodyService:
 
         return _jsonable({
             "total_cycles": self.total_cycles,
+            "investment_model": getattr(self.controller, "model_name", "momentum"),
+            "investment_model_config": getattr(self.controller, "model_config_path", ""),
             "success_cycles": self.success_cycles,
             "no_data_cycles": self.no_data_cycles,
             "failed_cycles": self.failed_cycles,

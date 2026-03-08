@@ -2,6 +2,7 @@ import logging
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
+from invest.contracts import AgentContext
 from invest.shared import (
     LLMCaller,
     compute_bb_position,
@@ -67,7 +68,7 @@ class MarketRegimeAgent(InvestAgent):
 
     判断当前市场处于牛市/熊市/震荡市
     输出影响后续选股数量、仓位大小、止损止盈参数
-    两种模式：analyze()（LLM）/ analyze_fallback()（纯算法）
+    两种模式：analyze()（LLM）/ _fallback_analysis()（纯算法兜底）
     """
 
     def __init__(self, llm_caller=None):
@@ -86,6 +87,12 @@ class MarketRegimeAgent(InvestAgent):
         """行动：返回最终分析结果（含参数）"""
         return reasoning
 
+    def analyze_context(self, agent_context: AgentContext) -> dict:
+        market_stats = dict(agent_context.market_stats or {})
+        result = self._fallback_analysis(market_stats)
+        result["reasoning"] = agent_context.summary or result.get("reasoning", "")
+        return result
+
     def analyze(self, market_stats: dict) -> dict:
         """
         LLM 版本：调用大模型判断市场状态
@@ -97,19 +104,19 @@ class MarketRegimeAgent(InvestAgent):
             {"regime", "confidence", "suggested_exposure", "reasoning", "source", "params"}
         """
         if not self.llm:
-            return self.analyze_fallback(market_stats)
+            return self._fallback_analysis(market_stats)
 
         try:
             result = self.llm.call_json(self.config.system_prompt, self._build_prompt(market_stats))
         except (ValueError, TypeError) as e:
             logger.warning(f"MarketRegime LLM调用异常(数据/参数): {e}")
-            return self.analyze_fallback(market_stats)
+            return self._fallback_analysis(market_stats)
         except Exception as e:
             logger.exception(f"MarketRegime LLM调用失败(网络/未知): {e}")
-            return self.analyze_fallback(market_stats)
+            return self._fallback_analysis(market_stats)
 
         if result.get("_parse_error"):
-            return self.analyze_fallback(market_stats)
+            return self._fallback_analysis(market_stats)
 
         result = self._validate(result)
         result["source"] = "llm"
@@ -117,7 +124,7 @@ class MarketRegimeAgent(InvestAgent):
         self._record(result, market_stats)
         return result
 
-    def analyze_fallback(self, market_stats: dict) -> dict:
+    def _fallback_analysis(self, market_stats: dict) -> dict:
         """纯算法版本：基于统计规则判断，不调用 LLM"""
         regime, confidence, reasoning = self._rule_based_judgment(market_stats)
         exposure_map = {"bull": 0.8, "oscillation": 0.5, "bear": 0.2}

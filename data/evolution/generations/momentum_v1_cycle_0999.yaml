@@ -1,0 +1,18 @@
+name: momentum_v1
+kind: momentum
+params:
+  candidate_pool_size: 100
+  top_n: 5
+  max_positions: 4
+  cash_reserve: 0.2
+  stop_loss_pct: 0.05
+  take_profit_pct: 0.1
+  trailing_pct: 0.1
+  position_size: 0.15
+risk:
+  stop_loss_pct: 0.05
+  take_profit_pct: 0.1
+  trailing_pct: 0.1
+context:
+  style: concise
+  last_trigger: consecutive_losses

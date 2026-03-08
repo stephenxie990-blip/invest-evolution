@@ -10,7 +10,7 @@ def test_llm_router_from_config():
     """LLMRouter.from_config() 能正确创建双轨 caller"""
     from config import EvolutionConfig
     from llm_router import LLMRouter
-    from invest.core import LLMCaller
+    from invest.shared import LLMCaller
 
     cfg = EvolutionConfig()
     router = LLMRouter.from_config(cfg, dry_run=True)

@@ -14,12 +14,82 @@
 from __future__ import annotations
 
 import logging
+import re
 from typing import TYPE_CHECKING, Dict, List, Optional
 
 if TYPE_CHECKING:
     from invest.shared import LLMCaller, TradingPlan
 
 logger = logging.getLogger(__name__)
+
+
+def _extract_jsonish_segment(raw: str, key: str, next_keys: List[str] | None = None) -> str:
+    text = (raw or '').strip()
+    if not text:
+        return ''
+    key_pattern = rf'["\']?{re.escape(key)}["\']?\s*:\s*'
+    match = re.search(key_pattern, text, flags=re.IGNORECASE | re.DOTALL)
+    if not match:
+        return ''
+    segment = text[match.end():]
+    if next_keys:
+        next_alt = '|'.join(re.escape(item) for item in next_keys)
+        end_match = re.search(
+            rf',\s*["\']?(?:{next_alt})["\']?\s*:',
+            segment,
+            flags=re.IGNORECASE | re.DOTALL,
+        )
+        if end_match:
+            segment = segment[:end_match.start()]
+    return segment.strip().rstrip(',').strip()
+
+
+def _extract_jsonish_string(raw: str, key: str, next_keys: List[str] | None = None) -> str:
+    segment = _extract_jsonish_segment(raw, key, next_keys)
+    if not segment:
+        return ''
+    if segment.startswith(('"', "'")):
+        segment = segment[1:]
+    if segment.endswith(('"', "'")):
+        segment = segment[:-1]
+    segment = segment.rstrip('}').rstrip(']').strip()
+    return segment.replace('\\n', ' ').replace('\n', ' ').replace('\\"', '"').strip()
+
+
+def _extract_jsonish_float(raw: str, key: str, next_keys: List[str] | None = None) -> float | None:
+    segment = _extract_jsonish_segment(raw, key, next_keys)
+    if not segment:
+        return None
+    match = re.search(r'-?\d+(?:\.\d+)?', segment)
+    if not match:
+        return None
+    return float(match.group(0))
+
+
+def _extract_jsonish_enum(raw: str, key: str, allowed: List[str], next_keys: List[str] | None = None) -> str:
+    segment = _extract_jsonish_segment(raw, key, next_keys)
+    lowered = segment.lower()
+    for item in allowed:
+        if item.lower() in lowered:
+            return item
+    return ''
+
+
+def _extract_jsonish_string_list(raw: str, key: str, next_keys: List[str] | None = None) -> List[str]:
+    segment = _extract_jsonish_segment(raw, key, next_keys)
+    if not segment:
+        return []
+    quoted = re.findall(r'"([^"\\]*(?:\\.[^"\\]*)*)"', segment)
+    if not quoted:
+        quoted = re.findall(r"'([^'\\]*(?:\\.[^'\\]*)*)'", segment)
+    if quoted:
+        return [item.replace('\\"', '"').strip() for item in quoted if item.strip()]
+    if segment.startswith('['):
+        segment = segment[1:]
+    if segment.endswith(']'):
+        segment = segment[:-1]
+    return [part.strip().strip('"').strip("'") for part in segment.split(',') if part.strip()]
+
 
 
 # ===========================================================
@@ -163,15 +233,20 @@ class DebateOrchestrator:
             f"多方辩论记录：{bull_history}\n\n"
             f"空方辩论记录：{bear_history}\n\n"
             "请综合双方论点，做出最终裁定。\n"
+            "仅输出单行 JSON 对象，不要使用 Markdown 代码块，不要补充解释，不要在字符串值中再嵌套双引号。\n"
             "严格以 JSON 格式输出：\n"
             '{"verdict": "buy/hold/avoid", "confidence": 0.0~1.0, '
             '"bull_summary": "多方核心观点", '
             '"bear_summary": "空方核心观点", '
             '"reasoning": "裁判综合理由（不超过100字）"}'
         )
-        result = self.deep_llm.call_json(_DEBATE_JUDGE_SYSTEM, judge_prompt, temperature=0.3, max_tokens=400)
+        result = self.deep_llm.call_json(_DEBATE_JUDGE_SYSTEM, judge_prompt, temperature=0.3, max_tokens=400, warn_on_parse_error=False)
 
         if result.get("_parse_error") or not result.get("verdict"):
+            recovered = self._recover_judge_result(result.get("_raw", ""))
+            if recovered is not None:
+                recovered["source"] = "debate_llm_recovered"
+                return recovered
             return self.debate_fallback(stock_info)
 
         result["source"] = "debate_llm"
@@ -217,6 +292,19 @@ class DebateOrchestrator:
             "bear_summary": f"5日涨跌:{change_5d:+.1f}%，技术面综合评估",
             "reasoning": f"算法规则评分: {score}/5",
             "source": "debate_fallback",
+        }
+
+    def _recover_judge_result(self, raw: str) -> Optional[Dict]:
+        verdict = _extract_jsonish_enum(raw, "verdict", ["buy", "hold", "avoid"], ["confidence", "bull_summary", "bear_summary", "reasoning"])
+        if not verdict:
+            return None
+        confidence = _extract_jsonish_float(raw, "confidence", ["bull_summary", "bear_summary", "reasoning"])
+        return {
+            "verdict": verdict,
+            "confidence": max(0.0, min(1.0, float(confidence if confidence is not None else 0.5))),
+            "bull_summary": _extract_jsonish_string(raw, "bull_summary", ["bear_summary", "reasoning"]) or "",
+            "bear_summary": _extract_jsonish_string(raw, "bear_summary", ["reasoning"]) or "",
+            "reasoning": _extract_jsonish_string(raw, "reasoning") or "",
         }
 
     def _format_stock(self, info: Dict) -> str:
@@ -348,6 +436,7 @@ class RiskDebateOrchestrator:
             f"保守方意见：{conservative_hist}\n"
             f"中立方意见：{neutral_hist}\n\n"
             "请综合三方意见，给出最终风险裁定。\n"
+            "仅输出单行 JSON 对象，不要使用 Markdown 代码块，不要补充解释，不要在字符串值中再嵌套双引号。\n"
             "严格以 JSON 格式输出：\n"
             '{"risk_level": "low/medium/high", '
             '"position_size_suggestion": 0.0~0.3, '
@@ -356,9 +445,13 @@ class RiskDebateOrchestrator:
             '"key_concerns": ["关键风险点1", "关键风险点2"], '
             '"reasoning": "裁判综合理由（不超过100字）"}'
         )
-        result = self.deep_llm.call_json(_RISK_JUDGE_SYSTEM, judge_prompt, temperature=0.2, max_tokens=400)
+        result = self.deep_llm.call_json(_RISK_JUDGE_SYSTEM, judge_prompt, temperature=0.2, max_tokens=400, warn_on_parse_error=False)
 
         if result.get("_parse_error") or not result.get("risk_level"):
+            recovered = self._recover_risk_judge_result(result.get("_raw", ""))
+            if recovered is not None:
+                recovered["source"] = "risk_debate_llm_recovered"
+                return recovered
             return self.assess_risk_fallback(trading_plan, regime)
 
         result["source"] = "risk_debate_llm"
@@ -396,6 +489,27 @@ class RiskDebateOrchestrator:
             "key_concerns": [f"当前市场:{regime_name}，{n_positions}只持仓"],
             "reasoning": f"算法兜底：基于市场状态({regime_name})和建议仓位({suggested_exposure:.0%})",
             "source": "risk_debate_fallback",
+        }
+
+    def _recover_risk_judge_result(self, raw: str) -> Optional[Dict]:
+        risk_level = _extract_jsonish_enum(
+            raw,
+            "risk_level",
+            ["low", "medium", "high"],
+            ["position_size_suggestion", "stop_loss_suggestion", "take_profit_suggestion", "key_concerns", "reasoning"],
+        )
+        if not risk_level:
+            return None
+        pos_size = _extract_jsonish_float(raw, "position_size_suggestion", ["stop_loss_suggestion", "take_profit_suggestion", "key_concerns", "reasoning"])
+        stop_loss = _extract_jsonish_float(raw, "stop_loss_suggestion", ["take_profit_suggestion", "key_concerns", "reasoning"])
+        take_profit = _extract_jsonish_float(raw, "take_profit_suggestion", ["key_concerns", "reasoning"])
+        return {
+            "risk_level": risk_level,
+            "position_size_suggestion": max(0.0, min(0.3, float(pos_size if pos_size is not None else 0.1))),
+            "stop_loss_suggestion": max(0.01, min(0.15, float(stop_loss if stop_loss is not None else 0.05))),
+            "take_profit_suggestion": max(0.05, min(0.5, float(take_profit if take_profit is not None else 0.15))),
+            "key_concerns": _extract_jsonish_string_list(raw, "key_concerns", ["reasoning"]) or ["LLM输出格式异常，已自动恢复"],
+            "reasoning": _extract_jsonish_string(raw, "reasoning") or "LLM输出格式异常，已自动恢复。",
         }
 
     def _format_plan(self, trading_plan: "TradingPlan") -> str:

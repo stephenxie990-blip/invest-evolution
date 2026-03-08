@@ -1,6 +1,7 @@
 import logging
 from typing import Dict, List
 
+from invest.contracts import EvalReport
 from .base import AgentConfig, InvestAgent
 
 logger = logging.getLogger(__name__)
@@ -48,6 +49,11 @@ class StrategistAgent(InvestAgent):
     def act(self, reasoning: dict) -> dict:
         """行动：返回风险评估报告"""
         return reasoning
+
+    def review_report(self, eval_report: EvalReport) -> dict:
+        regime = {"regime": eval_report.regime}
+        picks = {"picks": [{"code": code, "score": 0.5, "stop_loss_pct": 0.05, "take_profit_pct": 0.15} for code in eval_report.selected_codes]}
+        return self.review(picks, {"picks": []}, regime)
 
     def review(self, trend_picks: dict, contrarian_picks: dict, regime: dict) -> dict:
         """
@@ -216,17 +222,17 @@ class CommanderAgent(InvestAgent):
             {"positions": [...], "cash_reserve": float, "reasoning": str}
         """
         if not self.llm:
-            return self.integrate_fallback(regime, trend_picks, contrarian_picks, strategy_review)
+            return self._fallback_integration(regime, trend_picks, contrarian_picks, strategy_review)
 
         user_msg = self._build_prompt(regime, trend_picks, contrarian_picks, strategy_review)
         try:
             result = self.llm.call_json(self.config.system_prompt, user_msg)
         except Exception as e:
             logger.exception(f"Commander LLM调用失败: {e}")
-            return self.integrate_fallback(regime, trend_picks, contrarian_picks, strategy_review)
+            return self._fallback_integration(regime, trend_picks, contrarian_picks, strategy_review)
 
         if result.get("_parse_error"):
-            return self.integrate_fallback(regime, trend_picks, contrarian_picks, strategy_review)
+            return self._fallback_integration(regime, trend_picks, contrarian_picks, strategy_review)
 
         all_valid_codes = set(
             p["code"] for p in trend_picks.get("picks", []) + contrarian_picks.get("picks", [])
@@ -235,7 +241,7 @@ class CommanderAgent(InvestAgent):
         logger.info(f"👨‍✈️ Commander(LLM): {len(result['positions'])}只入选, 现金储备{result['cash_reserve']:.0%}")
         return result
 
-    def integrate_fallback(
+    def _fallback_integration(
         self,
         regime: dict,
         trend_picks: dict,
@@ -365,7 +371,7 @@ class CommanderAgent(InvestAgent):
                 p["weight"] = round(p["weight"] / total_weight * available, 3)
 
         if not valid_positions:
-            return self.integrate_fallback(
+            return self._fallback_integration(
                 regime,
                 {"picks": [{"code": c, "score": 0.5, "stop_loss_pct": 0.05,
                              "take_profit_pct": 0.15, "trailing_pct": 0.10, "reasoning": "兜底"}

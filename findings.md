@@ -58,3 +58,32 @@
 - 大盘/基准数据此前没有进入统一数据库，`invest/evaluation/freeze.py` 仍在运行时直接抓取沪深300，削弱了离线复现能力。
 - 最适合作为 P0 的切入口是 `index_bar`：改动集中、风险低、能立刻提升 benchmark 与市场状态一致性。
 - `config.index_codes` 原默认只含上证/深成/创业板三大指数，不含 `000300.SH`，会导致 benchmark 使用的沪深300未被同步；本轮已补入默认配置并在同步逻辑中强制兜底追加。
+
+## 2026-03-08 投资进化系统 v2.0 升级差距研判
+- 已根据用户反馈将执行文档升级为项目级 master plan，新增每阶段工作包、测试收口、质量门、回滚策略与 cutover 标准。
+- 当前仓库已经完成第一层按功能拆分：`agents/`、`meetings/`、`trading/`、`evaluation/`、`selection/`、`evolution/` 已独立成目录，但仍未形成按变化频率分层的 L0-L4 架构。
+- `invest/shared/contracts.py` 仍承载策略默认值与计划生成逻辑，说明“契约”和“模型偏好”尚未分离。
+- `invest/trading/engine.py` 内含 `default_stop_loss_pct` / `default_take_profit_pct` 等策略默认参数，`invest/trading/risk.py` 也保留硬编码阈值，尚未完成 foundation 与 model 分层。
+- `invest/agents/regime.py`、`invest/agents/hunters.py`、`invest/meetings/selection.py` 仍直接依赖统计/打分/阈值逻辑，Agent 还未纯化为只消费叙事上下文的推理层。
+- `invest/__init__.py` 继续用扁平大导出的方式暴露整个投资域 API，这利于兼容，但会让后续分层迁移产生大量隐性耦合；迁移期应保留 re-export，收尾期再统一收口。
+- 现有测试资产可直接复用为迁移护栏，尤其是 `tests/test_structure_guards.py` 与 `tests/test_data_flow.py`；本轮已验证 `uv run pytest tests/test_structure_guards.py tests/test_data_flow.py -q` 通过，可作为后续 Phase baseline。
+- 最适合并行的不是“大面积改同一层”，而是“在契约冻结后按目录泳道并行”：`foundation/compute`、`foundation/risk+engine`、`foundation/metrics` 可独立推进；`models/` 与 `agents/` 需要等待 `ModelOutput` 契约冻结后再并行。
+- 如果要调度 subagent，建议上限为 3 个：架构/契约、底座提取、编排/测试；继续增加并行度会在 `train.py`、`commander.py`、`invest/__init__.py` 上显著放大合并冲突。
+
+## 2026-03-08 投资进化系统 v2.0 升级完成态发现
+- 本轮采用“兼容优先”的分层升级：先新增 v2 目录和契约，再让旧模块逐步委托新底座，避免一次性推倒重来造成训练主链中断。
+- `invest/contracts/` 已成为跨层统一语言；`SignalPacket`、`AgentContext`、`ModelOutput`、`StrategyAdvice`、`TradeRecord`、`EvalReport` 已具备可序列化与可测试的稳定边界。
+- `invest/foundation/` 已承接计算职责：指标/因子/特征进入 `compute/`，撮合进入 `engine/`，风控进入 `risk/`，收益评估进入 `metrics/`；旧共享入口通过委托方式复用这些底座能力。
+- `MomentumModel + momentum_v1.yaml` 已跑通新链路，模型负责参数和上下文生产，Agent/Meeting 负责推理与协作，训练编排负责按标准 Pipeline 装配执行。
+- 训练日志已证明 Agent 不再直接吃原始行情：`runtime/logs/meetings/selection/meeting_0001.json` 中记录了 `model_name=momentum`、`config_name=momentum_v1` 和可读的 `agent_context_summary`。
+- 进化对象已切换到配置层：`data/evolution/generations/momentum_v1_cycle_0999.yaml` 的生成说明系统已经能对 YAML 做变异并保留代际快照。
+- 为了测试稳定性，`invest/shared/llm.py` 增加了 pytest 场景短路和 `INVEST_DISABLE_LIVE_LLM=1` 开关；这让回归测试和训练 smoke 不依赖外部 LLM 即可稳定收口。
+- 当前唯一明确的工具链缺口是本地未安装 `ruff`/`pyright`，不影响 v2.0 升级完成，但建议后续补齐为标准质量门的一部分。
+
+## 2026-03-08 纯 v2-only Cutover 发现
+- 真正阻碍纯 v2-only 的不是模型层，而是训练入口、顶层导出和旧测试矩阵；只要这些兼容口不清，旧目录就会持续被“保活”。
+- 将旧交易/评估实现平移到 `invest/foundation/` 比从零重写风险更低：既保住行为稳定，也能在物理删除旧目录后保持训练链路可用。
+- `enable_v2_pipeline` 一旦存在，就会导致配置层、Web API、Commander snapshot 和测试语义全部双轨；删除该开关后，系统语义明显简化。
+- 选股算法降级路径删除后，`selection_mode` 不再需要表达 `algorithm_fallback`，这让训练记忆、对比视图和审计标签都回归单一语义。
+- 大而全的 `test_all_modules.py`、`test_optimization.py`、`test_comparison.py` 等旧测试文件本质上是 legacy 架构的回归护栏；进入 pure v2-only 后应删除或重写，而不是继续维持。
+

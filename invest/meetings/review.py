@@ -1,7 +1,8 @@
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Callable
 
 from invest.shared import AgentTracker, LLMCaller
+from invest.contracts import EvalReport, StrategyAdvice
 
 try:
     from invest.debate import DebateOrchestrator, RiskDebateOrchestrator
@@ -136,7 +137,7 @@ class ReviewMeeting:
         except Exception:
             logger.debug("review progress callback failed", exc_info=True)
 
-    def run(
+    def _run_review(
         self,
         recent_results: List[dict],
         agent_accuracy: dict,
@@ -224,6 +225,32 @@ class ReviewMeeting:
 
         return decision
 
+    def run_with_eval_report(
+        self,
+        eval_report: EvalReport,
+        agent_accuracy: dict,
+        current_params: dict,
+        regime_history: List[str] = None,
+    ) -> dict:
+        recent_results = [eval_report.to_dict()]
+        decision = self._run_review(recent_results, agent_accuracy, current_params, regime_history=regime_history)
+        advice = StrategyAdvice(
+            source="review_meeting",
+            selected_codes=list(eval_report.selected_codes),
+            confidence=1.0 if decision.get("strategy_suggestions") else 0.6,
+            reasoning=str(decision.get("reasoning", "")),
+            strategy_suggestions=list(decision.get("strategy_suggestions", [])),
+            param_adjustments=dict(decision.get("param_adjustments", {})),
+            agent_weight_adjustments=dict(decision.get("agent_weight_adjustments", {})),
+            metadata={
+                "cycle_id": eval_report.cycle_id,
+                "benchmark_passed": eval_report.benchmark_passed,
+            },
+        )
+        result = dict(decision)
+        result["strategy_advice"] = advice.to_dict()
+        return result
+
     def _trigger_reflections(self, facts: dict, decision: dict):
         """触发所有 Agent 的结构化反思，并将结果写入各 Agent 的记忆库 (Phase 4)"""
         if facts.get("empty"):
@@ -265,8 +292,19 @@ class ReviewMeeting:
         returns = [r.get("return_pct", 0) for r in recent_results]
         avg_return = sum(returns) / total
 
-        meeting_results = [r for r in recent_results if r.get("plan_source") == "meeting"]
-        algo_results = [r for r in recent_results if r.get("plan_source") != "meeting"]
+        def _is_meeting_result(record: dict) -> bool:
+            selection_mode = str(record.get("selection_mode", "") or "")
+            plan_source = str(record.get("plan_source", "") or "")
+            advice = record.get("strategy_advice") or {}
+            advice_source = str(advice.get("source", "") or "") if isinstance(advice, dict) else ""
+            return (
+                selection_mode.startswith("meeting")
+                or plan_source in {"meeting", "llm", "model_meeting"}
+                or advice_source in {"meeting", "llm", "model_meeting", "review_meeting"}
+            )
+
+        meeting_results = [r for r in recent_results if _is_meeting_result(r)]
+        algo_results = [r for r in recent_results if not _is_meeting_result(r)]
 
         regime_stats: Dict[str, Dict] = {}
         for r in recent_results:

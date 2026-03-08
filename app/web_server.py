@@ -25,6 +25,7 @@ from typing import Any
 from flask import Flask, jsonify, request, send_from_directory, Response, stream_with_context
 
 from app.commander import CommanderConfig, CommanderRuntime, _apply_runtime_path_overrides
+from invest.models import list_models
 from app.train import set_event_callback
 from config.services import EvolutionConfigService, RuntimePathConfigService
 from invest.meetings import MeetingRecorder
@@ -271,6 +272,21 @@ def api_train():
     except Exception as exc:
         logger.exception("Train error")
         return jsonify({"error": str(exc)}), 500
+
+
+# ---- Investment Models ----
+
+@app.route("/api/investment-models")
+def api_investment_models():
+    runtime = _runtime
+    if runtime is None:
+        return _runtime_not_ready_response()
+    controller = runtime.body.controller
+    return jsonify({
+        "items": list_models(),
+        "active_model": getattr(controller, "model_name", "momentum"),
+        "active_config": getattr(controller, "model_config_path", ""),
+    })
 
 
 # ---- Strategies ----

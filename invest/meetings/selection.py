@@ -9,6 +9,8 @@ from invest.shared import (
     format_stock_table,
     summarize_stocks,
 )
+from invest.contracts import AgentContext, ModelOutput, SignalPacket, StrategyAdvice
+from invest.foundation.risk import clamp_stop_loss_pct, clamp_take_profit_pct
 
 try:
     from invest.debate import DebateOrchestrator, RiskDebateOrchestrator
@@ -90,42 +92,67 @@ class SelectionMeeting:
             return self._run_llm(top_n, regime, stock_summaries)
         return self._run_algorithm(stock_summaries, top_n)
 
-    def run_with_data(
+    def run_with_model_output(self, model_output: ModelOutput) -> Dict[str, Any]:
+        return self.run_with_context(model_output.signal_packet, model_output.agent_context)
+
+    def run_with_context(
         self,
-        regime: Dict[str, Any],
-        stock_data: Dict[str, Any],
-        cutoff_date: str,
+        signal_packet: SignalPacket,
+        agent_context: AgentContext,
     ) -> Dict[str, Any]:
-        """
-        完整流程：自动计算摘要并运行选股会议
-
-        Returns:
-            {"trading_plan": TradingPlan, "meeting_log": Dict}
-        """
-        stock_codes = list(stock_data.keys())[:100]
-        stock_summaries = summarize_stocks(stock_data, stock_codes, cutoff_date)
-
+        self.meeting_count += 1
+        regime = {
+            "regime": signal_packet.regime,
+            "confidence": agent_context.metadata.get("confidence", 0.6),
+            "reasoning": agent_context.summary,
+            "suggested_exposure": max(0.0, min(1.0, 1.0 - float(signal_packet.cash_reserve))),
+            "params": {
+                "top_n": max(len(signal_packet.selected_codes), len(signal_packet.signals)),
+                "max_positions": signal_packet.max_positions,
+                **dict(signal_packet.params or {}),
+            },
+        }
+        stock_summaries = list(agent_context.stock_summaries or [])
         if not stock_summaries:
             return {
-                "trading_plan": self._to_trading_plan(self._fallback_empty(), regime, cutoff_date),
+                "trading_plan": self._to_trading_plan(self._fallback_empty(), regime, signal_packet.as_of_date),
                 "meeting_log": {},
+                "strategy_advice": StrategyAdvice(source="empty").to_dict(),
             }
 
-        top_n = regime.get("params", {}).get("top_n", 5)
-        meeting_result = self.run(regime, stock_summaries, top_n)
-        trading_plan = self._to_trading_plan(meeting_result, regime, cutoff_date)
-
+        top_n = signal_packet.max_positions or regime["params"].get("top_n", 5)
+        meeting_result = self._run_llm(top_n, regime, stock_summaries, agent_context=agent_context) if self.llm else self._run_algorithm(stock_summaries, top_n)
+        trading_plan = self._to_trading_plan_v2(meeting_result, signal_packet, agent_context)
+        strategy_advice = StrategyAdvice(
+            source=str(meeting_result.get("source", "model_meeting")),
+            selected_codes=[p.code for p in trading_plan.positions],
+            selected_meta=list(meeting_result.get("selected_meta", [])),
+            confidence=float(meeting_result.get("confidence", 0.0) or 0.0),
+            reasoning=str(meeting_result.get("reasoning", "")),
+            metadata={
+                "model_name": signal_packet.model_name,
+                "config_name": signal_packet.config_name,
+                "regime": signal_packet.regime,
+            },
+        )
         meeting_log = {
-            "regime": regime.get("regime"),
-            "confidence": regime.get("confidence"),
+            "regime": signal_packet.regime,
+            "confidence": strategy_advice.confidence,
             "hunters": meeting_result.get("hunters", []),
-            "selected": meeting_result.get("selected", []),
-            "source": meeting_result.get("source", "algorithm"),
+            "selected": strategy_advice.selected_codes,
+            "selected_meta": strategy_advice.selected_meta,
+            "source": strategy_advice.source,
             "meeting_id": self.meeting_count,
-            "cutoff_date": cutoff_date,
+            "cutoff_date": signal_packet.as_of_date,
+            "model_name": signal_packet.model_name,
+            "config_name": signal_packet.config_name,
+            "agent_context_summary": agent_context.summary,
         }
-
-        return {"trading_plan": trading_plan, "meeting_log": meeting_log}
+        return {
+            "trading_plan": trading_plan,
+            "meeting_log": meeting_log,
+            "strategy_advice": strategy_advice.to_dict(),
+        }
 
     def update_weights(self, weight_adjustments: Dict[str, float]):
         """EMA 平滑更新 Agent 权重（由 ReviewMeeting 驱动）"""
@@ -151,16 +178,19 @@ class SelectionMeeting:
         top_n: int,
         regime: Dict,
         stock_summaries: List[Dict],
+        agent_context: Optional[AgentContext] = None,
     ) -> Dict:
         hunter_outputs = []
 
         # 1. 趋势猎手 - 认知环路
         try:
             self._notify_progress({"agent": "TrendHunter", "status": "running", "stage": "selection", "progress_pct": 36, "message": f"趋势猎手分析 {len(stock_summaries)} 只候选..."})
-            candidates = self.trend_hunter.perceive(stock_summaries)
-            reasoning = self.trend_hunter.reason(candidates, context=regime)
-            # Act
-            result = self.trend_hunter.act(reasoning)
+            if agent_context is not None and hasattr(self.trend_hunter, "analyze_context"):
+                result = self.trend_hunter.analyze_context(agent_context)
+            else:
+                candidates = self.trend_hunter.perceive(stock_summaries)
+                reasoning = self.trend_hunter.reason(candidates, context=regime)
+                result = self.trend_hunter.act(reasoning)
             
             if result and not result.get("_parse_error"):
                 hunter_outputs.append({"name": "trend_hunter", "result": result})
@@ -181,10 +211,12 @@ class SelectionMeeting:
         # 2. 逆向猎手 - 认知环路
         try:
             self._notify_progress({"agent": "Contrarian", "status": "running", "stage": "selection", "progress_pct": 42, "message": f"逆向交易者分析 {len(stock_summaries)} 只候选..."})
-            candidates = self.contrarian.perceive(stock_summaries)
-            reasoning = self.contrarian.reason(candidates, context=regime)
-            # Act
-            result = self.contrarian.act(reasoning)
+            if agent_context is not None and hasattr(self.contrarian, "analyze_context"):
+                result = self.contrarian.analyze_context(agent_context)
+            else:
+                candidates = self.contrarian.perceive(stock_summaries)
+                reasoning = self.contrarian.reason(candidates, context=regime)
+                result = self.contrarian.act(reasoning)
             
             if result and not result.get("_parse_error"):
                 hunter_outputs.append({"name": "contrarian", "result": result})
@@ -408,6 +440,49 @@ class SelectionMeeting:
             max_positions=max_positions,
             source=meeting_result.get("source", "algorithm"),
             reasoning=meeting_result.get("reasoning", ""),
+        )
+
+    def _to_trading_plan_v2(
+        self,
+        meeting_result: Dict[str, Any],
+        signal_packet: SignalPacket,
+        agent_context: AgentContext,
+    ) -> TradingPlan:
+        signal_by_code = {signal.code: signal for signal in signal_packet.signals}
+        selected_meta = meeting_result.get("selected_meta") or [
+            {"code": code} for code in meeting_result.get("selected", signal_packet.selected_codes)
+        ]
+        cash_reserve = max(0.0, min(0.7, float(signal_packet.cash_reserve)))
+        available_weight = max(0.0, 1.0 - cash_reserve)
+        default_weight = round(min(0.25, available_weight / max(len(selected_meta), 1)), 3) if selected_meta else 0.20
+        positions = []
+        for idx, item in enumerate(selected_meta, start=1):
+            code = item["code"]
+            signal = signal_by_code.get(code)
+            trailing_pct = item.get("trailing_pct", signal.trailing_pct if signal else signal_packet.params.get("trailing_pct"))
+            if trailing_pct is not None:
+                trailing_pct = max(0.05, min(0.20, float(trailing_pct)))
+            positions.append(
+                PositionPlan(
+                    code=code,
+                    priority=idx,
+                    weight=float(item.get("weight") or (signal.weight_hint if signal and signal.weight_hint is not None else default_weight)),
+                    entry_method="market",
+                    stop_loss_pct=clamp_stop_loss_pct(item.get("stop_loss_pct", signal.stop_loss_pct if signal and signal.stop_loss_pct is not None else signal_packet.params.get("stop_loss_pct", 0.05))),
+                    take_profit_pct=clamp_take_profit_pct(item.get("take_profit_pct", signal.take_profit_pct if signal and signal.take_profit_pct is not None else signal_packet.params.get("take_profit_pct", 0.15))),
+                    trailing_pct=trailing_pct,
+                    max_hold_days=int(signal_packet.params.get("max_hold_days", 30) or 30),
+                    reason=str(item.get("reasoning") or meeting_result.get("reasoning") or agent_context.summary),
+                    source=str(item.get("source") or meeting_result.get("source", "model_meeting")),
+                )
+            )
+        return TradingPlan(
+            date=signal_packet.as_of_date,
+            positions=positions,
+            cash_reserve=cash_reserve,
+            max_positions=signal_packet.max_positions or len(positions),
+            source=str(meeting_result.get("source", "model_meeting")),
+            reasoning=str(meeting_result.get("reasoning", agent_context.summary)),
         )
 
     def _fallback_empty(self) -> Dict:

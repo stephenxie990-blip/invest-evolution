@@ -44,3 +44,36 @@
 - 已在 `market_data/quality.py` 增加指数覆盖状态输出，准备进行定向测试验证。
 - 2026-03-08：完成 `uv run pytest tests/test_data_unification.py tests/test_governance_phase_a_f.py -q` 定向回归，相关数据层改造通过。
 - 2026-03-08：已将 `sh.000001`、`sz.399001`、`sz.399006`、`sh.000300` 的指数日线补入当前库，覆盖 `20150105` 至 `20260306`。
+
+## 2026-03-08 投资进化系统 v2.0 规划进展
+- 已将执行方案升级为完整的项目级 master plan，并补齐各阶段目标、详细工作包、测试矩阵、质量控制与 subagent 编排方案。
+- 已使用 `pi-planning-with-files`、`agentic-engineering`、`eval-harness`、`verification-loop` 组织本轮架构升级规划。
+- 已扫描仓库当前结构、投资域模块、导出边界、历史规划文件与近期提交，完成现状 -> 目标架构差距映射。
+- 已识别当前升级主风险：契约分散、策略参数硬编码、Agent/Meeting 夹带计算逻辑、训练编排绑定旧流程、扁平导出导致边界松散。
+- 已执行 baseline smoke：`uv run pytest tests/test_structure_guards.py tests/test_data_flow.py -q` 通过，可作为后续迁移的最小回归门槛。
+- 已将 v2.0 分解为 7 个可验收阶段，并定义每阶段的 skill 组合、并行策略与退出条件。
+- 已生成 `docs/INVEST_V2_EXECUTION_PLAN.md` 作为后续升级主执行文档。
+
+## 2026-03-08 投资进化系统 v2.0 升级完成
+- 已完成 `invest/contracts/`、`invest/foundation/`、`invest/models/` 三层落地，并将 `app/train.py`、`app/commander.py`、`app/web_server.py` 接到新的 v2 Pipeline。
+- 已新增 `tests/test_v2_contracts.py`、`tests/test_v2_momentum_model.py`、`tests/test_v2_selection_bridge.py`、`tests/test_v2_web_models_api.py`、`tests/test_architecture_import_rules.py`、`tests/test_yaml_mutation.py` 作为本轮架构升级护栏。
+- 已执行 `uv run pytest tests/test_yaml_mutation.py -q`，结果通过。
+- 已执行 `uv run pytest -q`，全量回归通过。
+- 已执行 `uv run python -m compileall app invest config train.py commander.py web_server.py`，Python 语法校验通过。
+- 仓库当前未安装 `ruff` 与 `pyright` 可执行文件，本轮静态门以 `compileall + pytest` 收口，并记录为后续工具链补齐项。
+- 已执行 `INVEST_DISABLE_LIVE_LLM=1 uv run python train.py --cycles 1 --mock --log-level WARNING`，mock 训练通过。
+- 已执行 `INVEST_DISABLE_LIVE_LLM=1 INVEST_FORCE_CUTOFF_DATE=20211221 uv run python train.py --cycles 1 --log-level WARNING`，真实数据 smoke 训练通过。
+- 已核对 `runtime/logs/meetings/selection/meeting_0001.json`，确认本轮使用 `model_name=momentum`、`config_name=momentum_v1`，并由 `agent_context_summary` 驱动 Agent 会议。
+- 已核对 `runtime/outputs/training/cycle_1.json`，确认真实训练完成选股、交易、复盘与优化事件落盘。
+- 已核对 `data/evolution/generations/momentum_v1_cycle_0999.yaml`，确认 YAML 变异输出可生成并持久化。
+
+## 2026-03-08 纯 v2-only Cutover 完成
+- 已将 `SimulatedTrader`、风控对象与量化评估器迁入 `invest/foundation/`，训练与测试不再 import `invest/trading` / `invest/evaluation`。
+- 已从 `app/train.py` 中移除 `enable_v2_pipeline` 与算法选股降级分支，训练流程固定为模型驱动。
+- 已删除旧目录与兼容壳：`invest/selection/`、`invest/trading/`、`invest/evaluation/`、`invest/optimization.py`、`invest/core.py`。
+- 已删除不再适用的 legacy 测试，并将保留测试迁移到 `foundation` / `shared` / `v2 contracts` 语义。
+- 已执行 `uv run pytest -q`，全量回归通过。
+- 已执行 `INVEST_DISABLE_LIVE_LLM=1 uv run python train.py --cycles 1 --mock --log-level WARNING`，mock 训练通过。
+- 已执行 `INVEST_DISABLE_LIVE_LLM=1 INVEST_FORCE_CUTOFF_DATE=20211221 uv run python train.py --cycles 1 --log-level WARNING`，真实数据 smoke 训练通过。
+- 已核对 `runtime/logs/meetings/selection/meeting_0001.json`，确认 `model_name=momentum`、`config_name=momentum_v1`，纯 v2 模型链路生效。
+
