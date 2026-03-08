@@ -428,6 +428,7 @@ def _cli_main():
     parser.add_argument("--token", type=str, default=None, help="Tushare Token")
     parser.add_argument("--test", action="store_true", help="测试模式（只下3只）")
     parser.add_argument("--source", choices=["baostock", "tushare"], default="baostock", help="数据源")
+    parser.add_argument("--financials", action="store_true", help="同步财务快照（当前需配合 tushare）")
     parser.add_argument("--status", action="store_true", help="输出当前离线库审计结果并退出")
     parser.add_argument("--cutoff", type=str, default=None, help="配合 --status 输出训练截断日诊断")
     parser.add_argument("--min-history-days", type=int, default=None, help="配合 --status 指定最小历史天数")
@@ -446,6 +447,16 @@ def _cli_main():
         return
 
     service = DataIngestionService(tushare_token=args.token)
+    if args.financials:
+        if args.source != "tushare":
+            raise RuntimeError("财务快照同步当前仅支持 --source tushare")
+        financial = service.sync_financial_snapshots_from_tushare(
+            stock_limit=args.stocks,
+            test_mode=args.test,
+        )
+        print(json.dumps({"financial": financial}, ensure_ascii=False, indent=2))
+        return
+
     if args.source == "baostock":
         security = service.sync_security_master()
         daily = service.sync_daily_bars(start_date=args.start, end_date=args.end)

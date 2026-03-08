@@ -212,3 +212,94 @@ def test_data_manager_diagnose_training_data_reports_eligible_counts(tmp_path):
     assert diagnostics["ready"] is True
     assert diagnostics["eligible_stock_count"] == 2
     assert any("低于目标 5 只" in issue for issue in diagnostics["issues"])
+
+
+def test_tushare_financial_snapshots_sync_into_canonical_schema(tmp_path, monkeypatch):
+    import sys
+    import types
+
+    db_path = tmp_path / "financial.db"
+    repo = MarketDataRepository(db_path)
+    repo.initialize_schema()
+
+    class FakePro:
+        def stock_basic(self, **kwargs):
+            return pd.DataFrame([
+                {"ts_code": "600010.SH", "name": "Foo", "list_date": "20200101", "delist_date": ""},
+                {"ts_code": "600011.SH", "name": "Bar", "list_date": "20200101", "delist_date": ""},
+            ])
+
+        def daily_basic(self, **kwargs):
+            if kwargs.get("trade_date"):
+                return pd.DataFrame([
+                    {"ts_code": "600010.SH", "total_mv": 1234.5},
+                    {"ts_code": "600011.SH", "total_mv": 2345.6},
+                ])
+            return pd.DataFrame()
+
+        def income(self, ts_code, **kwargs):
+            if ts_code == "600010.SH":
+                return pd.DataFrame([
+                    {"ts_code": ts_code, "ann_date": "20240331", "end_date": "20231231", "total_revenue": 100.0, "n_income": 10.0},
+                ])
+            return pd.DataFrame([
+                {"ts_code": ts_code, "ann_date": "20240331", "end_date": "20231231", "total_revenue": 200.0, "n_income": 20.0},
+            ])
+
+        def balancesheet(self, ts_code, **kwargs):
+            return pd.DataFrame([
+                {"ts_code": ts_code, "ann_date": "20240331", "end_date": "20231231", "total_assets": 999.0},
+            ])
+
+        def fina_indicator(self, ts_code, **kwargs):
+            return pd.DataFrame([
+                {"ts_code": ts_code, "ann_date": "20240331", "end_date": "20231231", "roe": 12.5},
+            ])
+
+    fake_tushare = types.SimpleNamespace(set_token=lambda token: None, pro_api=lambda: FakePro())
+    monkeypatch.setitem(sys.modules, "tushare", fake_tushare)
+
+    service = DataIngestionService(repository=repo, tushare_token="demo-token")
+    result = service.sync_financial_snapshots_from_tushare(stock_limit=2)
+
+    assert result["stock_count"] == 2
+    assert result["row_count"] == 2
+    status = repo.get_status_summary()
+    assert status["financial_count"] == 2
+    with repo.connect() as conn:
+        payload = conn.execute(
+            "select code, report_date, publish_date, roe, net_profit, revenue, total_assets, market_cap from financial_snapshot order by code"
+        ).fetchall()
+    assert payload[0][0] == "sh.600010"
+    assert payload[0][1] == "20231231"
+    assert payload[0][2] == "20240331"
+    assert payload[0][3] == 12.5
+    assert payload[0][4] == 10.0
+    assert payload[0][5] == 100.0
+    assert payload[0][6] == 999.0
+    assert payload[0][7] == 1234.5
+
+
+def test_market_data_cli_financials_requires_tushare_source(monkeypatch):
+    import market_data.manager as manager
+
+    monkeypatch.setattr(manager, "DataIngestionService", lambda *args, **kwargs: None)
+    monkeypatch.setattr(manager.argparse.ArgumentParser, "parse_args", lambda self: type("Args", (), {
+        "stocks": 10,
+        "start": "20180101",
+        "end": None,
+        "token": None,
+        "test": False,
+        "source": "baostock",
+        "financials": True,
+        "status": False,
+        "cutoff": None,
+        "min_history_days": None,
+    })())
+
+    try:
+        manager._cli_main()
+    except RuntimeError as exc:
+        assert "仅支持 --source tushare" in str(exc)
+    else:
+        raise AssertionError("expected RuntimeError")

@@ -96,3 +96,66 @@ def test_save_cycle_result_serializes_numpy_bool(tmp_path):
     payload = json.loads((tmp_path / 'training' / 'cycle_1.json').read_text(encoding='utf-8'))
     assert payload['audit_tags']['benchmark_passed'] is True
     assert payload['optimization_events'][0]['ok'] is True
+
+
+def test_commander_result_dict_serializes_numpy_bool(tmp_path):
+    import numpy as np
+    from app.train import TrainingResult
+    from app.commander import InvestmentBodyService, CommanderConfig
+
+    cfg = CommanderConfig(mock_mode=True, autopilot_enabled=False, heartbeat_enabled=False, bridge_enabled=False)
+    cfg.training_output_dir = tmp_path / 'training'
+    cfg.meeting_log_dir = tmp_path / 'meetings'
+    cfg.config_audit_log_path = tmp_path / 'audit' / 'changes.jsonl'
+    cfg.config_snapshot_dir = tmp_path / 'snapshots'
+
+    body = InvestmentBodyService(cfg)
+    result = TrainingResult(
+        cycle_id=1,
+        cutoff_date='20240101',
+        selected_stocks=['sh.600000'],
+        initial_capital=100000,
+        final_value=101000,
+        return_pct=1.0,
+        is_profit=np.bool_(True),
+        trade_history=[],
+        params={'x': np.int64(1)},
+        analysis='',
+        data_mode='mock',
+        selection_mode='meeting',
+        agent_used=np.bool_(True),
+        llm_used=np.bool_(False),
+        benchmark_passed=np.bool_(True),
+        review_applied=np.bool_(False),
+        config_snapshot_path='',
+        optimization_events=[],
+        audit_tags={'benchmark_passed': np.bool_(True)},
+    )
+    payload = body._to_result_dict(result)
+    assert payload['is_profit'] is True
+    assert payload['benchmark_passed'] is True
+    assert payload['params']['x'] == 1
+
+
+def test_commander_snapshot_is_jsonable(tmp_path):
+    import json
+    import numpy as np
+    from app.commander import InvestmentBodyService, CommanderConfig
+
+    cfg = CommanderConfig(mock_mode=True, autopilot_enabled=False, heartbeat_enabled=False, bridge_enabled=False)
+    cfg.training_output_dir = tmp_path / 'training'
+    cfg.meeting_log_dir = tmp_path / 'meetings'
+    cfg.config_audit_log_path = tmp_path / 'audit' / 'changes.jsonl'
+    cfg.config_snapshot_dir = tmp_path / 'snapshots'
+
+    body = InvestmentBodyService(cfg)
+    body.last_result = {'benchmark_passed': np.bool_(True)}
+    json.dumps(body.snapshot(), ensure_ascii=False)
+
+
+def test_selection_meeting_progress_callback_emits():
+    from invest.meetings.selection import SelectionMeeting
+    events = []
+    meeting = SelectionMeeting(llm_caller=None, progress_callback=events.append)
+    meeting._notify_progress({'agent': 'TrendHunter', 'status': 'running', 'message': 'x'})
+    assert events and events[0]['agent'] == 'TrendHunter'

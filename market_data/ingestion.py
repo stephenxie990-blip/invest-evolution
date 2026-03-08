@@ -1,7 +1,7 @@
 import logging
 import os
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Sequence
 
 from config import normalize_date
@@ -23,6 +23,44 @@ def _is_a_share(code: str) -> bool:
 def _ts_code_to_local(ts_code: str) -> str:
     symbol, market = ts_code.split(".")
     return f"{market.lower()}.{symbol}"
+
+
+def _safe_float(value: Any) -> float | None:
+    if value in (None, "", "None"):
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _latest_trade_date(repository: MarketDataRepository) -> str:
+    latest = repository.get_status_summary().get("latest_date", "")
+    return normalize_date(latest or datetime.now().strftime("%Y%m%d"))
+
+
+def _merge_financial_frames(*frames) -> dict[str, dict[str, Any]]:
+    merged: dict[str, dict[str, Any]] = {}
+    for frame in frames:
+        if frame is None or getattr(frame, "empty", True):
+            continue
+        for _, row in frame.iterrows():
+            report_date = normalize_date(row.get("end_date", ""))
+            if not report_date:
+                continue
+            record = merged.setdefault(report_date, {"report_date": report_date})
+            ann_date = normalize_date(row.get("ann_date", ""))
+            if ann_date and not record.get("publish_date"):
+                record["publish_date"] = ann_date
+            if "roe" in row and _safe_float(row.get("roe")) is not None:
+                record["roe"] = row.get("roe")
+            if "n_income" in row and _safe_float(row.get("n_income")) is not None:
+                record["net_profit"] = row.get("n_income")
+            if "total_revenue" in row and _safe_float(row.get("total_revenue")) is not None:
+                record["revenue"] = row.get("total_revenue")
+            if "total_assets" in row and _safe_float(row.get("total_assets")) is not None:
+                record["total_assets"] = row.get("total_assets")
+    return merged
 
 
 class DataIngestionService:
@@ -155,6 +193,93 @@ class DataIngestionService:
         )
         quality = self.quality_service.persist_audit()
         return {"stock_count": synced_codes, "row_count": total_rows, "source": "baostock", "latest_date": end, "quality": quality}
+
+    def sync_financial_snapshots_from_tushare(
+        self,
+        stock_limit: int | None = None,
+        test_mode: bool = False,
+    ) -> dict[str, Any]:
+        if not self.tushare_token:
+            raise RuntimeError("未配置 TUSHARE_TOKEN")
+
+        import tushare as ts
+
+        ts.set_token(self.tushare_token)
+        pro = ts.pro_api()
+
+        basic = pro.stock_basic(exchange="", list_status="L,P,D", fields="ts_code,name,list_date,delist_date")
+        if basic is None or basic.empty:
+            return {"stock_count": 0, "row_count": 0, "source": "tushare"}
+
+        if stock_limit:
+            basic = basic.head(max(1, int(stock_limit)))
+        if test_mode:
+            basic = basic.head(3)
+
+        latest_trade_date = _latest_trade_date(self.repository)
+        market_cap_start = (datetime.strptime(latest_trade_date, "%Y%m%d") - timedelta(days=14)).strftime("%Y%m%d")
+        market_caps: dict[str, float | None] = {}
+        daily_basic = pro.daily_basic(
+            trade_date=latest_trade_date,
+            fields="ts_code,total_mv",
+        )
+        if daily_basic is None or daily_basic.empty:
+            daily_basic = pro.daily_basic(
+                start_date=market_cap_start,
+                end_date=latest_trade_date,
+                fields="ts_code,trade_date,total_mv",
+            )
+        if daily_basic is not None and not daily_basic.empty:
+            if "trade_date" in daily_basic.columns:
+                daily_basic = daily_basic.sort_values(["ts_code", "trade_date"]).drop_duplicates("ts_code", keep="last")
+            market_caps = {str(row["ts_code"]): _safe_float(row.get("total_mv")) for _, row in daily_basic.iterrows()}
+
+        total_rows = 0
+        processed = 0
+        for _, row in basic.iterrows():
+            ts_code = str(row["ts_code"])
+            code = _ts_code_to_local(ts_code)
+            if not _is_a_share(code):
+                continue
+
+            income = pro.income(ts_code=ts_code, fields="ts_code,ann_date,end_date,total_revenue,n_income")
+            balancesheet = pro.balancesheet(ts_code=ts_code, fields="ts_code,ann_date,end_date,total_assets")
+            indicator = pro.fina_indicator(ts_code=ts_code, fields="ts_code,ann_date,end_date,roe")
+            merged = _merge_financial_frames(income, balancesheet, indicator)
+            if not merged:
+                time.sleep(0.05)
+                continue
+
+            records = []
+            market_cap = market_caps.get(ts_code)
+            for report_date, payload in merged.items():
+                records.append(
+                    {
+                        "code": code,
+                        "report_date": report_date,
+                        "publish_date": payload.get("publish_date", ""),
+                        "roe": payload.get("roe"),
+                        "net_profit": payload.get("net_profit"),
+                        "revenue": payload.get("revenue"),
+                        "total_assets": payload.get("total_assets"),
+                        "market_cap": market_cap,
+                        "source": "tushare",
+                    }
+                )
+            inserted = self.repository.upsert_financial_snapshots(records)
+            if inserted:
+                total_rows += inserted
+                processed += 1
+            time.sleep(0.05)
+
+        self.repository.upsert_meta(
+            {
+                "last_financial_snapshot_sync": datetime.now().isoformat(timespec="seconds"),
+                "financial_snapshot_source": "tushare",
+            }
+        )
+        quality = self.quality_service.persist_audit()
+        return {"stock_count": processed, "row_count": total_rows, "source": "tushare", "latest_date": latest_trade_date, "quality": quality}
 
     def sync_daily_bars_from_tushare(
         self,

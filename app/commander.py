@@ -17,6 +17,8 @@ import json
 import logging
 import os
 import socket
+
+import numpy as np
 import textwrap
 import threading
 from dataclasses import asdict, dataclass, field
@@ -36,6 +38,20 @@ from market_data import DataManager, MockDataProvider
 from app.train import SelfLearningController, TrainingResult
 
 logger = logging.getLogger(__name__)
+
+
+def _jsonable(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {k: _jsonable(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_jsonable(v) for v in value]
+    if isinstance(value, tuple):
+        return [_jsonable(v) for v in value]
+    if isinstance(value, Path):
+        return str(value)
+    if isinstance(value, np.generic):
+        return value.item()
+    return value
 
 
 def _build_mock_provider() -> MockDataProvider:
@@ -630,12 +646,12 @@ class InvestmentBodyService:
             self._clear_training_lock()
             self._emit_runtime_event("training_finished", self.last_completed_task or {})
 
-        return {
+        return _jsonable({
             "status": "ok",
             "rounds": rounds,
             "results": results,
             "summary": self.snapshot(),
-        }
+        })
 
     async def autopilot_loop(self, interval_sec: int) -> None:
         logger.info("Body autopilot loop started (interval=%ss)", interval_sec)
@@ -662,7 +678,7 @@ class InvestmentBodyService:
             except Exception:
                 rolling = {}
 
-        return {
+        return _jsonable({
             "total_cycles": self.total_cycles,
             "success_cycles": self.success_cycles,
             "no_data_cycles": self.no_data_cycles,
@@ -677,11 +693,11 @@ class InvestmentBodyService:
             "current_task": self.current_task,
             "last_completed_task": self.last_completed_task,
             "training_lock_file": str(self.cfg.training_lock_file),
-        }
+        })
 
     @staticmethod
     def _to_result_dict(result: TrainingResult) -> dict[str, Any]:
-        return {
+        return _jsonable({
             "status": "ok",
             "cycle_id": result.cycle_id,
             "cutoff_date": result.cutoff_date,
@@ -703,7 +719,7 @@ class InvestmentBodyService:
             "config_snapshot_path": result.config_snapshot_path,
             "audit_tags": result.audit_tags,
             "timestamp": datetime.now().isoformat(),
-        }
+        })
 
 
 # ---------------------------------------------------------------------------
@@ -969,7 +985,7 @@ class CommanderRuntime:
             data_status = WebDatasetService().get_status_summary()
         except Exception as exc:
             data_status = {"status": "error", "error": str(exc)}
-        return {
+        return _jsonable({
             "ts": datetime.now().isoformat(),
             "instance_id": self.instance_id,
             "workspace": str(self.cfg.workspace),
@@ -1005,7 +1021,7 @@ class CommanderRuntime:
             },
             "config": self.config_service.get_masked_payload(),
             "data": data_status,
-        }
+        })
 
     async def serve_forever(self, interactive: bool = False) -> None:
         await self.start()
@@ -1130,7 +1146,7 @@ class CommanderRuntime:
         )
 
     def _persist_state(self) -> None:
-        payload = self.status()
+        payload = _jsonable(self.status())
         self.cfg.state_file.parent.mkdir(parents=True, exist_ok=True)
         self.cfg.state_file.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 

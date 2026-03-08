@@ -264,6 +264,10 @@ class SelfLearningController:
             llm_caller=self.llm_caller,
             trend_hunter=self.agents["trend"],
             contrarian=self.agents["contrarian"],
+            progress_callback=lambda payload: emit_event("agent_status", {
+                **payload,
+                "timestamp": datetime.now().isoformat(),
+            }),
         )
         self.agent_tracker = AgentTracker()
         self.review_meeting = ReviewMeeting(

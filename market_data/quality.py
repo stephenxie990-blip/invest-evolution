@@ -16,6 +16,8 @@ class DataQualityService:
         "last_daily_bar_sync",
         "daily_bar_latest_date",
         "daily_bar_source",
+        "last_financial_snapshot_sync",
+        "financial_snapshot_source",
         "last_quality_audit",
         "data_health_status",
         "data_health_summary",

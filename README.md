@@ -19,6 +19,9 @@ python3 -m market_data --source baostock --start 20180101
 # 检查离线库状态 / 训练可用性
 python3 -m market_data --status --cutoff 20241231 --stocks 200
 
+# 补充财务快照（需设置 TUSHARE_TOKEN）
+python3 -m market_data --source tushare --financials --stocks 500
+
 # CLI 状态检查
 python3 commander.py status
 

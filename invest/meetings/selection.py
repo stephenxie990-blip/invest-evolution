@@ -1,5 +1,5 @@
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 from invest.shared import (
     AgentTracker,
@@ -42,6 +42,7 @@ class SelectionMeeting:
         enable_debate: bool = True,
         max_debate_rounds: int = 1,
         deep_llm_caller: Optional[LLMCaller] = None,
+        progress_callback: Optional[Callable[[dict], None]] = None,
     ):
         from invest.agents import TrendHunterAgent, ContrarianAgent
         self.llm = llm_caller
@@ -50,6 +51,7 @@ class SelectionMeeting:
         self.contrarian = contrarian or ContrarianAgent()
         self.max_hunters = max_hunters
         self.meeting_count = 0
+        self.progress_callback = progress_callback
 
         self._debate: Optional[Any] = None
         if _HAS_DEBATE and enable_debate and llm_caller is not None:
@@ -135,6 +137,15 @@ class SelectionMeeting:
 
     # ===== 内部方法 =====
 
+
+    def _notify_progress(self, payload: dict) -> None:
+        if not self.progress_callback:
+            return
+        try:
+            self.progress_callback(dict(payload))
+        except Exception:
+            logger.debug("selection progress callback failed", exc_info=True)
+
     def _run_llm(
         self,
         top_n: int,
@@ -145,6 +156,7 @@ class SelectionMeeting:
 
         # 1. 趋势猎手 - 认知环路
         try:
+            self._notify_progress({"agent": "TrendHunter", "status": "running", "message": f"趋势猎手分析 {len(stock_summaries)} 只候选..."})
             candidates = self.trend_hunter.perceive(stock_summaries)
             reasoning = self.trend_hunter.reason(candidates, context=regime)
             # Act
@@ -152,11 +164,14 @@ class SelectionMeeting:
             
             if result and not result.get("_parse_error"):
                 hunter_outputs.append({"name": "trend_hunter", "result": result})
+                self._notify_progress({"agent": "TrendHunter", "status": "completed", "message": f"趋势猎手完成，推荐 {len(result.get("picks", [])) or len(result.get("selected", []))} 只候选"})
         except Exception as e:
+            self._notify_progress({"agent": "TrendHunter", "status": "error", "message": f"趋势猎手执行失败: {e}"})
             logger.warning(f"TrendHunter 认知环路执行失败: {e}")
 
         # 2. 逆向猎手 - 认知环路
         try:
+            self._notify_progress({"agent": "Contrarian", "status": "running", "message": f"逆向交易者分析 {len(stock_summaries)} 只候选..."})
             candidates = self.contrarian.perceive(stock_summaries)
             reasoning = self.contrarian.reason(candidates, context=regime)
             # Act
@@ -164,7 +179,9 @@ class SelectionMeeting:
             
             if result and not result.get("_parse_error"):
                 hunter_outputs.append({"name": "contrarian", "result": result})
+                self._notify_progress({"agent": "Contrarian", "status": "completed", "message": f"逆向交易者完成，推荐 {len(result.get("picks", [])) or len(result.get("selected", []))} 只候选"})
         except Exception as e:
+            self._notify_progress({"agent": "Contrarian", "status": "error", "message": f"逆向交易者执行失败: {e}"})
             logger.warning(f"Contrarian 认知环路执行失败: {e}")
 
         # 3. 应用 Agent 权重
@@ -179,6 +196,7 @@ class SelectionMeeting:
 
         # Phase 3: 多空辩论筛选
         if self._debate is not None and stock_summaries:
+            self._notify_progress({"agent": "SelectionMeeting", "status": "running", "message": "多空辩论筛选候选中..."})
             code_to_summary = {s["code"]: s for s in stock_summaries}
             candidate_codes: set = set()
             for ho in hunter_outputs:
@@ -206,6 +224,7 @@ class SelectionMeeting:
                         p["score"] = p.get("score", 0.5) * (1.0 + d_conf * 0.3)
 
             logger.info("Debate complete: %d candidates screened", len(debate_results))
+            self._notify_progress({"agent": "SelectionMeeting", "status": "completed", "message": f"多空辩论完成，筛查 {len(debate_results)} 只候选"})
 
         return self._aggregate(hunter_outputs, regime, top_n)
 
