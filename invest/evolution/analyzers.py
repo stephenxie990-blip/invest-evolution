@@ -6,6 +6,8 @@ from typing import Dict, List
 
 import numpy as np
 
+from invest.shared.llm import parse_llm_json_object
+
 logger = logging.getLogger(__name__)
 
 
@@ -267,22 +269,10 @@ class LLMAnalyzer:
 
     def _parse_response(self, response: str) -> LLMAnalysisResult:
         """解析LLM响应"""
-        try:
-            # 尝试提取JSON
-            data = json.loads(response)
-        except Exception:
-            # 尝试从markdown中提取
-            import re
-            match = re.search(r'\{[\s\S]*\}', response)
-            if match:
-                try:
-                    data = json.loads(match.group())
-                except Exception:
-                    logger.error("无法解析LLM响应")
-                    return self._default_result()
-            else:
-                logger.error("响应中没有找到JSON")
-                return self._default_result()
+        data = parse_llm_json_object(response)
+        if data.get("_parse_error"):
+            logger.error("无法解析LLM响应")
+            return self._default_result()
 
         return LLMAnalysisResult(
             factor_adjustments=data.get("factor_adjustments", {}),

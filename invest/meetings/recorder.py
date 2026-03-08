@@ -157,6 +157,9 @@ class MeetingRecorder:
             for agent, w in wa.items():
                 arrow = "↑" if w > 1.0 else ("↓" if w < 1.0 else "→")
                 lines.append(f"- {agent}: {w:.2f} {arrow}")
+        applied_summary = result.get("applied_summary", "")
+        if applied_summary:
+            lines.append(f"\n**最终执行摘要**: {applied_summary}")
         lines.append(f"\n**理由**: {result.get('reasoning', '')}")
         return "\n".join(lines)
 

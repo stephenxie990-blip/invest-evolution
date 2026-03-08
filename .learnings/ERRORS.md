@@ -82,3 +82,60 @@ Prefer `python3` in this environment for local helper scripts.
 - Related Files: .learnings/ERRORS.md
 
 ---
+## [ERR-20260308-003] web_service_not_running
+
+**Logged**: 2026-03-08T13:06:59+08:00
+**Priority**: medium
+**Status**: resolved
+**Area**: infra
+
+### Summary
+请求启动真实训练时，本地 Web 服务未在 8080 端口监听，导致 API 调用失败
+
+### Error
+```
+curl: (7) Failed to connect to 127.0.0.1 port 8080 after 0 ms: Couldn't connect to server
+```
+
+### Context
+- Operation: 通过 `POST /api/train` 启动真实训练
+- Root cause: 开发服务未运行或已退出
+- Resolution: 先重启 `web_server.py`，再发起训练请求
+
+### Suggested Fix
+执行训练前先探测 `/api/status`，若失败则自动拉起 Web 服务
+
+### Metadata
+- Reproducible: yes
+- Related Files: web_server.py
+
+---
+
+## [ERR-20260308-004] shell_quote_mismatch
+
+**Logged**: 2026-03-08T13:16:38+08:00
+**Priority**: low
+**Status**: resolved
+**Area**: infra
+
+### Summary
+一次组合命令包含未转义反引号/引号，导致 zsh 解析失败
+
+### Error
+```
+zsh:1: unmatched "
+```
+
+### Context
+- Operation: 同时读取训练产物与代码检索
+- Resolution: 改为分段命令，避免在 `rg` 模式里混用复杂引号
+
+### Suggested Fix
+复杂检索命令优先拆分为多段，或使用 here-doc / 单独 Python 脚本
+
+### Metadata
+- Reproducible: yes
+- Related Files: .learnings/ERRORS.md
+
+---
+

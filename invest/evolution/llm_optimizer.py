@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from typing import Dict, List
 
 from invest.shared import LLMCaller
+from invest.shared.llm import parse_llm_json_object
 
 logger = logging.getLogger(__name__)
 
@@ -98,19 +99,16 @@ class LLMOptimizer:
         )
 
     def _parse_response(self, response: str, cycle_result: Dict) -> AnalysisResult:
-        try:
-            match = re.search(r"\{[\s\S]*\}", response)
-            if match:
-                data = json.loads(match.group())
-                return AnalysisResult(
-                    cause=data.get("cause", "未知原因"),
-                    suggestions=data.get("suggestions", []),
-                    strategy_adjustments=data.get("strategy_adjustments", {}),
-                    new_strategy_needed=data.get("new_strategy_needed", False),
-                )
-        except Exception as e:
-            logger.warning(f"解析 LLM 响应失败: {e}")
-        return self._default_analysis(cycle_result)
+        data = parse_llm_json_object(response)
+        if data.get("_parse_error"):
+            logger.warning("解析 LLM 响应失败，使用默认分析")
+            return self._default_analysis(cycle_result)
+        return AnalysisResult(
+            cause=data.get("cause", "未知原因"),
+            suggestions=data.get("suggestions", []),
+            strategy_adjustments=data.get("strategy_adjustments", {}),
+            new_strategy_needed=data.get("new_strategy_needed", False),
+        )
 
     def _default_analysis(self, cycle_result: Dict) -> AnalysisResult:
         return AnalysisResult(

@@ -924,7 +924,8 @@ class SelfLearningController:
         recent_cycle_dicts = self.cycle_records[-max(1, self.freeze_total_cycles):]
         agent_accuracy = self.agent_tracker.compute_accuracy(last_n_cycles=20)
         review_decision = self.review_meeting.run(recent_cycle_dicts, agent_accuracy, self.current_params)
-        self.meeting_recorder.save_review(review_decision, cycle_dict, cycle_id)
+        review_facts = getattr(self.review_meeting, "last_facts", None) or cycle_dict
+        self.meeting_recorder.save_review(review_decision, review_facts, cycle_id)
 
         review_event = OptimizationEvent(
             trigger="review_meeting",

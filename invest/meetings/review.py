@@ -116,6 +116,7 @@ class ReviewMeeting:
         self.commander = commander or CommanderAgent()
         self.review_count = 0
         self.progress_callback = progress_callback
+        self.last_facts: Dict[str, Any] = {}
 
         self._risk_debate: Optional[Any] = None
         if _HAS_DEBATE and enable_risk_debate and llm_caller is not None:
@@ -160,6 +161,7 @@ class ReviewMeeting:
         logger.info(f"📋 复盘会议 #{self.review_count} 开始")
 
         facts = self._compile_facts(recent_results, agent_accuracy)
+        self.last_facts = dict(facts)
         self._log_facts(facts)
         self._notify_progress({
             "agent": "ReviewMeeting",
@@ -588,7 +590,44 @@ class ReviewMeeting:
 
         if not isinstance(result.get("reasoning"), str):
             result["reasoning"] = ""
+        applied_summary = self._build_applied_summary(result)
+        if applied_summary:
+            result["applied_summary"] = applied_summary
+        else:
+            result.pop("applied_summary", None)
         return result
+
+    def _build_applied_summary(self, result: dict) -> str:
+        parts = []
+        param_adjustments = result.get("param_adjustments") if isinstance(result.get("param_adjustments"), dict) else {}
+        if param_adjustments:
+            param_parts = []
+            for key, value in param_adjustments.items():
+                if value is None:
+                    continue
+                try:
+                    numeric_value = float(value)
+                except (TypeError, ValueError):
+                    continue
+                if key in {"stop_loss_pct", "take_profit_pct", "position_size"}:
+                    param_parts.append(f"{key}={numeric_value:.0%}")
+                else:
+                    param_parts.append(f"{key}={numeric_value:g}")
+            if param_parts:
+                parts.append("最终执行参数：" + "，".join(param_parts))
+
+        weight_adjustments = result.get("agent_weight_adjustments") if isinstance(result.get("agent_weight_adjustments"), dict) else {}
+        if weight_adjustments:
+            weight_parts = []
+            for agent, weight in weight_adjustments.items():
+                try:
+                    weight_parts.append(f"{agent}={float(weight):.2f}")
+                except (TypeError, ValueError):
+                    continue
+            if weight_parts:
+                parts.append("最终执行权重：" + "，".join(weight_parts))
+
+        return "；".join(parts)
 
 
 # ============================================================

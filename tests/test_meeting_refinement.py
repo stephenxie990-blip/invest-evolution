@@ -1,4 +1,5 @@
 from invest.meetings import SelectionMeeting, ReviewMeeting
+from invest.meetings.recorder import MeetingRecorder
 from invest.meetings.review import (
     _REVIEW_COMMANDER_SYSTEM,
     _REVIEW_EVO_JUDGE_SYSTEM,
@@ -125,3 +126,43 @@ def test_selection_meeting_aggregate_respects_top_n_and_keeps_meta():
     assert len(result["selected"]) == 2
     assert len(result["selected_meta"]) == 2
     assert result["selected_meta"][0]["code"] in {"AAA", "BBB", "CCC"}
+
+
+
+def test_review_meeting_validation_adds_applied_summary_for_clamped_values():
+    review = ReviewMeeting(llm_caller=None)
+
+    decision = review._validate_decision(
+        {
+            "param_adjustments": {"position_size": 0.9, "stop_loss_pct": 0.5},
+            "agent_weight_adjustments": {"trend_hunter": 1.6},
+            "reasoning": "建议把仓位降到10%以控制风险。",
+        },
+        {"agent_accuracy": {"trend_hunter": {}}},
+    )
+
+    assert decision["param_adjustments"]["position_size"] == 0.3
+    assert decision["param_adjustments"]["stop_loss_pct"] == 0.15
+    assert decision["applied_summary"] == "最终执行参数：position_size=30%，stop_loss_pct=15%；最终执行权重：trend_hunter=1.60"
+    assert "10%" in decision["reasoning"]
+
+
+def test_review_recorder_markdown_uses_aggregated_facts_and_applied_summary(tmp_path):
+    recorder = MeetingRecorder(base_dir=str(tmp_path))
+
+    markdown = recorder._review_to_md(
+        {
+            "strategy_suggestions": ["减少追高型交易"],
+            "param_adjustments": {"position_size": 0.3},
+            "agent_weight_adjustments": {"trend_hunter": 1.2},
+            "applied_summary": "最终执行参数：position_size=30%",
+            "reasoning": "近期波动加大，先控制风险。",
+        },
+        {"total_cycles": 5, "win_rate": 0.4, "avg_return": 3.25},
+        7,
+    )
+
+    assert "- 总轮数: 5" in markdown
+    assert "- 胜率: 40%" in markdown
+    assert "- 平均收益: +3.25%" in markdown
+    assert "**最终执行摘要**: 最终执行参数：position_size=30%" in markdown

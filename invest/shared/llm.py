@@ -1,3 +1,4 @@
+import ast
 import json
 import logging
 import re
@@ -9,6 +10,10 @@ from config import config
 logger = logging.getLogger(__name__)
 
 _FENCE_PATTERN = re.compile(r"```(?:json)?\s*(.*?)(?:```|$)", re.IGNORECASE | re.DOTALL)
+
+
+def parse_llm_json_object(text: str) -> dict:
+    return LLMCaller.parse_json_text(text)
 
 
 class LLMCaller:
@@ -115,36 +120,49 @@ class LLMCaller:
         raw = self.call(system_prompt, user_message, **kwargs)
         return self._parse_json(raw)
 
-    def _parse_json(self, text: str) -> dict:
-        normalized = self._normalize_text(text)
+    @classmethod
+    def parse_json_text(cls, text: str) -> dict:
+        normalized = cls._normalize_text(text)
         if not normalized:
             return {"_parse_error": True, "_raw": "", "_error": "llm_unavailable_or_empty"}
 
-        candidates = self._collect_json_candidates(normalized)
+        candidates = cls._collect_json_candidates(normalized)
         seen: set[str] = set()
         for candidate in candidates:
-            candidate = self._normalize_candidate(candidate)
+            candidate = cls._normalize_candidate(candidate)
             if not candidate or candidate in seen:
                 continue
             seen.add(candidate)
-            parsed = self._try_parse_object(candidate)
+            parsed = cls._try_parse_object(candidate)
             if parsed is not None:
                 return parsed
 
         logger.warning("Failed to parse JSON from LLM response: %s...", normalized[:200])
         return {"_parse_error": True, "_raw": normalized}
 
+    def _parse_json(self, text: str) -> dict:
+        return self.parse_json_text(text)
+
     @staticmethod
     def _normalize_text(text: str) -> str:
-        return (text or "").replace("\ufeff", "").strip()
+        normalized = (text or "").replace("\ufeff", "").replace("\u200b", "").strip()
+        normalized = normalized.replace("\u201c", '"').replace("\u201d", '"').replace("\u2018", "'").replace("\u2019", "'")
+        return normalized
 
-    def _collect_json_candidates(self, text: str) -> list[str]:
+    @classmethod
+    def _collect_json_candidates(cls, text: str) -> list[str]:
         candidates = [text]
         candidates.extend(match.group(1).strip() for match in _FENCE_PATTERN.finditer(text) if match.group(1).strip())
-        stripped_fences = self._strip_markdown_fences(text)
+
+        stripped_fences = cls._strip_markdown_fences(text)
         if stripped_fences and stripped_fences != text:
             candidates.append(stripped_fences)
-        candidates.extend(self._extract_balanced_json_objects(text))
+
+        first_object = cls._extract_first_object_candidate(text)
+        if first_object and first_object not in candidates:
+            candidates.append(first_object)
+
+        candidates.extend(cls._extract_balanced_json_objects(text))
         return candidates
 
     @staticmethod
@@ -162,28 +180,47 @@ class LLMCaller:
 
     @staticmethod
     def _normalize_candidate(candidate: str) -> str:
-        candidate = candidate.replace("\ufeff", "").strip()
+        candidate = candidate.replace("\ufeff", "").replace("\u200b", "").strip()
         candidate = LLMCaller._strip_markdown_fences(candidate)
-        if candidate.lower().startswith("json\n"):
-            candidate = candidate[5:].strip()
-        return candidate
+        candidate = re.sub(r"^json\s*", "", candidate, flags=re.IGNORECASE).strip()
+        candidate = re.sub(r"^(下面是(?:最终)?JSON[：:]?|输出如下[：:]?)\s*", "", candidate)
+        return candidate.strip()
 
-    def _try_parse_object(self, candidate: str) -> dict | None:
-        for variant in self._candidate_variants(candidate):
+    @classmethod
+    def _try_parse_object(cls, candidate: str) -> dict | None:
+        for variant in cls._candidate_variants(candidate):
             try:
                 value = json.loads(variant)
             except json.JSONDecodeError:
-                value = self._raw_decode_object(variant)
+                value = cls._raw_decode_object(variant)
+                if value is None:
+                    value = cls._literal_eval_object(variant)
             if isinstance(value, dict):
                 return value
         return None
 
-    @staticmethod
-    def _candidate_variants(candidate: str) -> list[str]:
-        variants = [candidate]
+    @classmethod
+    def _candidate_variants(cls, candidate: str) -> list[str]:
+        variants: list[str] = []
+
+        def _push(value: str):
+            value = (value or "").strip()
+            if value and value not in variants:
+                variants.append(value)
+
+        _push(candidate)
         first_brace = candidate.find('{')
         if first_brace > 0:
-            variants.append(candidate[first_brace:])
+            _push(candidate[first_brace:])
+
+        trimmed = cls._trim_to_outer_object(candidate)
+        _push(trimmed)
+
+        repaired = cls._repair_common_json_issues(trimmed or candidate)
+        _push(repaired)
+
+        if repaired:
+            _push(cls._trim_to_outer_object(repaired))
         return variants
 
     @staticmethod
@@ -196,6 +233,72 @@ class LLMCaller:
         except json.JSONDecodeError:
             pass
         return None
+
+    @staticmethod
+    def _literal_eval_object(candidate: str) -> dict | None:
+        normalized = candidate.strip()
+        if not normalized or '{' not in normalized:
+            return None
+        try:
+            value = ast.literal_eval(normalized)
+            if isinstance(value, dict):
+                return value
+        except Exception:
+            return None
+        return None
+
+    @staticmethod
+    def _trim_to_outer_object(candidate: str) -> str:
+        start = candidate.find('{')
+        end = candidate.rfind('}')
+        if start == -1:
+            return candidate.strip()
+        if end != -1 and end >= start:
+            return candidate[start:end + 1].strip()
+        return candidate[start:].strip()
+
+    @classmethod
+    def _repair_common_json_issues(cls, candidate: str) -> str:
+        repaired = cls._trim_to_outer_object(candidate)
+        if not repaired:
+            return repaired
+
+        repaired = re.sub(r',\s*([}\]])', r'\1', repaired)
+
+        stack: list[str] = []
+        in_string = False
+        escape = False
+        for ch in repaired:
+            if escape:
+                escape = False
+                continue
+            if ch == "\\":
+                escape = True
+                continue
+            if ch == '"':
+                in_string = not in_string
+                continue
+            if in_string:
+                continue
+            if ch == '{':
+                stack.append('}')
+            elif ch == '[':
+                stack.append(']')
+            elif ch in '}]' and stack and ch == stack[-1]:
+                stack.pop()
+
+        if in_string:
+            repaired += '"'
+        if stack:
+            repaired += ''.join(reversed(stack))
+        return repaired.strip()
+
+    @staticmethod
+    def _extract_first_object_candidate(text: str) -> str:
+        start = text.find('{')
+        if start == -1:
+            return ''
+        return text[start:].strip()
 
     @staticmethod
     def _extract_balanced_json_objects(text: str) -> list[str]:
@@ -242,4 +345,4 @@ class LLMCaller:
         }
 
 
-__all__ = ["LLMCaller"]
+__all__ = ["LLMCaller", "parse_llm_json_object"]
