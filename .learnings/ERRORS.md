@@ -55,3 +55,30 @@ Failed to parse JSON from LLM response: ```json ...
 - Related Files: invest/shared/llm.py
 
 ---
+## [ERR-20260308-001] session-catchup-python
+
+**Logged**: 2026-03-08T00:00:00+08:00
+**Priority**: low
+**Status**: resolved
+**Area**: infra
+
+### Summary
+`python` command unavailable in this workspace shell; switched to `python3`.
+
+### Error
+```
+zsh:1: command not found: python
+```
+
+### Context
+- Command attempted: `python /Users/zhangsan/.agents/skills/pi-planning-with-files/scripts/session-catchup.py "$(pwd)"`
+- Fallback used: `python3 ...`
+
+### Suggested Fix
+Prefer `python3` in this environment for local helper scripts.
+
+### Metadata
+- Reproducible: yes
+- Related Files: .learnings/ERRORS.md
+
+---

@@ -72,8 +72,17 @@ class MemoryStore:
         rows = self._load_all()
         if not q:
             return rows[-max(1, int(limit)):]
-        hits = [r for r in rows if q in str(r.get("content", "")).lower()]
+        hits = [r for r in rows if self._matches_query(r, q)]
         return hits[-max(1, int(limit)):]
+
+    def get(self, record_id: str) -> dict[str, Any] | None:
+        target = str(record_id or "").strip()
+        if not target:
+            return None
+        for row in reversed(self._load_all()):
+            if str(row.get("id") or "") == target:
+                return row
+        return None
 
     def stats(self) -> dict[str, Any]:
         rows = self._load_all()
@@ -90,6 +99,19 @@ class MemoryStore:
             "audit_records": audit_records,
             "max_records": self.max_records,
         }
+
+    def _matches_query(self, row: dict[str, Any], query: str) -> bool:
+        haystacks = [str(row.get("content", ""))]
+        metadata = row.get("metadata")
+        if isinstance(metadata, dict) and metadata:
+            try:
+                haystacks.append(json.dumps(metadata, ensure_ascii=False, sort_keys=True))
+            except Exception:
+                haystacks.append(str(metadata))
+        needle = str(query or "").strip().lower()
+        if not needle:
+            return True
+        return any(needle in str(item).lower() for item in haystacks)
 
     def _load_all(self) -> list[dict[str, Any]]:
         if not self.path.exists():

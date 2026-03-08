@@ -1,3 +1,4 @@
+from pathlib import Path
 from unittest.mock import MagicMock
 
 import config as config_module
@@ -203,3 +204,15 @@ def test_selection_meeting_progress_callback_emits():
     meeting = SelectionMeeting(llm_caller=None, progress_callback=events.append)
     meeting._notify_progress({'agent': 'TrendHunter', 'status': 'running', 'message': 'x'})
     assert events and events[0]['agent'] == 'TrendHunter'
+
+
+def test_train_center_productized_controls_present():
+    html = Path('static/index.html').read_text(encoding='utf-8')
+    assert 'id="agent-collapse-btn"' in html
+    assert 'id="timeline-filter-type"' in html
+    assert 'id="timeline-filter-keyword"' in html
+    assert 'id="agent-overview"' in html
+    assert '.agent-overview-grid' in html
+    assert '.agent-health-dot' in html
+    assert '.timeline-card.speech' in html
+    assert '策略差异对比' in html

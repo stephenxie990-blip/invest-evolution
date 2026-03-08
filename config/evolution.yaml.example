@@ -7,7 +7,7 @@ position_size_pct: 0.2
 
 max_stocks: 50
 simulation_days: 30
-min_history_days: 1095
+min_history_days: 750
 
 data_source: baostock
 

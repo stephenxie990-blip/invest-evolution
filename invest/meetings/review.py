@@ -106,6 +106,7 @@ class ReviewMeeting:
         enable_risk_debate: bool = True,
         max_risk_discuss_rounds: int = 1,
         deep_llm_caller: Optional[LLMCaller] = None,
+        progress_callback: Optional[Callable[[dict], None]] = None,
     ):
         from invest.agents import StrategistAgent, EvoJudgeAgent, CommanderAgent
         self.llm = llm_caller
@@ -114,6 +115,7 @@ class ReviewMeeting:
         self.evo_judge = evo_judge or EvoJudgeAgent()
         self.commander = commander or CommanderAgent()
         self.review_count = 0
+        self.progress_callback = progress_callback
 
         self._risk_debate: Optional[Any] = None
         if _HAS_DEBATE and enable_risk_debate and llm_caller is not None:
@@ -124,6 +126,14 @@ class ReviewMeeting:
                 max_rounds=max_risk_discuss_rounds,
             )
             logger.info("ReviewMeeting: risk debate enabled (max_rounds=%d)", max_risk_discuss_rounds)
+
+    def _notify_progress(self, payload: dict) -> None:
+        if not self.progress_callback:
+            return
+        try:
+            self.progress_callback(dict(payload))
+        except Exception:
+            logger.debug("review progress callback failed", exc_info=True)
 
     def run(
         self,
@@ -151,10 +161,55 @@ class ReviewMeeting:
 
         facts = self._compile_facts(recent_results, agent_accuracy)
         self._log_facts(facts)
+        self._notify_progress({
+            "agent": "ReviewMeeting",
+            "status": "running",
+            "stage": "review",
+            "progress_pct": 84,
+            "message": f"复盘会议 #{self.review_count} 启动，正在汇总近 {facts.get('total_cycles', 0)} 轮结果",
+            "details": facts,
+        })
 
         strategy_analysis = self._strategist_analysis(facts, current_params)
+        self._notify_progress({
+            "agent": "Strategist",
+            "status": "completed",
+            "stage": "review",
+            "progress_pct": 88,
+            "message": f"策略分析完成，识别 {len(strategy_analysis.get('problems', []))} 个问题",
+            "speech": "；".join(strategy_analysis.get("problems", [])[:3]) or "策略表现整体稳定",
+            "suggestions": strategy_analysis.get("suggestions", []),
+            "confidence": strategy_analysis.get("confidence"),
+            "details": strategy_analysis,
+        })
         evo_assessment = self._evo_judge_assessment(facts, strategy_analysis)
+        self._notify_progress({
+            "agent": "EvoJudge",
+            "status": "completed",
+            "stage": "review",
+            "progress_pct": 92,
+            "message": f"进化评估完成，方向 {evo_assessment.get('evolution_direction', 'maintain')}",
+            "speech": evo_assessment.get("reasoning") or f"建议方向 {evo_assessment.get('evolution_direction', 'maintain')}",
+            "suggestions": evo_assessment.get("suggestions", []),
+            "decision": evo_assessment.get("param_adjustments", {}),
+            "confidence": evo_assessment.get("confidence"),
+            "details": evo_assessment,
+        })
         decision = self._commander_decision(facts, strategy_analysis, evo_assessment, current_params)
+        self._notify_progress({
+            "agent": "Commander",
+            "status": "completed",
+            "stage": "review",
+            "progress_pct": 96,
+            "message": f"最终决策已形成，策略建议 {len(decision.get('strategy_suggestions', []))} 条",
+            "speech": decision.get("reasoning") or "最终决策已生成",
+            "suggestions": decision.get("strategy_suggestions", []),
+            "decision": {
+                "param_adjustments": decision.get("param_adjustments", {}),
+                "agent_weight_adjustments": decision.get("agent_weight_adjustments", {}),
+            },
+            "details": decision,
+        })
 
         # 反思闭环：让所有 Agent 根据事实和决策进行自我更新
         self._trigger_reflections(facts, decision)

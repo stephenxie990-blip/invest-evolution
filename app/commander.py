@@ -613,13 +613,15 @@ class InvestmentBodyService:
                         if cycle_result is None:
                             self.no_data_cycles += 1
                             meta = dict(getattr(self.controller, "last_cycle_meta", {}) or {})
+                            cycle_id = meta.get("cycle_id", self.controller.current_cycle_id + 1)
                             item = {
                                 "status": "no_data",
-                                "cycle_id": meta.get("cycle_id", self.controller.current_cycle_id + 1),
+                                "cycle_id": cycle_id,
                                 "cutoff_date": meta.get("cutoff_date"),
                                 "stage": meta.get("stage"),
                                 "reason": meta.get("reason"),
                                 "timestamp": meta.get("timestamp", self.last_run_at),
+                                "artifacts": self._artifact_paths_for_cycle(cycle_id),
                             }
                         else:
                             self.success_cycles += 1
@@ -629,10 +631,13 @@ class InvestmentBodyService:
                     except Exception as exc:
                         self.failed_cycles += 1
                         self.last_error = str(exc)
+                        cycle_id = self.controller.current_cycle_id + 1
                         item = {
                             "status": "error",
+                            "cycle_id": cycle_id,
                             "error": str(exc),
                             "timestamp": self.last_run_at,
+                            "artifacts": self._artifact_paths_for_cycle(cycle_id),
                         }
                         self.last_result = item
                         results.append(item)
@@ -698,8 +703,20 @@ class InvestmentBodyService:
             "training_lock_file": str(self.cfg.training_lock_file),
         })
 
-    @staticmethod
-    def _to_result_dict(result: TrainingResult) -> dict[str, Any]:
+    def _artifact_paths_for_cycle(self, cycle_id: int | None) -> dict[str, str]:
+        if not cycle_id:
+            return {}
+        cid = int(cycle_id)
+        return {
+            "cycle_result_path": str(self.cfg.training_output_dir / f"cycle_{cid}.json"),
+            "selection_meeting_json_path": str(self.cfg.meeting_log_dir / "selection" / f"meeting_{cid:04d}.json"),
+            "selection_meeting_markdown_path": str(self.cfg.meeting_log_dir / "selection" / f"meeting_{cid:04d}.md"),
+            "review_meeting_json_path": str(self.cfg.meeting_log_dir / "review" / f"review_{cid:04d}.json"),
+            "review_meeting_markdown_path": str(self.cfg.meeting_log_dir / "review" / f"review_{cid:04d}.md"),
+            "optimization_events_path": str(self.cfg.training_output_dir / "optimization_events.jsonl"),
+        }
+
+    def _to_result_dict(self, result: TrainingResult) -> dict[str, Any]:
         return _jsonable({
             "status": "ok",
             "cycle_id": result.cycle_id,
@@ -720,7 +737,10 @@ class InvestmentBodyService:
             "benchmark_passed": result.benchmark_passed,
             "review_applied": result.review_applied,
             "config_snapshot_path": result.config_snapshot_path,
+            "optimization_event_count": len(result.optimization_events or []),
+            "optimization_events": result.optimization_events,
             "audit_tags": result.audit_tags,
+            "artifacts": self._artifact_paths_for_cycle(result.cycle_id),
             "timestamp": datetime.now().isoformat(),
         })
 
@@ -1011,6 +1031,52 @@ class CommanderRuntime:
             self._persist_state()
             raise
 
+    def _append_training_memory(self, payload: dict[str, Any], *, rounds: int, mock: bool, status: str, error: str = "") -> None:
+        results = list(payload.get("results") or [])
+        ok_results = [item for item in results if item.get("status") == "ok"]
+        skipped_results = [item for item in results if item.get("status") == "no_data"]
+        error_results = [item for item in results if item.get("status") == "error"]
+        cycle_ids = [item.get("cycle_id") for item in results if item.get("cycle_id") is not None]
+        avg_return = round(sum(float(item.get("return_pct") or 0.0) for item in ok_results) / len(ok_results), 2) if ok_results else None
+        summary = {
+            "status": status,
+            "rounds": int(rounds),
+            "mock": bool(mock),
+            "cycle_ids": cycle_ids,
+            "success_count": len(ok_results),
+            "skipped_count": len(skipped_results),
+            "error_count": len(error_results),
+            "avg_return_pct": avg_return,
+            "latest_cycle_id": cycle_ids[-1] if cycle_ids else None,
+            "timestamp": datetime.now().isoformat(),
+        }
+        if error:
+            summary["error"] = str(error)
+
+        summary_line = (
+            f"训练记录 | status={status} | rounds={rounds} | mock={'true' if mock else 'false'} | "
+            f"成功={len(ok_results)} | 跳过={len(skipped_results)} | 失败={len(error_results)}"
+        )
+        if avg_return is not None:
+            summary_line += f" | 平均收益={avg_return:+.2f}%"
+        if cycle_ids:
+            summary_line += f" | 周期={','.join(str(x) for x in cycle_ids)}"
+        if error:
+            summary_line += f" | error={error}"
+
+        self.memory.append(
+            kind="training_run",
+            session_key="runtime:train",
+            content=summary_line,
+            metadata={
+                "training_run": True,
+                "summary": _jsonable(summary),
+                "results": _jsonable(results),
+                "runtime_summary": _jsonable(payload.get("summary") or {}),
+                "source": "runtime.train_once",
+            },
+        )
+
     async def train_once(self, rounds: int = 1, mock: bool = False) -> dict[str, Any]:
         self._ensure_runtime_storage()
         self._begin_task("train_once", "direct", rounds=rounds, mock=mock)
@@ -1018,11 +1084,13 @@ class CommanderRuntime:
         self.memory.append_audit("train_requested", "runtime:train", {"rounds": rounds, "mock": mock})
         try:
             out = await self.body.run_cycles(rounds=rounds, force_mock=mock, task_source="direct")
+            self._append_training_memory(out, rounds=rounds, mock=mock, status=str(out.get("status", "ok")))
             self._set_runtime_state("idle" if out.get("status") != "busy" else "busy")
             self._end_task(out.get("status", "ok"), rounds=rounds, mock=mock)
             self._persist_state()
             return out
-        except Exception:
+        except Exception as exc:
+            self._append_training_memory({"results": [], "summary": self.body.snapshot()}, rounds=rounds, mock=mock, status="error", error=str(exc))
             self._set_runtime_state("error")
             self._end_task("error", rounds=rounds, mock=mock)
             self._persist_state()

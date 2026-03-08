@@ -98,7 +98,7 @@ class EvolutionConfig:
     # --- 数据参数 ---
     max_stocks: int = 50                 # 每轮加载的最大股票数
     simulation_days: int = 30            # 每轮模拟交易天数
-    min_history_days: int = 365 * 3      # 最小历史数据天数
+    min_history_days: int = 750          # 最小历史交易日数（约 3 年）
 
     # --- 固化/淘汰条件 ---
     max_consecutive_loss: int = 3        # 连续亏损淘汰阈值

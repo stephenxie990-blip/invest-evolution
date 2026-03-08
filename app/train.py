@@ -30,7 +30,7 @@ from copy import deepcopy
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 import numpy as np
 
@@ -267,10 +267,7 @@ class SelfLearningController:
             contrarian=self.agents["contrarian"],
             enable_debate=bool(getattr(config, "enable_debate", True)),
             max_debate_rounds=max(1, int(getattr(config, "max_debate_rounds", 1) or 1)),
-            progress_callback=lambda payload: emit_event("agent_status", {
-                **payload,
-                "timestamp": datetime.now().isoformat(),
-            }),
+            progress_callback=self._handle_selection_progress,
         )
         self.agent_tracker = AgentTracker()
         self.review_meeting = ReviewMeeting(
@@ -281,6 +278,7 @@ class SelfLearningController:
             commander=self.agents["commander"],
             enable_risk_debate=bool(getattr(config, "enable_debate", True)),
             max_risk_discuss_rounds=max(1, int(getattr(config, "max_risk_discuss_rounds", 1) or 1)),
+            progress_callback=self._handle_review_progress,
         )
         self.meeting_recorder = MeetingRecorder(base_dir=meeting_log_dir)
         self.config_service = EvolutionConfigService(
@@ -343,6 +341,208 @@ class SelfLearningController:
             return "；".join(str(item) for item in reasoning[:5])[:limit]
         return str(reasoning)[:limit]
 
+    def _event_context(self, cycle_id: int | None = None) -> Dict[str, Any]:
+        meta = dict(self.last_cycle_meta or {})
+        ctx: Dict[str, Any] = {"timestamp": datetime.now().isoformat()}
+        if cycle_id is not None:
+            ctx["cycle_id"] = cycle_id
+        elif meta.get("cycle_id") is not None:
+            ctx["cycle_id"] = meta.get("cycle_id")
+        if meta.get("cutoff_date"):
+            ctx["cutoff_date"] = meta.get("cutoff_date")
+        return ctx
+
+    def _emit_agent_status(
+        self,
+        agent: str,
+        status: str,
+        message: str,
+        *,
+        cycle_id: int | None = None,
+        stage: str = "",
+        progress_pct: int | None = None,
+        step: int | None = None,
+        total_steps: int | None = None,
+        thinking: str = "",
+        selected_stocks: List[str] | None = None,
+        details: Any = None,
+        **extra: Any,
+    ) -> None:
+        payload = {
+            **self._event_context(cycle_id),
+            "agent": agent,
+            "status": status,
+            "message": message,
+        }
+        if stage:
+            payload["stage"] = stage
+        if progress_pct is not None:
+            payload["progress_pct"] = int(progress_pct)
+        if step is not None:
+            payload["step"] = int(step)
+        if total_steps is not None:
+            payload["total_steps"] = int(total_steps)
+        if thinking:
+            payload["thinking"] = thinking
+        if selected_stocks:
+            payload["selected_stocks"] = list(selected_stocks)
+        if details is not None:
+            payload["details"] = details
+        payload.update(extra)
+        emit_event("agent_status", payload)
+        emit_event("agent_progress", dict(payload))
+
+    def _emit_module_log(
+        self,
+        module: str,
+        title: str,
+        message: str = "",
+        *,
+        cycle_id: int | None = None,
+        kind: str = "log",
+        level: str = "info",
+        details: Any = None,
+        metrics: dict[str, Any] | None = None,
+        **extra: Any,
+    ) -> None:
+        payload = {
+            **self._event_context(cycle_id),
+            "module": module,
+            "title": title,
+            "message": message,
+            "kind": kind,
+            "level": level,
+        }
+        if details is not None:
+            payload["details"] = details
+        if metrics:
+            payload["metrics"] = metrics
+        payload.update(extra)
+        emit_event("module_log", payload)
+
+    def _emit_meeting_speech(
+        self,
+        meeting: str,
+        speaker: str,
+        speech: str,
+        *,
+        cycle_id: int | None = None,
+        role: str = "",
+        picks: List[dict[str, Any]] | List[str] | None = None,
+        suggestions: List[str] | None = None,
+        decision: dict[str, Any] | None = None,
+        confidence: Any = None,
+        **extra: Any,
+    ) -> None:
+        payload = {
+            **self._event_context(cycle_id),
+            "meeting": meeting,
+            "speaker": speaker,
+            "speech": str(speech or "").strip(),
+        }
+        if role:
+            payload["role"] = role
+        if picks:
+            payload["picks"] = picks
+        if suggestions:
+            payload["suggestions"] = suggestions
+        if decision:
+            payload["decision"] = decision
+        if confidence is not None:
+            payload["confidence"] = confidence
+        payload.update(extra)
+        emit_event("meeting_speech", payload)
+
+    def _handle_selection_progress(self, payload: dict[str, Any]) -> None:
+        agent = str(payload.get("agent") or "SelectionMeeting")
+        status = str(payload.get("status") or "running")
+        stage = str(payload.get("stage") or "selection")
+        progress_pct = payload.get("progress_pct")
+        if progress_pct is None:
+            progress_pct = {
+                "TrendHunter": 38,
+                "Contrarian": 46,
+                "SelectionMeeting": 54,
+            }.get(agent, 40)
+            if status == "completed":
+                progress_pct = min(100, int(progress_pct) + 8)
+            elif status == "error":
+                progress_pct = int(progress_pct)
+        self._emit_agent_status(
+            agent,
+            status,
+            str(payload.get("message") or ""),
+            stage=stage,
+            progress_pct=int(progress_pct),
+            step=payload.get("step"),
+            total_steps=payload.get("total_steps"),
+            thinking=self._thinking_excerpt(payload.get("speech") or payload.get("reasoning") or payload.get("overall_view")),
+            details=payload.get("details"),
+            picks=payload.get("picks"),
+        )
+        speech = str(payload.get("speech") or payload.get("overall_view") or "").strip()
+        if speech:
+            self._emit_meeting_speech(
+                "selection",
+                agent,
+                speech,
+                role="selector",
+                picks=payload.get("picks"),
+                confidence=payload.get("confidence"),
+            )
+        picks = payload.get("picks") or []
+        if picks:
+            self._emit_module_log(
+                "selection",
+                f"{agent} 输出候选",
+                f"推荐 {len(picks)} 只候选股票",
+                kind="selection_candidates",
+                details=picks[:10],
+                metrics={"candidate_count": len(picks)},
+            )
+
+    def _handle_review_progress(self, payload: dict[str, Any]) -> None:
+        agent = str(payload.get("agent") or "ReviewMeeting")
+        status = str(payload.get("status") or "running")
+        stage = str(payload.get("stage") or "review")
+        progress_pct = payload.get("progress_pct")
+        if progress_pct is None:
+            progress_pct = {
+                "Strategist": 82,
+                "EvoJudge": 88,
+                "Commander": 92,
+                "ReviewMeeting": 95,
+            }.get(agent, 85)
+        self._emit_agent_status(
+            agent,
+            status,
+            str(payload.get("message") or ""),
+            stage=stage,
+            progress_pct=int(progress_pct),
+            thinking=self._thinking_excerpt(payload.get("speech") or payload.get("reasoning")),
+            details=payload.get("details"),
+        )
+        speech = str(payload.get("speech") or payload.get("reasoning") or "").strip()
+        if speech:
+            self._emit_meeting_speech(
+                "review",
+                agent,
+                speech,
+                role="reviewer",
+                suggestions=payload.get("suggestions"),
+                decision=payload.get("decision"),
+                confidence=payload.get("confidence"),
+            )
+        suggestions = payload.get("suggestions") or []
+        if suggestions or payload.get("decision"):
+            self._emit_module_log(
+                "review",
+                f"{agent} 复盘输出",
+                str(payload.get("message") or ""),
+                kind="review_update",
+                details=suggestions or payload.get("decision"),
+            )
+
     def _mark_cycle_skipped(self, cycle_id: int, cutoff_date: str, stage: str, reason: str, **extra: Any) -> None:
         meta = {
             "status": "no_data",
@@ -354,6 +554,7 @@ class SelfLearningController:
             **extra,
         }
         self.last_cycle_meta = meta
+        self._emit_module_log(stage, f"周期 #{cycle_id} 已跳过", reason, cycle_id=cycle_id, kind="cycle_skipped", level="warn", details=extra or None)
         emit_event("cycle_skipped", meta)
 
     def run_training_cycle(self) -> Optional[TrainingResult]:
@@ -375,6 +576,7 @@ class SelfLearningController:
         emit_event("cycle_start", {
             "cycle_id": cycle_id,
             "cutoff_date": cutoff_date,
+            "phase": "cycle_start",
             "timestamp": datetime.now().isoformat()
         })
 
@@ -390,12 +592,8 @@ class SelfLearningController:
         }
 
         logger.info("加载数据...")
-        emit_event("agent_status", {
-            "agent": "DataLoader",
-            "status": "loading",
-            "message": f"正在加载 {cutoff_date} 的历史数据...",
-            "timestamp": datetime.now().isoformat()
-        })
+        self._emit_agent_status("DataLoader", "loading", f"正在加载 {cutoff_date} 的历史数据...", cycle_id=cycle_id, stage="data_loading", progress_pct=8, step=1, total_steps=6)
+        self._emit_module_log("data_loading", "开始加载训练数据", f"截断日期 {cutoff_date}", cycle_id=cycle_id, kind="phase_start")
         min_history_days = max(30, int(getattr(config, "min_history_days", 200)))
         diagnostics = self.data_manager.diagnose_training_data(
             cutoff_date=cutoff_date,
@@ -411,6 +609,19 @@ class SelfLearningController:
                 diagnostics.get("date_range", {}).get("max"),
                 "；".join(diagnostics.get("issues", [])) or "none",
             )
+            self._emit_module_log(
+                "data_loading",
+                "训练前数据诊断预警",
+                "可用数据不足，可能跳过本轮",
+                cycle_id=cycle_id,
+                kind="diagnostics",
+                level="warn",
+                details=diagnostics.get("issues", []),
+                metrics={
+                    "eligible_stock_count": diagnostics.get("eligible_stock_count", 0),
+                    "target_stock_count": diagnostics.get("target_stock_count", 0),
+                },
+            )
 
         stock_data = self.data_manager.load_stock_data(
             cutoff_date,
@@ -419,6 +630,25 @@ class SelfLearningController:
             include_future_days=max(30, getattr(config, "simulation_days", 30)),
         )
         data_mode = getattr(self.data_manager, "last_source", "unknown")
+        self._emit_agent_status(
+            "DataLoader",
+            "completed",
+            f"数据加载完成，共载入 {len(stock_data)} 只股票，数据源 {data_mode}",
+            cycle_id=cycle_id,
+            stage="data_loading",
+            progress_pct=18,
+            step=1,
+            total_steps=6,
+            details={"data_mode": data_mode, "stock_count": len(stock_data)},
+        )
+        self._emit_module_log(
+            "data_loading",
+            "数据加载完成",
+            f"数据源 {data_mode}，载入 {len(stock_data)} 只股票",
+            cycle_id=cycle_id,
+            kind="data_ready",
+            metrics={"stock_count": len(stock_data), "data_mode": data_mode},
+        )
 
         if not stock_data:
             latest = getattr(self.data_manager, "last_diagnostics", diagnostics)
@@ -435,24 +665,37 @@ class SelfLearningController:
             return None
 
         logger.info("Agent 开会讨论选股...")
-        emit_event("agent_status", {
-            "agent": "SelectionMeeting",
-            "status": "running",
-            "message": "Agent 开会讨论选股...",
-            "timestamp": datetime.now().isoformat()
-        })
+        self._emit_agent_status("SelectionMeeting", "running", "Agent 开会讨论选股...", cycle_id=cycle_id, stage="selection_meeting", progress_pct=26, step=2, total_steps=6)
+        self._emit_module_log("selection", "进入选股会议", "系统开始汇总市场状态和候选标的", cycle_id=cycle_id, kind="phase_start")
         market_stats = compute_market_stats(stock_data, cutoff_date)
         regime_perception = self.agents["regime"].perceive(market_stats)
         regime_reasoning = self.agents["regime"].reason(regime_perception)
         regime_result = self.agents["regime"].act(regime_reasoning)
         logger.info(f"市场状态: {regime_result.get('regime', 'unknown')}")
-        emit_event("agent_status", {
-            "agent": "MarketRegime",
-            "status": "thinking",
-            "message": f"分析当前市场状态: {regime_result.get('regime', 'unknown')}",
-            "thinking": self._thinking_excerpt(regime_reasoning),
-            "timestamp": datetime.now().isoformat()
-        })
+        self._emit_agent_status(
+            "MarketRegime",
+            "thinking",
+            f"分析当前市场状态: {regime_result.get('regime', 'unknown')}",
+            cycle_id=cycle_id,
+            stage="market_regime",
+            progress_pct=32,
+            step=2,
+            total_steps=6,
+            thinking=self._thinking_excerpt(regime_reasoning),
+            details=regime_result,
+        )
+        self._emit_module_log(
+            "market_regime",
+            "市场状态识别",
+            f"当前市场状态: {regime_result.get('regime', 'unknown')}",
+            cycle_id=cycle_id,
+            kind="market_regime",
+            details=regime_result.get("reasoning") or regime_result,
+            metrics={
+                "confidence": regime_result.get("confidence"),
+                "suggested_exposure": regime_result.get("suggested_exposure"),
+            },
+        )
 
         meeting_data = self.selection_meeting.run_with_data(regime_result, stock_data, cutoff_date)
         trading_plan = meeting_data["trading_plan"]
@@ -463,6 +706,15 @@ class SelfLearningController:
             picks = hunter.get("result", {}).get("picks", [])
             if picks:
                 self.agent_tracker.record_predictions(cycle_id, hunter.get("name", "unknown"), picks)
+            self._emit_meeting_speech(
+                "selection",
+                hunter.get("name", "unknown"),
+                hunter.get("result", {}).get("overall_view") or hunter.get("result", {}).get("reasoning") or "已完成候选输出",
+                cycle_id=cycle_id,
+                role="hunter",
+                picks=picks[:10],
+                confidence=hunter.get("result", {}).get("confidence"),
+            )
 
         selected = [p.code for p in trading_plan.positions]
         agent_used = bool(meeting_log.get("hunters"))
@@ -493,13 +745,27 @@ class SelfLearningController:
                 return None
 
         logger.info(f"最终选中股票: {selected}")
-        emit_event("agent_status", {
-            "agent": "SelectionMeeting",
-            "status": "completed",
-            "message": f"选股完成，共选中 {len(selected)} 只股票",
-            "selected_stocks": selected[:10],
-            "timestamp": datetime.now().isoformat()
-        })
+        self._emit_agent_status(
+            "SelectionMeeting",
+            "completed",
+            f"选股完成，共选中 {len(selected)} 只股票",
+            cycle_id=cycle_id,
+            stage="selection_meeting",
+            progress_pct=58,
+            step=2,
+            total_steps=6,
+            selected_stocks=selected[:10],
+            details=meeting_log.get("selected", []),
+        )
+        self._emit_module_log(
+            "selection",
+            "选股会议完成",
+            f"最终选中 {len(selected)} 只股票",
+            cycle_id=cycle_id,
+            kind="selection_result",
+            details=meeting_log.get("selected", selected)[:10],
+            metrics={"selected_count": len(selected), "selection_mode": selection_mode},
+        )
         self.agent_tracker.mark_selected(cycle_id, selected)
 
         selected_data = {code: stock_data[code] for code in selected if code in stock_data}
@@ -535,12 +801,25 @@ class SelfLearningController:
             )
             return None
 
-        emit_event("agent_status", {
-            "agent": "SimulatedTrader",
-            "status": "running",
-            "message": f"模拟交易中... 初始资金 {trader.initial_capital:.2f}",
-            "timestamp": datetime.now().isoformat()
-        })
+        self._emit_agent_status(
+            "SimulatedTrader",
+            "running",
+            f"模拟交易中... 初始资金 {trader.initial_capital:.2f}",
+            cycle_id=cycle_id,
+            stage="simulation",
+            progress_pct=68,
+            step=3,
+            total_steps=6,
+            details={"simulation_days": simulation_days, "selected_count": len(selected)},
+        )
+        self._emit_module_log(
+            "simulation",
+            "开始模拟交易",
+            f"模拟 {simulation_days} 个交易日，标的 {', '.join(selected[:5])}",
+            cycle_id=cycle_id,
+            kind="simulation_start",
+            metrics={"simulation_days": simulation_days, "selected_count": len(selected)},
+        )
 
         trading_dates = dates_after[:simulation_days]
         sim_result = trader.run_simulation(trading_dates[0], trading_dates)
@@ -604,6 +883,30 @@ class SelfLearningController:
             cycle_dict["benchmark_strict_passed"] = False
 
         self.strategy_evaluator.evaluate(cycle_dict, trade_dicts, sim_result.daily_records)
+        self._emit_agent_status(
+            "SimulatedTrader",
+            "completed",
+            f"模拟完成，收益 {sim_result.return_pct:+.2f}% ，共 {sim_result.total_trades} 笔交易",
+            cycle_id=cycle_id,
+            stage="simulation",
+            progress_pct=78,
+            step=3,
+            total_steps=6,
+            details={"final_value": sim_result.final_value, "win_rate": sim_result.win_rate},
+        )
+        self._emit_module_log(
+            "simulation",
+            "模拟交易完成",
+            f"期末资金 {sim_result.final_value:.2f}，收益 {sim_result.return_pct:+.2f}%",
+            cycle_id=cycle_id,
+            kind="simulation_result",
+            details=trade_dicts[:12],
+            metrics={
+                "return_pct": sim_result.return_pct,
+                "trade_count": sim_result.total_trades,
+                "win_rate": sim_result.win_rate,
+            },
+        )
 
         if not is_profit:
             self.consecutive_losses += 1
@@ -615,12 +918,8 @@ class SelfLearningController:
             logger.info(f"盈利！收益率: {sim_result.return_pct:.2f}%")
 
         logger.info("周期结语：复盘会议自省...")
-        emit_event("agent_status", {
-            "agent": "ReviewMeeting",
-            "status": "running",
-            "message": "复盘会议自省中...",
-            "timestamp": datetime.now().isoformat()
-        })
+        self._emit_agent_status("ReviewMeeting", "running", "复盘会议自省中...", cycle_id=cycle_id, stage="review_meeting", progress_pct=84, step=4, total_steps=6)
+        self._emit_module_log("review", "进入复盘会议", "开始汇总交易表现与策略偏差", cycle_id=cycle_id, kind="phase_start")
         self.cycle_records.append(cycle_dict)
         recent_cycle_dicts = self.cycle_records[-max(1, self.freeze_total_cycles):]
         agent_accuracy = self.agent_tracker.compute_accuracy(last_n_cycles=20)
@@ -644,13 +943,18 @@ class SelfLearningController:
             review_applied = True
             review_event.applied_change.update({"params": dict(review_decision["param_adjustments"])})
             logger.info(f"根据复盘调整参数: {review_decision['param_adjustments']}")
-            emit_event("agent_status", {
-                "agent": "ReviewMeeting",
-                "status": "completed",
-                "message": f"参数已调整: {list(review_decision.get('param_adjustments', {}).keys())}",
-                "adjustments": review_decision.get("param_adjustments", {}),
-                "timestamp": datetime.now().isoformat()
-            })
+            self._emit_agent_status(
+                "ReviewMeeting",
+                "completed",
+                f"参数已调整: {list(review_decision.get('param_adjustments', {}).keys())}",
+                cycle_id=cycle_id,
+                stage="review_meeting",
+                progress_pct=96,
+                step=4,
+                total_steps=6,
+                details=review_decision,
+                adjustments=review_decision.get("param_adjustments", {}),
+            )
 
         if review_decision.get("agent_weight_adjustments"):
             self.selection_meeting.update_weights(review_decision["agent_weight_adjustments"])
@@ -659,6 +963,22 @@ class SelfLearningController:
 
         optimization_events.append(review_event.to_dict())
         cycle_dict["review_applied"] = review_applied
+        self._emit_module_log(
+            "review",
+            "复盘会议结论",
+            review_decision.get("reasoning", "复盘完成"),
+            cycle_id=cycle_id,
+            kind="review_decision",
+            details={
+                "strategy_suggestions": review_decision.get("strategy_suggestions", []),
+                "param_adjustments": review_decision.get("param_adjustments", {}),
+                "agent_weight_adjustments": review_decision.get("agent_weight_adjustments", {}),
+            },
+            metrics={
+                "review_applied": review_applied,
+                "suggestion_count": len(review_decision.get("strategy_suggestions", [])),
+            },
+        )
 
         config_snapshot_path = str(self.config_service.write_runtime_snapshot(cycle_id=cycle_id, output_dir=self.output_dir))
         audit_tags = {
@@ -709,13 +1029,34 @@ class SelfLearningController:
         # 发射周期完成事件
         emit_event("cycle_complete", {
             "cycle_id": cycle_id,
+            "cutoff_date": cutoff_date,
             "return_pct": sim_result.return_pct,
             "is_profit": bool(is_profit),
             "selected_count": len(selected),
+            "selected_stocks": selected[:10],
             "trade_count": len(trade_dicts),
             "final_value": sim_result.final_value,
+            "review_applied": review_applied,
+            "selection_mode": selection_mode,
             "timestamp": datetime.now().isoformat()
         })
+        self._emit_module_log(
+            "cycle_complete",
+            f"周期 #{cycle_id} 完成",
+            f"收益 {sim_result.return_pct:+.2f}% ，共 {len(selected)} 只选股",
+            cycle_id=cycle_id,
+            kind="cycle_complete",
+            details={
+                "selected_stocks": selected[:10],
+                "trade_count": len(trade_dicts),
+                "review_applied": review_applied,
+            },
+            metrics={
+                "return_pct": sim_result.return_pct,
+                "selected_count": len(selected),
+                "trade_count": len(trade_dicts),
+            },
+        )
 
         if self.on_cycle_complete:
             self.on_cycle_complete(cycle_result)
@@ -735,12 +1076,26 @@ class SelfLearningController:
         2. 遗传算法进化（用历史 return_pct 作适应度）
         """
         logger.info(f"⚠️ 连续 {self.consecutive_losses} 次亏损，触发自我优化...")
-        emit_event("agent_status", {
-            "agent": "EvolutionOptimizer",
-            "status": "running",
-            "message": f"连续 {self.consecutive_losses} 次亏损，触发自我优化...",
-            "timestamp": datetime.now().isoformat()
-        })
+        cycle_id = cycle_dict.get("cycle_id")
+        self._emit_agent_status(
+            "EvolutionOptimizer",
+            "running",
+            f"连续 {self.consecutive_losses} 次亏损，触发自我优化...",
+            cycle_id=cycle_id,
+            stage="optimization",
+            progress_pct=90,
+            step=5,
+            total_steps=6,
+            details={"consecutive_losses": self.consecutive_losses},
+        )
+        self._emit_module_log(
+            "optimization",
+            "触发自我优化",
+            f"连续 {self.consecutive_losses} 次亏损，开始诊断并调整参数",
+            cycle_id=cycle_id,
+            kind="optimization_start",
+            level="warn",
+        )
         events: List[Dict[str, Any]] = []
 
         try:
@@ -761,6 +1116,24 @@ class SelfLearningController:
                 logger.info(f"参数已更新: {self.current_params}")
             events.append(llm_event.to_dict())
             self._append_optimization_event(llm_event)
+            self._emit_meeting_speech(
+                "optimization",
+                "EvolutionOptimizer",
+                analysis.cause,
+                cycle_id=cycle_id,
+                role="optimizer",
+                suggestions=list(getattr(analysis, "suggestions", []) or []),
+                decision={"adjustments": adjustments or {}},
+            )
+            self._emit_module_log(
+                "optimization",
+                "LLM 亏损分析",
+                analysis.cause,
+                cycle_id=cycle_id,
+                kind="llm_analysis",
+                details=list(getattr(analysis, "suggestions", []) or []),
+                metrics={"adjustment_count": len(adjustments or {})},
+            )
 
             if len(self.cycle_history) >= 3:
                 fitness_scores = [max(r.return_pct, -50) for r in self.cycle_history[-10:]]
@@ -787,6 +1160,15 @@ class SelfLearningController:
                     logger.info(f"遗传算法优化参数: {best_params}")
                 events.append(evo_event.to_dict())
                 self._append_optimization_event(evo_event)
+                self._emit_module_log(
+                    "optimization",
+                    "进化引擎完成一轮迭代",
+                    "基于最近收益分布更新参数种群",
+                    cycle_id=cycle_id,
+                    kind="evolution_engine",
+                    details=best_params or {},
+                    metrics={"fitness_samples": fitness_scores[-5:]},
+                )
 
         except Exception as e:
             err_event = OptimizationEvent(
@@ -797,10 +1179,31 @@ class SelfLearningController:
             )
             events.append(err_event.to_dict())
             self._append_optimization_event(err_event)
+            self._emit_agent_status(
+                "EvolutionOptimizer",
+                "error",
+                f"优化过程出错: {e}",
+                cycle_id=cycle_id,
+                stage="optimization",
+                progress_pct=92,
+                step=5,
+                total_steps=6,
+            )
             logger.error(f"优化过程出错: {e}")
 
         self.consecutive_losses = 0
         logger.info("✅ 优化完成，继续训练...")
+        self._emit_agent_status(
+            "EvolutionOptimizer",
+            "completed",
+            "优化完成，继续训练...",
+            cycle_id=cycle_id,
+            stage="optimization",
+            progress_pct=94,
+            step=5,
+            total_steps=6,
+            details={"event_count": len(events)},
+        )
 
         if self.on_optimize:
             self.on_optimize(self.current_params)
