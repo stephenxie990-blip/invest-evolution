@@ -24,6 +24,7 @@
 import argparse
 import json
 import logging
+import os
 import random
 from copy import deepcopy
 from dataclasses import dataclass, field
@@ -264,6 +265,8 @@ class SelfLearningController:
             llm_caller=self.llm_caller,
             trend_hunter=self.agents["trend"],
             contrarian=self.agents["contrarian"],
+            enable_debate=bool(getattr(config, "enable_debate", True)),
+            max_debate_rounds=max(1, int(getattr(config, "max_debate_rounds", 1) or 1)),
             progress_callback=lambda payload: emit_event("agent_status", {
                 **payload,
                 "timestamp": datetime.now().isoformat(),
@@ -276,6 +279,8 @@ class SelfLearningController:
             strategist=self.agents["strategist"],
             evo_judge=self.agents["evo_judge"],
             commander=self.agents["commander"],
+            enable_risk_debate=bool(getattr(config, "enable_debate", True)),
+            max_risk_discuss_rounds=max(1, int(getattr(config, "max_risk_discuss_rounds", 1) or 1)),
         )
         self.meeting_recorder = MeetingRecorder(base_dir=meeting_log_dir)
         self.config_service = EvolutionConfigService(
@@ -363,7 +368,7 @@ class SelfLearningController:
         logger.info(f"训练周期 #{cycle_id}")
         logger.info(f"{'='*60}")
 
-        cutoff_date = self.data_manager.random_cutoff_date()
+        cutoff_date = normalize_date(os.getenv("INVEST_FORCE_CUTOFF_DATE", "") or self.data_manager.random_cutoff_date())
         logger.info(f"截断日期: {cutoff_date}")
 
         # 发射周期开始事件

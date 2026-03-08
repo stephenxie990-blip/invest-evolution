@@ -1,5 +1,7 @@
 from unittest.mock import MagicMock
 
+import config as config_module
+
 from app.commander import CommanderConfig, InvestmentBodyService
 from app.train import SelfLearningController
 
@@ -42,6 +44,32 @@ def test_run_cycles_uses_skip_meta_for_no_data(tmp_path):
     assert out['results'][0]['stage'] == 'selection'
 
 
+def test_run_training_cycle_honors_forced_cutoff_env(monkeypatch, tmp_path):
+    controller = SelfLearningController(
+        output_dir=str(tmp_path / 'training'),
+        meeting_log_dir=str(tmp_path / 'meetings'),
+        config_audit_log_path=str(tmp_path / 'audit' / 'changes.jsonl'),
+        config_snapshot_dir=str(tmp_path / 'snapshots'),
+    )
+
+    monkeypatch.setenv('INVEST_FORCE_CUTOFF_DATE', '2025-12-01')
+
+    observed = {}
+
+    def fake_load(cutoff_date, **kwargs):
+        observed['cutoff_date'] = cutoff_date
+        raise RuntimeError('stop_after_cutoff')
+
+    monkeypatch.setattr(controller.data_manager, 'load_stock_data', fake_load)
+
+    try:
+        controller.run_training_cycle()
+    except RuntimeError as exc:
+        assert str(exc) == 'stop_after_cutoff'
+
+    assert observed['cutoff_date'] == '20251201'
+
+
 def test_build_mock_provider_respects_history_window():
     from app.train import _build_mock_provider
     provider = _build_mock_provider()
@@ -59,6 +87,22 @@ def test_set_mock_mode_updates_agent_llms(tmp_path):
     controller.set_mock_mode(True)
     assert controller.llm_caller.dry_run is True
     assert all(getattr(agent.llm, 'dry_run', False) is True for agent in controller.agents.values() if getattr(agent, 'llm', None) is not None)
+
+
+def test_controller_respects_debate_config(monkeypatch, tmp_path):
+    monkeypatch.setattr(config_module.config, 'enable_debate', False)
+    monkeypatch.setattr(config_module.config, 'max_debate_rounds', 3)
+    monkeypatch.setattr(config_module.config, 'max_risk_discuss_rounds', 2)
+
+    controller = SelfLearningController(
+        output_dir=str(tmp_path / 'training'),
+        meeting_log_dir=str(tmp_path / 'meetings'),
+        config_audit_log_path=str(tmp_path / 'audit' / 'changes.jsonl'),
+        config_snapshot_dir=str(tmp_path / 'snapshots'),
+    )
+
+    assert controller.selection_meeting._debate is None
+    assert controller.review_meeting._risk_debate is None
 
 
 def test_save_cycle_result_serializes_numpy_bool(tmp_path):

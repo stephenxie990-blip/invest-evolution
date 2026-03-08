@@ -17,6 +17,7 @@ import json
 import logging
 import os
 import socket
+from copy import deepcopy
 
 import numpy as np
 import textwrap
@@ -38,6 +39,8 @@ from market_data import DataManager, MockDataProvider
 from app.train import SelfLearningController, TrainingResult
 
 logger = logging.getLogger(__name__)
+
+_RUNTIME_FIELD_UNSET = object()
 
 
 def _jsonable(value: Any) -> Any:
@@ -736,7 +739,7 @@ class CommanderRuntime:
         self.runtime_state = "initialized"
         self.current_task: Optional[dict[str, Any]] = None
         self.last_task: Optional[dict[str, Any]] = None
-        self._task_lock = threading.Lock()
+        self._task_lock = threading.RLock()
         self._runtime_lock_acquired = False
 
         self.strategy_registry = StrategyGeneRegistry(self.cfg.strategy_dir)
@@ -784,37 +787,71 @@ class CommanderRuntime:
 
     def _on_body_event(self, event: str, payload: dict[str, Any]) -> None:
         if event == "training_started":
-            self._set_runtime_state("training")
-            self.current_task = payload
+            self._update_runtime_fields(state="training", current_task=payload)
         elif event == "training_finished":
-            self.last_task = payload
-            self.current_task = None
-            self._set_runtime_state("idle")
+            self._update_runtime_fields(state="idle", current_task=None, last_task=payload)
         self._persist_state()
 
     def _set_runtime_state(self, state: str) -> None:
-        self.runtime_state = state
+        self._update_runtime_fields(state=state)
+
+    @staticmethod
+    def _copy_runtime_task(task: Optional[dict[str, Any]]) -> Optional[dict[str, Any]]:
+        if task is None:
+            return None
+        return deepcopy(task)
+
+    def _update_runtime_fields(
+        self,
+        *,
+        state: Any = _RUNTIME_FIELD_UNSET,
+        current_task: Any = _RUNTIME_FIELD_UNSET,
+        last_task: Any = _RUNTIME_FIELD_UNSET,
+    ) -> None:
+        with self._task_lock:
+            if state is not _RUNTIME_FIELD_UNSET:
+                self.runtime_state = str(state)
+            if current_task is not _RUNTIME_FIELD_UNSET:
+                self.current_task = self._copy_runtime_task(current_task)
+            if last_task is not _RUNTIME_FIELD_UNSET:
+                self.last_task = self._copy_runtime_task(last_task)
+
+    def _snapshot_runtime_fields(self) -> tuple[str, Optional[dict[str, Any]], Optional[dict[str, Any]]]:
+        with self._task_lock:
+            return (
+                self.runtime_state,
+                self._copy_runtime_task(self.current_task),
+                self._copy_runtime_task(self.last_task),
+            )
 
     def _begin_task(self, task_type: str, source: str, **metadata: Any) -> None:
-        with self._task_lock:
-            self.current_task = {
+        self._update_runtime_fields(
+            current_task={
                 "type": task_type,
                 "source": source,
                 "started_at": datetime.now().isoformat(),
                 **metadata,
             }
+        )
 
     def _end_task(self, status: str = "ok", **metadata: Any) -> None:
         with self._task_lock:
             if self.current_task is None:
                 return
             self.last_task = {
-                **self.current_task,
+                **self._copy_runtime_task(self.current_task),
                 "finished_at": datetime.now().isoformat(),
                 "status": status,
                 **metadata,
             }
             self.current_task = None
+
+    def _read_runtime_lock_payload(self) -> dict[str, Any]:
+        try:
+            data = json.loads(self.cfg.runtime_lock_file.read_text(encoding="utf-8"))
+        except Exception:
+            return {}
+        return data if isinstance(data, dict) else {}
 
     def _is_pid_alive(self, pid: int) -> bool:
         if pid <= 0:
@@ -827,17 +864,6 @@ class CommanderRuntime:
 
     def _acquire_runtime_lock(self) -> None:
         self.cfg.runtime_lock_file.parent.mkdir(parents=True, exist_ok=True)
-        if self.cfg.runtime_lock_file.exists():
-            try:
-                existing = json.loads(self.cfg.runtime_lock_file.read_text(encoding="utf-8"))
-            except Exception:
-                existing = {}
-            existing_pid = int(existing.get("pid") or 0)
-            if existing_pid and self._is_pid_alive(existing_pid):
-                raise RuntimeError(
-                    f"Commander runtime already active (pid={existing_pid}, host={existing.get('host', '')})"
-                )
-            self.cfg.runtime_lock_file.unlink(missing_ok=True)
         payload = {
             "pid": os.getpid(),
             "host": socket.gethostname(),
@@ -845,12 +871,51 @@ class CommanderRuntime:
             "started_at": datetime.now().isoformat(),
             "workspace": str(self.cfg.workspace),
         }
-        self.cfg.runtime_lock_file.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-        self._runtime_lock_acquired = True
+
+        while True:
+            try:
+                fd = os.open(self.cfg.runtime_lock_file, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644)
+            except FileExistsError:
+                existing = self._read_runtime_lock_payload()
+                existing_pid = int(existing.get("pid") or 0)
+                if existing_pid and self._is_pid_alive(existing_pid):
+                    raise RuntimeError(
+                        f"Commander runtime already active (pid={existing_pid}, host={existing.get('host', '')})"
+                    )
+                if existing and existing_pid:
+                    try:
+                        self.cfg.runtime_lock_file.unlink()
+                    except FileNotFoundError:
+                        continue
+                    except OSError as exc:
+                        raise RuntimeError(f"Failed to clear stale runtime lock: {exc}") from exc
+                    continue
+                raise RuntimeError(
+                    f"Commander runtime lock exists but is unreadable: {self.cfg.runtime_lock_file}"
+                )
+
+            try:
+                with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                    handle.write(json.dumps(payload, ensure_ascii=False, indent=2))
+            except Exception:
+                self.cfg.runtime_lock_file.unlink(missing_ok=True)
+                raise
+
+            self._runtime_lock_acquired = True
+            return
 
     def _release_runtime_lock(self) -> None:
         if self._runtime_lock_acquired:
-            self.cfg.runtime_lock_file.unlink(missing_ok=True)
+            existing = self._read_runtime_lock_payload()
+            existing_pid = int(existing.get("pid") or 0)
+            existing_instance = str(existing.get("instance_id") or "")
+            if not existing or existing_pid == os.getpid() or existing_instance == self.instance_id:
+                self.cfg.runtime_lock_file.unlink(missing_ok=True)
+            else:
+                logger.warning(
+                    "Runtime lock ownership changed before release; keeping lock file intact: %s",
+                    self.cfg.runtime_lock_file,
+                )
             self._runtime_lock_acquired = False
 
     async def start(self) -> None:
@@ -979,6 +1044,7 @@ class CommanderRuntime:
         }
 
     def status(self) -> dict[str, Any]:
+        runtime_state, current_task, last_task = self._snapshot_runtime_fields()
         data_status = {}
         try:
             from market_data.datasets import WebDatasetService
@@ -996,10 +1062,10 @@ class CommanderRuntime:
             "training_interval_sec": self.cfg.training_interval_sec,
             "heartbeat_interval_sec": self.cfg.heartbeat_interval_sec,
             "runtime": {
-                "state": self.runtime_state,
+                "state": runtime_state,
                 "started": self._started,
-                "current_task": self.current_task,
-                "last_task": self.last_task,
+                "current_task": current_task,
+                "last_task": last_task,
                 "runtime_lock_file": str(self.cfg.runtime_lock_file),
                 "runtime_lock_active": self.cfg.runtime_lock_file.exists(),
                 "training_lock_file": str(self.cfg.training_lock_file),

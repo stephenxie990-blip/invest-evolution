@@ -188,8 +188,12 @@ def test_llm_caller_json_parsing():
         ('```json\n{"key": "value"}\n```', {"key": "value"}),
         ('prefix {"key": "value"} suffix', {"key": "value"}),
         ('\n{"key": "value"}}', {"key": "value"}),
+        ('分析如下：\n```json\n{"verdict": "hold", "confidence": 0.55}\n```\n补充说明', {"verdict": "hold", "confidence": 0.55}),
+        ('```json\n{"verdict":"buy","reasoning":"ok"}', {"verdict": "buy", "reasoning": "ok"}),
+        ('json\n{"risk_level": "medium", "confidence": 0.7}\n```', {"risk_level": "medium", "confidence": 0.7}),
         ('no json here', None),  # 应该返回 _parse_error
         ('', None),
+        ('```json\n{"verdict": "hold"', None),
     ]
 
     for text, expected in tests:

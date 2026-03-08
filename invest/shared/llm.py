@@ -8,6 +8,8 @@ from config import config
 
 logger = logging.getLogger(__name__)
 
+_FENCE_PATTERN = re.compile(r"```(?:json)?\s*(.*?)(?:```|$)", re.IGNORECASE | re.DOTALL)
+
 
 class LLMCaller:
     """
@@ -47,7 +49,6 @@ class LLMCaller:
             max_retries=self.max_retries,
         )
 
-        # 统计
         self.call_count = 0
         self.total_input_tokens = 0
         self.total_output_tokens = 0
@@ -115,34 +116,86 @@ class LLMCaller:
         return self._parse_json(raw)
 
     def _parse_json(self, text: str) -> dict:
-        if not text or not text.strip():
+        normalized = self._normalize_text(text)
+        if not normalized:
             return {"_parse_error": True, "_raw": "", "_error": "llm_unavailable_or_empty"}
 
-        candidates: list[str] = []
-
-        block_match = re.search(r"```(?:json)?\s*\n?(.*?)\n?\s*```", text, re.DOTALL)
-        if block_match:
-            candidates.append(block_match.group(1).strip())
-
-        candidates.extend(self._extract_balanced_json_objects(text))
-
-        brace_match = re.search(r"\{.*\}", text, re.DOTALL)
-        if brace_match:
-            candidates.append(brace_match.group())
-
+        candidates = self._collect_json_candidates(normalized)
         seen: set[str] = set()
         for candidate in candidates:
-            candidate = candidate.strip()
+            candidate = self._normalize_candidate(candidate)
             if not candidate or candidate in seen:
                 continue
             seen.add(candidate)
-            try:
-                return json.loads(candidate)
-            except json.JSONDecodeError:
-                continue
+            parsed = self._try_parse_object(candidate)
+            if parsed is not None:
+                return parsed
 
-        logger.warning("Failed to parse JSON from LLM response: %s...", text[:200])
-        return {"_parse_error": True, "_raw": text}
+        logger.warning("Failed to parse JSON from LLM response: %s...", normalized[:200])
+        return {"_parse_error": True, "_raw": normalized}
+
+    @staticmethod
+    def _normalize_text(text: str) -> str:
+        return (text or "").replace("\ufeff", "").strip()
+
+    def _collect_json_candidates(self, text: str) -> list[str]:
+        candidates = [text]
+        candidates.extend(match.group(1).strip() for match in _FENCE_PATTERN.finditer(text) if match.group(1).strip())
+        stripped_fences = self._strip_markdown_fences(text)
+        if stripped_fences and stripped_fences != text:
+            candidates.append(stripped_fences)
+        candidates.extend(self._extract_balanced_json_objects(text))
+        return candidates
+
+    @staticmethod
+    def _strip_markdown_fences(text: str) -> str:
+        stripped = text.strip()
+        if stripped.startswith("```"):
+            first_newline = stripped.find("\n")
+            if first_newline != -1:
+                stripped = stripped[first_newline + 1 :]
+            else:
+                stripped = ""
+        if stripped.endswith("```"):
+            stripped = stripped[:-3]
+        return stripped.strip()
+
+    @staticmethod
+    def _normalize_candidate(candidate: str) -> str:
+        candidate = candidate.replace("\ufeff", "").strip()
+        candidate = LLMCaller._strip_markdown_fences(candidate)
+        if candidate.lower().startswith("json\n"):
+            candidate = candidate[5:].strip()
+        return candidate
+
+    def _try_parse_object(self, candidate: str) -> dict | None:
+        for variant in self._candidate_variants(candidate):
+            try:
+                value = json.loads(variant)
+            except json.JSONDecodeError:
+                value = self._raw_decode_object(variant)
+            if isinstance(value, dict):
+                return value
+        return None
+
+    @staticmethod
+    def _candidate_variants(candidate: str) -> list[str]:
+        variants = [candidate]
+        first_brace = candidate.find('{')
+        if first_brace > 0:
+            variants.append(candidate[first_brace:])
+        return variants
+
+    @staticmethod
+    def _raw_decode_object(candidate: str) -> dict | None:
+        decoder = json.JSONDecoder()
+        try:
+            value, _ = decoder.raw_decode(candidate)
+            if isinstance(value, dict):
+                return value
+        except json.JSONDecodeError:
+            pass
+        return None
 
     @staticmethod
     def _extract_balanced_json_objects(text: str) -> list[str]:
@@ -187,5 +240,6 @@ class LLMCaller:
             "total_time_sec": round(self.total_time, 1),
             "avg_time_sec": round(self.total_time / max(self.call_count, 1), 1),
         }
+
 
 __all__ = ["LLMCaller"]

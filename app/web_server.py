@@ -48,6 +48,9 @@ _event_condition = threading.Condition()
 _event_dispatcher_started = False
 _event_seq = 0
 
+_data_download_lock = threading.Lock()
+_data_download_running = False
+
 
 def _event_sink(event_type: str, data: dict):
     """事件接收器：仅负责轻量入队，避免影响训练主流程。"""
@@ -469,7 +472,10 @@ def api_data_status():
 
 @app.route("/api/data/download", methods=["POST"])
 def api_data_download():
+    global _data_download_running
+
     def _do_download():
+        global _data_download_running
         from market_data.ingestion import DataIngestionService
 
         try:
@@ -481,9 +487,22 @@ def api_data_download():
             logger.info("后台数据同步完成")
         except Exception as e:
             logger.exception(f"后台数据同步失败: {e}")
+        finally:
+            with _data_download_lock:
+                _data_download_running = False
+
+    with _data_download_lock:
+        if _data_download_running:
+            return jsonify({"status": "running", "message": "后台同步已在运行"})
+        _data_download_running = True
 
     t = threading.Thread(target=_do_download, daemon=True)
-    t.start()
+    try:
+        t.start()
+    except Exception:
+        with _data_download_lock:
+            _data_download_running = False
+        raise
     return jsonify({"status": "started", "message": "后台同步已启动"})
 
 

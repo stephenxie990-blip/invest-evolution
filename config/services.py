@@ -197,7 +197,7 @@ class EvolutionConfigService:
         }
 
     def write_runtime_snapshot(self, *, cycle_id: int, output_dir: str | Path | None = None) -> Path:
-        payload = self._current_editable_values()
+        payload = self._snapshot_payload()
         self.snapshot_dir.mkdir(parents=True, exist_ok=True)
         path = self.snapshot_dir / f"cycle_{int(cycle_id):04d}.json"
         path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -212,7 +212,10 @@ class EvolutionConfigService:
         self.snapshot_dir.mkdir(parents=True, exist_ok=True)
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
         path = self.snapshot_dir / f"config_{ts}.json"
-        path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        path.write_text(
+            json.dumps(self._snapshot_payload(payload), ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
 
     def _append_audit_log(self, *, source: str, changed: dict[str, Any]) -> None:
         self.audit_log_path.parent.mkdir(parents=True, exist_ok=True)
@@ -231,6 +234,10 @@ class EvolutionConfigService:
                 value = getattr(self.live_config, key)
                 values[key] = list(value) if key == "index_codes" and value is not None else value
         return values
+
+    def _snapshot_payload(self, payload: dict[str, Any] | None = None) -> dict[str, Any]:
+        raw = dict(payload or self._current_editable_values())
+        return {key: self._redact(key, value) for key, value in raw.items()}
 
     @staticmethod
     def _redact(key: str, value: Any) -> Any:

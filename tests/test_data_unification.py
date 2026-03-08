@@ -154,6 +154,7 @@ def test_web_data_download_uses_unified_ingestion_service(monkeypatch):
         return {"row_count": 1}
 
     monkeypatch.setattr(web_server.threading, "Thread", InlineThread)
+    monkeypatch.setattr(web_server, "_data_download_running", False)
     monkeypatch.setattr(DataIngestionService, "sync_security_master", _sync_security)
     monkeypatch.setattr(DataIngestionService, "sync_daily_bars", _sync_daily)
 
@@ -163,6 +164,31 @@ def test_web_data_download_uses_unified_ingestion_service(monkeypatch):
     assert res.status_code == 200
     assert res.get_json()["status"] == "started"
     assert calls == ["security", "daily"]
+
+
+def test_web_data_download_deduplicates_running_job(monkeypatch):
+    started_threads = []
+
+    class DeferredThread:
+        def __init__(self, target, daemon):
+            self._target = target
+            started_threads.append(self)
+
+        def start(self):
+            return None
+
+    monkeypatch.setattr(web_server.threading, "Thread", DeferredThread)
+    monkeypatch.setattr(web_server, "_data_download_running", False)
+
+    client = web_server.app.test_client()
+    first = client.post("/api/data/download")
+    second = client.post("/api/data/download")
+
+    assert first.status_code == 200
+    assert first.get_json()["status"] == "started"
+    assert second.status_code == 200
+    assert second.get_json()["status"] == "running"
+    assert len(started_threads) == 1
 
 
 def test_data_manager_diagnose_training_data_reports_empty_repository(tmp_path):

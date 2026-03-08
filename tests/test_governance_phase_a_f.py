@@ -1,9 +1,11 @@
 import asyncio
 import json
+import os
 from pathlib import Path
 
 import pytest
 
+import app.commander as commander_module
 import config as config_module
 from commander import CommanderConfig, CommanderRuntime
 from config.services import EvolutionConfigService
@@ -26,6 +28,23 @@ def test_config_service_writes_audit_and_snapshot(tmp_path: Path):
     audit = json.loads(audit_lines[-1])
     assert audit["source"] == "test"
     assert "max_stocks" in audit["changed"]
+
+
+def test_config_service_snapshots_redact_llm_api_key(tmp_path: Path):
+    live = config_module.EvolutionConfig(llm_api_key="sk-secret-12345678")
+    service = EvolutionConfigService(project_root=tmp_path, live_config=live)
+
+    service.apply_patch({"max_stocks": 12}, source="test")
+    snapshot = json.loads(next(service.snapshot_dir.glob("config_*.json")).read_text(encoding="utf-8"))
+    assert snapshot["llm_api_key"].endswith("5678")
+    assert snapshot["llm_api_key"] != "sk-secret-12345678"
+
+    runtime_snapshot = service.write_runtime_snapshot(cycle_id=1, output_dir=tmp_path / "out")
+    payload = json.loads(runtime_snapshot.read_text(encoding="utf-8"))
+    payload_copy = json.loads((tmp_path / "out" / "cycle_0001_config_snapshot.json").read_text(encoding="utf-8"))
+    assert payload["llm_api_key"] == payload_copy["llm_api_key"]
+    assert payload["llm_api_key"].endswith("5678")
+    assert payload["llm_api_key"] != "sk-secret-12345678"
 
 
 @pytest.mark.asyncio
@@ -52,6 +71,62 @@ async def test_commander_runtime_lock_lifecycle(tmp_path: Path):
     assert status["runtime"]["state"] == "idle"
     await rt.stop()
     assert not cfg.runtime_lock_file.exists()
+
+
+def test_commander_runtime_replaces_stale_lock_file(tmp_path: Path, monkeypatch):
+    cfg = CommanderConfig(state_file=tmp_path / "state" / "state.json")
+    cfg.runtime_lock_file.parent.mkdir(parents=True, exist_ok=True)
+    cfg.runtime_lock_file.write_text(json.dumps({"pid": 999999, "host": "stale"}), encoding="utf-8")
+
+    rt = CommanderRuntime(cfg)
+    monkeypatch.setattr(rt, "_is_pid_alive", lambda pid: False)
+
+    rt._acquire_runtime_lock()
+
+    payload = json.loads(cfg.runtime_lock_file.read_text(encoding="utf-8"))
+    assert payload["pid"] == os.getpid()
+    assert payload["instance_id"] == rt.instance_id
+
+    rt._release_runtime_lock()
+    assert not cfg.runtime_lock_file.exists()
+
+
+def test_commander_runtime_lock_detects_live_race(tmp_path: Path, monkeypatch):
+    cfg = CommanderConfig(state_file=tmp_path / "state" / "state.json")
+    rt = CommanderRuntime(cfg)
+    real_open = commander_module.os.open
+    attempts = {"count": 0}
+
+    def fake_open(path, flags, mode):
+        if attempts["count"] == 0:
+            attempts["count"] += 1
+            cfg.runtime_lock_file.write_text(
+                json.dumps({"pid": os.getpid(), "host": "peer", "instance_id": "peer:1"}),
+                encoding="utf-8",
+            )
+            raise FileExistsError
+        return real_open(path, flags, mode)
+
+    monkeypatch.setattr(commander_module.os, "open", fake_open)
+
+    with pytest.raises(RuntimeError, match="already active"):
+        rt._acquire_runtime_lock()
+
+
+def test_commander_runtime_body_events_update_runtime_snapshot(tmp_path: Path):
+    cfg = CommanderConfig(state_file=tmp_path / "state" / "state.json")
+    rt = CommanderRuntime(cfg)
+
+    rt._on_body_event("training_started", {"type": "training", "rounds": 1})
+    started = rt.status()["runtime"]
+    assert started["state"] == "training"
+    assert started["current_task"]["rounds"] == 1
+
+    rt._on_body_event("training_finished", {"type": "training", "status": "ok"})
+    finished = rt.status()["runtime"]
+    assert finished["state"] == "idle"
+    assert finished["current_task"] is None
+    assert finished["last_task"]["status"] == "ok"
 
 
 @pytest.mark.asyncio

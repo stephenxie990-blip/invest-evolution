@@ -26,3 +26,32 @@ Exception: 抱歉，您没有接口访问权限，权限的具体详情访问：
 - Related Files: market_data/ingestion.py
 
 ---
+
+## [ERR-20260308-002] llm_json_response_instability
+
+**Logged**: 2026-03-08T11:00:17
+**Priority**: high
+**Status**: fixed
+**Area**: backend
+
+### Summary
+真实训练中，LLM 多次返回带 Markdown 代码块或额外说明的 JSON，导致解析告警并拉长辩论阶段耗时
+
+### Error
+```
+Failed to parse JSON from LLM response: ```json ...
+```
+
+### Context
+- Operation: 通过 Web 触发真实训练 `POST /api/train`
+- Provider: MiniMax via LiteLLM
+- Symptoms: Debate / review 阶段多次出现 parse warning，但流程未中断
+
+### Suggested Fix
+统一 LLM JSON 解析器，支持 fenced JSON、前后说明文本、未闭合代码块和 JSON 前缀场景
+
+### Metadata
+- Reproducible: yes
+- Related Files: invest/shared/llm.py
+
+---
