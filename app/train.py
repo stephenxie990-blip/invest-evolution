@@ -49,6 +49,21 @@ from invest.meetings import SelectionMeeting, ReviewMeeting, MeetingRecorder
 
 logger = logging.getLogger(__name__)
 
+
+def _build_mock_provider() -> MockDataProvider:
+    stock_count = max(30, int(getattr(config, "max_stocks", 30) or 30))
+    min_history_days = max(250, int(getattr(config, "min_history_days", 200) or 200))
+    simulation_days = max(30, int(getattr(config, "simulation_days", 30) or 30))
+    seed_cutoff_min = min_history_days + 20
+    total_days = max(1600, min_history_days + simulation_days + 900)
+    return MockDataProvider(
+        stock_count=stock_count,
+        days=total_days,
+        start_date="20180101",
+        seed_cutoff_min=seed_cutoff_min,
+        seed_cutoff_tail=max(60, simulation_days + 10),
+    )
+
 # 事件发射回调
 _event_callback: Optional[Callable] = None
 
@@ -274,6 +289,7 @@ class SelfLearningController:
         self.current_params   = dict(self.DEFAULT_PARAMS)
         self.assessment_history: List[SelfAssessmentSnapshot] = []
         self.optimization_events_history: List[OptimizationEvent] = []
+        self.last_cycle_meta: Dict[str, Any] = {}
 
         # 条件
         self.freeze_total_cycles       = freeze_total_cycles
@@ -291,6 +307,45 @@ class SelfLearningController:
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
         logger.info("自我学习控制器初始化完成")
+
+
+    def set_mock_mode(self, enabled: bool = True) -> None:
+        """统一切换 mock 训练相关的 LLM 调用模式。"""
+        dry_run = bool(enabled)
+        if hasattr(self.llm_caller, "dry_run"):
+            self.llm_caller.dry_run = dry_run
+        for agent in self.agents.values():
+            llm = getattr(agent, "llm", None)
+            if llm is not None and hasattr(llm, "dry_run"):
+                llm.dry_run = dry_run
+        for component in (self.selection_meeting, self.review_meeting, self.llm_optimizer):
+            llm = getattr(component, "llm", None)
+            if llm is not None and hasattr(llm, "dry_run"):
+                llm.dry_run = dry_run
+
+    def _thinking_excerpt(self, reasoning: Any, limit: int = 200) -> str:
+        """将多种推理结果安全转换为前端展示文本。"""
+        if not reasoning:
+            return ""
+        if isinstance(reasoning, dict):
+            candidate = reasoning.get("reasoning") or reasoning.get("summary") or reasoning.get("regime") or ""
+            return str(candidate)[:limit]
+        if isinstance(reasoning, (list, tuple)):
+            return "；".join(str(item) for item in reasoning[:5])[:limit]
+        return str(reasoning)[:limit]
+
+    def _mark_cycle_skipped(self, cycle_id: int, cutoff_date: str, stage: str, reason: str, **extra: Any) -> None:
+        meta = {
+            "status": "no_data",
+            "cycle_id": cycle_id,
+            "cutoff_date": cutoff_date,
+            "stage": stage,
+            "reason": reason,
+            "timestamp": datetime.now().isoformat(),
+            **extra,
+        }
+        self.last_cycle_meta = meta
+        emit_event("cycle_skipped", meta)
 
     def run_training_cycle(self) -> Optional[TrainingResult]:
         """
@@ -318,6 +373,12 @@ class SelfLearningController:
         review_applied = False
         benchmark_passed = False
         llm_used = bool(getattr(self.llm_caller.gateway, "available", False))
+        self.last_cycle_meta = {
+            "status": "running",
+            "cycle_id": cycle_id,
+            "cutoff_date": cutoff_date,
+            "timestamp": datetime.now().isoformat(),
+        }
 
         logger.info("加载数据...")
         emit_event("agent_status", {
@@ -355,6 +416,13 @@ class SelfLearningController:
             logger.error("没有加载到数据: %s", "；".join(latest.get("issues", [])) or "未知原因")
             for suggestion in latest.get("suggestions", []):
                 logger.error("建议: %s", suggestion)
+            self._mark_cycle_skipped(
+                cycle_id,
+                cutoff_date,
+                stage="data_loading",
+                reason="没有加载到可用训练数据",
+                suggestions=list(latest.get("suggestions", [])),
+            )
             return None
 
         logger.info("Agent 开会讨论选股...")
@@ -373,7 +441,7 @@ class SelfLearningController:
             "agent": "MarketRegime",
             "status": "thinking",
             "message": f"分析当前市场状态: {regime_result.get('regime', 'unknown')}",
-            "thinking": regime_reasoning[:200] if regime_reasoning else "",
+            "thinking": self._thinking_excerpt(regime_reasoning),
             "timestamp": datetime.now().isoformat()
         })
 
@@ -412,6 +480,7 @@ class SelfLearningController:
                 )
             else:
                 logger.warning("算法降级后仍无可交易标的，跳过本周期")
+                self._mark_cycle_skipped(cycle_id, cutoff_date, stage="selection", reason="算法降级后仍无可交易标的")
                 return None
 
         logger.info(f"最终选中股票: {selected}")
@@ -427,6 +496,7 @@ class SelfLearningController:
         selected_data = {code: stock_data[code] for code in selected if code in stock_data}
         if not selected_data:
             logger.warning("选股结果在数据集中不可用，跳过本周期")
+            self._mark_cycle_skipped(cycle_id, cutoff_date, stage="selection", reason="选股结果在数据集中不可用")
             return None
 
         trader = SimulatedTrader(
@@ -448,12 +518,18 @@ class SelfLearningController:
         simulation_days = max(1, getattr(config, "simulation_days", 30))
         if len(dates_after) < simulation_days:
             logger.warning(f"截断日期后交易日不足: {len(dates_after)} < {simulation_days}")
+            self._mark_cycle_skipped(
+                cycle_id,
+                cutoff_date,
+                stage="simulation",
+                reason=f"截断日期后交易日不足: {len(dates_after)} < {simulation_days}",
+            )
             return None
 
         emit_event("agent_status", {
             "agent": "SimulatedTrader",
             "status": "running",
-            "message": f"模拟交易中... 初始资金 {trader.capital:.2f}",
+            "message": f"模拟交易中... 初始资金 {trader.initial_capital:.2f}",
             "timestamp": datetime.now().isoformat()
         })
 
@@ -612,6 +688,13 @@ class SelfLearningController:
         self.current_cycle_id += 1
         self._record_self_assessment(cycle_result, cycle_dict)
 
+        self.last_cycle_meta = {
+            "status": "ok",
+            "cycle_id": cycle_id,
+            "cutoff_date": cutoff_date,
+            "return_pct": sim_result.return_pct,
+            "timestamp": datetime.now().isoformat(),
+        }
         self._save_cycle_result(cycle_result)
 
         # 发射周期完成事件
@@ -877,6 +960,17 @@ class SelfLearningController:
             """将可能为 numpy.bool 的值转换为 Python bool"""
             return bool(v)
 
+        def _jsonable(value):
+            if isinstance(value, dict):
+                return {k: _jsonable(v) for k, v in value.items()}
+            if isinstance(value, list):
+                return [_jsonable(v) for v in value]
+            if isinstance(value, tuple):
+                return [_jsonable(v) for v in value]
+            if isinstance(value, np.generic):
+                return value.item()
+            return value
+
         data = {
             "cycle_id": result.cycle_id,
             "cutoff_date": result.cutoff_date,
@@ -895,8 +989,8 @@ class SelfLearningController:
             "benchmark_passed": _bool(result.benchmark_passed),
             "review_applied": _bool(result.review_applied),
             "config_snapshot_path": result.config_snapshot_path,
-            "optimization_events": result.optimization_events,
-            "audit_tags": result.audit_tags,
+            "optimization_events": _jsonable(result.optimization_events),
+            "audit_tags": _jsonable({k: _bool(v) if isinstance(v, (bool, np.bool_)) else v for k, v in result.audit_tags.items()}),
         }
         snapshot = next((s for s in self.assessment_history if s.cycle_id == result.cycle_id), None)
         if snapshot:
@@ -906,7 +1000,7 @@ class SelfLearningController:
                 "sharpe_ratio": snapshot.sharpe_ratio,
                 "max_drawdown": snapshot.max_drawdown,
                 "excess_return": snapshot.excess_return,
-                "benchmark_passed": snapshot.benchmark_passed,
+                "benchmark_passed": _bool(snapshot.benchmark_passed),
             }
         with open(path, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
@@ -961,7 +1055,7 @@ def train_main():
 
     if args.mock:
         logger.info("使用模拟数据模式")
-        mock_provider = MockDataProvider(stock_count=30, days=1500, start_date="20200101")
+        mock_provider = _build_mock_provider()
         controller = SelfLearningController(
             output_dir=output_dir,
             meeting_log_dir=meeting_log_dir,
@@ -971,7 +1065,7 @@ def train_main():
             freeze_profit_required=args.freeze_m,
             data_provider=mock_provider,
         )
-        controller.llm_caller.dry_run = True
+        controller.set_mock_mode(True)
 
     report = controller.run_continuous(max_cycles=args.cycles)
     logger.info(f"\n训练完成: {report}")

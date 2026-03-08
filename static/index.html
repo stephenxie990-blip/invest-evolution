@@ -876,7 +876,7 @@ tr:hover td { background: rgba(99, 102, 241, 0.04); }
         <div style="display:grid;grid-template-columns:1fr auto;gap:12px;align-items:center">
           <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
             <span class="badge badge-blue" id="wb-conn">连接中...</span>
-            <span class="badge badge-yellow" id="wb-run">状态: Idle</span>
+            <span class="badge badge-yellow" id="wb-run">状态: 空闲</span>
             <span class="badge badge-green" id="wb-metric-total">总轮次: --</span>
             <span class="badge badge-green" id="wb-metric-success">成功: --</span>
             <span class="badge badge-red" id="wb-metric-failed">失败: --</span>
@@ -1518,6 +1518,8 @@ function addModuleCard(eventType, data) {
 
   if (eventType === 'cycle_start') {
     detail = `训练周期 #${data.cycle_id} 开始 | 截断日期: ${data.cutoff_date}`;
+  } else if (eventType === 'cycle_skipped') {
+    detail = data.reason || data.message || '本轮已跳过';
   } else if (eventType === 'cycle_complete') {
     const profitClass = data.is_profit ? 'positive' : 'negative';
     const profitSign = data.is_profit ? '+' : '';
@@ -1552,36 +1554,52 @@ function showResultSummary(results) {
   const container = document.getElementById('train-result-summary');
   const statsContainer = document.getElementById('result-stats');
 
+  const okResults = (results || []).filter(r => r && r.status === 'ok');
+  const skippedResults = (results || []).filter(r => r && r.status === 'no_data');
+  const errorResults = (results || []).filter(r => r && r.status === 'error');
+
   let totalReturn = 0;
   let successCount = 0;
   let totalTrades = 0;
 
-  results.forEach(r => {
-    if (r.return_pct !== undefined) {
-      totalReturn += r.return_pct;
-      if (r.return_pct > 0) successCount++;
-      totalTrades += r.trade_count || 0;
-    }
+  okResults.forEach(r => {
+    totalReturn += r.return_pct || 0;
+    if ((r.return_pct || 0) > 0) successCount++;
+    totalTrades += r.trade_count || 0;
   });
 
-  const avgReturn = results.length > 0 ? (totalReturn / results.length).toFixed(2) : 0;
-  const winRate = results.length > 0 ? ((successCount / results.length) * 100).toFixed(1) : 0;
+  const avgReturn = okResults.length > 0 ? (totalReturn / okResults.length).toFixed(2) : '—';
+  const winRate = okResults.length > 0 ? ((successCount / okResults.length) * 100).toFixed(1) : '—';
+  const totalReturnDisplay = okResults.length > 0 ? `${totalReturn >= 0 ? '+' : ''}${totalReturn.toFixed(2)}%` : '—';
+  const totalReturnColor = okResults.length > 0 ? (totalReturn >= 0 ? 'var(--success)' : 'var(--danger)') : 'var(--text-muted)';
 
   statsContainer.innerHTML = `
     <div class="result-stat">
       <div class="result-stat-value">${results.length}</div>
-      <div class="result-stat-label">训练轮次</div>
+      <div class="result-stat-label">请求轮次</div>
     </div>
     <div class="result-stat">
-      <div class="result-stat-value" style="color:${totalReturn >= 0 ? 'var(--success)' : 'var(--danger)'}">${totalReturn >= 0 ? '+' : ''}${totalReturn.toFixed(2)}%</div>
+      <div class="result-stat-value">${okResults.length}</div>
+      <div class="result-stat-label">有效完成</div>
+    </div>
+    <div class="result-stat">
+      <div class="result-stat-value">${skippedResults.length}</div>
+      <div class="result-stat-label">跳过轮次</div>
+    </div>
+    <div class="result-stat">
+      <div class="result-stat-value">${errorResults.length}</div>
+      <div class="result-stat-label">失败轮次</div>
+    </div>
+    <div class="result-stat">
+      <div class="result-stat-value" style="color:${totalReturnColor}">${totalReturnDisplay}</div>
       <div class="result-stat-label">总收益率</div>
     </div>
     <div class="result-stat">
-      <div class="result-stat-value">${avgReturn}%</div>
+      <div class="result-stat-value">${avgReturn}${avgReturn === '—' ? '' : '%'}</div>
       <div class="result-stat-label">平均收益率</div>
     </div>
     <div class="result-stat">
-      <div class="result-stat-value">${winRate}%</div>
+      <div class="result-stat-value">${winRate}${winRate === '—' ? '' : '%'}</div>
       <div class="result-stat-label">胜率</div>
     </div>
     <div class="result-stat">
@@ -1589,6 +1607,15 @@ function showResultSummary(results) {
       <div class="result-stat-label">总交易次数</div>
     </div>
   `;
+
+  if (skippedResults.length > 0) {
+    const details = skippedResults.map(r => `第 ${r.cycle_id || '?'} 轮：${escapeHtml(r.reason || '数据不足')}`).join('<br>');
+    statsContainer.innerHTML += `<div style="grid-column:1 / -1;font-size:12px;color:var(--yellow);line-height:1.7">${details}</div>`;
+  }
+  if (errorResults.length > 0) {
+    const details = errorResults.map(r => `第 ${r.cycle_id || '?'} 轮：${escapeHtml(r.error || '训练失败')}`).join('<br>');
+    statsContainer.innerHTML += `<div style="grid-column:1 / -1;font-size:12px;color:var(--danger);line-height:1.7">${details}</div>`;
+  }
 
   container.style.display = 'block';
 }
@@ -1605,7 +1632,7 @@ function upsertTrainResult(result) {
 }
 
 function wbResolveObjectId(eventType, data) {
-  if (eventType === 'cycle_start' || eventType === 'cycle_complete') return 'commander';
+  if (eventType === 'cycle_start' || eventType === 'cycle_complete' || eventType === 'cycle_skipped') return 'commander';
   const map = {
     DataLoader: 'data',
     MarketRegime: 'llm',
@@ -1627,14 +1654,20 @@ function wbHandleStreamEvent(eventType, data) {
 
   if (eventType === 'cycle_start') {
     wb.trainBusy = true;
-    document.getElementById('wb-run').textContent = '状态: Running';
+    document.getElementById('wb-run').textContent = '状态: 运行中';
     title = `周期 #${data.cycle_id} 开始`;
     detail = `截断日期 ${data.cutoff_date || '--'}`;
   } else if (eventType === 'cycle_complete') {
     wb.trainBusy = false;
-    if (!wb.running) document.getElementById('wb-run').textContent = '状态: Idle';
+    if (!wb.running) document.getElementById('wb-run').textContent = '状态: 空闲';
     title = `周期 #${data.cycle_id} 完成`;
     detail = data.return_pct !== undefined ? `收益 ${Number(data.return_pct).toFixed(2)}%` : '训练完成';
+  } else if (eventType === 'cycle_skipped') {
+    wb.trainBusy = false;
+    if (!wb.running) document.getElementById('wb-run').textContent = '状态: 空闲';
+    level = 'warn';
+    title = `周期 #${data.cycle_id} 跳过`;
+    detail = data.reason || '数据不足';
   } else if (eventType === 'agent_status' && data.status === 'completed' && data.adjustments) {
     detail = `参数调整: ${Object.keys(data.adjustments).join(', ')}`;
   }
@@ -1654,6 +1687,8 @@ function wbHandleStreamEvent(eventType, data) {
     wbSpawnFlow(wbResolveObjectId(eventType, data), 'commander', data.status === 'error' ? '#EF4444' : '#60A5FA');
   } else if (eventType === 'cycle_complete') {
     wbSpawnFlow('commander', 'llm', data.is_profit ? '#10B981' : '#EF4444');
+  } else if (eventType === 'cycle_skipped') {
+    wbSpawnFlow('commander', 'data', '#F59E0B');
   }
 }
 
@@ -1683,10 +1718,26 @@ function startEventListener() {
 
   eventSource.addEventListener('cycle_complete', (e) => {
     const data = JSON.parse(e.data);
+    data.status = data.status || 'ok';
     upsertTrainResult(data);
     addModuleCard('cycle_complete', data);
     showResultSummary(trainLiveResults);
     wbHandleStreamEvent('cycle_complete', data);
+  });
+
+  eventSource.addEventListener('cycle_skipped', (e) => {
+    const data = JSON.parse(e.data);
+    data.status = 'no_data';
+    upsertTrainResult(data);
+    addAgentCard('System', 'completed', `周期 #${data.cycle_id} 跳过：${data.reason || '数据不足'}`);
+    addModuleCard('cycle_skipped', {
+      agent: 'System',
+      message: `周期 #${data.cycle_id} 已跳过`,
+      timestamp: data.timestamp,
+      reason: data.reason,
+    });
+    showResultSummary(trainLiveResults);
+    wbHandleStreamEvent('cycle_skipped', data);
   });
 
   eventSource.onerror = (err) => {
@@ -1725,13 +1776,20 @@ async function startTraining() {
   if (data.error) {
     addAgentCard('System', 'error', '训练失败: ' + data.error);
   } else {
-    // 显示完整结果
-    const results = data.results || [];
+    const results = (data.results || []).map(r => ({ ...r }));
     if (results.length > 0) {
-      trainLiveResults = results.slice();
+      results.forEach(upsertTrainResult);
       showResultSummary(trainLiveResults);
     }
-    addAgentCard('System', 'completed', `训练完成！共 ${results.length} 轮`);
+    const okCount = results.filter(r => r.status === 'ok').length;
+    const skippedCount = results.filter(r => r.status === 'no_data').length;
+    const errorCount = results.filter(r => r.status === 'error').length;
+    const summaryText = errorCount > 0
+      ? `训练结束：有效 ${okCount} 轮，跳过 ${skippedCount} 轮，失败 ${errorCount} 轮`
+      : skippedCount > 0 && okCount === 0
+        ? `训练结束：共 ${results.length} 轮，其中 ${skippedCount} 轮因数据不足被跳过`
+        : `训练完成！有效 ${okCount} 轮，跳过 ${skippedCount} 轮`;
+    addAgentCard('System', errorCount > 0 ? 'error' : 'completed', summaryText);
   }
 }
 
@@ -2478,7 +2536,7 @@ function wbDraw() {
 async function wbStepOnce() {
   if (wb.trainBusy) return;
   wb.trainBusy = true;
-  document.getElementById('wb-run').textContent = '状态: Running';
+  document.getElementById('wb-run').textContent = '状态: 运行中';
   try {
     const data = await api('/api/train', { method: 'POST', body: JSON.stringify({ rounds: 1, mock: true }) });
     if (data && data.error) {
@@ -2487,14 +2545,14 @@ async function wbStepOnce() {
     await wbRefreshAll();
   } finally {
     wb.trainBusy = false;
-    if (!wb.running) document.getElementById('wb-run').textContent = '状态: Idle';
+    if (!wb.running) document.getElementById('wb-run').textContent = '状态: 空闲';
   }
 }
 
 function wbStartRun() {
   if (wb.running) return;
   wb.running = true;
-  document.getElementById('wb-run').textContent = '状态: Running';
+  document.getElementById('wb-run').textContent = '状态: 运行中';
   document.getElementById('wb-btn-run').disabled = true;
   document.getElementById('wb-btn-pause').disabled = false;
   wb.runTimer = setInterval(() => {
@@ -2509,7 +2567,7 @@ function wbStopRun() {
   wb.running = false;
   if (wb.runTimer) clearInterval(wb.runTimer);
   wb.runTimer = null;
-  document.getElementById('wb-run').textContent = '状态: Idle';
+  document.getElementById('wb-run').textContent = '状态: 空闲';
   document.getElementById('wb-btn-run').disabled = false;
   document.getElementById('wb-btn-pause').disabled = true;
   wbPushEvent({ ts: Date.now(), level: 'info', type: 'run', objectId: 'commander', title: '暂停运行', detail: '停止客户端循环' });

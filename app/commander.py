@@ -38,6 +38,21 @@ from app.train import SelfLearningController, TrainingResult
 logger = logging.getLogger(__name__)
 
 
+def _build_mock_provider() -> MockDataProvider:
+    stock_count = max(30, int(getattr(config, "max_stocks", 30) or 30))
+    min_history_days = max(250, int(getattr(config, "min_history_days", 200) or 200))
+    simulation_days = max(30, int(getattr(config, "simulation_days", 30) or 30))
+    seed_cutoff_min = min_history_days + 20
+    total_days = max(1600, min_history_days + simulation_days + 900)
+    return MockDataProvider(
+        stock_count=stock_count,
+        days=total_days,
+        start_date="20180101",
+        seed_cutoff_min=seed_cutoff_min,
+        seed_cutoff_tail=max(60, simulation_days + 10),
+    )
+
+
 def _apply_runtime_path_overrides(cfg: "CommanderConfig", overrides: dict[str, Any]) -> "CommanderConfig":
     for key in RuntimePathConfigService.EDITABLE_KEYS:
         value = overrides.get(key)
@@ -506,7 +521,7 @@ class InvestmentBodyService:
         self._runtime_event_sink = on_runtime_event
         self._mock_provider: Optional[MockDataProvider] = None
         if cfg.mock_mode:
-            self._mock_provider = MockDataProvider(stock_count=30, days=1500, start_date="20200101")
+            self._mock_provider = _build_mock_provider()
         self.controller = SelfLearningController(
             data_provider=self._mock_provider,
             output_dir=str(self.cfg.training_output_dir),
@@ -551,9 +566,9 @@ class InvestmentBodyService:
             }
 
         if force_mock and self._mock_provider is None:
-            self._mock_provider = MockDataProvider(stock_count=30, days=1500, start_date="20200101")
+            self._mock_provider = _build_mock_provider()
             self.controller.data_manager = DataManager(data_provider=self._mock_provider)
-            self.controller.llm_caller.dry_run = True
+            self.controller.set_mock_mode(True)
 
         rounds = max(1, int(rounds))
         results: list[dict[str, Any]] = []
@@ -578,10 +593,14 @@ class InvestmentBodyService:
                         cycle_result = await asyncio.to_thread(self.controller.run_training_cycle)
                         if cycle_result is None:
                             self.no_data_cycles += 1
+                            meta = dict(getattr(self.controller, "last_cycle_meta", {}) or {})
                             item = {
                                 "status": "no_data",
-                                "cycle_id": self.controller.current_cycle_id,
-                                "timestamp": self.last_run_at,
+                                "cycle_id": meta.get("cycle_id", self.controller.current_cycle_id + 1),
+                                "cutoff_date": meta.get("cutoff_date"),
+                                "stage": meta.get("stage"),
+                                "reason": meta.get("reason"),
+                                "timestamp": meta.get("timestamp", self.last_run_at),
                             }
                         else:
                             self.success_cycles += 1
