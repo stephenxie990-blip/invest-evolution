@@ -46,3 +46,21 @@ def test_write_leaderboard_outputs_json_file(tmp_path):
     data = write_leaderboard(tmp_path, output)
     assert output.exists()
     assert data["total_models"] == 1
+
+
+def test_leaderboard_carries_avg_strategy_score(tmp_path):
+    from invest.leaderboard import write_leaderboard
+
+    run_dir = tmp_path / 'momentum_case'
+    run_dir.mkdir(parents=True, exist_ok=True)
+    (run_dir / 'cycle_1.json').write_text(json.dumps({
+        'cycle_id': 1,
+        'return_pct': 1.0,
+        'is_profit': True,
+        'benchmark_passed': True,
+        'model_name': 'momentum',
+        'config_name': 'momentum_v1',
+        'self_assessment': {'regime': 'bull', 'sharpe_ratio': 1.1, 'max_drawdown': 3.0, 'excess_return': 0.4, 'overall_score': 0.72},
+    }, ensure_ascii=False), encoding='utf-8')
+    board = write_leaderboard(tmp_path)
+    assert board['entries'][0]['avg_strategy_score'] == 0.72

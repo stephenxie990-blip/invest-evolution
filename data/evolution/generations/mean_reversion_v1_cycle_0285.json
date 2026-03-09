@@ -1,0 +1,22 @@
+{
+  "parent_config": "/Users/zhangsan/Desktop/投资进化系统v1.0/invest/models/configs/mean_reversion_v1.yaml",
+  "output_config": "/Users/zhangsan/Desktop/投资进化系统v1.0/data/evolution/generations/mean_reversion_v1_cycle_0285.yaml",
+  "param_adjustments": {
+    "stop_loss_pct": 0.058766294839853433,
+    "take_profit_pct": 0.18302221312842343,
+    "position_size": 0.21170861708165573,
+    "ma_short": 7,
+    "ma_long": 32,
+    "rsi_period": 20,
+    "rsi_oversold": 36.23500023111408,
+    "rsi_overbought": 78.70997672983123
+  },
+  "narrative_adjustments": {
+    "last_trigger": "consecutive_losses"
+  },
+  "generated_at": "2026-03-09T20:35:06.445716",
+  "parent_meta": {
+    "cycle_id": 285,
+    "trigger": "consecutive_losses"
+  }
+}

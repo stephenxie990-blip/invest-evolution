@@ -11,6 +11,7 @@ Design goals:
 from __future__ import annotations
 
 import argparse
+import inspect
 import ast
 import asyncio
 import json
@@ -585,7 +586,30 @@ class InvestmentBodyService:
             except Exception:
                 logger.exception("Failed to emit runtime event: %s", event)
 
-    async def run_cycles(self, rounds: int = 1, force_mock: bool = False, task_source: str = "direct") -> dict[str, Any]:
+    @staticmethod
+    def _derive_run_status(results: list[dict[str, Any]]) -> str:
+        if not results:
+            return "empty"
+        ok_count = sum(1 for item in results if item.get("status") == "ok")
+        no_data_count = sum(1 for item in results if item.get("status") == "no_data")
+        error_count = sum(1 for item in results if item.get("status") == "error")
+        if error_count and ok_count == 0 and no_data_count == 0:
+            return "failed"
+        if error_count:
+            return "partial_failure"
+        if ok_count == 0 and no_data_count > 0:
+            return "insufficient_data"
+        if no_data_count > 0:
+            return "completed_with_skips"
+        return "completed"
+
+    async def run_cycles(
+        self,
+        rounds: int = 1,
+        force_mock: bool = False,
+        task_source: str = "direct",
+        experiment_spec: Optional[dict[str, Any]] = None,
+    ) -> dict[str, Any]:
         if self._lock.locked():
             return {
                 "status": "busy",
@@ -608,11 +632,13 @@ class InvestmentBodyService:
             "rounds": rounds,
             "force_mock": bool(force_mock),
             "started_at": task_started_at,
+            "experiment_spec": _jsonable(dict(experiment_spec or {})),
         }
         self._write_training_lock(self.current_task)
         self._emit_runtime_event("training_started", self.current_task)
 
         try:
+            self.controller.configure_experiment(experiment_spec or {})
             async with self._lock:
                 for _ in range(rounds):
                     self.total_cycles += 1
@@ -652,19 +678,21 @@ class InvestmentBodyService:
                         results.append(item)
                         logger.exception("Commander body cycle failed")
         finally:
+            run_status = self._derive_run_status(results)
             self.training_state = "idle"
             self.last_completed_task = {
                 **(self.current_task or {}),
                 "finished_at": datetime.now().isoformat(),
                 "result_count": len(results),
                 "last_status": results[-1].get("status") if results else "empty",
+                "run_status": run_status,
             }
             self.current_task = None
             self._clear_training_lock()
             self._emit_runtime_event("training_finished", self.last_completed_task or {})
 
         return _jsonable({
-            "status": "ok",
+            "status": run_status,
             "rounds": rounds,
             "results": results,
             "summary": self.snapshot(),
@@ -746,6 +774,9 @@ class InvestmentBodyService:
             "agent_used": result.agent_used,
             "llm_used": result.llm_used,
             "benchmark_passed": result.benchmark_passed,
+            "model_name": result.model_name,
+            "config_name": result.config_name,
+            "strategy_scores": result.strategy_scores,
             "review_applied": result.review_applied,
             "config_snapshot_path": result.config_snapshot_path,
             "optimization_event_count": len(result.optimization_events or []),
@@ -1079,6 +1110,10 @@ class CommanderRuntime:
         notes: str = "",
         tags: list[str] | None = None,
         detail_mode: str = "fast",
+        protocol: dict[str, Any] | None = None,
+        dataset: dict[str, Any] | None = None,
+        model_scope: dict[str, Any] | None = None,
+        optimization: dict[str, Any] | None = None,
         plan_id: str | None = None,
         auto_generated: bool = False,
     ) -> dict[str, Any]:
@@ -1094,6 +1129,10 @@ class CommanderRuntime:
                 "mock": bool(mock),
                 "detail_mode": str(detail_mode or "fast"),
             },
+            "protocol": _jsonable(dict(protocol or {})),
+            "dataset": _jsonable(dict(dataset or {})),
+            "model_scope": _jsonable(dict(model_scope or {})),
+            "optimization": _jsonable(dict(optimization or {})),
             "objective": {
                 "goal": str(goal or ""),
                 "notes": str(notes or ""),
@@ -1113,6 +1152,10 @@ class CommanderRuntime:
         notes: str = "",
         tags: list[str] | None = None,
         detail_mode: str = "fast",
+        protocol: dict[str, Any] | None = None,
+        dataset: dict[str, Any] | None = None,
+        model_scope: dict[str, Any] | None = None,
+        optimization: dict[str, Any] | None = None,
         source: str = "manual",
         auto_generated: bool = False,
     ) -> dict[str, Any]:
@@ -1125,6 +1168,10 @@ class CommanderRuntime:
             notes=notes,
             tags=tags,
             detail_mode=detail_mode,
+            protocol=protocol,
+            dataset=dataset,
+            model_scope=model_scope,
+            optimization=optimization,
             auto_generated=auto_generated,
         )
         self._write_json_artifact(self._training_plan_path(plan["plan_id"]), plan)
@@ -1182,13 +1229,105 @@ class CommanderRuntime:
                 continue
         return {"count": len(rows), "items": rows}
 
+    def _load_leaderboard_snapshot(self) -> dict[str, Any]:
+        path = Path(self.cfg.training_output_dir).parent / "leaderboard.json"
+        if not path.exists():
+            return {}
+        try:
+            return json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            return {}
+
+    def _build_promotion_summary(
+        self,
+        *,
+        plan: dict[str, Any],
+        ok_results: list[dict[str, Any]],
+        avg_return_pct: float | None,
+        avg_strategy_score: float | None,
+        benchmark_pass_rate: float,
+    ) -> dict[str, Any]:
+        gate = dict((plan.get("optimization") or {}).get("promotion_gate") or {})
+        model_scope = dict(plan.get("model_scope") or {})
+        protocol = dict(plan.get("protocol") or {})
+        holdout = protocol.get("holdout") if isinstance(protocol.get("holdout"), dict) else {}
+        walk_forward = protocol.get("walk_forward") if isinstance(protocol.get("walk_forward"), dict) else {}
+        candidate_model = "unknown"
+        candidate_config = ""
+        if ok_results:
+            first = ok_results[0]
+            candidate_model = str(first.get("model_name") or "unknown")
+            candidate_config = str(first.get("config_name") or "")
+        baseline_models = [str(x) for x in (model_scope.get("baseline_models") or []) if str(x).strip()]
+        board = self._load_leaderboard_snapshot()
+        entries = list(board.get("entries") or [])
+        baseline_entries = [entry for entry in entries if str(entry.get("model_name") or "") in baseline_models]
+        baseline_avg_return = round(sum(float(entry.get("avg_return_pct", 0.0) or 0.0) for entry in baseline_entries) / len(baseline_entries), 4) if baseline_entries else None
+        baseline_avg_score = round(sum(float(entry.get("avg_strategy_score", 0.0) or 0.0) for entry in baseline_entries) / len(baseline_entries), 4) if baseline_entries else None
+        checks = []
+        def add_check(name: str, passed: bool, actual, threshold):
+            checks.append({"name": name, "passed": bool(passed), "actual": actual, "threshold": threshold})
+        min_samples = int(gate.get("min_samples", 1) or 1)
+        add_check("min_samples", len(ok_results) >= min_samples, len(ok_results), min_samples)
+        if gate.get("min_avg_return_pct") is not None:
+            threshold = float(gate.get("min_avg_return_pct") or 0.0)
+            actual = avg_return_pct if avg_return_pct is not None else None
+            add_check("min_avg_return_pct", actual is not None and actual >= threshold, actual, threshold)
+        if gate.get("min_avg_strategy_score") is not None:
+            threshold = float(gate.get("min_avg_strategy_score") or 0.0)
+            actual = avg_strategy_score if avg_strategy_score is not None else None
+            add_check("min_avg_strategy_score", actual is not None and actual >= threshold, actual, threshold)
+        if gate.get("min_benchmark_pass_rate") is not None:
+            threshold = float(gate.get("min_benchmark_pass_rate") or 0.0)
+            add_check("min_benchmark_pass_rate", benchmark_pass_rate >= threshold, benchmark_pass_rate, threshold)
+        if gate.get("min_return_advantage_vs_baseline") is not None and baseline_avg_return is not None and avg_return_pct is not None:
+            threshold = float(gate.get("min_return_advantage_vs_baseline") or 0.0)
+            actual = round(avg_return_pct - baseline_avg_return, 4)
+            add_check("min_return_advantage_vs_baseline", actual >= threshold, actual, threshold)
+        if gate.get("min_strategy_score_advantage_vs_baseline") is not None and baseline_avg_score is not None and avg_strategy_score is not None:
+            threshold = float(gate.get("min_strategy_score_advantage_vs_baseline") or 0.0)
+            actual = round(avg_strategy_score - baseline_avg_score, 4)
+            add_check("min_strategy_score_advantage_vs_baseline", actual >= threshold, actual, threshold)
+        passed = all(item.get("passed", False) for item in checks) if checks else False
+        verdict = "promoted" if passed else "rejected"
+        if not ok_results:
+            verdict = "insufficient_data"
+        return {
+            "candidate": {"model_name": candidate_model, "config_name": candidate_config},
+            "baselines": {
+                "models": baseline_models,
+                "avg_return_pct": baseline_avg_return,
+                "avg_strategy_score": baseline_avg_score,
+                "sample_count": len(baseline_entries),
+            },
+            "gate": gate,
+            "checks": checks,
+            "verdict": verdict,
+            "passed": passed,
+            "protocol": {
+                "holdout": holdout,
+                "walk_forward": walk_forward,
+            },
+        }
+
     def _build_training_evaluation_summary(self, payload: dict[str, Any], *, plan: dict[str, Any], run_id: str, error: str = "") -> dict[str, Any]:
         results = list(payload.get("results") or [])
         ok_results = [item for item in results if item.get("status") == "ok"]
         no_data_results = [item for item in results if item.get("status") == "no_data"]
         error_results = [item for item in results if item.get("status") == "error"]
         returns = [float(item.get("return_pct") or 0.0) for item in ok_results]
+        strategy_scores = [float((item.get("strategy_scores") or {}).get("overall_score", 0.0) or 0.0) for item in ok_results]
         benchmark_passes = sum(1 for item in ok_results if bool(item.get("benchmark_passed", False)))
+        avg_return_pct = round(sum(returns) / len(returns), 4) if returns else None
+        avg_strategy_score = round(sum(strategy_scores) / len(strategy_scores), 4) if strategy_scores else None
+        benchmark_pass_rate = round(benchmark_passes / len(ok_results), 4) if ok_results else 0.0
+        promotion = self._build_promotion_summary(
+            plan=plan,
+            ok_results=ok_results,
+            avg_return_pct=avg_return_pct,
+            avg_strategy_score=avg_strategy_score,
+            benchmark_pass_rate=benchmark_pass_rate,
+        )
         return {
             "run_id": run_id,
             "plan_id": plan["plan_id"],
@@ -1201,11 +1340,13 @@ class CommanderRuntime:
                 "success_count": len(ok_results),
                 "no_data_count": len(no_data_results),
                 "error_count": len(error_results),
-                "avg_return_pct": round(sum(returns) / len(returns), 4) if returns else None,
+                "avg_return_pct": avg_return_pct,
                 "max_return_pct": round(max(returns), 4) if returns else None,
                 "min_return_pct": round(min(returns), 4) if returns else None,
-                "benchmark_pass_rate": round(benchmark_passes / len(ok_results), 4) if ok_results else 0.0,
+                "avg_strategy_score": avg_strategy_score,
+                "benchmark_pass_rate": benchmark_pass_rate,
             },
+            "promotion": promotion,
             "error": str(error or ""),
             "artifacts": {
                 "run_path": str(self._training_run_path(run_id)),
@@ -1234,7 +1375,7 @@ class CommanderRuntime:
         self._write_json_artifact(self._training_run_path(run_id), run_payload)
         self._write_json_artifact(self._training_eval_path(run_id), eval_payload)
         plan_update = dict(plan)
-        plan_update["status"] = "completed" if status == "ok" else status
+        plan_update["status"] = "completed" if status in {"ok", "completed", "completed_with_skips", "insufficient_data"} else status
         plan_update["last_run_id"] = run_id
         plan_update["last_run_at"] = datetime.now().isoformat()
         plan_update.setdefault("artifacts", {})["latest_run_path"] = str(self._training_run_path(run_id))
@@ -1309,6 +1450,13 @@ class CommanderRuntime:
         spec = dict(plan.get("spec") or {})
         rounds = int(spec.get("rounds", 1) or 1)
         mock = bool(spec.get("mock", False))
+        experiment_spec = {
+            "spec": spec,
+            "protocol": dict(plan.get("protocol") or {}),
+            "dataset": dict(plan.get("dataset") or {}),
+            "model_scope": dict(plan.get("model_scope") or {}),
+            "optimization": dict(plan.get("optimization") or {}),
+        }
 
         plan["status"] = "running"
         plan["started_at"] = datetime.now().isoformat()
@@ -1317,7 +1465,18 @@ class CommanderRuntime:
         self._set_runtime_state("training")
         self.memory.append_audit("train_requested", "runtime:train", {"rounds": rounds, "mock": mock, "plan_id": plan_id})
         try:
-            out = await self.body.run_cycles(rounds=rounds, force_mock=mock, task_source=str(plan.get("source", "manual")))
+            run_cycles_kwargs = {
+                "rounds": rounds,
+                "force_mock": mock,
+                "task_source": str(plan.get("source", "manual")),
+            }
+            try:
+                run_cycles_signature = inspect.signature(self.body.run_cycles)
+                if "experiment_spec" in run_cycles_signature.parameters:
+                    run_cycles_kwargs["experiment_spec"] = experiment_spec
+            except (TypeError, ValueError):
+                run_cycles_kwargs["experiment_spec"] = experiment_spec
+            out = await self.body.run_cycles(**run_cycles_kwargs)
             status = str(out.get("status", "ok"))
             lab = self._record_training_lab_artifacts(plan=plan, payload=out, status=status)
             out["training_lab"] = {

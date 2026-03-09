@@ -345,6 +345,10 @@ def api_training_plan_create():
         notes=str(data.get("notes", "") or ""),
         tags=tags,
         detail_mode=detail_mode,
+        protocol=data.get("protocol") if isinstance(data.get("protocol"), dict) else None,
+        dataset=data.get("dataset") if isinstance(data.get("dataset"), dict) else None,
+        model_scope=data.get("model_scope") if isinstance(data.get("model_scope"), dict) else None,
+        optimization=data.get("optimization") if isinstance(data.get("optimization"), dict) else None,
         source="api",
     )
     return jsonify(plan), 201

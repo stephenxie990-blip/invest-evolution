@@ -117,6 +117,7 @@ def build_leaderboard(records: List[Dict[str, Any]]) -> Dict[str, Any]:
         sharpes = [float((item.get("self_assessment") or {}).get("sharpe_ratio", 0.0) or 0.0) for item in items]
         drawdowns = [float((item.get("self_assessment") or {}).get("max_drawdown", 0.0) or 0.0) for item in items]
         excess_returns = [float((item.get("self_assessment") or {}).get("excess_return", 0.0) or 0.0) for item in items]
+        strategy_scores = [float((item.get("self_assessment") or {}).get("overall_score", (item.get("strategy_scores") or {}).get("overall_score", 0.0)) or 0.0) for item in items]
         wins = sum(1 for item in items if bool(item.get("is_profit", False)))
         benchmark_passes = sum(1 for item in items if bool(item.get("benchmark_passed", False)))
         regimes: Dict[str, int] = defaultdict(int)
@@ -124,11 +125,12 @@ def build_leaderboard(records: List[Dict[str, Any]]) -> Dict[str, Any]:
             regimes[str(item.get("regime", "unknown"))] += 1
         dominant_regime = max(regimes.items(), key=lambda pair: pair[1])[0] if regimes else "unknown"
         composite_score = (
-            _safe_avg(returns) * 0.35
-            + _safe_avg(sharpes) * 12.0
+            _safe_avg(returns) * 0.30
+            + _safe_avg(sharpes) * 10.0
             + _safe_avg(excess_returns) * 0.15
-            + (benchmark_passes / len(items) if items else 0.0) * 20.0
-            - _safe_avg(drawdowns) * 0.50
+            + _safe_avg(strategy_scores) * 15.0
+            + (benchmark_passes / len(items) if items else 0.0) * 18.0
+            - _safe_avg(drawdowns) * 0.45
         )
         scoring_summaries = [_extract_scoring_change_summary(item) for item in items]
         entry = {
@@ -143,6 +145,7 @@ def build_leaderboard(records: List[Dict[str, Any]]) -> Dict[str, Any]:
             "avg_sharpe_ratio": _safe_avg(sharpes),
             "avg_max_drawdown": _safe_avg(drawdowns),
             "avg_excess_return": _safe_avg(excess_returns),
+            "avg_strategy_score": _safe_avg(strategy_scores),
             "benchmark_pass_rate": benchmark_passes / len(items) if items else 0.0,
             "dominant_regime": dominant_regime,
             "regime_breakdown": dict(sorted(regimes.items())),

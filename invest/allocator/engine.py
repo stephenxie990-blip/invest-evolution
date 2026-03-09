@@ -59,6 +59,7 @@ class ModelScore:
     avg_sharpe_ratio: float
     avg_max_drawdown: float
     benchmark_pass_rate: float
+    avg_strategy_score: float = 0.0
     rank: int = 0
 
 
@@ -123,6 +124,7 @@ class ModelAllocator:
                     avg_sharpe_ratio=float(entry.get("avg_sharpe_ratio", 0.0) or 0.0),
                     avg_max_drawdown=float(entry.get("avg_max_drawdown", 0.0) or 0.0),
                     benchmark_pass_rate=float(entry.get("benchmark_pass_rate", 0.0) or 0.0),
+                    avg_strategy_score=float(entry.get("avg_strategy_score", 0.0) or 0.0),
                     rank=int(regime_map[model_name].get("rank", 0) or 0),
                 ))
             if chosen:
@@ -136,6 +138,7 @@ class ModelAllocator:
                 avg_sharpe_ratio=float(entry.get("avg_sharpe_ratio", 0.0) or 0.0),
                 avg_max_drawdown=float(entry.get("avg_max_drawdown", 0.0) or 0.0),
                 benchmark_pass_rate=float(entry.get("benchmark_pass_rate", 0.0) or 0.0),
+                avg_strategy_score=float(entry.get("avg_strategy_score", 0.0) or 0.0),
                 rank=int(entry.get("rank", 0) or 0),
             )
             for entry in entries
@@ -148,7 +151,7 @@ class ModelAllocator:
             current = best.get(item.model_name)
             if current is None or item.score > current.score:
                 best[item.model_name] = item
-        return sorted(best.values(), key=lambda item: (item.score, item.avg_return_pct, item.avg_sharpe_ratio), reverse=True)
+        return sorted(best.values(), key=lambda item: (item.score, item.avg_strategy_score, item.avg_return_pct, item.avg_sharpe_ratio), reverse=True)
 
     def _blend_weights(self, regime: str, candidates: List[ModelScore], *, top_n: int) -> Dict[str, float]:
         priors = dict(self.priors.get(regime, self.priors["unknown"]))
@@ -158,7 +161,11 @@ class ModelAllocator:
             max_score = max(max(item.score, 0.0) for item in selected) or 1.0
             for item in selected:
                 normalized = max(0.0, item.score) / max_score
-                bonus_scores[item.model_name] = 0.6 * normalized + 0.4 * item.benchmark_pass_rate
+                bonus_scores[item.model_name] = (
+                    0.50 * normalized
+                    + 0.25 * item.benchmark_pass_rate
+                    + 0.25 * max(0.0, min(1.0, item.avg_strategy_score))
+                )
         combined: Dict[str, float] = {}
         for model_name, prior in priors.items():
             combined[model_name] = max(0.0, prior * 0.80 + bonus_scores.get(model_name, 0.0) * 0.20)
@@ -208,7 +215,7 @@ class ModelAllocator:
             return f"当前 regime={regime}，按先验规则优先启用 {leading}。"
         return (
             f"当前 regime={regime}，优先分配给 {leading}（权重 {lead_weight:.0%}），"
-            f"因为其历史综合得分 {top_score.score:.2f}、平均收益 {top_score.avg_return_pct:+.2f}% 、"
+            f"因为其历史综合得分 {top_score.score:.2f}、策略评分 {top_score.avg_strategy_score:.2f}、平均收益 {top_score.avg_return_pct:+.2f}% 、"
             f"Sharpe {top_score.avg_sharpe_ratio:.2f} 相对更优；其余模型按先验与榜单表现做补充分配。"
         )
 

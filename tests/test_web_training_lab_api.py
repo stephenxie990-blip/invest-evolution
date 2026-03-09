@@ -103,6 +103,9 @@ def test_training_lab_plan_run_eval_api(tmp_path, monkeypatch):
             'notes': 'api smoke',
             'tags': ['lab', 'smoke'],
             'detail_mode': 'slow',
+            'protocol': {'seed': 7, 'date_range': {'min': '20240101', 'max': '20241231'}},
+            'dataset': {'min_history_days': 160, 'simulation_days': 15},
+            'model_scope': {'allowed_models': ['momentum'], 'allocator_enabled': False},
         }),
         content_type='application/json',
     )
@@ -111,6 +114,9 @@ def test_training_lab_plan_run_eval_api(tmp_path, monkeypatch):
     plan_id = plan['plan_id']
     assert plan['source'] == 'api'
     assert plan['spec']['detail_mode'] == 'slow'
+    assert plan['protocol']['seed'] == 7
+    assert plan['dataset']['simulation_days'] == 15
+    assert plan['model_scope']['allowed_models'] == ['momentum']
     assert len(list(runtime.cfg.training_plan_dir.glob('*.json'))) == 1
 
     listed = client.get('/api/lab/training/plans?limit=5')

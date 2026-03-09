@@ -159,6 +159,7 @@ class TrainingResult:
     agent_used: bool = False
     llm_used: bool = False
     benchmark_passed: bool = False
+    strategy_scores: Dict[str, Any] = field(default_factory=dict)
     review_applied: bool = False
     config_snapshot_path: str = ""
     optimization_events: List[Dict[str, Any]] = field(default_factory=list)
@@ -324,6 +325,13 @@ class SelfLearningController:
         self.assessment_history: List[SelfAssessmentSnapshot] = []
         self.optimization_events_history: List[OptimizationEvent] = []
         self.last_cycle_meta: Dict[str, Any] = {}
+        self.experiment_spec: Dict[str, Any] = {}
+        self.experiment_seed: int | None = None
+        self.experiment_min_date: str | None = None
+        self.experiment_max_date: str | None = None
+        self.experiment_allowed_models: list[str] = []
+        self.experiment_min_history_days: int | None = None
+        self.experiment_simulation_days: int | None = None
 
         # 回调
         self.on_cycle_complete: Optional[Callable] = None
@@ -336,6 +344,31 @@ class SelfLearningController:
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
         logger.info("自我学习控制器初始化完成")
+
+    def configure_experiment(self, spec: Dict[str, Any] | None = None) -> None:
+        spec = dict(spec or {})
+        self.experiment_spec = spec
+        protocol = dict(spec.get("protocol") or {})
+        dataset = dict(spec.get("dataset") or {})
+        model_scope = dict(spec.get("model_scope") or {})
+
+        seed = protocol.get("seed")
+        self.experiment_seed = int(seed) if seed is not None and str(seed).strip() else None
+        min_date = protocol.get("min_date") or protocol.get("date_range", {}).get("min") if isinstance(protocol.get("date_range"), dict) else protocol.get("min_date")
+        max_date = protocol.get("max_date") or protocol.get("date_range", {}).get("max") if isinstance(protocol.get("date_range"), dict) else protocol.get("max_date")
+        self.experiment_min_date = normalize_date(str(min_date)) if min_date else None
+        self.experiment_max_date = normalize_date(str(max_date)) if max_date else None
+        self.experiment_min_history_days = int(dataset.get("min_history_days")) if dataset.get("min_history_days") is not None else None
+        self.experiment_simulation_days = int(dataset.get("simulation_days")) if dataset.get("simulation_days") is not None else None
+        allowed_models = model_scope.get("allowed_models") or []
+        self.experiment_allowed_models = [str(name) for name in allowed_models if str(name).strip()]
+        if model_scope.get("allocator_enabled") is not None:
+            self.allocator_enabled = bool(model_scope.get("allocator_enabled"))
+        if self.experiment_allowed_models and self.model_name not in self.experiment_allowed_models:
+            self.model_name = self.experiment_allowed_models[0]
+            self.model_config_path = str(resolve_model_config_path(self.model_name))
+            self.current_params = {}
+            self._reload_investment_model(self.model_config_path)
 
 
     def set_mock_mode(self, enabled: bool = True) -> None:
@@ -689,7 +722,17 @@ class SelfLearningController:
         logger.info(f"训练周期 #{cycle_id}")
         logger.info(f"{'='*60}")
 
-        cutoff_date = normalize_date(os.getenv("INVEST_FORCE_CUTOFF_DATE", "") or self.data_manager.random_cutoff_date())
+        if self.experiment_seed is not None:
+            seed_value = int(self.experiment_seed) + int(cycle_id)
+            random.seed(seed_value)
+            np.random.seed(seed_value % (2**32 - 1))
+        cutoff_date = normalize_date(
+            os.getenv("INVEST_FORCE_CUTOFF_DATE", "")
+            or self.data_manager.random_cutoff_date(
+                min_date=self.experiment_min_date or "20180101",
+                max_date=self.experiment_max_date,
+            )
+        )
         logger.info(f"截断日期: {cutoff_date}")
 
         # 发射周期开始事件
@@ -714,7 +757,7 @@ class SelfLearningController:
         logger.info("加载数据...")
         self._emit_agent_status("DataLoader", "loading", f"正在加载 {cutoff_date} 的历史数据...", cycle_id=cycle_id, stage="data_loading", progress_pct=8, step=1, total_steps=6)
         self._emit_module_log("data_loading", "开始加载训练数据", f"截断日期 {cutoff_date}", cycle_id=cycle_id, kind="phase_start")
-        min_history_days = max(30, int(getattr(config, "min_history_days", 200)))
+        min_history_days = max(30, int(self.experiment_min_history_days or getattr(config, "min_history_days", 200)))
         diagnostics = self.data_manager.check_training_readiness(
             cutoff_date=cutoff_date,
             stock_count=config.max_stocks,
@@ -747,7 +790,7 @@ class SelfLearningController:
             cutoff_date,
             stock_count=config.max_stocks,
             min_history_days=min_history_days,
-            include_future_days=max(30, getattr(config, "simulation_days", 30)),
+            include_future_days=max(30, int(self.experiment_simulation_days or getattr(config, "simulation_days", 30))),
         )
         data_mode = getattr(self.data_manager, "last_source", "unknown")
         self._emit_agent_status(
@@ -784,7 +827,17 @@ class SelfLearningController:
             )
             return None
 
+        if self.experiment_allowed_models and self.model_name not in self.experiment_allowed_models:
+            self.model_name = self.experiment_allowed_models[0]
+            self.model_config_path = str(resolve_model_config_path(self.model_name))
+            self.current_params = {}
+            self._reload_investment_model(self.model_config_path)
         self._maybe_apply_allocator(stock_data, cutoff_date, cycle_id)
+        if self.experiment_allowed_models and self.model_name not in self.experiment_allowed_models:
+            self.model_name = self.experiment_allowed_models[0]
+            self.model_config_path = str(resolve_model_config_path(self.model_name))
+            self.current_params = {}
+            self._reload_investment_model(self.model_config_path)
 
         logger.info("Agent 开会讨论选股...")
         self._emit_agent_status("SelectionMeeting", "running", "Agent 开会讨论选股...", cycle_id=cycle_id, stage="selection_meeting", progress_pct=26, step=2, total_steps=6)
@@ -950,7 +1003,7 @@ class SelfLearningController:
             all_dates.update(df[date_col].apply(normalize_date).tolist())
 
         dates_after = sorted(d for d in all_dates if d > cutoff_date)
-        simulation_days = max(1, getattr(config, "simulation_days", 30))
+        simulation_days = max(1, int(self.experiment_simulation_days or getattr(config, "simulation_days", 30)))
         if len(dates_after) < simulation_days:
             logger.warning(f"截断日期后交易日不足: {len(dates_after)} < {simulation_days}")
             self._mark_cycle_skipped(
@@ -1056,12 +1109,7 @@ class SelfLearningController:
                 benchmark_daily_values=aligned_benchmark,
                 trade_history=trade_dicts,
             )
-            benchmark_passed = (
-                benchmark_metrics.total_return > float(self.benchmark_evaluator.criteria.get("excess_return", 0.0))
-                and benchmark_metrics.sharpe_ratio >= float(self.benchmark_evaluator.criteria.get("sharpe_ratio", 1.0))
-                and benchmark_metrics.max_drawdown < float(self.benchmark_evaluator.criteria.get("max_drawdown", 15.0))
-                and benchmark_metrics.profit_loss_ratio >= float(self.benchmark_evaluator.criteria.get("profit_loss_ratio", 1.0))
-            )
+            benchmark_passed = bool(benchmark_metrics.passed)
             cycle_dict.update({
                 "sharpe_ratio": benchmark_metrics.sharpe_ratio,
                 "max_drawdown": benchmark_metrics.max_drawdown,
@@ -1075,7 +1123,14 @@ class SelfLearningController:
             cycle_dict["benchmark_passed"] = False
             cycle_dict["benchmark_strict_passed"] = False
 
-        self.strategy_evaluator.evaluate(cycle_dict, trade_dicts, sim_result.daily_records)
+        strategy_eval = self.strategy_evaluator.evaluate(cycle_dict, trade_dicts, sim_result.daily_records)
+        cycle_dict["strategy_scores"] = {
+            "signal_accuracy": float(strategy_eval.signal_accuracy),
+            "timing_score": float(strategy_eval.timing_score),
+            "risk_control_score": float(strategy_eval.risk_control_score),
+            "overall_score": float(strategy_eval.overall_score),
+            "suggestions": list(strategy_eval.suggestions or []),
+        }
         self._emit_agent_status(
             "SimulatedTrader",
             "completed",
@@ -1228,6 +1283,7 @@ class SelfLearningController:
             agent_used=agent_used,
             llm_used=llm_used,
             benchmark_passed=benchmark_passed,
+            strategy_scores=dict(cycle_dict.get("strategy_scores") or {}),
             review_applied=review_applied,
             config_snapshot_path=config_snapshot_path,
             optimization_events=optimization_events,
@@ -1716,6 +1772,7 @@ class SelfLearningController:
             "agent_used": _bool(result.agent_used),
             "llm_used": _bool(result.llm_used),
             "benchmark_passed": _bool(result.benchmark_passed),
+            "strategy_scores": _jsonable(dict(result.strategy_scores or {})),
             "review_applied": _bool(result.review_applied),
             "config_snapshot_path": result.config_snapshot_path,
             "optimization_events": _jsonable(result.optimization_events),
@@ -1736,6 +1793,14 @@ class SelfLearningController:
                 "excess_return": snapshot.excess_return,
                 "benchmark_passed": _bool(snapshot.benchmark_passed),
             }
+        if result.strategy_scores:
+            data.setdefault("self_assessment", {})
+            data["self_assessment"].update({
+                "signal_accuracy": float(result.strategy_scores.get("signal_accuracy", 0.0) or 0.0),
+                "timing_score": float(result.strategy_scores.get("timing_score", 0.0) or 0.0),
+                "risk_control_score": float(result.strategy_scores.get("risk_control_score", 0.0) or 0.0),
+                "overall_score": float(result.strategy_scores.get("overall_score", 0.0) or 0.0),
+            })
         with open(path, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
         leaderboard_root = self.output_dir.parent

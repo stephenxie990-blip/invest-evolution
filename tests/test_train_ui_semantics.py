@@ -265,3 +265,155 @@ def test_save_cycle_result_persists_structured_trades(tmp_path):
     payload = json.loads((tmp_path / 'training' / 'cycle_2.json').read_text(encoding='utf-8'))
     assert payload['trades'][0]['entry_reason'] == '趋势突破'
     assert payload['trades'][0]['source'] == 'trend_hunter'
+
+
+def test_run_cycles_marks_insufficient_data_when_all_cycles_skip(tmp_path):
+    cfg = CommanderConfig(mock_mode=True, autopilot_enabled=False, heartbeat_enabled=False, bridge_enabled=False)
+    cfg.training_output_dir = tmp_path / 'training'
+    cfg.meeting_log_dir = tmp_path / 'meetings'
+    cfg.config_audit_log_path = tmp_path / 'audit' / 'changes.jsonl'
+    cfg.config_snapshot_dir = tmp_path / 'snapshots'
+    cfg.training_lock_file = tmp_path / 'state' / 'training.lock'
+
+    body = InvestmentBodyService(cfg)
+
+    def _skip_cycle():
+        body.controller.last_cycle_meta = {
+            'status': 'no_data',
+            'cycle_id': 1,
+            'cutoff_date': '20240229',
+            'stage': 'selection',
+            'reason': '无可交易标的',
+            'timestamp': '2026-03-08T01:00:00',
+        }
+        return None
+
+    body.controller.run_training_cycle = MagicMock(side_effect=_skip_cycle)
+
+    import asyncio
+    out = asyncio.run(body.run_cycles(rounds=1, force_mock=False))
+
+    assert out['status'] == 'insufficient_data'
+    assert out['results'][0]['status'] == 'no_data'
+    assert body.last_completed_task['run_status'] == 'insufficient_data'
+
+
+def test_run_cycles_marks_completed_with_skips_for_mixed_ok_and_skip(tmp_path):
+    from app.train import TrainingResult
+
+    cfg = CommanderConfig(mock_mode=True, autopilot_enabled=False, heartbeat_enabled=False, bridge_enabled=False)
+    cfg.training_output_dir = tmp_path / 'training'
+    cfg.meeting_log_dir = tmp_path / 'meetings'
+    cfg.config_audit_log_path = tmp_path / 'audit' / 'changes.jsonl'
+    cfg.config_snapshot_dir = tmp_path / 'snapshots'
+    cfg.training_lock_file = tmp_path / 'state' / 'training.lock'
+
+    body = InvestmentBodyService(cfg)
+    ok_result = TrainingResult(
+        cycle_id=1,
+        cutoff_date='20240101',
+        selected_stocks=['sh.600000'],
+        initial_capital=100000,
+        final_value=101000,
+        return_pct=1.0,
+        is_profit=True,
+        trade_history=[],
+        params={},
+    )
+
+    def _side_effect():
+        calls = getattr(_side_effect, 'calls', 0)
+        _side_effect.calls = calls + 1
+        if calls == 0:
+            return ok_result
+        body.controller.last_cycle_meta = {
+            'status': 'no_data',
+            'cycle_id': 2,
+            'cutoff_date': '20240229',
+            'stage': 'simulation',
+            'reason': '未来交易日不足',
+            'timestamp': '2026-03-08T01:00:01',
+        }
+        return None
+
+    body.controller.run_training_cycle = MagicMock(side_effect=_side_effect)
+
+    import asyncio
+    out = asyncio.run(body.run_cycles(rounds=2, force_mock=False))
+
+    assert out['status'] == 'completed_with_skips'
+    assert [item['status'] for item in out['results']] == ['ok', 'no_data']
+    assert body.last_completed_task['run_status'] == 'completed_with_skips'
+
+
+def test_run_cycles_marks_partial_failure_for_mixed_ok_and_error(tmp_path):
+    from app.train import TrainingResult
+
+    cfg = CommanderConfig(mock_mode=True, autopilot_enabled=False, heartbeat_enabled=False, bridge_enabled=False)
+    cfg.training_output_dir = tmp_path / 'training'
+    cfg.meeting_log_dir = tmp_path / 'meetings'
+    cfg.config_audit_log_path = tmp_path / 'audit' / 'changes.jsonl'
+    cfg.config_snapshot_dir = tmp_path / 'snapshots'
+    cfg.training_lock_file = tmp_path / 'state' / 'training.lock'
+
+    body = InvestmentBodyService(cfg)
+    ok_result = TrainingResult(
+        cycle_id=1,
+        cutoff_date='20240101',
+        selected_stocks=['sh.600000'],
+        initial_capital=100000,
+        final_value=101000,
+        return_pct=1.0,
+        is_profit=True,
+        trade_history=[],
+        params={},
+    )
+
+    def _side_effect():
+        calls = getattr(_side_effect, 'calls', 0)
+        _side_effect.calls = calls + 1
+        if calls == 0:
+            return ok_result
+        raise RuntimeError('boom')
+
+    body.controller.run_training_cycle = MagicMock(side_effect=_side_effect)
+
+    import asyncio
+    out = asyncio.run(body.run_cycles(rounds=2, force_mock=False))
+
+    assert out['status'] == 'partial_failure'
+    assert out['results'][0]['status'] == 'ok'
+    assert out['results'][1]['status'] == 'error'
+    assert body.last_completed_task['run_status'] == 'partial_failure'
+
+
+def test_save_cycle_result_persists_strategy_scores(tmp_path):
+    import json
+    from app.train import TrainingResult
+
+    controller = SelfLearningController(
+        output_dir=str(tmp_path / 'training'),
+        meeting_log_dir=str(tmp_path / 'meetings'),
+        config_audit_log_path=str(tmp_path / 'audit' / 'changes.jsonl'),
+        config_snapshot_dir=str(tmp_path / 'snapshots'),
+    )
+    result = TrainingResult(
+        cycle_id=3,
+        cutoff_date='20240103',
+        selected_stocks=['X'],
+        initial_capital=100000,
+        final_value=101500,
+        return_pct=1.5,
+        is_profit=True,
+        trade_history=[],
+        params={},
+        strategy_scores={
+            'signal_accuracy': 0.7,
+            'timing_score': 0.6,
+            'risk_control_score': 0.8,
+            'overall_score': 0.71,
+        },
+    )
+    controller._save_cycle_result(result)
+    payload = json.loads((tmp_path / 'training' / 'cycle_3.json').read_text(encoding='utf-8'))
+    assert payload['strategy_scores']['overall_score'] == 0.71

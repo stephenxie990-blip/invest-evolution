@@ -1,3 +1,4 @@
+import json
 """
 Commander fusion tests.
 """
@@ -270,3 +271,176 @@ async def test_execute_training_plan_runs_persisted_plan(tmp_path):
     assert out["training_lab"]["plan"]["plan_id"] == plan["plan_id"]
     saved_plan = next(cfg.training_plan_dir.glob("*.json")).read_text(encoding="utf-8")
     assert '"status": "completed"' in saved_plan
+
+
+@pytest.mark.asyncio
+async def test_execute_training_plan_passes_experiment_protocol_to_body(tmp_path):
+    cfg = CommanderConfig(
+        workspace=tmp_path / "workspace",
+        strategy_dir=tmp_path / "strategies",
+        state_file=tmp_path / "state" / "state.json",
+        cron_store=tmp_path / "state" / "cron.json",
+        memory_store=tmp_path / "memory" / "memory.jsonl",
+        plugin_dir=tmp_path / "plugins",
+        bridge_inbox=tmp_path / "inbox",
+        bridge_outbox=tmp_path / "outbox",
+        mock_mode=True,
+        autopilot_enabled=False,
+        heartbeat_enabled=False,
+        bridge_enabled=False,
+    )
+    runtime = CommanderRuntime(cfg)
+    plan = runtime.create_training_plan(
+        rounds=2,
+        mock=True,
+        goal="protocol regression",
+        protocol={"seed": 42, "date_range": {"min": "20240101", "max": "20241231"}},
+        dataset={"min_history_days": 180, "simulation_days": 20},
+        model_scope={"allowed_models": ["momentum"], "allocator_enabled": False},
+    )
+
+    observed = {}
+
+    async def _fake_run_cycles(rounds: int, force_mock: bool, task_source: str, experiment_spec=None):
+        observed["rounds"] = rounds
+        observed["force_mock"] = force_mock
+        observed["task_source"] = task_source
+        observed["experiment_spec"] = experiment_spec
+        return {
+            "status": "completed",
+            "rounds": rounds,
+            "results": [{"status": "ok", "cycle_id": 1, "return_pct": 0.5, "benchmark_passed": True}],
+            "summary": {"total_cycles": 1},
+        }
+
+    runtime.body.run_cycles = _fake_run_cycles
+    out = await runtime.execute_training_plan(plan["plan_id"])
+
+    assert out["status"] == "completed"
+    assert observed["experiment_spec"]["protocol"]["seed"] == 42
+    assert observed["experiment_spec"]["dataset"]["simulation_days"] == 20
+    assert observed["experiment_spec"]["model_scope"]["allowed_models"] == ["momentum"]
+
+
+def test_training_evaluation_summary_includes_strategy_score(tmp_path):
+    cfg = CommanderConfig(
+        workspace=tmp_path / 'workspace',
+        strategy_dir=tmp_path / 'strategies',
+        state_file=tmp_path / 'state' / 'state.json',
+        cron_store=tmp_path / 'state' / 'cron.json',
+        memory_store=tmp_path / 'memory' / 'memory.jsonl',
+        plugin_dir=tmp_path / 'plugins',
+        bridge_inbox=tmp_path / 'inbox',
+        bridge_outbox=tmp_path / 'outbox',
+        mock_mode=True,
+        autopilot_enabled=False,
+        heartbeat_enabled=False,
+        bridge_enabled=False,
+    )
+    runtime = CommanderRuntime(cfg)
+    plan = runtime.create_training_plan(rounds=1, mock=True)
+    summary = runtime._build_training_evaluation_summary(
+        {
+            'status': 'completed',
+            'results': [
+                {'status': 'ok', 'return_pct': 1.2, 'benchmark_passed': True, 'strategy_scores': {'overall_score': 0.66}},
+                {'status': 'ok', 'return_pct': 0.8, 'benchmark_passed': False, 'strategy_scores': {'overall_score': 0.54}},
+            ],
+        },
+        plan=plan,
+        run_id='run_x',
+    )
+    assert summary['assessment']['avg_strategy_score'] == 0.6
+
+
+def test_training_evaluation_summary_builds_promotion_verdict_against_baseline(tmp_path):
+    cfg = CommanderConfig(
+        workspace=tmp_path / 'workspace',
+        strategy_dir=tmp_path / 'strategies',
+        state_file=tmp_path / 'state' / 'state.json',
+        cron_store=tmp_path / 'state' / 'cron.json',
+        memory_store=tmp_path / 'memory' / 'memory.jsonl',
+        plugin_dir=tmp_path / 'plugins',
+        bridge_inbox=tmp_path / 'inbox',
+        bridge_outbox=tmp_path / 'outbox',
+        training_output_dir=tmp_path / 'runtime' / 'training',
+        mock_mode=True,
+        autopilot_enabled=False,
+        heartbeat_enabled=False,
+        bridge_enabled=False,
+    )
+    runtime = CommanderRuntime(cfg)
+    root_dir = cfg.training_output_dir.parent
+    root_dir.mkdir(parents=True, exist_ok=True)
+    (root_dir / 'leaderboard.json').write_text(json.dumps({
+        'generated_at': '2026-03-09T00:00:00',
+        'entries': [
+            {'model_name': 'momentum', 'config_name': 'momentum_v1', 'avg_return_pct': 0.4, 'avg_strategy_score': 0.45},
+        ],
+    }, ensure_ascii=False), encoding='utf-8')
+    plan = runtime.create_training_plan(
+        rounds=3,
+        mock=True,
+        model_scope={'baseline_models': ['momentum']},
+        optimization={'promotion_gate': {
+            'min_samples': 2,
+            'min_avg_return_pct': 0.5,
+            'min_avg_strategy_score': 0.6,
+            'min_benchmark_pass_rate': 0.5,
+            'min_return_advantage_vs_baseline': 0.1,
+            'min_strategy_score_advantage_vs_baseline': 0.1,
+        }},
+        protocol={'holdout': {'enabled': True, 'label': '2025Q4'}, 'walk_forward': {'enabled': True, 'folds': 3}},
+    )
+    summary = runtime._build_training_evaluation_summary(
+        {
+            'status': 'completed',
+            'results': [
+                {'status': 'ok', 'model_name': 'value_quality', 'config_name': 'value_quality_v1', 'return_pct': 0.8, 'benchmark_passed': True, 'strategy_scores': {'overall_score': 0.7}},
+                {'status': 'ok', 'model_name': 'value_quality', 'config_name': 'value_quality_v1', 'return_pct': 0.6, 'benchmark_passed': False, 'strategy_scores': {'overall_score': 0.62}},
+            ],
+        },
+        plan=plan,
+        run_id='run_promote',
+    )
+    assert summary['promotion']['candidate']['model_name'] == 'value_quality'
+    assert summary['promotion']['baselines']['models'] == ['momentum']
+    assert summary['promotion']['verdict'] == 'promoted'
+    assert summary['promotion']['protocol']['holdout']['label'] == '2025Q4'
+    assert summary['promotion']['protocol']['walk_forward']['folds'] == 3
+
+
+def test_training_evaluation_summary_rejects_when_gate_not_met(tmp_path):
+    cfg = CommanderConfig(
+        workspace=tmp_path / 'workspace',
+        strategy_dir=tmp_path / 'strategies',
+        state_file=tmp_path / 'state' / 'state.json',
+        cron_store=tmp_path / 'state' / 'cron.json',
+        memory_store=tmp_path / 'memory' / 'memory.jsonl',
+        plugin_dir=tmp_path / 'plugins',
+        bridge_inbox=tmp_path / 'inbox',
+        bridge_outbox=tmp_path / 'outbox',
+        training_output_dir=tmp_path / 'runtime' / 'training',
+        mock_mode=True,
+        autopilot_enabled=False,
+        heartbeat_enabled=False,
+        bridge_enabled=False,
+    )
+    runtime = CommanderRuntime(cfg)
+    plan = runtime.create_training_plan(
+        rounds=1,
+        mock=True,
+        optimization={'promotion_gate': {'min_samples': 2, 'min_avg_strategy_score': 0.8}},
+    )
+    summary = runtime._build_training_evaluation_summary(
+        {
+            'status': 'completed_with_skips',
+            'results': [
+                {'status': 'ok', 'model_name': 'momentum', 'config_name': 'momentum_v1', 'return_pct': 0.2, 'benchmark_passed': True, 'strategy_scores': {'overall_score': 0.55}},
+            ],
+        },
+        plan=plan,
+        run_id='run_reject',
+    )
+    assert summary['promotion']['verdict'] == 'rejected'
+    assert any(check['name'] == 'min_samples' and check['passed'] is False for check in summary['promotion']['checks'])

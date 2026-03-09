@@ -1,3 +1,5 @@
+import json
+
 from invest.allocator import ModelAllocator
 
 
@@ -74,3 +76,22 @@ def test_allocator_prefers_defensive_in_bear():
     assert plan.active_models[0] == "defensive_low_vol"
     assert plan.model_weights["defensive_low_vol"] >= max(plan.model_weights.values())
     assert plan.cash_reserve == 0.30
+
+
+def test_allocator_prefers_higher_strategy_score_when_scores_close(tmp_path):
+    from invest.allocator import build_allocation_plan
+
+    leaderboard_path = tmp_path / 'leaderboard.json'
+    leaderboard_path.write_text(json.dumps({
+        'generated_at': '2026-03-09T00:00:00',
+        'entries': [
+            {'model_name': 'momentum', 'config_name': 'momentum_v1', 'score': 10.0, 'avg_return_pct': 1.0, 'avg_sharpe_ratio': 1.0, 'avg_max_drawdown': 4.0, 'benchmark_pass_rate': 0.6, 'avg_strategy_score': 0.40, 'rank': 2},
+            {'model_name': 'value_quality', 'config_name': 'value_quality_v1', 'score': 9.9, 'avg_return_pct': 0.9, 'avg_sharpe_ratio': 1.0, 'avg_max_drawdown': 4.0, 'benchmark_pass_rate': 0.6, 'avg_strategy_score': 0.90, 'rank': 1},
+        ],
+        'regime_leaderboards': {'unknown': [
+            {'model_name': 'momentum', 'rank': 2},
+            {'model_name': 'value_quality', 'rank': 1},
+        ]},
+    }, ensure_ascii=False), encoding='utf-8')
+    plan = build_allocation_plan('unknown', leaderboard_path, top_n=2)
+    assert plan.active_models[0] == 'value_quality'
