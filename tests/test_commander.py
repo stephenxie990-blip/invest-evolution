@@ -167,3 +167,106 @@ async def test_commander_system_prompt_includes_tool_policy(tmp_path):
     assert "invest_quick_test" in prompt
     assert "Read-only questions should stay read-only" in prompt
     assert "verified facts first, then risks" in prompt
+
+
+def test_build_commander_tools_exposes_status_and_training_plan_tools(tmp_path):
+    from brain.tools import build_commander_tools
+
+    cfg = CommanderConfig(
+        workspace=tmp_path / "workspace",
+        strategy_dir=tmp_path / "strategies",
+        state_file=tmp_path / "state" / "state.json",
+        cron_store=tmp_path / "state" / "cron.json",
+        memory_store=tmp_path / "memory" / "memory.jsonl",
+        plugin_dir=tmp_path / "plugins",
+        bridge_inbox=tmp_path / "inbox",
+        bridge_outbox=tmp_path / "outbox",
+        mock_mode=True,
+        autopilot_enabled=False,
+        heartbeat_enabled=False,
+        bridge_enabled=False,
+    )
+    runtime = CommanderRuntime(cfg)
+    names = [tool.name for tool in build_commander_tools(runtime)]
+
+    assert "invest_quick_status" in names
+    assert "invest_deep_status" in names
+    assert "invest_training_plan_create" in names
+    assert "invest_training_plan_list" in names
+    assert "invest_training_plan_execute" in names
+
+
+@pytest.mark.asyncio
+async def test_train_once_writes_plan_run_and_evaluation_artifacts(tmp_path):
+    cfg = CommanderConfig(
+        workspace=tmp_path / "workspace",
+        strategy_dir=tmp_path / "strategies",
+        state_file=tmp_path / "state" / "state.json",
+        cron_store=tmp_path / "state" / "cron.json",
+        memory_store=tmp_path / "memory" / "memory.jsonl",
+        plugin_dir=tmp_path / "plugins",
+        bridge_inbox=tmp_path / "inbox",
+        bridge_outbox=tmp_path / "outbox",
+        mock_mode=True,
+        autopilot_enabled=False,
+        heartbeat_enabled=False,
+        bridge_enabled=False,
+    )
+    runtime = CommanderRuntime(cfg)
+
+    async def _fake_run_cycles(rounds: int, force_mock: bool, task_source: str):
+        return {
+            "status": "ok",
+            "rounds": rounds,
+            "results": [{"status": "ok", "cycle_id": 1, "return_pct": 1.23, "benchmark_passed": True}],
+            "summary": {"total_cycles": 1},
+        }
+
+    runtime.body.run_cycles = _fake_run_cycles
+    out = await runtime.train_once(rounds=2, mock=True)
+
+    assert "training_lab" in out
+    assert len(list(cfg.training_plan_dir.glob("*.json"))) == 1
+    assert len(list(cfg.training_run_dir.glob("*.json"))) == 1
+    assert len(list(cfg.training_eval_dir.glob("*.json"))) == 1
+
+
+@pytest.mark.asyncio
+async def test_execute_training_plan_runs_persisted_plan(tmp_path):
+    cfg = CommanderConfig(
+        workspace=tmp_path / "workspace",
+        strategy_dir=tmp_path / "strategies",
+        state_file=tmp_path / "state" / "state.json",
+        cron_store=tmp_path / "state" / "cron.json",
+        memory_store=tmp_path / "memory" / "memory.jsonl",
+        plugin_dir=tmp_path / "plugins",
+        bridge_inbox=tmp_path / "inbox",
+        bridge_outbox=tmp_path / "outbox",
+        mock_mode=True,
+        autopilot_enabled=False,
+        heartbeat_enabled=False,
+        bridge_enabled=False,
+    )
+    runtime = CommanderRuntime(cfg)
+    plan = runtime.create_training_plan(rounds=3, mock=False, goal="compare model behavior", tags=["lab"])
+
+    observed = {}
+
+    async def _fake_run_cycles(rounds: int, force_mock: bool, task_source: str):
+        observed["rounds"] = rounds
+        observed["force_mock"] = force_mock
+        observed["task_source"] = task_source
+        return {
+            "status": "ok",
+            "rounds": rounds,
+            "results": [{"status": "ok", "cycle_id": 9, "return_pct": -0.4, "benchmark_passed": False}],
+            "summary": {"total_cycles": 9},
+        }
+
+    runtime.body.run_cycles = _fake_run_cycles
+    out = await runtime.execute_training_plan(plan["plan_id"])
+
+    assert observed == {"rounds": 3, "force_mock": False, "task_source": "manual"}
+    assert out["training_lab"]["plan"]["plan_id"] == plan["plan_id"]
+    saved_plan = next(cfg.training_plan_dir.glob("*.json")).read_text(encoding="utf-8")
+    assert '"status": "completed"' in saved_plan

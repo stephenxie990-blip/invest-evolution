@@ -8,6 +8,15 @@ from invest.shared import LLMCaller
 
 logger = logging.getLogger(__name__)
 
+_COMMON_PROMPT_CONTRACT = (
+    "\n\n共同约束：\n"
+    "- 只依据输入中的事实、候选、统计和上下文判断，不得编造未提供的股票代码、指标值、市场事实或字段。\n"
+    "- 角色边界必须清晰：只做本角色职责内的判断，不越权替代其他 Agent。\n"
+    "- 若证据不足或冲突，降低 confidence，并选择更保守的结论或建议。\n"
+    "- 所有数值字段必须输出裸数字，不带百分号、中文单位或解释性文字。\n"
+    "- 最终只输出要求的 JSON 对象，不输出 Markdown、代码块、前后缀说明或多余字段。"
+)
+
 
 @dataclass
 class AgentConfig:
@@ -19,7 +28,8 @@ class AgentConfig:
     def system_prompt(self) -> str:
         from config import agent_config_registry
         cfg = agent_config_registry.get_config(self.name)
-        return cfg.get("system_prompt", f"You are {self.name}.")
+        base_prompt = cfg.get("system_prompt", f"You are {self.name}.")
+        return base_prompt + _COMMON_PROMPT_CONTRACT
 
     @property
     def llm_model(self) -> str:

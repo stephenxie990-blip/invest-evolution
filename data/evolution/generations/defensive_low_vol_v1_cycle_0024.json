@@ -1,0 +1,22 @@
+{
+  "parent_config": "/Users/zhangsan/Desktop/投资进化系统v1.0/invest/models/configs/defensive_low_vol_v1.yaml",
+  "output_config": "/Users/zhangsan/Desktop/投资进化系统v1.0/data/evolution/generations/defensive_low_vol_v1_cycle_0024.yaml",
+  "param_adjustments": {
+    "stop_loss_pct": 0.058766294839853433,
+    "take_profit_pct": 0.18302221312842343,
+    "position_size": 0.19289105717733643,
+    "ma_short": 7,
+    "ma_long": 32,
+    "rsi_period": 20,
+    "rsi_oversold": 35.79189784199144,
+    "rsi_overbought": 78.70997672983123
+  },
+  "narrative_adjustments": {
+    "last_trigger": "consecutive_losses"
+  },
+  "generated_at": "2026-03-09T08:29:13.575090",
+  "parent_meta": {
+    "cycle_id": 24,
+    "trigger": "consecutive_losses"
+  }
+}

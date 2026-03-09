@@ -141,6 +141,7 @@ def test_save_cycle_result_serializes_numpy_bool(tmp_path):
     payload = json.loads((tmp_path / 'training' / 'cycle_1.json').read_text(encoding='utf-8'))
     assert payload['audit_tags']['benchmark_passed'] is True
     assert payload['optimization_events'][0]['ok'] is True
+    assert payload['trades'] == []
 
 
 def test_commander_result_dict_serializes_numpy_bool(tmp_path):
@@ -216,3 +217,51 @@ def test_train_center_productized_controls_present():
     assert '.agent-health-dot' in html
     assert '.timeline-card.speech' in html
     assert '策略差异对比' in html
+
+
+
+def test_save_cycle_result_persists_structured_trades(tmp_path):
+    import json
+    from app.train import TrainingResult
+    controller = SelfLearningController(
+        output_dir=str(tmp_path / 'training'),
+        meeting_log_dir=str(tmp_path / 'meetings'),
+        config_audit_log_path=str(tmp_path / 'audit' / 'changes.jsonl'),
+        config_snapshot_dir=str(tmp_path / 'snapshots'),
+    )
+    result = TrainingResult(
+        cycle_id=2,
+        cutoff_date='20240102',
+        selected_stocks=['X'],
+        initial_capital=100000,
+        final_value=99000,
+        return_pct=-1.0,
+        is_profit=False,
+        trade_history=[{
+            'date': '20240102',
+            'action': '买入',
+            'ts_code': 'X',
+            'price': 10.0,
+            'shares': 1000,
+            'reason': '趋势突破',
+            'source': 'trend_hunter',
+            'entry_reason': '趋势突破',
+            'exit_reason': '',
+            'exit_trigger': '',
+            'entry_date': '20240102',
+            'entry_price': 10.0,
+            'holding_days': 0,
+        }],
+        params={},
+        data_mode='mock',
+        selection_mode='meeting',
+        agent_used=True,
+        llm_used=False,
+        benchmark_passed=False,
+        review_applied=False,
+        config_snapshot_path='',
+    )
+    controller._save_cycle_result(result)
+    payload = json.loads((tmp_path / 'training' / 'cycle_2.json').read_text(encoding='utf-8'))
+    assert payload['trades'][0]['entry_reason'] == '趋势突破'
+    assert payload['trades'][0]['source'] == 'trend_hunter'

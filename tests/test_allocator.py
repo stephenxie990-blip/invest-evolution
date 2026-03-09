@@ -1,0 +1,76 @@
+from invest.allocator import ModelAllocator
+
+
+LEADERBOARD = {
+    "generated_at": "2026-03-09T00:00:00",
+    "entries": [
+        {
+            "model_name": "momentum",
+            "config_name": "momentum_v1",
+            "score": 55.0,
+            "avg_return_pct": 4.0,
+            "avg_sharpe_ratio": 1.8,
+            "avg_max_drawdown": 8.0,
+            "benchmark_pass_rate": 0.8,
+            "rank": 1,
+        },
+        {
+            "model_name": "mean_reversion",
+            "config_name": "mean_reversion_v1",
+            "score": 48.0,
+            "avg_return_pct": 2.0,
+            "avg_sharpe_ratio": 1.2,
+            "avg_max_drawdown": 6.0,
+            "benchmark_pass_rate": 0.7,
+            "rank": 2,
+        },
+        {
+            "model_name": "value_quality",
+            "config_name": "value_quality_v1",
+            "score": 44.0,
+            "avg_return_pct": 1.5,
+            "avg_sharpe_ratio": 1.1,
+            "avg_max_drawdown": 5.0,
+            "benchmark_pass_rate": 0.75,
+            "rank": 3,
+        },
+        {
+            "model_name": "defensive_low_vol",
+            "config_name": "defensive_low_vol_v1",
+            "score": 46.0,
+            "avg_return_pct": 1.0,
+            "avg_sharpe_ratio": 1.6,
+            "avg_max_drawdown": 3.0,
+            "benchmark_pass_rate": 0.9,
+            "rank": 4,
+        },
+    ],
+    "regime_leaderboards": {
+        "bull": [
+            {"rank": 1, "model_name": "momentum"},
+            {"rank": 2, "model_name": "value_quality"},
+        ],
+        "bear": [
+            {"rank": 1, "model_name": "defensive_low_vol"},
+            {"rank": 2, "model_name": "value_quality"},
+        ],
+        "oscillation": [
+            {"rank": 1, "model_name": "mean_reversion"},
+            {"rank": 2, "model_name": "defensive_low_vol"},
+        ],
+    },
+}
+
+
+def test_allocator_prefers_momentum_in_bull():
+    plan = ModelAllocator().allocate("bull", LEADERBOARD)
+    assert plan.active_models[0] == "momentum"
+    assert plan.model_weights["momentum"] > plan.model_weights["mean_reversion"]
+    assert plan.cash_reserve == 0.10
+
+
+def test_allocator_prefers_defensive_in_bear():
+    plan = ModelAllocator().allocate("bear", LEADERBOARD)
+    assert plan.active_models[0] == "defensive_low_vol"
+    assert plan.model_weights["defensive_low_vol"] >= max(plan.model_weights.values())
+    assert plan.cash_reserve == 0.30

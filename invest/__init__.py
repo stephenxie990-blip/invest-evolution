@@ -1,5 +1,6 @@
 from .contracts import (
     AgentContext,
+    AllocationPlan,
     EvalReport,
     ModelOutput,
     PositionSnapshot,
@@ -31,23 +32,24 @@ from .shared import (
 from .agents import (
     AgentConfig,
     Belief,
-    CommanderAgent,
     ContrarianAgent,
     EvoJudgeAgent,
     InvestAgent,
     MarketRegimeAgent,
-    REGIME_PARAMS,
     RegimeResult,
+    ReviewDecisionAgent,
     StrategistAgent,
     TrendHunterAgent,
 )
 from .meetings import MeetingRecorder, ReviewMeeting, SelectionMeeting
 from .evolution import *  # noqa: F401,F403
+from .leaderboard import build_leaderboard, collect_cycle_records, write_leaderboard
 from .debate import DebateOrchestrator, RiskDebateOrchestrator
 from .memory import MarketSituationMemory
 
 __all__ = [
     "AgentContext",
+    "AllocationPlan",
     "EvalReport",
     "ModelOutput",
     "PositionSnapshot",
@@ -81,15 +83,17 @@ __all__ = [
     "Belief",
     "InvestAgent",
     "MarketRegimeAgent",
-    "REGIME_PARAMS",
     "TrendHunterAgent",
     "ContrarianAgent",
     "StrategistAgent",
-    "CommanderAgent",
+    "ReviewDecisionAgent",
     "EvoJudgeAgent",
     "SelectionMeeting",
     "ReviewMeeting",
     "MeetingRecorder",
+    "build_leaderboard",
+    "collect_cycle_records",
+    "write_leaderboard",
     "DebateOrchestrator",
     "RiskDebateOrchestrator",
     "MarketSituationMemory",

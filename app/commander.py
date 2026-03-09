@@ -106,6 +106,9 @@ class CommanderConfig:
     meeting_log_dir: Path = LOGS_DIR / "meetings"
     config_audit_log_path: Path = RUNTIME_DIR / "state" / "config_changes.jsonl"
     config_snapshot_dir: Path = RUNTIME_DIR / "state" / "config_snapshots"
+    training_plan_dir: Path = RUNTIME_DIR / "state" / "training_plans"
+    training_run_dir: Path = RUNTIME_DIR / "state" / "training_runs"
+    training_eval_dir: Path = RUNTIME_DIR / "state" / "training_evals"
 
     model: str = field(default_factory=lambda: os.environ.get("COMMANDER_MODEL", config.llm_fast_model))
     api_key: str = field(default_factory=lambda: os.environ.get("COMMANDER_API_KEY", config.llm_api_key))
@@ -149,6 +152,12 @@ class CommanderConfig:
             self.config_audit_log_path = self.runtime_state_dir / "config_changes.jsonl"
         if self.config_snapshot_dir == default_state_dir / "config_snapshots":
             self.config_snapshot_dir = self.runtime_state_dir / "config_snapshots"
+        if self.training_plan_dir == default_state_dir / "training_plans":
+            self.training_plan_dir = self.runtime_state_dir / "training_plans"
+        if self.training_run_dir == default_state_dir / "training_runs":
+            self.training_run_dir = self.runtime_state_dir / "training_runs"
+        if self.training_eval_dir == default_state_dir / "training_evals":
+            self.training_eval_dir = self.runtime_state_dir / "training_evals"
 
     @classmethod
     def from_args(cls, args: argparse.Namespace) -> "CommanderConfig":
@@ -1033,6 +1042,206 @@ class CommanderRuntime:
             self._persist_state()
             raise
 
+    def _lab_counts(self) -> dict[str, int]:
+        return {
+            "plan_count": len(list(self.cfg.training_plan_dir.glob("*.json"))) if self.cfg.training_plan_dir.exists() else 0,
+            "run_count": len(list(self.cfg.training_run_dir.glob("*.json"))) if self.cfg.training_run_dir.exists() else 0,
+            "evaluation_count": len(list(self.cfg.training_eval_dir.glob("*.json"))) if self.cfg.training_eval_dir.exists() else 0,
+        }
+
+    def _new_training_plan_id(self) -> str:
+        return f"plan_{datetime.now().strftime('%Y%m%d_%H%M%S_%f')}"
+
+    def _new_training_run_id(self) -> str:
+        return f"run_{datetime.now().strftime('%Y%m%d_%H%M%S_%f')}"
+
+    def _write_json_artifact(self, path: Path, payload: dict[str, Any]) -> Path:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(_jsonable(payload), ensure_ascii=False, indent=2), encoding="utf-8")
+        return path
+
+    def _training_plan_path(self, plan_id: str) -> Path:
+        return self.cfg.training_plan_dir / f"{plan_id}.json"
+
+    def _training_run_path(self, run_id: str) -> Path:
+        return self.cfg.training_run_dir / f"{run_id}.json"
+
+    def _training_eval_path(self, run_id: str) -> Path:
+        return self.cfg.training_eval_dir / f"{run_id}.json"
+
+    def _create_training_plan_payload(
+        self,
+        *,
+        rounds: int,
+        mock: bool,
+        source: str,
+        goal: str = "",
+        notes: str = "",
+        tags: list[str] | None = None,
+        detail_mode: str = "fast",
+        plan_id: str | None = None,
+        auto_generated: bool = False,
+    ) -> dict[str, Any]:
+        plan_id = plan_id or self._new_training_plan_id()
+        return {
+            "plan_id": plan_id,
+            "created_at": datetime.now().isoformat(),
+            "status": "planned",
+            "source": source,
+            "auto_generated": bool(auto_generated),
+            "spec": {
+                "rounds": int(rounds),
+                "mock": bool(mock),
+                "detail_mode": str(detail_mode or "fast"),
+            },
+            "objective": {
+                "goal": str(goal or ""),
+                "notes": str(notes or ""),
+                "tags": [str(tag) for tag in (tags or []) if str(tag).strip()],
+            },
+            "artifacts": {
+                "plan_path": str(self._training_plan_path(plan_id)),
+            },
+        }
+
+    def create_training_plan(
+        self,
+        *,
+        rounds: int = 1,
+        mock: bool = False,
+        goal: str = "",
+        notes: str = "",
+        tags: list[str] | None = None,
+        detail_mode: str = "fast",
+        source: str = "manual",
+        auto_generated: bool = False,
+    ) -> dict[str, Any]:
+        self._ensure_runtime_storage()
+        plan = self._create_training_plan_payload(
+            rounds=rounds,
+            mock=mock,
+            source=source,
+            goal=goal,
+            notes=notes,
+            tags=tags,
+            detail_mode=detail_mode,
+            auto_generated=auto_generated,
+        )
+        self._write_json_artifact(self._training_plan_path(plan["plan_id"]), plan)
+        self._persist_state()
+        return plan
+
+    def list_training_plans(self, *, limit: int = 20) -> dict[str, Any]:
+        if not self.cfg.training_plan_dir.exists():
+            return {"count": 0, "items": []}
+        rows = []
+        for path in sorted(self.cfg.training_plan_dir.glob("*.json"), reverse=True)[: max(1, int(limit))]:
+            try:
+                rows.append(json.loads(path.read_text(encoding="utf-8")))
+            except Exception:
+                continue
+        return {"count": len(rows), "items": rows}
+
+    def get_training_plan(self, plan_id: str) -> dict[str, Any]:
+        path = self._training_plan_path(str(plan_id))
+        if not path.exists():
+            raise FileNotFoundError(f"training plan not found: {plan_id}")
+        return json.loads(path.read_text(encoding="utf-8"))
+
+    def get_training_run(self, run_id: str) -> dict[str, Any]:
+        path = self._training_run_path(str(run_id))
+        if not path.exists():
+            raise FileNotFoundError(f"training run not found: {run_id}")
+        return json.loads(path.read_text(encoding="utf-8"))
+
+    def get_training_evaluation(self, run_id: str) -> dict[str, Any]:
+        path = self._training_eval_path(str(run_id))
+        if not path.exists():
+            raise FileNotFoundError(f"training evaluation not found: {run_id}")
+        return json.loads(path.read_text(encoding="utf-8"))
+
+    def list_training_runs(self, *, limit: int = 20) -> dict[str, Any]:
+        if not self.cfg.training_run_dir.exists():
+            return {"count": 0, "items": []}
+        rows = []
+        for path in sorted(self.cfg.training_run_dir.glob("*.json"), reverse=True)[: max(1, int(limit))]:
+            try:
+                rows.append(json.loads(path.read_text(encoding="utf-8")))
+            except Exception:
+                continue
+        return {"count": len(rows), "items": rows}
+
+    def list_training_evaluations(self, *, limit: int = 20) -> dict[str, Any]:
+        if not self.cfg.training_eval_dir.exists():
+            return {"count": 0, "items": []}
+        rows = []
+        for path in sorted(self.cfg.training_eval_dir.glob("*.json"), reverse=True)[: max(1, int(limit))]:
+            try:
+                rows.append(json.loads(path.read_text(encoding="utf-8")))
+            except Exception:
+                continue
+        return {"count": len(rows), "items": rows}
+
+    def _build_training_evaluation_summary(self, payload: dict[str, Any], *, plan: dict[str, Any], run_id: str, error: str = "") -> dict[str, Any]:
+        results = list(payload.get("results") or [])
+        ok_results = [item for item in results if item.get("status") == "ok"]
+        no_data_results = [item for item in results if item.get("status") == "no_data"]
+        error_results = [item for item in results if item.get("status") == "error"]
+        returns = [float(item.get("return_pct") or 0.0) for item in ok_results]
+        benchmark_passes = sum(1 for item in ok_results if bool(item.get("benchmark_passed", False)))
+        return {
+            "run_id": run_id,
+            "plan_id": plan["plan_id"],
+            "created_at": datetime.now().isoformat(),
+            "status": str(payload.get("status", "ok")),
+            "objective": dict(plan.get("objective") or {}),
+            "spec": dict(plan.get("spec") or {}),
+            "assessment": {
+                "total_results": len(results),
+                "success_count": len(ok_results),
+                "no_data_count": len(no_data_results),
+                "error_count": len(error_results),
+                "avg_return_pct": round(sum(returns) / len(returns), 4) if returns else None,
+                "max_return_pct": round(max(returns), 4) if returns else None,
+                "min_return_pct": round(min(returns), 4) if returns else None,
+                "benchmark_pass_rate": round(benchmark_passes / len(ok_results), 4) if ok_results else 0.0,
+            },
+            "error": str(error or ""),
+            "artifacts": {
+                "run_path": str(self._training_run_path(run_id)),
+                "evaluation_path": str(self._training_eval_path(run_id)),
+            },
+        }
+
+    def _record_training_lab_artifacts(self, *, plan: dict[str, Any], payload: dict[str, Any], status: str, error: str = "") -> dict[str, Any]:
+        run_id = self._new_training_run_id()
+        run_payload = {
+            "run_id": run_id,
+            "plan_id": plan["plan_id"],
+            "created_at": datetime.now().isoformat(),
+            "status": status,
+            "error": str(error or ""),
+            "plan": {
+                "plan_id": plan["plan_id"],
+                "source": plan.get("source"),
+                "auto_generated": plan.get("auto_generated", False),
+                "spec": dict(plan.get("spec") or {}),
+                "objective": dict(plan.get("objective") or {}),
+            },
+            "payload": _jsonable(payload),
+        }
+        eval_payload = self._build_training_evaluation_summary(payload, plan=plan, run_id=run_id, error=error)
+        self._write_json_artifact(self._training_run_path(run_id), run_payload)
+        self._write_json_artifact(self._training_eval_path(run_id), eval_payload)
+        plan_update = dict(plan)
+        plan_update["status"] = "completed" if status == "ok" else status
+        plan_update["last_run_id"] = run_id
+        plan_update["last_run_at"] = datetime.now().isoformat()
+        plan_update.setdefault("artifacts", {})["latest_run_path"] = str(self._training_run_path(run_id))
+        plan_update.setdefault("artifacts", {})["latest_evaluation_path"] = str(self._training_eval_path(run_id))
+        self._write_json_artifact(self._training_plan_path(plan["plan_id"]), plan_update)
+        return {"plan": plan_update, "run": run_payload, "evaluation": eval_payload}
+
     def _append_training_memory(self, payload: dict[str, Any], *, rounds: int, mock: bool, status: str, error: str = "") -> None:
         results = list(payload.get("results") or [])
         ok_results = [item for item in results if item.get("status") == "ok"]
@@ -1080,21 +1289,58 @@ class CommanderRuntime:
         )
 
     async def train_once(self, rounds: int = 1, mock: bool = False) -> dict[str, Any]:
+        plan = self.create_training_plan(
+            rounds=rounds,
+            mock=mock,
+            goal="direct training run",
+            notes="auto-generated from invest_train",
+            tags=["direct", "auto"],
+            source="direct",
+            auto_generated=True,
+        )
+        return await self.execute_training_plan(plan["plan_id"])
+
+    async def execute_training_plan(self, plan_id: str) -> dict[str, Any]:
         self._ensure_runtime_storage()
-        self._begin_task("train_once", "direct", rounds=rounds, mock=mock)
+        plan_path = self._training_plan_path(str(plan_id))
+        if not plan_path.exists():
+            raise FileNotFoundError(f"training plan not found: {plan_id}")
+        plan = json.loads(plan_path.read_text(encoding="utf-8"))
+        spec = dict(plan.get("spec") or {})
+        rounds = int(spec.get("rounds", 1) or 1)
+        mock = bool(spec.get("mock", False))
+
+        plan["status"] = "running"
+        plan["started_at"] = datetime.now().isoformat()
+        self._write_json_artifact(plan_path, plan)
+        self._begin_task("train_plan", str(plan.get("source", "manual")), rounds=rounds, mock=mock, plan_id=plan_id)
         self._set_runtime_state("training")
-        self.memory.append_audit("train_requested", "runtime:train", {"rounds": rounds, "mock": mock})
+        self.memory.append_audit("train_requested", "runtime:train", {"rounds": rounds, "mock": mock, "plan_id": plan_id})
         try:
-            out = await self.body.run_cycles(rounds=rounds, force_mock=mock, task_source="direct")
-            self._append_training_memory(out, rounds=rounds, mock=mock, status=str(out.get("status", "ok")))
-            self._set_runtime_state("idle" if out.get("status") != "busy" else "busy")
-            self._end_task(out.get("status", "ok"), rounds=rounds, mock=mock)
+            out = await self.body.run_cycles(rounds=rounds, force_mock=mock, task_source=str(plan.get("source", "manual")))
+            status = str(out.get("status", "ok"))
+            lab = self._record_training_lab_artifacts(plan=plan, payload=out, status=status)
+            out["training_lab"] = {
+                "plan": {"plan_id": lab["plan"]["plan_id"], "path": lab["plan"]["artifacts"]["plan_path"]},
+                "run": {"run_id": lab["run"]["run_id"], "path": lab["evaluation"]["artifacts"]["run_path"]},
+                "evaluation": {"run_id": lab["evaluation"]["run_id"], "path": lab["evaluation"]["artifacts"]["evaluation_path"]},
+            }
+            self._append_training_memory(out, rounds=rounds, mock=mock, status=status)
+            self._set_runtime_state("idle" if status != "busy" else "busy")
+            self._end_task(status, rounds=rounds, mock=mock, plan_id=plan_id)
             self._persist_state()
             return out
         except Exception as exc:
-            self._append_training_memory({"results": [], "summary": self.body.snapshot()}, rounds=rounds, mock=mock, status="error", error=str(exc))
+            error_payload = {"results": [], "summary": self.body.snapshot()}
+            lab = self._record_training_lab_artifacts(plan=plan, payload=error_payload, status="error", error=str(exc))
+            error_payload["training_lab"] = {
+                "plan": {"plan_id": lab["plan"]["plan_id"], "path": lab["plan"]["artifacts"]["plan_path"]},
+                "run": {"run_id": lab["run"]["run_id"], "path": lab["evaluation"]["artifacts"]["run_path"]},
+                "evaluation": {"run_id": lab["evaluation"]["run_id"], "path": lab["evaluation"]["artifacts"]["evaluation_path"]},
+            }
+            self._append_training_memory(error_payload, rounds=rounds, mock=mock, status="error", error=str(exc))
             self._set_runtime_state("error")
-            self._end_task("error", rounds=rounds, mock=mock)
+            self._end_task("error", rounds=rounds, mock=mock, plan_id=plan_id)
             self._persist_state()
             raise
 
@@ -1113,16 +1359,20 @@ class CommanderRuntime:
             "genes": [g.to_dict() for g in genes],
         }
 
-    def status(self) -> dict[str, Any]:
+    def status(self, *, detail: str = "fast") -> dict[str, Any]:
         runtime_state, current_task, last_task = self._snapshot_runtime_fields()
+        detail_mode = str(detail or "fast").strip().lower()
+        if detail_mode not in {"fast", "slow"}:
+            detail_mode = "fast"
         data_status = {}
         try:
             from market_data.datasets import WebDatasetService
-            data_status = WebDatasetService().get_status_summary()
+            data_status = WebDatasetService().get_status_summary(refresh=(detail_mode == "slow"))
         except Exception as exc:
-            data_status = {"status": "error", "error": str(exc)}
+            data_status = {"status": "error", "error": str(exc), "detail_mode": detail_mode}
         return _jsonable({
             "ts": datetime.now().isoformat(),
+            "detail_mode": detail_mode,
             "instance_id": self.instance_id,
             "workspace": str(self.cfg.workspace),
             "strategy_dir": str(self.cfg.strategy_dir),
@@ -1157,6 +1407,12 @@ class CommanderRuntime:
             },
             "config": self.config_service.get_masked_payload(),
             "data": data_status,
+            "training_lab": {
+                **self._lab_counts(),
+                "latest_plans": self.list_training_plans(limit=3).get("items", []),
+                "latest_runs": self.list_training_runs(limit=3).get("items", []),
+                "latest_evaluations": self.list_training_evaluations(limit=3).get("items", []),
+            },
         })
 
     async def serve_forever(self, interactive: bool = False) -> None:
@@ -1211,6 +1467,9 @@ class CommanderRuntime:
         self.cfg.bridge_inbox.mkdir(parents=True, exist_ok=True)
         self.cfg.bridge_outbox.mkdir(parents=True, exist_ok=True)
         self.cfg.runtime_state_dir.mkdir(parents=True, exist_ok=True)
+        self.cfg.training_plan_dir.mkdir(parents=True, exist_ok=True)
+        self.cfg.training_run_dir.mkdir(parents=True, exist_ok=True)
+        self.cfg.training_eval_dir.mkdir(parents=True, exist_ok=True)
         self.memory.ensure_storage()
 
     async def _on_bridge_message(self, msg: BridgeMessage) -> str:
@@ -1260,7 +1519,7 @@ class CommanderRuntime:
             3. Never fabricate strategy state, training results, config values, or file changes.
 
             Tool operating policy:
-            1. For runtime inspection, prefer `invest_status` first.
+            1. For runtime inspection, prefer `invest_status` first as the fast compatibility alias, or use `invest_quick_status` explicitly; use `invest_deep_status` only when deeper freshness is required.
             2. For strategy inventory, use `invest_list_strategies`.
             3. If strategy files changed, call `invest_reload_strategies` before analysis or training.
             4. For health checks, prefer `invest_quick_test` before heavier training.
@@ -1300,7 +1559,7 @@ class CommanderRuntime:
 
             Core rules:
             1. Every decision must serve investment evolution goals.
-            2. Prefer using `invest_status`, `invest_list_strategies`, `invest_train` tools.
+            2. Prefer using `invest_quick_status`, `invest_training_plan_create`, `invest_training_plan_execute`, and `invest_list_strategies` tools.
             3. If strategy files changed, call `invest_reload_strategies` before new cycle decisions.
             4. Keep risk under control and preserve reproducible logs.
 
@@ -1316,7 +1575,7 @@ class CommanderRuntime:
                     """                    # HEARTBEAT TASKS
 
                     If strategy files changed or no training cycle has run recently:
-                    1) call invest_status
+                    1) call invest_quick_status
                     2) call invest_list_strategies
                     3) run invest_train(rounds=1) when needed
                     """
@@ -1351,6 +1610,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
     p_status = sub.add_parser("status", help="Print commander status snapshot")
     add_common_args(p_status)
+    p_status.add_argument("--detail", choices=["fast", "slow"], default="fast", help="Status detail mode")
 
     p_train = sub.add_parser("train-once", help="Run training cycles once")
     add_common_args(p_train)
@@ -1373,7 +1633,7 @@ async def _run_async(args: argparse.Namespace) -> int:
     runtime = CommanderRuntime(cfg)
 
     if args.cmd == "status":
-        print(json.dumps(runtime.status(), ensure_ascii=False, indent=2))
+        print(json.dumps(runtime.status(detail=getattr(args, "detail", "fast")), ensure_ascii=False, indent=2))
         return 0
 
     if args.cmd == "train-once":

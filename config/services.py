@@ -38,6 +38,9 @@ class EvolutionConfigService:
         "index_codes",
         "investment_model",
         "investment_model_config",
+        "allocator_enabled",
+        "allocator_top_n",
+        "stop_on_freeze",
     }
 
     def __init__(
@@ -94,6 +97,9 @@ class EvolutionConfigService:
             "index_codes": list(cfg.index_codes or []),
             "investment_model": cfg.investment_model,
             "investment_model_config": cfg.investment_model_config,
+            "allocator_enabled": cfg.allocator_enabled,
+            "allocator_top_n": cfg.allocator_top_n,
+            "stop_on_freeze": cfg.stop_on_freeze,
             "audit_log_path": str(self.audit_log_path),
             "snapshot_dir": str(self.snapshot_dir),
         }
@@ -124,6 +130,36 @@ class EvolutionConfigService:
             out["investment_model"] = str(out["investment_model"]).strip() or "momentum"
         if "investment_model_config" in out:
             out["investment_model_config"] = str(out["investment_model_config"]).strip()
+        if "allocator_enabled" in out:
+            val = out["allocator_enabled"]
+            if isinstance(val, bool):
+                pass
+            elif isinstance(val, str):
+                low = val.strip().lower()
+                if low in {"1", "true", "yes", "y", "on"}:
+                    out["allocator_enabled"] = True
+                elif low in {"0", "false", "no", "n", "off"}:
+                    out["allocator_enabled"] = False
+                else:
+                    raise ValueError("allocator_enabled must be a boolean")
+            else:
+                raise ValueError("allocator_enabled must be a boolean")
+        if "allocator_top_n" in out:
+            out["allocator_top_n"] = int(out["allocator_top_n"])
+        if "stop_on_freeze" in out:
+            val = out["stop_on_freeze"]
+            if isinstance(val, bool):
+                pass
+            elif isinstance(val, str):
+                low = val.strip().lower()
+                if low in {"1", "true", "yes", "y", "on"}:
+                    out["stop_on_freeze"] = True
+                elif low in {"0", "false", "no", "n", "off"}:
+                    out["stop_on_freeze"] = False
+                else:
+                    raise ValueError("stop_on_freeze must be a boolean")
+            else:
+                raise ValueError("stop_on_freeze must be a boolean")
 
         if "enable_debate" in out:
             val = out["enable_debate"]
@@ -161,6 +197,8 @@ class EvolutionConfigService:
             raise ValueError("max_positions must be > 0")
         if "position_size_pct" in patch and not (0 < patch["position_size_pct"] <= 1.0):
             raise ValueError("position_size_pct must be within (0, 1]")
+        if "allocator_top_n" in patch and patch["allocator_top_n"] <= 0:
+            raise ValueError("allocator_top_n must be > 0")
 
     def apply_patch(self, patch: dict[str, Any], source: str = "unknown") -> dict[str, Any]:
         if yaml is None:

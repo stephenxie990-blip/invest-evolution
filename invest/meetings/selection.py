@@ -11,6 +11,7 @@ from invest.shared import (
 )
 from invest.contracts import AgentContext, ModelOutput, SignalPacket, StrategyAdvice
 from invest.foundation.risk import clamp_stop_loss_pct, clamp_take_profit_pct
+from invest.models.defaults import COMMON_PARAM_DEFAULTS
 
 try:
     from invest.debate import DebateOrchestrator, RiskDebateOrchestrator
@@ -40,17 +41,21 @@ class SelectionMeeting:
         agent_weights: Optional[Dict[str, float]] = None,
         trend_hunter: Optional[Any] = None,
         contrarian: Optional[Any] = None,
+        quality_agent: Optional[Any] = None,
+        defensive_agent: Optional[Any] = None,
         max_hunters: Optional[int] = None,
         enable_debate: bool = True,
         max_debate_rounds: int = 1,
         deep_llm_caller: Optional[LLMCaller] = None,
         progress_callback: Optional[Callable[[dict], None]] = None,
     ):
-        from invest.agents import TrendHunterAgent, ContrarianAgent
+        from invest.agents import TrendHunterAgent, ContrarianAgent, QualityAgent, DefensiveAgent
         self.llm = llm_caller
         self.agent_weights = agent_weights or {"trend_hunter": 1.0, "contrarian": 1.0}
         self.trend_hunter = trend_hunter or TrendHunterAgent()
         self.contrarian = contrarian or ContrarianAgent()
+        self.quality_agent = quality_agent or QualityAgent()
+        self.defensive_agent = defensive_agent or DefensiveAgent()
         self.max_hunters = max_hunters
         self.meeting_count = 0
         self.progress_callback = progress_callback
@@ -121,7 +126,7 @@ class SelectionMeeting:
             }
 
         top_n = signal_packet.max_positions or regime["params"].get("top_n", 5)
-        meeting_result = self._run_llm(top_n, regime, stock_summaries, agent_context=agent_context) if self.llm else self._run_algorithm(stock_summaries, top_n)
+        meeting_result = self._run_llm(top_n, regime, stock_summaries, agent_context=agent_context, model_name=signal_packet.model_name)
         trading_plan = self._to_trading_plan_v2(meeting_result, signal_packet, agent_context)
         strategy_advice = StrategyAdvice(
             source=str(meeting_result.get("source", "model_meeting")),
@@ -165,6 +170,27 @@ class SelectionMeeting:
     # ===== 内部方法 =====
 
 
+    def _get_model_roster(self, model_name: str) -> List[Dict[str, Any]]:
+        model_name = str(model_name or "").strip()
+        specialist_map = {
+            "momentum": [
+                {"key": "trend_hunter", "label": "TrendHunterAgent", "agent": self.trend_hunter},
+            ],
+            "mean_reversion": [
+                {"key": "contrarian", "label": "ContrarianAgent", "agent": self.contrarian},
+            ],
+            "value_quality": [
+                {"key": "quality_agent", "label": "QualityAgent", "agent": self.quality_agent},
+            ],
+            "defensive_low_vol": [
+                {"key": "defensive_agent", "label": "DefensiveAgent", "agent": self.defensive_agent},
+            ],
+        }
+        return specialist_map.get(model_name, [
+            {"key": "trend_hunter", "label": "TrendHunterAgent", "agent": self.trend_hunter},
+            {"key": "contrarian", "label": "ContrarianAgent", "agent": self.contrarian},
+        ])
+
     def _notify_progress(self, payload: dict) -> None:
         if not self.progress_callback:
             return
@@ -179,60 +205,49 @@ class SelectionMeeting:
         regime: Dict,
         stock_summaries: List[Dict],
         agent_context: Optional[AgentContext] = None,
+        model_name: str = "",
     ) -> Dict:
         hunter_outputs = []
+        roster = self._get_model_roster(model_name) if agent_context is not None else [
+            {"key": "trend_hunter", "label": "TrendHunter", "agent": self.trend_hunter},
+            {"key": "contrarian", "label": "Contrarian", "agent": self.contrarian},
+        ]
 
-        # 1. 趋势猎手 - 认知环路
-        try:
-            self._notify_progress({"agent": "TrendHunter", "status": "running", "stage": "selection", "progress_pct": 36, "message": f"趋势猎手分析 {len(stock_summaries)} 只候选..."})
-            if agent_context is not None and hasattr(self.trend_hunter, "analyze_context"):
-                result = self.trend_hunter.analyze_context(agent_context)
-            else:
-                candidates = self.trend_hunter.perceive(stock_summaries)
-                reasoning = self.trend_hunter.reason(candidates, context=regime)
-                result = self.trend_hunter.act(reasoning)
-            
-            if result and not result.get("_parse_error"):
-                hunter_outputs.append({"name": "trend_hunter", "result": result})
+        for index, spec in enumerate(roster, start=1):
+            agent_key = spec["key"]
+            agent_label = spec["label"]
+            agent = spec["agent"]
+            try:
+                progress = 30 + index * 8
                 self._notify_progress({
-                    "agent": "TrendHunter",
-                    "status": "completed",
+                    "agent": agent_label,
+                    "status": "running",
                     "stage": "selection",
-                    "progress_pct": 44,
-                    "message": f"趋势猎手完成，推荐 {len(result.get('picks', [])) or len(result.get('selected', []))} 只候选",
-                    "speech": result.get("overall_view") or result.get("reasoning") or "趋势猎手已输出候选",
-                    "picks": (result.get("picks", []) or [])[:10],
-                    "confidence": result.get("confidence"),
+                    "progress_pct": progress,
+                    "message": f"{agent_label} 分析 {len(stock_summaries)} 只候选...",
                 })
-        except Exception as e:
-            self._notify_progress({"agent": "TrendHunter", "status": "error", "message": f"趋势猎手执行失败: {e}"})
-            logger.warning(f"TrendHunter 认知环路执行失败: {e}")
+                if agent_context is not None and hasattr(agent, "analyze_context"):
+                    result = agent.analyze_context(agent_context)
+                else:
+                    candidates = agent.perceive(stock_summaries)
+                    reasoning = agent.reason(candidates, context=regime)
+                    result = agent.act(reasoning)
 
-        # 2. 逆向猎手 - 认知环路
-        try:
-            self._notify_progress({"agent": "Contrarian", "status": "running", "stage": "selection", "progress_pct": 42, "message": f"逆向交易者分析 {len(stock_summaries)} 只候选..."})
-            if agent_context is not None and hasattr(self.contrarian, "analyze_context"):
-                result = self.contrarian.analyze_context(agent_context)
-            else:
-                candidates = self.contrarian.perceive(stock_summaries)
-                reasoning = self.contrarian.reason(candidates, context=regime)
-                result = self.contrarian.act(reasoning)
-            
-            if result and not result.get("_parse_error"):
-                hunter_outputs.append({"name": "contrarian", "result": result})
-                self._notify_progress({
-                    "agent": "Contrarian",
-                    "status": "completed",
-                    "stage": "selection",
-                    "progress_pct": 50,
-                    "message": f"逆向交易者完成，推荐 {len(result.get('picks', [])) or len(result.get('selected', []))} 只候选",
-                    "speech": result.get("overall_view") or result.get("reasoning") or "逆向交易者已输出候选",
-                    "picks": (result.get("picks", []) or [])[:10],
-                    "confidence": result.get("confidence"),
-                })
-        except Exception as e:
-            self._notify_progress({"agent": "Contrarian", "status": "error", "message": f"逆向交易者执行失败: {e}"})
-            logger.warning(f"Contrarian 认知环路执行失败: {e}")
+                if result and not result.get("_parse_error"):
+                    hunter_outputs.append({"name": agent_key, "result": result})
+                    self._notify_progress({
+                        "agent": agent_label,
+                        "status": "completed",
+                        "stage": "selection",
+                        "progress_pct": progress + 6,
+                        "message": f"{agent_label} 完成，推荐 {len(result.get('picks', [])) or len(result.get('selected', []))} 只候选",
+                        "speech": result.get("overall_view") or result.get("reasoning") or f"{agent_label} 已输出候选",
+                        "picks": (result.get("picks", []) or [])[:10],
+                        "confidence": result.get("confidence"),
+                    })
+            except Exception as e:
+                self._notify_progress({"agent": agent_label, "status": "error", "message": f"{agent_label} 执行失败: {e}"})
+                logger.warning(f"{agent_label} 认知环路执行失败: {e}")
 
         # 3. 应用 Agent 权重
         for hunter in hunter_outputs:
@@ -329,7 +344,7 @@ class SelectionMeeting:
                 if trailing_pct in ("", "null"):
                     trailing_pct = None
                 if trailing_pct is None and source_name == "trend_hunter":
-                    trailing_pct = 0.10
+                    trailing_pct = COMMON_PARAM_DEFAULTS["trailing_pct"]
 
                 meta = pick_meta.setdefault(
                     code,
@@ -340,9 +355,7 @@ class SelectionMeeting:
                         "reasonings": [],
                         "sources": [],
                         "source": source_name,
-                        "stop_loss_pct": pick.get("stop_loss_pct"),
-                        "take_profit_pct": pick.get("take_profit_pct"),
-                        "trailing_pct": trailing_pct,
+                                                                        "trailing_pct": trailing_pct,
                     },
                 )
                 meta["agg_score"] += weighted_score
@@ -354,8 +367,6 @@ class SelectionMeeting:
                 if weighted_score >= meta.get("best_score", -1.0):
                     meta["best_score"] = weighted_score
                     meta["source"] = source_name
-                    meta["stop_loss_pct"] = pick.get("stop_loss_pct")
-                    meta["take_profit_pct"] = pick.get("take_profit_pct")
                     meta["trailing_pct"] = trailing_pct
 
         sorted_codes = sorted(stock_scores.items(), key=lambda item: item[1], reverse=True)
@@ -371,8 +382,6 @@ class SelectionMeeting:
                     "score": round(meta.get("agg_score", stock_scores.get(code, 0.0)), 3),
                     "source": meta.get("source", "meeting"),
                     "sources": meta.get("sources", []),
-                    "stop_loss_pct": meta.get("stop_loss_pct"),
-                    "take_profit_pct": meta.get("take_profit_pct"),
                     "trailing_pct": meta.get("trailing_pct"),
                     "reasoning": "；".join(meta.get("reasonings", [])[:2]),
                 }
@@ -407,14 +416,14 @@ class SelectionMeeting:
         suggested_exposure = float(regime.get("suggested_exposure", 0.7) or 0.7)
         cash_reserve = round(max(0.0, min(0.7, 1.0 - suggested_exposure)), 3)
         available_weight = max(0.0, 1.0 - cash_reserve)
-        default_weight = round(min(0.25, available_weight / max(len(selected_meta), 1)), 3) if selected_meta else 0.20
+        default_weight = round(min(0.25, available_weight / max(len(selected_meta), 1)), 3) if selected_meta else COMMON_PARAM_DEFAULTS["position_size"]
 
         positions = []
         for i, item in enumerate(selected_meta):
             source = str(item.get("source", "meeting"))
             trailing_pct = item.get("trailing_pct")
             if trailing_pct is None and source == "trend_hunter":
-                trailing_pct = 0.10
+                trailing_pct = COMMON_PARAM_DEFAULTS["trailing_pct"]
             if trailing_pct is not None:
                 trailing_pct = max(0.05, min(0.20, float(trailing_pct)))
 
@@ -424,10 +433,10 @@ class SelectionMeeting:
                     priority=i + 1,
                     weight=default_weight,
                     entry_method="market",
-                    stop_loss_pct=max(0.01, min(0.15, float(item.get("stop_loss_pct", regime_params.get("stop_loss_pct", 0.05))))),
-                    take_profit_pct=max(0.05, min(0.50, float(item.get("take_profit_pct", regime_params.get("take_profit_pct", 0.15))))),
+                    stop_loss_pct=max(0.01, min(0.15, float(regime_params.get("stop_loss_pct", COMMON_PARAM_DEFAULTS["stop_loss_pct"])))),
+                    take_profit_pct=max(0.05, min(0.50, float(regime_params.get("take_profit_pct", COMMON_PARAM_DEFAULTS["take_profit_pct"])))),
                     trailing_pct=trailing_pct,
-                    max_hold_days=30,
+                    max_hold_days=int(regime_params.get("max_hold_days", COMMON_PARAM_DEFAULTS["max_hold_days"]) or COMMON_PARAM_DEFAULTS["max_hold_days"]),
                     reason=str(item.get("reasoning") or meeting_result.get("reasoning", "选股会议推荐")),
                     source=source,
                 )
@@ -454,7 +463,7 @@ class SelectionMeeting:
         ]
         cash_reserve = max(0.0, min(0.7, float(signal_packet.cash_reserve)))
         available_weight = max(0.0, 1.0 - cash_reserve)
-        default_weight = round(min(0.25, available_weight / max(len(selected_meta), 1)), 3) if selected_meta else 0.20
+        default_weight = round(min(0.25, available_weight / max(len(selected_meta), 1)), 3) if selected_meta else COMMON_PARAM_DEFAULTS["position_size"]
         positions = []
         for idx, item in enumerate(selected_meta, start=1):
             code = item["code"]
@@ -462,16 +471,22 @@ class SelectionMeeting:
             trailing_pct = item.get("trailing_pct", signal.trailing_pct if signal else signal_packet.params.get("trailing_pct"))
             if trailing_pct is not None:
                 trailing_pct = max(0.05, min(0.20, float(trailing_pct)))
+            stop_loss_value = item.get("stop_loss_pct")
+            if stop_loss_value is None:
+                stop_loss_value = signal.stop_loss_pct if signal and signal.stop_loss_pct is not None else signal_packet.params.get("stop_loss_pct", COMMON_PARAM_DEFAULTS["stop_loss_pct"])
+            take_profit_value = item.get("take_profit_pct")
+            if take_profit_value is None:
+                take_profit_value = signal.take_profit_pct if signal and signal.take_profit_pct is not None else signal_packet.params.get("take_profit_pct", COMMON_PARAM_DEFAULTS["take_profit_pct"])
             positions.append(
                 PositionPlan(
                     code=code,
                     priority=idx,
                     weight=float(item.get("weight") or (signal.weight_hint if signal and signal.weight_hint is not None else default_weight)),
                     entry_method="market",
-                    stop_loss_pct=clamp_stop_loss_pct(item.get("stop_loss_pct", signal.stop_loss_pct if signal and signal.stop_loss_pct is not None else signal_packet.params.get("stop_loss_pct", 0.05))),
-                    take_profit_pct=clamp_take_profit_pct(item.get("take_profit_pct", signal.take_profit_pct if signal and signal.take_profit_pct is not None else signal_packet.params.get("take_profit_pct", 0.15))),
+                    stop_loss_pct=clamp_stop_loss_pct(stop_loss_value),
+                    take_profit_pct=clamp_take_profit_pct(take_profit_value),
                     trailing_pct=trailing_pct,
-                    max_hold_days=int(signal_packet.params.get("max_hold_days", 30) or 30),
+                    max_hold_days=int(signal_packet.params.get("max_hold_days", COMMON_PARAM_DEFAULTS["max_hold_days"]) or COMMON_PARAM_DEFAULTS["max_hold_days"]),
                     reason=str(item.get("reasoning") or meeting_result.get("reasoning") or agent_context.summary),
                     source=str(item.get("source") or meeting_result.get("source", "model_meeting")),
                 )

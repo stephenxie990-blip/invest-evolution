@@ -1,7 +1,7 @@
 import logging
 import math
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
@@ -50,6 +50,7 @@ class SimulatedTrader:
         stamp_tax_rate: float = 0.0005,     # 万5，仅卖出
         slippage_rate: float = 0.002,       # 滑点 0.2%
         enable_risk_control: bool = True,
+        risk_policy: Optional[Dict[str, Any]] = None,
     ):
         self.initial_capital  = initial_capital
         self.cash             = initial_capital
@@ -59,11 +60,12 @@ class SimulatedTrader:
         self.stamp_tax_rate   = stamp_tax_rate
         self.slippage_rate    = slippage_rate
         self.enable_risk_control = enable_risk_control
+        self.risk_policy = dict(risk_policy or {})
 
         # 风控
         if enable_risk_control:
-            self.dynamic_stop    = DynamicStopLoss(atr_period=14)
-            self.risk_controller = RiskController()
+            self.risk_controller = RiskController(policy=self.risk_policy)
+            self.dynamic_stop = self.risk_controller.dynamic_stop
 
         self.positions:     List[Position]    = []
         self.trade_history: List[TradeRecord] = []
@@ -71,6 +73,7 @@ class SimulatedTrader:
 
         self.stock_data: Dict[str, pd.DataFrame] = {}
         self.stock_info: Dict[str, dict]         = {}
+        self.market_index_data: Optional[pd.DataFrame] = None
         self.current_date: str = ""
 
         self.cooldown_days: Dict[str, int] = {}
@@ -87,11 +90,31 @@ class SimulatedTrader:
         self.default_take_profit_pct = 0.15
 
         # 异常检测
-        self.emergency_detector = EmergencyDetector()
+        self.emergency_detector = EmergencyDetector(policy=self.risk_policy)
         self.emergency_events:  List[EmergencyEvent] = []
 
         if enable_risk_control:
             logger.info("✅ 风控系统已启用: ATR动态止损 + 组合风控 + 异常检测")
+
+    @staticmethod
+    def _classify_exit_trigger(reason: str) -> str:
+        text = str(reason or "")
+        lowered = text.lower()
+        if "跟踪止盈" in text:
+            return "trailing_stop"
+        if "atr止损" in lowered or "止损" in text:
+            return "stop_loss"
+        if "atr止盈" in lowered or "止盈" in text:
+            return "take_profit"
+        if "风控减仓" in text:
+            return "risk_reduce"
+        if "风控清仓" in text:
+            return "risk_close"
+        if "异常卖出" in text:
+            return "emergency_exit"
+        if "结算平仓" in text:
+            return "settlement"
+        return "manual"
 
     # ===== 数据接口 =====
 
@@ -101,6 +124,9 @@ class SimulatedTrader:
 
     def set_stock_info(self, stock_info: Dict[str, dict]):
         self.stock_info = stock_info
+
+    def set_market_index_data(self, index_data: Optional[pd.DataFrame]):
+        self.market_index_data = index_data.copy() if index_data is not None else None
 
     def set_trading_plan(self, plan: TradingPlan):
         self.trading_plan  = plan
@@ -229,6 +255,7 @@ class SimulatedTrader:
             trailing_pct=trailing_pct,
             highest_price=buy_price,
             source=source,
+            entry_reason=reason,
             plan_stop_loss_pct=stop_loss_pct,
             plan_take_profit_pct=take_profit_pct,
         )
@@ -243,6 +270,14 @@ class SimulatedTrader:
             open_price=metrics.get("open", 0), high_price=metrics.get("high", 0),
             low_price=metrics.get("low", 0), volume=metrics.get("volume", 0),
             amount=metrics.get("amount", 0), pct_chg=metrics.get("pct_chg", 0),
+            source=source,
+            entry_reason=reason,
+            entry_date=date,
+            entry_price=buy_price,
+            holding_days=0,
+            stop_loss_price=stop_loss or 0.0,
+            take_profit_price=take_profit or 0.0,
+            trailing_pct=trailing_pct,
         ))
         logger.info(
             f"买入 {ts_code} {shares}股 @ ¥{buy_price:.2f} | {date} | "
@@ -284,6 +319,7 @@ class SimulatedTrader:
         self.cash += net_proceeds
 
         metrics = self.get_day_metrics(position.ts_code, date)
+        holding_days = int(self.hold_days.get(position.ts_code, 0) or 0)
         self.trade_history.append(TradeRecord(
             date=date, action=Action.SELL, ts_code=position.ts_code,
             price=sell_price, shares=shares, reason=reason,
@@ -292,6 +328,16 @@ class SimulatedTrader:
             open_price=metrics.get("open", 0), high_price=metrics.get("high", 0),
             low_price=metrics.get("low", 0), volume=metrics.get("volume", 0),
             amount=metrics.get("amount", 0), pct_chg=metrics.get("pct_chg", 0),
+            source=position.source,
+            entry_reason=position.entry_reason,
+            exit_reason=reason,
+            exit_trigger=self._classify_exit_trigger(reason),
+            entry_date=position.entry_date,
+            entry_price=position.entry_price,
+            holding_days=holding_days,
+            stop_loss_price=position.stop_loss or 0.0,
+            take_profit_price=position.take_profit or 0.0,
+            trailing_pct=position.trailing_pct,
         ))
 
         position.shares -= shares
@@ -380,6 +426,25 @@ class SimulatedTrader:
         if current_value > self.peak_value:
             self.peak_value = current_value
         drawdown = (self.peak_value - current_value) / self.peak_value if self.peak_value > 0 else 0
+        if hasattr(self, "risk_controller") and self.positions:
+            positions = {
+                pos.ts_code: {
+                    "shares": pos.shares,
+                    "current_price": self.get_price(pos.ts_code, date) or pos.entry_price,
+                }
+                for pos in self.positions
+            }
+            hs300_data = None
+            if self.market_index_data is not None and not self.market_index_data.empty:
+                hs300_data = self.market_index_data[self.market_index_data["trade_date"] <= date].copy()
+            result = self.risk_controller.check_portfolio(
+                positions=positions,
+                initial_capital=self.initial_capital,
+                current_capital=current_value,
+                hs300_data=hs300_data,
+            )
+            result.setdefault("drawdown", drawdown)
+            return result
         if drawdown > 0.12:
             return {"action": "CLOSE_ALL", "reason": f"回撤{drawdown:.1%}>12%，清仓", "drawdown": drawdown}
         if drawdown > 0.08:

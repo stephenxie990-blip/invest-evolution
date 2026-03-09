@@ -18,14 +18,54 @@ class InvestStatusTool(BrainTool):
 
     @property
     def description(self) -> str:
-        return "Get unified commander status (brain/body/strategies)."
+        return "Get quick commander status snapshot (fast path, snapshot-first)."
 
     @property
     def parameters(self) -> dict[str, Any]:
         return {"type": "object", "properties": {}, "required": []}
 
     async def execute(self, **kwargs: Any) -> str:
-        return json.dumps(self.runtime.status(), ensure_ascii=False, indent=2)
+        return json.dumps(self.runtime.status(detail="fast"), ensure_ascii=False, indent=2)
+
+
+class InvestQuickStatusTool(BrainTool):
+    def __init__(self, runtime: Any):
+        self.runtime = runtime
+
+    @property
+    def name(self) -> str:
+        return "invest_quick_status"
+
+    @property
+    def description(self) -> str:
+        return "Get fast commander status using snapshot/cached data paths."
+
+    @property
+    def parameters(self) -> dict[str, Any]:
+        return {"type": "object", "properties": {}, "required": []}
+
+    async def execute(self, **kwargs: Any) -> str:
+        return json.dumps(self.runtime.status(detail="fast"), ensure_ascii=False, indent=2)
+
+
+class InvestDeepStatusTool(BrainTool):
+    def __init__(self, runtime: Any):
+        self.runtime = runtime
+
+    @property
+    def name(self) -> str:
+        return "invest_deep_status"
+
+    @property
+    def description(self) -> str:
+        return "Get deep commander status with fresh data health recomputation."
+
+    @property
+    def parameters(self) -> dict[str, Any]:
+        return {"type": "object", "properties": {}, "required": []}
+
+    async def execute(self, **kwargs: Any) -> str:
+        return json.dumps(self.runtime.status(detail="slow"), ensure_ascii=False, indent=2)
 
 
 class InvestTrainTool(BrainTool):
@@ -105,6 +145,99 @@ class InvestListStrategiesTool(BrainTool):
         only_enabled = bool(kwargs.get("only_enabled", False))
         genes = self.runtime.strategy_registry.list_genes(only_enabled=only_enabled)
         payload = {"count": len(genes), "items": [g.to_dict() for g in genes]}
+        return json.dumps(payload, ensure_ascii=False, indent=2)
+
+
+class InvestTrainingPlanCreateTool(BrainTool):
+    def __init__(self, runtime: Any):
+        self.runtime = runtime
+
+    @property
+    def name(self) -> str:
+        return "invest_training_plan_create"
+
+    @property
+    def description(self) -> str:
+        return "Create a training plan object for the strategy lab."
+
+    @property
+    def parameters(self) -> dict[str, Any]:
+        return {
+            "type": "object",
+            "properties": {
+                "rounds": {"type": "integer", "minimum": 1, "maximum": 200, "default": 1},
+                "mock": {"type": "boolean", "default": False},
+                "goal": {"type": "string", "default": ""},
+                "notes": {"type": "string", "default": ""},
+                "tags": {"type": "array", "items": {"type": "string"}},
+                "detail_mode": {"type": "string", "enum": ["fast", "slow"], "default": "fast"},
+            },
+            "required": [],
+        }
+
+    async def execute(self, **kwargs: Any) -> str:
+        payload = self.runtime.create_training_plan(
+            rounds=int(kwargs.get("rounds", 1)),
+            mock=bool(kwargs.get("mock", False)),
+            goal=str(kwargs.get("goal", "")),
+            notes=str(kwargs.get("notes", "")),
+            tags=list(kwargs.get("tags", []) or []),
+            detail_mode=str(kwargs.get("detail_mode", "fast")),
+        )
+        return json.dumps(payload, ensure_ascii=False, indent=2)
+
+
+class InvestTrainingPlanListTool(BrainTool):
+    def __init__(self, runtime: Any):
+        self.runtime = runtime
+
+    @property
+    def name(self) -> str:
+        return "invest_training_plan_list"
+
+    @property
+    def description(self) -> str:
+        return "List recent training plans in the strategy lab."
+
+    @property
+    def parameters(self) -> dict[str, Any]:
+        return {
+            "type": "object",
+            "properties": {
+                "limit": {"type": "integer", "minimum": 1, "maximum": 100, "default": 20},
+            },
+            "required": [],
+        }
+
+    async def execute(self, **kwargs: Any) -> str:
+        payload = self.runtime.list_training_plans(limit=int(kwargs.get("limit", 20)))
+        return json.dumps(payload, ensure_ascii=False, indent=2)
+
+
+class InvestTrainingPlanExecuteTool(BrainTool):
+    def __init__(self, runtime: Any):
+        self.runtime = runtime
+
+    @property
+    def name(self) -> str:
+        return "invest_training_plan_execute"
+
+    @property
+    def description(self) -> str:
+        return "Execute a persisted training plan and generate run/evaluation artifacts."
+
+    @property
+    def parameters(self) -> dict[str, Any]:
+        return {
+            "type": "object",
+            "properties": {
+                "plan_id": {"type": "string"},
+            },
+            "required": ["plan_id"],
+        }
+
+    async def execute(self, **kwargs: Any) -> str:
+        payload = await self.runtime.execute_training_plan(str(kwargs["plan_id"]))
         return json.dumps(payload, ensure_ascii=False, indent=2)
 
 
@@ -269,9 +402,14 @@ class InvestPluginReloadTool(BrainTool):
 
 def build_commander_tools(runtime: Any) -> list[BrainTool]:
     return [
+        InvestQuickStatusTool(runtime),
+        InvestDeepStatusTool(runtime),
         InvestStatusTool(runtime),
         InvestTrainTool(runtime),
         InvestQuickTestTool(runtime),
+        InvestTrainingPlanCreateTool(runtime),
+        InvestTrainingPlanListTool(runtime),
+        InvestTrainingPlanExecuteTool(runtime),
         InvestListStrategiesTool(runtime),
         InvestReloadStrategiesTool(runtime),
         InvestCronAddTool(runtime),

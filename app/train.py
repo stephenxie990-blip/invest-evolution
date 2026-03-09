@@ -28,7 +28,7 @@ import os
 import random
 from copy import deepcopy
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
@@ -41,12 +41,16 @@ from market_data import DataManager, MockDataProvider
 from invest.evolution import LLMOptimizer, StrategyEvolutionOptimizer, EvolutionEngine, YamlConfigMutator
 from invest.foundation import BenchmarkEvaluator, SimulatedTrader, StrategyEvaluator
 from invest.agents import (
-    MarketRegimeAgent, TrendHunterAgent, ContrarianAgent,
-    CommanderAgent, StrategistAgent, EvoJudgeAgent
+    MarketRegimeAgent, TrendHunterAgent, ContrarianAgent, QualityAgent, DefensiveAgent,
+    ReviewDecisionAgent, StrategistAgent, EvoJudgeAgent
 )
 from invest.meetings import SelectionMeeting, ReviewMeeting, MeetingRecorder
 from invest.contracts import EvalReport, ModelOutput
-from invest.models import create_investment_model
+from invest.allocator import build_allocation_plan
+from invest.foundation.compute import compute_market_stats
+from invest.leaderboard import write_leaderboard
+from invest.models import create_investment_model, resolve_model_config_path
+from invest.models.defaults import COMMON_EXECUTION_DEFAULTS, COMMON_PARAM_DEFAULTS, COMMON_BENCHMARK_DEFAULTS
 
 logger = logging.getLogger(__name__)
 
@@ -114,11 +118,11 @@ class ReinforcementLearningOptimizer:
         new_params = params.copy()
 
         if action == "increase":
-            new_params["position_size"]   = min(new_params.get("position_size", 0.2) * 1.1, 0.5)
-            new_params["take_profit_pct"] = min(new_params.get("take_profit_pct", 0.15) * 1.1, 0.5)
+            new_params["position_size"]   = min(new_params.get("position_size", COMMON_PARAM_DEFAULTS["position_size"]) * 1.1, 0.5)
+            new_params["take_profit_pct"] = min(new_params.get("take_profit_pct", COMMON_PARAM_DEFAULTS["take_profit_pct"]) * 1.1, 0.5)
         elif action == "decrease":
-            new_params["position_size"]   = max(new_params.get("position_size", 0.2) * 0.9, 0.05)
-            new_params["take_profit_pct"] = max(new_params.get("take_profit_pct", 0.15) * 0.9, 0.05)
+            new_params["position_size"]   = max(new_params.get("position_size", COMMON_PARAM_DEFAULTS["position_size"]) * 0.9, 0.05)
+            new_params["take_profit_pct"] = max(new_params.get("take_profit_pct", COMMON_PARAM_DEFAULTS["take_profit_pct"]) * 0.9, 0.05)
 
         return new_params
 
@@ -159,6 +163,8 @@ class TrainingResult:
     config_snapshot_path: str = ""
     optimization_events: List[Dict[str, Any]] = field(default_factory=list)
     audit_tags: Dict[str, Any] = field(default_factory=dict)
+    model_name: str = "momentum"
+    config_name: str = ""
 
 
 @dataclass
@@ -218,16 +224,7 @@ class SelfLearningController:
     优化触发（默认）：连续 3 轮亏损
     """
 
-    DEFAULT_PARAMS = {
-        "ma_short":        5,
-        "ma_long":         20,
-        "rsi_period":      14,
-        "rsi_oversold":    30,
-        "rsi_overbought":  70,
-        "stop_loss_pct":   0.05,
-        "take_profit_pct": 0.10,
-        "position_size":   0.20,
-    }
+    DEFAULT_PARAMS = dict(COMMON_PARAM_DEFAULTS)
 
     def __init__(
         self,
@@ -246,25 +243,34 @@ class SelfLearningController:
         self.evolution_engine  = EvolutionEngine(population_size=10)
         self.strategy_evaluator = StrategyEvaluator()
         self.benchmark_evaluator = BenchmarkEvaluator()
+        self.execution_policy: Dict[str, Any] = {}
+        self.train_policy: Dict[str, Any] = {}
+        self.freeze_gate_policy: Dict[str, Any] = {}
+        self.risk_policy: Dict[str, Any] = {}
+        self.evaluation_policy: Dict[str, Any] = {}
         self.data_manager      = DataManager(data_provider=data_provider)
-        self.current_params    = dict(self.DEFAULT_PARAMS)
+        self.current_params: Dict[str, Any] = {}
 
         # Agent 团队 & 会议组件
         self.llm_caller = LLMCaller()
         
         self.agents = {
-            "regime":     MarketRegimeAgent(),
-            "trend":      TrendHunterAgent(),
+            "market_regime": MarketRegimeAgent(),
+            "trend_hunter": TrendHunterAgent(),
             "contrarian": ContrarianAgent(),
+            "quality_agent": QualityAgent(),
+            "defensive_agent": DefensiveAgent(),
             "strategist": StrategistAgent(),
-            "commander":  CommanderAgent(),
-            "evo_judge":  EvoJudgeAgent(),
+            "review_decision": ReviewDecisionAgent(),
+            "evo_judge": EvoJudgeAgent(),
         }
         
         self.selection_meeting = SelectionMeeting(
             llm_caller=self.llm_caller,
-            trend_hunter=self.agents["trend"],
+            trend_hunter=self.agents["trend_hunter"],
             contrarian=self.agents["contrarian"],
+            quality_agent=self.agents["quality_agent"],
+            defensive_agent=self.agents["defensive_agent"],
             enable_debate=bool(getattr(config, "enable_debate", True)),
             max_debate_rounds=max(1, int(getattr(config, "max_debate_rounds", 1) or 1)),
             progress_callback=self._handle_selection_progress,
@@ -275,7 +281,7 @@ class SelfLearningController:
             agent_tracker=self.agent_tracker,
             strategist=self.agents["strategist"],
             evo_judge=self.agents["evo_judge"],
-            commander=self.agents["commander"],
+            commander=self.agents["review_decision"],
             enable_risk_debate=bool(getattr(config, "enable_debate", True)),
             max_risk_discuss_rounds=max(1, int(getattr(config, "max_risk_discuss_rounds", 1) or 1)),
             progress_callback=self._handle_review_progress,
@@ -287,14 +293,25 @@ class SelfLearningController:
             audit_log_path=Path(config_audit_log_path) if config_audit_log_path else None,
             snapshot_dir=Path(config_snapshot_dir) if config_snapshot_dir else None,
         )
+
+        # 条件
+        self.freeze_total_cycles       = freeze_total_cycles
+        self.freeze_profit_required    = freeze_profit_required
+        self.max_losses_before_optimize = max_losses_before_optimize
+
         self.model_name = str(getattr(config, "investment_model", "momentum") or "momentum")
         self.model_config_path = str(getattr(config, "investment_model_config", "invest/models/configs/momentum_v1.yaml"))
+        self.allocator_enabled = bool(getattr(config, "allocator_enabled", False))
+        self.allocator_top_n = int(getattr(config, "allocator_top_n", 3) or 3)
+        self.last_allocation_plan: Dict[str, Any] = {}
+        self.stop_on_freeze = bool(getattr(config, "stop_on_freeze", True))
         self.model_mutator = YamlConfigMutator()
         self.investment_model = create_investment_model(
             self.model_name,
             config_path=self.model_config_path,
             runtime_overrides=self.current_params,
         )
+        self._sync_runtime_policy_from_model()
 
         # 状态
         self.cycle_history:   List[TrainingResult] = []
@@ -307,11 +324,6 @@ class SelfLearningController:
         self.assessment_history: List[SelfAssessmentSnapshot] = []
         self.optimization_events_history: List[OptimizationEvent] = []
         self.last_cycle_meta: Dict[str, Any] = {}
-
-        # 条件
-        self.freeze_total_cycles       = freeze_total_cycles
-        self.freeze_profit_required    = freeze_profit_required
-        self.max_losses_before_optimize = max_losses_before_optimize
 
         # 回调
         self.on_cycle_complete: Optional[Callable] = None
@@ -347,6 +359,95 @@ class SelfLearningController:
             self.model_name,
             config_path=self.model_config_path,
             runtime_overrides=self.current_params,
+        )
+        self._sync_runtime_policy_from_model()
+
+    def _sync_runtime_policy_from_model(self) -> None:
+        if getattr(self, "investment_model", None) is None:
+            return
+        config_params = self.investment_model.config_section("params", {})
+        merged_params = dict(self.DEFAULT_PARAMS)
+        merged_params.update(config_params or {})
+        explicit_overrides = {
+            key: value
+            for key, value in (self.current_params or {}).items()
+            if key not in self.DEFAULT_PARAMS or value != self.DEFAULT_PARAMS.get(key)
+        }
+        merged_params.update(explicit_overrides)
+        self.current_params = merged_params
+        self.investment_model.update_runtime_overrides(self.current_params)
+
+        self.execution_policy = self.investment_model.config_section("execution", {}) or {}
+        self.risk_policy = self.investment_model.config_section("risk_policy", {}) or {}
+        self.evaluation_policy = self.investment_model.config_section("evaluation_policy", {}) or {}
+        self.strategy_evaluator.set_policy(self.evaluation_policy)
+        benchmark_policy = self.investment_model.config_section("benchmark", {}) or {}
+        benchmark_criteria = dict((benchmark_policy.get("criteria") or {}))
+        self.benchmark_evaluator = BenchmarkEvaluator(
+            risk_free_rate=float(benchmark_policy.get("risk_free_rate", COMMON_BENCHMARK_DEFAULTS["risk_free_rate"]) or COMMON_BENCHMARK_DEFAULTS["risk_free_rate"]),
+            criteria=benchmark_criteria,
+        )
+
+        self.train_policy = self.investment_model.config_section("train", {}) or {}
+        self.freeze_total_cycles = int(self.train_policy.get("freeze_total_cycles", self.freeze_total_cycles) or self.freeze_total_cycles)
+        self.freeze_profit_required = int(self.train_policy.get("freeze_profit_required", self.freeze_profit_required) or self.freeze_profit_required)
+        self.max_losses_before_optimize = int(self.train_policy.get("max_losses_before_optimize", self.max_losses_before_optimize) or self.max_losses_before_optimize)
+        self.freeze_gate_policy = dict(self.train_policy.get("freeze_gate", {}) or {})
+
+        agent_weights = self.investment_model.config_section("agent_weights", {}) or {}
+        if agent_weights:
+            self.selection_meeting.agent_weights = {
+                "trend_hunter": float(agent_weights.get("trend_hunter", 1.0) or 1.0),
+                "contrarian": float(agent_weights.get("contrarian", 1.0) or 1.0),
+            }
+
+
+    def _maybe_apply_allocator(self, stock_data: Dict[str, Any], cutoff_date: str, cycle_id: int) -> None:
+        if not self.allocator_enabled:
+            return
+        leaderboard_root = self.output_dir.parent
+        write_leaderboard(leaderboard_root)
+        leaderboard_path = leaderboard_root / "leaderboard.json"
+        market_stats = compute_market_stats(stock_data, cutoff_date)
+        regime = str(market_stats.get("regime_hint") or "unknown")
+        allocation = build_allocation_plan(
+            regime,
+            leaderboard_path,
+            as_of_date=cutoff_date,
+            top_n=max(1, self.allocator_top_n),
+        )
+        self.last_allocation_plan = allocation.to_dict()
+        active_models = list(allocation.active_models)
+        selected_model = active_models[0] if active_models else self.model_name
+        if selected_model != self.model_name:
+            self.current_params = {}
+            self.model_name = selected_model
+            self.model_config_path = str(resolve_model_config_path(selected_model))
+            self._reload_investment_model(self.model_config_path)
+        self._emit_agent_status(
+            "ModelAllocator",
+            "completed",
+            f"allocator 已为 {regime} 市场选择主模型 {self.model_name}",
+            cycle_id=cycle_id,
+            stage="model_allocation",
+            progress_pct=24,
+            step=2,
+            total_steps=6,
+            details=self.last_allocation_plan,
+            thinking=self._thinking_excerpt(allocation.reasoning),
+        )
+        self._emit_module_log(
+            "allocator",
+            "模型分配完成",
+            allocation.reasoning,
+            cycle_id=cycle_id,
+            kind="allocation_plan",
+            details=self.last_allocation_plan,
+            metrics={
+                "active_model_count": len(active_models),
+                "cash_reserve": allocation.cash_reserve,
+                "confidence": allocation.confidence,
+            },
         )
 
     def _thinking_excerpt(self, reasoning: Any, limit: int = 200) -> str:
@@ -529,7 +630,7 @@ class SelfLearningController:
             progress_pct = {
                 "Strategist": 82,
                 "EvoJudge": 88,
-                "Commander": 92,
+                "ReviewDecision": 92,
                 "ReviewMeeting": 95,
             }.get(agent, 85)
         self._emit_agent_status(
@@ -614,7 +715,7 @@ class SelfLearningController:
         self._emit_agent_status("DataLoader", "loading", f"正在加载 {cutoff_date} 的历史数据...", cycle_id=cycle_id, stage="data_loading", progress_pct=8, step=1, total_steps=6)
         self._emit_module_log("data_loading", "开始加载训练数据", f"截断日期 {cutoff_date}", cycle_id=cycle_id, kind="phase_start")
         min_history_days = max(30, int(getattr(config, "min_history_days", 200)))
-        diagnostics = self.data_manager.diagnose_training_data(
+        diagnostics = self.data_manager.check_training_readiness(
             cutoff_date=cutoff_date,
             stock_count=config.max_stocks,
             min_history_days=min_history_days,
@@ -683,6 +784,8 @@ class SelfLearningController:
             )
             return None
 
+        self._maybe_apply_allocator(stock_data, cutoff_date, cycle_id)
+
         logger.info("Agent 开会讨论选股...")
         self._emit_agent_status("SelectionMeeting", "running", "Agent 开会讨论选股...", cycle_id=cycle_id, stage="selection_meeting", progress_pct=26, step=2, total_steps=6)
         self._emit_module_log("selection", "进入选股会议", "系统开始汇总市场状态和候选标的", cycle_id=cycle_id, kind="phase_start")
@@ -699,9 +802,9 @@ class SelfLearningController:
                 **dict(signal_packet.params or {}),
                 "top_n": max(len(signal_packet.selected_codes), len(signal_packet.signals)),
                 "max_positions": signal_packet.max_positions,
-                "stop_loss_pct": signal_packet.params.get("stop_loss_pct", self.current_params.get("stop_loss_pct", 0.05)),
-                "take_profit_pct": signal_packet.params.get("take_profit_pct", self.current_params.get("take_profit_pct", 0.15)),
-                "position_size": signal_packet.params.get("position_size", self.current_params.get("position_size", 0.20)),
+                "stop_loss_pct": signal_packet.params.get("stop_loss_pct", self.current_params.get("stop_loss_pct", COMMON_PARAM_DEFAULTS["stop_loss_pct"])),
+                "take_profit_pct": signal_packet.params.get("take_profit_pct", self.current_params.get("take_profit_pct", COMMON_PARAM_DEFAULTS["take_profit_pct"])),
+                "position_size": signal_packet.params.get("position_size", self.current_params.get("position_size", COMMON_PARAM_DEFAULTS["position_size"])),
             },
         }
         logger.info(f"市场状态(v2): {regime_result.get('regime', 'unknown')}")
@@ -819,11 +922,24 @@ class SelfLearningController:
             return None
 
         trader = SimulatedTrader(
-            initial_capital=config.initial_capital,
+            initial_capital=float(self.execution_policy.get("initial_capital", getattr(config, "initial_capital", COMMON_EXECUTION_DEFAULTS["initial_capital"])) or getattr(config, "initial_capital", COMMON_EXECUTION_DEFAULTS["initial_capital"])),
             max_positions=trading_plan.max_positions or len(selected),
-            position_size_pct=self.current_params.get("position_size", 0.20),
+            position_size_pct=self.current_params.get("position_size", COMMON_PARAM_DEFAULTS["position_size"]),
+            commission_rate=float(self.execution_policy.get("commission_rate", COMMON_EXECUTION_DEFAULTS["commission_rate"]) or COMMON_EXECUTION_DEFAULTS["commission_rate"]),
+            stamp_tax_rate=float(self.execution_policy.get("stamp_tax_rate", COMMON_EXECUTION_DEFAULTS["stamp_tax_rate"]) or COMMON_EXECUTION_DEFAULTS["stamp_tax_rate"]),
+            slippage_rate=float(self.execution_policy.get("slippage_rate", COMMON_EXECUTION_DEFAULTS["slippage_rate"]) or COMMON_EXECUTION_DEFAULTS["slippage_rate"]),
+            risk_policy=self.risk_policy,
         )
         trader.set_stock_data(selected_data)
+        trader.set_stock_info({
+            code: {
+                "name": str(frame["name"].iloc[-1]) if "name" in frame.columns and not frame.empty else code,
+                "industry": str(frame["industry"].iloc[-1]) if "industry" in frame.columns and not frame.empty else "其他",
+                "market_cap": float(frame["market_cap"].dropna().iloc[-1]) if "market_cap" in frame.columns and not frame["market_cap"].dropna().empty else 0.0,
+                "roe": float(frame["roe"].dropna().iloc[-1]) if "roe" in frame.columns and not frame["roe"].dropna().empty else 0.0,
+            }
+            for code, frame in selected_data.items()
+        })
         trader.set_trading_plan(trading_plan)
 
         all_dates = set()
@@ -866,6 +982,15 @@ class SelfLearningController:
         )
 
         trading_dates = dates_after[:simulation_days]
+        benchmark_daily_values = self.data_manager.get_benchmark_daily_values(trading_dates, index_code="sh.000300")
+        market_index_start = (datetime.strptime(cutoff_date, "%Y%m%d") - timedelta(days=180)).strftime("%Y%m%d")
+        market_index_frame = self.data_manager.get_market_index_frame(
+            index_code="sh.000300",
+            start_date=market_index_start,
+            end_date=trading_dates[-1] if trading_dates else cutoff_date,
+        )
+        if market_index_frame is not None and not market_index_frame.empty:
+            trader.set_market_index_data(market_index_frame)
         sim_result = trader.run_simulation(trading_dates[0], trading_dates)
         is_profit = sim_result.return_pct > 0
 
@@ -896,8 +1021,28 @@ class SelfLearningController:
                 "action": t.action.value if hasattr(t.action, "value") else str(t.action),
                 "ts_code": t.ts_code,
                 "price": t.price,
+                "shares": t.shares,
                 "pnl": t.pnl,
+                "pnl_pct": t.pnl_pct,
                 "reason": t.reason,
+                "source": getattr(t, "source", ""),
+                "entry_reason": getattr(t, "entry_reason", ""),
+                "exit_reason": getattr(t, "exit_reason", ""),
+                "exit_trigger": getattr(t, "exit_trigger", ""),
+                "entry_date": getattr(t, "entry_date", ""),
+                "entry_price": getattr(t, "entry_price", 0.0),
+                "holding_days": getattr(t, "holding_days", 0),
+                "stop_loss_price": getattr(t, "stop_loss_price", 0.0),
+                "take_profit_price": getattr(t, "take_profit_price", 0.0),
+                "trailing_pct": getattr(t, "trailing_pct", None),
+                "capital_before": getattr(t, "capital_before", 0.0),
+                "capital_after": getattr(t, "capital_after", 0.0),
+                "open_price": getattr(t, "open_price", 0.0),
+                "high_price": getattr(t, "high_price", 0.0),
+                "low_price": getattr(t, "low_price", 0.0),
+                "volume": getattr(t, "volume", 0.0),
+                "amount": getattr(t, "amount", 0.0),
+                "pct_chg": getattr(t, "pct_chg", 0.0),
             }
             for t in sim_result.trade_history
         ]
@@ -905,20 +1050,24 @@ class SelfLearningController:
         daily_values = [r.get("total_value") for r in sim_result.daily_records if r.get("total_value") is not None]
         benchmark_metrics = None
         if len(daily_values) >= 2:
+            aligned_benchmark = benchmark_daily_values if len(benchmark_daily_values) == len(daily_values) else None
             benchmark_metrics = self.benchmark_evaluator.evaluate(
                 daily_values=daily_values,
+                benchmark_daily_values=aligned_benchmark,
                 trade_history=trade_dicts,
             )
             benchmark_passed = (
-                benchmark_metrics.total_return > 0
-                and benchmark_metrics.sharpe_ratio >= 0.8
-                and benchmark_metrics.max_drawdown < 15.0
-                and benchmark_metrics.profit_loss_ratio >= 1.0
+                benchmark_metrics.total_return > float(self.benchmark_evaluator.criteria.get("excess_return", 0.0))
+                and benchmark_metrics.sharpe_ratio >= float(self.benchmark_evaluator.criteria.get("sharpe_ratio", 1.0))
+                and benchmark_metrics.max_drawdown < float(self.benchmark_evaluator.criteria.get("max_drawdown", 15.0))
+                and benchmark_metrics.profit_loss_ratio >= float(self.benchmark_evaluator.criteria.get("profit_loss_ratio", 1.0))
             )
             cycle_dict.update({
                 "sharpe_ratio": benchmark_metrics.sharpe_ratio,
                 "max_drawdown": benchmark_metrics.max_drawdown,
                 "excess_return": benchmark_metrics.excess_return,
+                "benchmark_return": benchmark_metrics.benchmark_return,
+                "benchmark_source": "index_bar:sh.000300" if aligned_benchmark else "none",
                 "benchmark_passed": benchmark_passed,
                 "benchmark_strict_passed": benchmark_metrics.passed,
             })
@@ -1083,6 +1232,8 @@ class SelfLearningController:
             config_snapshot_path=config_snapshot_path,
             optimization_events=optimization_events,
             audit_tags=audit_tags,
+            model_name=getattr(model_output, "model_name", self.model_name) if "model_output" in locals() and model_output is not None else self.model_name,
+            config_name=getattr(model_output, "config_name", self.model_config_path) if "model_output" in locals() and model_output is not None else self.model_config_path,
         )
         self.cycle_history.append(cycle_result)
         self.current_cycle_id += 1
@@ -1139,6 +1290,44 @@ class SelfLearningController:
         )
         return cycle_result
 
+    def _derive_scoring_adjustments(self, analysis: Any, param_adjustments: Dict[str, Any]) -> Dict[str, Any]:
+        model_kind = str(getattr(self.investment_model, "model_name", "") or self.model_name or "")
+        cause = str(getattr(analysis, "cause", "") or "")
+        suggestions_text = " ".join(getattr(analysis, "suggestions", []) or [])
+        combined = f"{cause} {suggestions_text}"
+
+        if model_kind == "mean_reversion":
+            weights = {}
+            penalties = {}
+            if any(token in combined for token in ["亏损", "过热", "追高", "持续性存疑"]):
+                penalties["overheat_rsi"] = 0.18
+                penalties["high_volatility"] = 0.10
+            if any(token in combined for token in ["减少交易频率", "增加趋势确认", "普跌"]):
+                weights["volume_ratio_bonus"] = 0.10
+                penalties["insufficient_drop_5d"] = 0.08
+            return {k: v for k, v in {"weights": weights, "penalties": penalties}.items() if v}
+
+        if model_kind == "value_quality":
+            weights = {}
+            if any(token in combined for token in ["质量", "估值", "基本面"]):
+                weights["roe"] = 0.35
+                weights["pb"] = 0.22
+            if any(token in combined for token in ["波动", "风险"]):
+                weights["low_volatility"] = 0.08
+            return {"weights": weights} if weights else {}
+
+        if model_kind == "defensive_low_vol":
+            weights = {}
+            penalties = {}
+            if any(token in combined for token in ["波动", "回撤", "风险"]):
+                weights["low_volatility"] = 0.40
+                penalties["bearish_trend"] = 0.10
+            if any(token in combined for token in ["追高", "过热"]):
+                penalties["bad_rsi"] = 0.12
+            return {k: v for k, v in {"weights": weights, "penalties": penalties}.items() if v}
+
+        return {}
+
     def _trigger_optimization(self, cycle_dict: Dict, trade_dicts: List[Dict]) -> List[Dict[str, Any]]:
         """
         触发优化流程
@@ -1169,6 +1358,7 @@ class SelfLearningController:
         )
         events: List[Dict[str, Any]] = []
         config_adjustments: Dict[str, Any] = {}
+        scoring_adjustments: Dict[str, Any] = {}
 
         try:
             analysis = self.llm_optimizer.analyze_loss(cycle_dict, trade_dicts)
@@ -1187,6 +1377,7 @@ class SelfLearningController:
                 if getattr(self, "investment_model", None) is not None:
                     self.investment_model.update_runtime_overrides(adjustments)
                 config_adjustments.update(adjustments)
+                scoring_adjustments.update(self._derive_scoring_adjustments(analysis, adjustments))
                 llm_event.applied_change = dict(adjustments)
                 logger.info(f"参数已更新: {self.current_params}")
             events.append(llm_event.to_dict())
@@ -1252,6 +1443,7 @@ class SelfLearningController:
                 mutation = self.model_mutator.mutate(
                     self.model_config_path,
                     param_adjustments=config_adjustments,
+                    scoring_adjustments=scoring_adjustments or None,
                     narrative_adjustments={"last_trigger": "consecutive_losses"},
                     generation_label=f"cycle_{int(cycle_id or 0):04d}",
                     parent_meta={"cycle_id": cycle_id, "trigger": "consecutive_losses"},
@@ -1261,7 +1453,7 @@ class SelfLearningController:
                     trigger="consecutive_losses",
                     stage="yaml_mutation",
                     decision={"config_path": mutation["config_path"]},
-                    applied_change=dict(config_adjustments),
+                    applied_change={"params": dict(config_adjustments), "scoring": dict(scoring_adjustments)},
                     notes="active model config mutated",
                 )
                 events.append(mutation_event.to_dict())
@@ -1339,7 +1531,9 @@ class SelfLearningController:
             # 检查固化条件
             if self.should_freeze():
                 logger.info("🎉 达到固化条件！")
-                return self._freeze_model()
+                if self.stop_on_freeze:
+                    return self._freeze_model()
+                logger.info("配置为继续训练，不因固化条件提前停止")
 
             result = self.run_training_cycle()
             if result is None:
@@ -1413,12 +1607,16 @@ class SelfLearningController:
             return False
 
         required_win_rate = self.freeze_profit_required / max(self.freeze_total_cycles, 1)
+        min_avg_return = float(self.freeze_gate_policy.get("avg_return_gt", 0.0) or 0.0)
+        min_avg_sharpe = float(self.freeze_gate_policy.get("avg_sharpe_gte", 0.8) or 0.8)
+        max_avg_drawdown = float(self.freeze_gate_policy.get("avg_max_drawdown_lt", 15.0) or 15.0)
+        min_benchmark_pass_rate = float(self.freeze_gate_policy.get("benchmark_pass_rate_gte", 0.60) or 0.60)
         return (
             rolling["win_rate"] >= required_win_rate
-            and rolling["avg_return"] > 0
-            and rolling["avg_sharpe"] >= 0.8
-            and rolling["avg_max_drawdown"] < 15.0
-            and rolling["benchmark_pass_rate"] >= 0.60
+            and rolling["avg_return"] > min_avg_return
+            and rolling["avg_sharpe"] >= min_avg_sharpe
+            and rolling["avg_max_drawdown"] < max_avg_drawdown
+            and rolling["benchmark_pass_rate"] >= min_benchmark_pass_rate
         )
 
     def _freeze_model(self) -> Dict:
@@ -1441,10 +1639,10 @@ class SelfLearningController:
             "freeze_gate": {
                 "window": self.freeze_total_cycles,
                 "required_win_rate": self.freeze_profit_required / max(self.freeze_total_cycles, 1),
-                "required_avg_return": 0.0,
-                "required_avg_sharpe": 0.8,
-                "required_avg_max_drawdown": 15.0,
-                "required_benchmark_pass_rate": 0.60,
+                "required_avg_return": float(self.freeze_gate_policy.get("avg_return_gt", 0.0) or 0.0),
+                "required_avg_sharpe": float(self.freeze_gate_policy.get("avg_sharpe_gte", 0.8) or 0.8),
+                "required_avg_max_drawdown": float(self.freeze_gate_policy.get("avg_max_drawdown_lt", 15.0) or 15.0),
+                "required_benchmark_pass_rate": float(self.freeze_gate_policy.get("benchmark_pass_rate_gte", 0.60) or 0.60),
             },
         }
 
@@ -1489,6 +1687,18 @@ class SelfLearningController:
                 return value.item()
             return value
 
+        scoring_changed_keys = []
+        scoring_mutation_count = 0
+        for event in result.optimization_events:
+            applied = dict(event.get("applied_change") or {})
+            scoring = dict(applied.get("scoring") or {})
+            if scoring:
+                scoring_mutation_count += 1
+                for section_name, section_values in scoring.items():
+                    if isinstance(section_values, dict):
+                        for key in section_values.keys():
+                            scoring_changed_keys.append(f"{section_name}.{key}")
+
         data = {
             "cycle_id": result.cycle_id,
             "cutoff_date": result.cutoff_date,
@@ -1499,6 +1709,7 @@ class SelfLearningController:
             "is_profit": _bool(result.is_profit),
             "params": result.params,
             "trade_count": len(result.trade_history),
+            "trades": _jsonable(result.trade_history),
             "analysis": result.analysis,
             "data_mode": result.data_mode,
             "selection_mode": result.selection_mode,
@@ -1509,6 +1720,11 @@ class SelfLearningController:
             "config_snapshot_path": result.config_snapshot_path,
             "optimization_events": _jsonable(result.optimization_events),
             "audit_tags": _jsonable({k: _bool(v) if isinstance(v, (bool, np.bool_)) else v for k, v in result.audit_tags.items()}),
+            "model_name": result.model_name,
+            "config_name": result.config_name,
+            "allocation_plan": _jsonable(getattr(self, "last_allocation_plan", {}) or {}),
+            "scoring_mutation_count": scoring_mutation_count,
+            "scoring_changed_keys": sorted(set(scoring_changed_keys)),
         }
         snapshot = next((s for s in self.assessment_history if s.cycle_id == result.cycle_id), None)
         if snapshot:
@@ -1522,6 +1738,11 @@ class SelfLearningController:
             }
         with open(path, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
+        leaderboard_root = self.output_dir.parent
+        try:
+            write_leaderboard(leaderboard_root)
+        except Exception:
+            logger.debug("leaderboard update failed", exc_info=True)
 
 
 # ============================================================
@@ -1546,6 +1767,9 @@ def train_main():
     parser.add_argument("--freeze-n",  type=int,  default=10,    help="固化评估窗口大小")
     parser.add_argument("--freeze-m",  type=int,  default=7,     help="固化要求最低盈利次数")
     parser.add_argument("--log-level", type=str,  default="INFO", help="日志级别")
+    parser.add_argument("--use-allocator", action="store_true", help="启用 market regime allocator")
+    parser.add_argument("--allocator-top-n", type=int, default=None, help="allocator 参与分配的前 N 个模型")
+    parser.add_argument("--force-full-cycles", action="store_true", help="即使达到冻结条件也继续跑满 cycles")
 
     args = parser.parse_args()
 
@@ -1555,6 +1779,12 @@ def train_main():
     )
 
     logger.info(f"训练参数: cycles={args.cycles}, mock={args.mock}")
+    if args.use_allocator:
+        config.allocator_enabled = True
+    if args.allocator_top_n is not None:
+        config.allocator_top_n = max(1, int(args.allocator_top_n))
+    if args.force_full_cycles:
+        config.stop_on_freeze = False
 
     runtime_paths = RuntimePathConfigService(project_root=PROJECT_ROOT).get_payload()
     output_dir = args.output or runtime_paths["training_output_dir"]

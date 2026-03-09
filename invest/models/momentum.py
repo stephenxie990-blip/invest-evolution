@@ -30,14 +30,13 @@ class MomentumModel(InvestmentModel):
         params = self.effective_params()
         market_stats = compute_market_stats(stock_data, cutoff_date)
         regime = self._resolve_regime(market_stats)
-        stock_codes = list(stock_data.keys())[: int(params.get("candidate_pool_size", 100))]
+        stock_codes = list(stock_data.keys())[: int(self.param("candidate_pool_size"))]
         stock_summaries = summarize_stocks(stock_data, stock_codes, cutoff_date)
-        top_n = max(1, int(params.get("top_n", 5)))
-        max_positions = max(1, int(params.get("max_positions", min(5, top_n))))
-        risk = dict(self.config.data.get("risk", {}))
-        stop_loss = float(params.get("stop_loss_pct", risk.get("stop_loss_pct", 0.05)))
-        take_profit = float(params.get("take_profit_pct", risk.get("take_profit_pct", 0.15)))
-        trailing_pct = params.get("trailing_pct", risk.get("trailing_pct", 0.10))
+        top_n = max(1, int(self.param("top_n")))
+        max_positions = max(1, int(self.param("max_positions", min(5, top_n))))
+        stop_loss = float(self.risk_param("stop_loss_pct"))
+        take_profit = float(self.risk_param("take_profit_pct"))
+        trailing_pct = self.risk_param("trailing_pct")
         selected = stock_summaries[:top_n]
         signals = []
         for idx, item in enumerate(selected, start=1):
@@ -67,7 +66,7 @@ class MomentumModel(InvestmentModel):
                 )
             )
 
-        cash_reserve = float(params.get("cash_reserve", self.config.data.get("cash_reserve", 0.2)))
+        cash_reserve = float(self.param("cash_reserve"))
         return SignalPacket(
             as_of_date=cutoff_date,
             model_name=self.model_name,

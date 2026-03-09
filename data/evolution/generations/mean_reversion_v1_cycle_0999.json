@@ -1,0 +1,40 @@
+{
+  "parent_config": "/Users/zhangsan/Desktop/投资进化系统v1.0/invest/models/configs/mean_reversion_v1.yaml",
+  "output_config": "/Users/zhangsan/Desktop/投资进化系统v1.0/data/evolution/generations/mean_reversion_v1_cycle_0999.yaml",
+  "param_adjustments": {
+    "stop_loss_pct": 3,
+    "take_profit_pct": 7,
+    "position_size": 10,
+    "ma_short": 20,
+    "ma_long": 60
+  },
+  "scoring_adjustments": {
+    "penalties": {
+      "overheat_rsi": 0.18,
+      "high_volatility": 0.1
+    }
+  },
+  "applied_adjustments": {
+    "params": {
+      "stop_loss_pct": 0.1,
+      "take_profit_pct": 0.2,
+      "position_size": 0.25,
+      "ma_short": 20.0,
+      "ma_long": 60.0
+    },
+    "scoring": {
+      "penalties": {
+        "overheat_rsi": 0.18,
+        "high_volatility": 0.1
+      }
+    }
+  },
+  "narrative_adjustments": {
+    "last_trigger": "consecutive_losses"
+  },
+  "generated_at": "2026-03-09T12:40:51.690139",
+  "parent_meta": {
+    "cycle_id": 999,
+    "trigger": "consecutive_losses"
+  }
+}

@@ -192,3 +192,99 @@ def test_train_controller_accepts_injected_artifact_paths(tmp_path: Path):
     assert controller.meeting_recorder.base_dir == meeting_dir
     assert controller.config_service.audit_log_path == audit_log
     assert controller.config_service.snapshot_dir == snapshot_dir
+
+
+def test_quality_audit_uses_snapshot_by_default(tmp_path: Path, monkeypatch):
+    repo = MarketDataRepository(tmp_path / "stock.db")
+    repo.initialize_schema()
+    repo.upsert_security_master([{"code": "sh.600001", "name": "Foo", "list_date": "20200101", "source": "test"}])
+    repo.upsert_daily_bars([{"code": "sh.600001", "trade_date": "20240108", "open": 10, "high": 11, "low": 9, "close": 10.5, "volume": 1000, "amount": 5000, "pct_chg": 0.5, "turnover": 1.2, "source": "test"}])
+
+    svc = DataQualityService(repository=repo)
+    first = svc.audit(force_refresh=True)
+    assert first["healthy"] is True
+
+    def _boom():
+        raise AssertionError("snapshot path should not recompute quality audit")
+
+    monkeypatch.setattr(svc, "_compute_audit_payload", _boom)
+    second = svc.audit()
+    assert second["healthy"] is True
+
+
+def test_quality_audit_force_refresh_bypasses_snapshot(tmp_path: Path, monkeypatch):
+    repo = MarketDataRepository(tmp_path / "stock.db")
+    repo.initialize_schema()
+    svc = DataQualityService(repository=repo)
+    called = {"count": 0}
+
+    def _fake_compute():
+        called["count"] += 1
+        return {
+            "status": {"stock_count": 0, "kline_count": 0, "latest_date": ""},
+            "date_range": {"min": None, "max": None},
+            "index_date_range": {"min": None, "max": None},
+            "meta": {},
+            "checks": {},
+            "issues": ["daily_bar is empty"],
+            "healthy": False,
+            "health_status": "degraded",
+            "has_data": False,
+        }
+
+    monkeypatch.setattr(svc, "_compute_audit_payload", _fake_compute)
+    svc.audit(force_refresh=True)
+    svc.audit(force_refresh=True)
+    assert called["count"] == 2
+
+
+def test_commander_status_supports_fast_and_slow_modes(tmp_path: Path):
+    cfg = CommanderConfig(
+        workspace=tmp_path / "workspace",
+        strategy_dir=tmp_path / "strategies",
+        state_file=tmp_path / "state" / "state.json",
+        cron_store=tmp_path / "state" / "cron.json",
+        memory_store=tmp_path / "memory" / "memory.jsonl",
+        plugin_dir=tmp_path / "plugins",
+        bridge_inbox=tmp_path / "sessions" / "inbox",
+        bridge_outbox=tmp_path / "sessions" / "outbox",
+        mock_mode=True,
+        autopilot_enabled=False,
+        heartbeat_enabled=False,
+        bridge_enabled=False,
+    )
+    rt = CommanderRuntime(cfg)
+
+    fast = rt.status()
+    slow = rt.status(detail="slow")
+
+    assert fast["detail_mode"] == "fast"
+    assert slow["detail_mode"] == "slow"
+    assert fast["data"]["detail_mode"] == "fast"
+    assert slow["data"]["detail_mode"] == "slow"
+
+
+def test_commander_status_includes_training_lab_summary(tmp_path: Path):
+    cfg = CommanderConfig(
+        workspace=tmp_path / "workspace",
+        strategy_dir=tmp_path / "strategies",
+        state_file=tmp_path / "state" / "state.json",
+        cron_store=tmp_path / "state" / "cron.json",
+        memory_store=tmp_path / "memory" / "memory.jsonl",
+        plugin_dir=tmp_path / "plugins",
+        bridge_inbox=tmp_path / "sessions" / "inbox",
+        bridge_outbox=tmp_path / "sessions" / "outbox",
+        mock_mode=True,
+        autopilot_enabled=False,
+        heartbeat_enabled=False,
+        bridge_enabled=False,
+    )
+    rt = CommanderRuntime(cfg)
+    plan = rt.create_training_plan(rounds=1, mock=True, goal="smoke")
+
+    status = rt.status()
+    assert "training_lab" in status
+    assert status["training_lab"]["plan_count"] >= 1
+    assert status["training_lab"]["latest_plans"][0]["plan_id"] == plan["plan_id"]
+    assert status["training_lab"]["latest_runs"] == []
+    assert status["training_lab"]["latest_evaluations"] == []

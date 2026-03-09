@@ -28,6 +28,13 @@ class TradeRecordContract:
     reason: str
     pnl: float = 0.0
     pnl_pct: float = 0.0
+    source: str = ""
+    entry_reason: str = ""
+    exit_reason: str = ""
+    exit_trigger: str = ""
+    entry_date: str = ""
+    entry_price: float = 0.0
+    holding_days: int = 0
     metadata: Dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> Dict[str, Any]:

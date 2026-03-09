@@ -1684,10 +1684,51 @@ tr:hover td { background: rgba(99, 102, 241, 0.04); }
             <div class="metric-value" id="ds-klines">--</div>
           </div>
           <div class="metric-card">
+            <div class="metric-label">资金流条数</div>
+            <div class="metric-value" id="ds-capital-flow">--</div>
+          </div>
+          <div class="metric-card">
+            <div class="metric-label">龙虎榜条数</div>
+            <div class="metric-value" id="ds-dragon-tiger">--</div>
+          </div>
+          <div class="metric-card">
+            <div class="metric-label">60分钟线条数</div>
+            <div class="metric-value" id="ds-intraday-60m">--</div>
+          </div>
+          <div class="metric-card">
             <div class="metric-label">最新交易日</div>
             <div class="metric-value green" id="ds-latest" style="font-size:20px;margin-top:12px">--</div>
           </div>
         </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">扩展数据查询</div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px">
+          <div class="form-group">
+            <label class="form-label">股票代码（逗号分隔）</label>
+            <input class="input" id="dq-codes" placeholder="sh.600000,sz.000001">
+          </div>
+          <div class="form-group">
+            <label class="form-label">开始日期</label>
+            <input class="input" id="dq-start" placeholder="20240101">
+          </div>
+          <div class="form-group">
+            <label class="form-label">结束日期</label>
+            <input class="input" id="dq-end" placeholder="20240131">
+          </div>
+          <div class="form-group">
+            <label class="form-label">返回条数</label>
+            <input class="input" id="dq-limit" type="number" min="1" step="1" value="50">
+          </div>
+        </div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:14px">
+          <button class="btn btn-secondary btn-sm" onclick="queryCapitalFlowData()">查询资金流</button>
+          <button class="btn btn-secondary btn-sm" onclick="queryDragonTigerData()">查询龙虎榜</button>
+          <button class="btn btn-secondary btn-sm" onclick="queryIntraday60mData()">查询60分钟线</button>
+        </div>
+        <div id="data-query-summary" style="margin-top:12px;font-size:12px;color:var(--text-muted)">尚未查询</div>
+        <div id="data-query-result" class="train-result" style="margin-top:12px;max-height:360px;overflow:auto">请选择一个扩展数据接口开始查询。</div>
       </div>
 
       <div class="card">
@@ -1952,9 +1993,10 @@ const AGENT_NAMES = {
   'EvolutionOptimizer': { name: '优化引擎', icon: '⚡' },
   'Strategist': { name: '策略分析师', icon: '🧠' },
   'EvoJudge': { name: '进化裁判', icon: '⚖️' },
-  'Commander': { name: '指挥官', icon: '🎖️' },
+  'ReviewDecision': { name: '复盘决策综合员', icon: '🧭' },
+  'Commander': { name: '总指挥官', icon: '🎖️' },
 };
-const AGENT_ORDER = ['System', 'DataLoader', 'MarketRegime', 'SelectionMeeting', 'TrendHunter', 'Contrarian', 'SimulatedTrader', 'ReviewMeeting', 'Strategist', 'EvoJudge', 'Commander', 'EvolutionOptimizer'];
+const AGENT_ORDER = ['System', 'DataLoader', 'MarketRegime', 'SelectionMeeting', 'TrendHunter', 'Contrarian', 'SimulatedTrader', 'ReviewMeeting', 'Strategist', 'EvoJudge', 'ReviewDecision', 'EvolutionOptimizer'];
 
 function getAgentInfo(agent) {
   return AGENT_NAMES[agent] || { name: agent, icon: '🤖' };
@@ -2499,6 +2541,7 @@ function wbResolveObjectId(eventType, data) {
     EvolutionOptimizer: 'commander',
     Strategist: 'llm',
     EvoJudge: 'llm',
+    ReviewDecision: 'llm',
     Commander: 'commander',
   };
   return map[data.agent || data.speaker] || 'commander';
@@ -3595,7 +3638,62 @@ async function loadDataStatus() {
   document.getElementById('ds-size').textContent = (data.size_mb || 0).toFixed(2) + ' MB';
   document.getElementById('ds-stocks').textContent = (data.stock_count || 0).toLocaleString();
   document.getElementById('ds-klines').textContent = (data.kline_count || 0).toLocaleString();
+  document.getElementById('ds-capital-flow').textContent = (data.capital_flow_count || 0).toLocaleString();
+  document.getElementById('ds-dragon-tiger').textContent = (data.dragon_tiger_count || 0).toLocaleString();
+  document.getElementById('ds-intraday-60m').textContent = (data.intraday_60m_count || 0).toLocaleString();
   document.getElementById('ds-latest').textContent = data.latest_date || '无';
+}
+
+function buildDataQueryParams() {
+  const params = new URLSearchParams();
+  const codes = document.getElementById('dq-codes')?.value?.trim();
+  const start = document.getElementById('dq-start')?.value?.trim();
+  const end = document.getElementById('dq-end')?.value?.trim();
+  const limit = parseInt(document.getElementById('dq-limit')?.value || '50', 10) || 50;
+  if (codes) params.set('codes', codes);
+  if (start) params.set('start', start);
+  if (end) params.set('end', end);
+  params.set('limit', String(limit));
+  return params;
+}
+
+function renderDataQueryResult(title, payload) {
+  const summary = document.getElementById('data-query-summary');
+  const result = document.getElementById('data-query-result');
+  if (!summary || !result) return;
+  const items = Array.isArray(payload.items) ? payload.items : [];
+  summary.textContent = `${title}：返回 ${payload.count || 0} 条`;
+  if (!items.length) {
+    result.innerHTML = '<div style="color:var(--text-muted)">没有查到数据。</div>';
+    return;
+  }
+  const columns = Object.keys(items[0]).slice(0, 8);
+  const thead = columns.map(col => `<th style="text-align:left;padding:8px;border-bottom:1px solid var(--border)">${escapeHtml(col)}</th>`).join('');
+  const tbody = items.map(row => `<tr>${columns.map(col => `<td style="padding:8px;border-bottom:1px solid var(--border);vertical-align:top">${escapeHtml(row[col] == null ? '' : String(row[col]))}</td>`).join('')}</tr>`).join('');
+  result.innerHTML = `<table style="width:100%;border-collapse:collapse;font-size:12px"><thead><tr>${thead}</tr></thead><tbody>${tbody}</tbody></table>`;
+}
+
+async function queryExtendedData(title, endpoint) {
+  const params = buildDataQueryParams();
+  const payload = await api(`${endpoint}?${params.toString()}`);
+  if (payload.error) {
+    document.getElementById('data-query-summary').textContent = `${title}：查询失败`;
+    document.getElementById('data-query-result').textContent = payload.error || 'Unknown Error';
+    return;
+  }
+  renderDataQueryResult(title, payload);
+}
+
+async function queryCapitalFlowData() {
+  await queryExtendedData('资金流', '/api/data/capital_flow');
+}
+
+async function queryDragonTigerData() {
+  await queryExtendedData('龙虎榜', '/api/data/dragon_tiger');
+}
+
+async function queryIntraday60mData() {
+  await queryExtendedData('60分钟线', '/api/data/intraday_60m');
 }
 
 async function downloadData() {

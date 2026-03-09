@@ -27,6 +27,7 @@ class EvaluationResult:
         return asdict(self)
 
 
+
 class StrategyEvaluator:
     """
     策略评估器
@@ -34,12 +35,51 @@ class StrategyEvaluator:
     三维度评分：
     - 信号准确率（0~1）= 盈利交易 / 总交易
     - 时机评分（0~1）  = 1 - 最大回撤
-    - 风控评分（0~1）  = (止损+止盈次数) / 总交易 + 基础分0.3
-    综合评分 = 0.3×信号 + 0.3×时机 + 0.4×风控
+    - 风控评分（0~1）  = (止损+止盈次数) / 总交易 + 配置基础分
+    综合评分 = 模型配置中的三类权重加权
     """
 
-    def __init__(self):
+    DEFAULT_POLICY = {
+        "weights": {
+            "signal_accuracy": 0.30,
+            "timing": 0.30,
+            "risk_control": 0.40,
+        },
+        "defaults": {
+            "empty_signal_score": 0.50,
+            "empty_timing_score": 0.50,
+            "empty_risk_score": 0.50,
+            "risk_control_base_score": 0.30,
+        },
+        "thresholds": {
+            "signal_accuracy_low": 0.40,
+            "timing_low": 0.40,
+            "risk_control_low": 0.40,
+            "win_rate_low": 0.40,
+            "win_rate_high": 0.60,
+            "high_trade_count": 20,
+        },
+    }
+
+    def __init__(self, policy: Optional[Dict] = None):
         self.evaluation_history: List[EvaluationResult] = []
+        self.policy: Dict = {}
+        self.set_policy(policy)
+
+    def set_policy(self, policy: Optional[Dict] = None) -> None:
+        merged = {
+            "weights": dict(self.DEFAULT_POLICY["weights"]),
+            "defaults": dict(self.DEFAULT_POLICY["defaults"]),
+            "thresholds": dict(self.DEFAULT_POLICY["thresholds"]),
+        }
+        for key, value in (policy or {}).items():
+            if isinstance(value, dict) and key in merged:
+                nested = dict(merged[key])
+                nested.update(value)
+                merged[key] = nested
+            else:
+                merged[key] = value
+        self.policy = merged
 
     def evaluate(
         self,
@@ -58,32 +98,33 @@ class StrategyEvaluator:
         Returns:
             EvaluationResult
         """
-        cycle_id   = cycle_result.get("cycle_id", 0)
+        cycle_id = cycle_result.get("cycle_id", 0)
         return_pct = cycle_result.get("return_pct", 0.0)
         profit_loss = cycle_result.get("profit_loss", 0.0)
-        is_profit   = return_pct > 0
+        is_profit = return_pct > 0
 
         logger.info(f"评估周期 #{cycle_id}: 收益率 {return_pct:.2f}%")
 
         signal_accuracy = self._evaluate_signal_accuracy(trade_history)
-        timing_score    = self._evaluate_timing(daily_records)
-        risk_score      = self._evaluate_risk_control(trade_history)
+        timing_score = self._evaluate_timing(daily_records)
+        risk_score = self._evaluate_risk_control(trade_history)
 
+        weights = self.policy["weights"]
         overall_score = (
-            signal_accuracy * 0.30 +
-            timing_score    * 0.30 +
-            risk_score      * 0.40
+            signal_accuracy * float(weights.get("signal_accuracy", 0.30))
+            + timing_score * float(weights.get("timing", 0.30))
+            + risk_score * float(weights.get("risk_control", 0.40))
         )
 
         analysis = {
-            "signal_accuracy":    signal_accuracy,
-            "timing_score":       timing_score,
+            "signal_accuracy": signal_accuracy,
+            "timing_score": timing_score,
             "risk_control_score": risk_score,
-            "total_trades":       cycle_result.get("total_trades", 0),
-            "winning_trades":     cycle_result.get("winning_trades", 0),
-            "losing_trades":      cycle_result.get("losing_trades", 0),
-            "win_rate":           cycle_result.get("win_rate", 0.0),
-            "selected_stocks":    cycle_result.get("selected_stocks", []),
+            "total_trades": cycle_result.get("total_trades", 0),
+            "winning_trades": cycle_result.get("winning_trades", 0),
+            "losing_trades": cycle_result.get("losing_trades", 0),
+            "win_rate": cycle_result.get("win_rate", 0.0),
+            "selected_stocks": cycle_result.get("selected_stocks", []),
         }
 
         suggestions = self._generate_suggestions(
@@ -111,15 +152,17 @@ class StrategyEvaluator:
         return result
 
     def _evaluate_signal_accuracy(self, trade_history: Optional[List[Dict]]) -> float:
+        default_score = float(self.policy["defaults"].get("empty_signal_score", 0.50))
         if not trade_history:
-            return 0.5
+            return default_score
         winning = sum(1 for t in trade_history if t.get("pnl", 0) > 0)
-        total   = len(trade_history)
-        return winning / total if total > 0 else 0.5
+        total = len(trade_history)
+        return winning / total if total > 0 else default_score
 
     def _evaluate_timing(self, daily_records: Optional[List[Dict]]) -> float:
+        default_score = float(self.policy["defaults"].get("empty_timing_score", 0.50))
         if not daily_records:
-            return 0.5
+            return default_score
         peak = 0.0
         max_drawdown = 0.0
         for rec in daily_records:
@@ -133,14 +176,17 @@ class StrategyEvaluator:
         return max(0.0, min(1.0, 1.0 - max_drawdown))
 
     def _evaluate_risk_control(self, trade_history: Optional[List[Dict]]) -> float:
+        defaults = self.policy["defaults"]
+        default_score = float(defaults.get("empty_risk_score", 0.50))
+        base_score = float(defaults.get("risk_control_base_score", 0.30))
         if not trade_history:
-            return 0.5
+            return default_score
         sl_tp = sum(
             1 for t in trade_history
             if "止损" in t.get("reason", "") or "止盈" in t.get("reason", "")
         )
         total = len(trade_history)
-        return min(1.0, sl_tp / total + 0.3) if total > 0 else 0.5
+        return min(1.0, sl_tp / total + base_score) if total > 0 else default_score
 
     def _generate_suggestions(
         self,
@@ -150,21 +196,22 @@ class StrategyEvaluator:
         risk_score: float,
         analysis: Dict,
     ) -> List[str]:
+        thresholds = self.policy["thresholds"]
         suggestions = []
-        if signal_accuracy < 0.4:
+        if signal_accuracy < float(thresholds.get("signal_accuracy_low", 0.40)):
             suggestions.append("信号准确率低，建议优化选股策略参数")
-        if timing_score < 0.4:
+        if timing_score < float(thresholds.get("timing_low", 0.40)):
             suggestions.append("买入时机不佳，建议增加趋势确认条件")
-        if risk_score < 0.4:
+        if risk_score < float(thresholds.get("risk_control_low", 0.40)):
             suggestions.append("风控执行不足，建议严格执行止损纪律")
 
         if not is_profit:
-            if analysis.get("win_rate", 0) < 0.4:
+            if analysis.get("win_rate", 0) < float(thresholds.get("win_rate_low", 0.40)):
                 suggestions.append("胜率低，建议降低交易频率或调整止损幅度")
-            if analysis.get("total_trades", 0) > 20:
+            if analysis.get("total_trades", 0) > int(thresholds.get("high_trade_count", 20)):
                 suggestions.append("交易过于频繁，建议减少无效交易")
             suggestions.append("当前周期亏损，建议降低仓位或暂停交易")
-        elif analysis.get("win_rate", 0) > 0.6:
+        elif analysis.get("win_rate", 0) > float(thresholds.get("win_rate_high", 0.60)):
             suggestions.append("策略表现良好，可考虑适当增加仓位")
 
         if not suggestions:
@@ -175,17 +222,17 @@ class StrategyEvaluator:
         """汇总分析连续多个周期"""
         if not cycle_results:
             return {"status": "no_data"}
-        n      = len(cycle_results)
-        rets   = [r.get("return_pct", 0) for r in cycle_results]
+        n = len(cycle_results)
+        rets = [r.get("return_pct", 0) for r in cycle_results]
         profits = sum(1 for r in rets if r > 0)
         return {
-            "total_cycles":       n,
-            "profit_count":       profits,
-            "loss_count":         n - profits,
-            "profit_rate":        profits / n,
-            "avg_return":         sum(rets) / n,
+            "total_cycles": n,
+            "profit_count": profits,
+            "loss_count": n - profits,
+            "profit_rate": profits / n,
+            "avg_return": sum(rets) / n,
             "consecutive_profit": self._count_consecutive(cycle_results, positive=True),
-            "consecutive_loss":   self._count_consecutive(cycle_results, positive=False),
+            "consecutive_loss": self._count_consecutive(cycle_results, positive=False),
         }
 
     def _count_consecutive(self, results: List[Dict], positive: bool) -> int:
@@ -252,8 +299,8 @@ class PerformanceAnalyzer:
     和   BenchmarkEvaluator（Sharpe/Calmar/回撤）
     """
 
-    def __init__(self, risk_free_rate: float = 0.03):
-        self.strategy_evaluator  = StrategyEvaluator()
+    def __init__(self, risk_free_rate: float = 0.03, strategy_policy: Optional[Dict] = None):
+        self.strategy_evaluator  = StrategyEvaluator(policy=strategy_policy)
         self.benchmark_evaluator = BenchmarkEvaluator(risk_free_rate)
         self.history: List[Dict] = []
 

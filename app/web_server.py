@@ -25,6 +25,8 @@ from typing import Any
 from flask import Flask, jsonify, request, send_from_directory, Response, stream_with_context
 
 from app.commander import CommanderConfig, CommanderRuntime, _apply_runtime_path_overrides
+from invest.allocator import build_allocation_plan
+from invest.leaderboard import write_leaderboard
 from invest.models import list_models
 from app.train import set_event_callback
 from config.services import EvolutionConfigService, RuntimePathConfigService
@@ -162,6 +164,15 @@ def _runtime_not_ready_response():
     }), 503
 
 
+def _parse_limit_arg(default: int = 20, maximum: int = 200) -> int:
+    raw = request.args.get("limit", default)
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        raise ValueError("limit must be an integer")
+    return max(1, min(maximum, value))
+
+
 # ---------------------------------------------------------------------------
 # Flask app
 # ---------------------------------------------------------------------------
@@ -185,7 +196,30 @@ def api_status():
     runtime = _runtime
     if runtime is None:
         return _runtime_not_ready_response()
-    return jsonify(runtime.status())
+    detail = str(request.args.get("detail", "fast") or "fast").strip().lower()
+    return jsonify(runtime.status(detail=detail))
+
+
+@app.route("/api/lab/status/quick")
+def api_lab_status_quick():
+    runtime = _runtime
+    if runtime is None:
+        return _runtime_not_ready_response()
+    return jsonify({
+        "mode": "quick",
+        "snapshot": runtime.status(detail="fast"),
+    })
+
+
+@app.route("/api/lab/status/deep")
+def api_lab_status_deep():
+    runtime = _runtime
+    if runtime is None:
+        return _runtime_not_ready_response()
+    return jsonify({
+        "mode": "deep",
+        "snapshot": runtime.status(detail="slow"),
+    })
 
 
 # ---- SSE (Server-Sent Events) ----
@@ -274,6 +308,132 @@ def api_train():
         return jsonify({"error": str(exc)}), 500
 
 
+# ---- Training Lab ----
+
+@app.route("/api/lab/training/plans", methods=["POST"])
+def api_training_plan_create():
+    runtime = _runtime
+    if runtime is None:
+        return _runtime_not_ready_response()
+
+    data = request.get_json(force=True) or {}
+    try:
+        rounds = max(1, min(100, int(data.get("rounds", 1))))
+    except (TypeError, ValueError):
+        return jsonify({"error": "rounds must be an integer"}), 400
+    try:
+        mock = _parse_bool(data.get("mock", False), "mock")
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+
+    detail_mode = str(data.get("detail_mode", "fast") or "fast").strip().lower()
+    if detail_mode not in {"fast", "slow"}:
+        return jsonify({"error": "detail_mode must be one of: fast, slow"}), 400
+
+    raw_tags = data.get("tags", [])
+    if isinstance(raw_tags, str):
+        tags = [part.strip() for part in raw_tags.split(",") if part.strip()]
+    elif isinstance(raw_tags, list):
+        tags = [str(part).strip() for part in raw_tags if str(part).strip()]
+    else:
+        return jsonify({"error": "tags must be a list of strings or a comma-separated string"}), 400
+
+    plan = runtime.create_training_plan(
+        rounds=rounds,
+        mock=mock,
+        goal=str(data.get("goal", "") or ""),
+        notes=str(data.get("notes", "") or ""),
+        tags=tags,
+        detail_mode=detail_mode,
+        source="api",
+    )
+    return jsonify(plan), 201
+
+
+@app.route("/api/lab/training/plans")
+def api_training_plan_list():
+    runtime = _runtime
+    if runtime is None:
+        return _runtime_not_ready_response()
+    try:
+        limit = _parse_limit_arg()
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    return jsonify(runtime.list_training_plans(limit=limit))
+
+
+@app.route("/api/lab/training/plans/<plan_id>")
+def api_training_plan_get(plan_id: str):
+    runtime = _runtime
+    if runtime is None:
+        return _runtime_not_ready_response()
+    try:
+        return jsonify(runtime.get_training_plan(plan_id))
+    except FileNotFoundError as exc:
+        return jsonify({"error": str(exc)}), 404
+
+
+@app.route("/api/lab/training/plans/<plan_id>/execute", methods=["POST"])
+def api_training_plan_execute(plan_id: str):
+    runtime = _runtime
+    if runtime is None or _loop is None:
+        return _runtime_not_ready_response()
+    try:
+        payload = _run_async(runtime.execute_training_plan(plan_id))
+        return jsonify(payload)
+    except FileNotFoundError as exc:
+        return jsonify({"error": str(exc)}), 404
+    except Exception as exc:
+        logger.exception("Training plan execution error")
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.route("/api/lab/training/runs")
+def api_training_run_list():
+    runtime = _runtime
+    if runtime is None:
+        return _runtime_not_ready_response()
+    try:
+        limit = _parse_limit_arg()
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    return jsonify(runtime.list_training_runs(limit=limit))
+
+
+@app.route("/api/lab/training/runs/<run_id>")
+def api_training_run_get(run_id: str):
+    runtime = _runtime
+    if runtime is None:
+        return _runtime_not_ready_response()
+    try:
+        return jsonify(runtime.get_training_run(run_id))
+    except FileNotFoundError as exc:
+        return jsonify({"error": str(exc)}), 404
+
+
+@app.route("/api/lab/training/evaluations")
+def api_training_evaluation_list():
+    runtime = _runtime
+    if runtime is None:
+        return _runtime_not_ready_response()
+    try:
+        limit = _parse_limit_arg()
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    return jsonify(runtime.list_training_evaluations(limit=limit))
+
+
+@app.route("/api/lab/training/evaluations/<run_id>")
+def api_training_evaluation_get(run_id: str):
+    runtime = _runtime
+    if runtime is None:
+        return _runtime_not_ready_response()
+    try:
+        return jsonify(runtime.get_training_evaluation(run_id))
+    except FileNotFoundError as exc:
+        return jsonify({"error": str(exc)}), 404
+
+
 # ---- Investment Models ----
 
 @app.route("/api/investment-models")
@@ -286,6 +446,36 @@ def api_investment_models():
         "items": list_models(),
         "active_model": getattr(controller, "model_name", "momentum"),
         "active_config": getattr(controller, "model_config_path", ""),
+    })
+
+
+@app.route("/api/leaderboard")
+def api_leaderboard():
+    runtime = _runtime
+    if runtime is None:
+        return _runtime_not_ready_response()
+    root_dir = Path(runtime.cfg.training_output_dir).parent
+    return jsonify(write_leaderboard(root_dir))
+
+
+@app.route("/api/allocator")
+def api_allocator():
+    runtime = _runtime
+    if runtime is None:
+        return _runtime_not_ready_response()
+    regime = str(request.args.get("regime", "oscillation") or "oscillation").strip().lower()
+    root_dir = Path(runtime.cfg.training_output_dir).parent
+    leaderboard = write_leaderboard(root_dir)
+    leaderboard_path = root_dir / "leaderboard.json"
+    plan = build_allocation_plan(
+        regime,
+        leaderboard_path,
+        as_of_date=datetime.now().strftime("%Y%m%d"),
+        top_n=max(1, min(4, int(request.args.get("top_n", 3) or 3))),
+    )
+    return jsonify({
+        "leaderboard_generated_at": leaderboard.get("generated_at"),
+        "allocation": plan.to_dict(),
     })
 
 
@@ -737,8 +927,57 @@ def api_evolution_config_update():
 def api_data_status():
     from market_data.datasets import WebDatasetService
 
-    status = WebDatasetService().get_status_summary()
+    refresh = _parse_bool(request.args.get("refresh", False), "refresh")
+    status = WebDatasetService().get_status_summary(refresh=refresh)
     return jsonify(status)
+
+@app.route("/api/data/capital_flow", methods=["GET"])
+def api_data_capital_flow():
+    from market_data.datasets import WebDatasetService
+
+    codes_param = str(request.args.get("codes", "") or "").strip()
+    codes = [item.strip() for item in codes_param.split(",") if item.strip()] or None
+    start_date = request.args.get("start")
+    end_date = request.args.get("end")
+    limit = _parse_limit_arg(default=200, maximum=5000)
+
+    frame = WebDatasetService().get_capital_flow(codes=codes, start_date=start_date, end_date=end_date)
+    if not frame.empty:
+        frame = frame.head(limit)
+    return jsonify({"count": int(len(frame)), "items": frame.to_dict(orient="records")})
+
+
+@app.route("/api/data/dragon_tiger", methods=["GET"])
+def api_data_dragon_tiger():
+    from market_data.datasets import WebDatasetService
+
+    codes_param = str(request.args.get("codes", "") or "").strip()
+    codes = [item.strip() for item in codes_param.split(",") if item.strip()] or None
+    start_date = request.args.get("start")
+    end_date = request.args.get("end")
+    limit = _parse_limit_arg(default=200, maximum=5000)
+
+    frame = WebDatasetService().get_dragon_tiger_events(codes=codes, start_date=start_date, end_date=end_date)
+    if not frame.empty:
+        frame = frame.head(limit)
+    return jsonify({"count": int(len(frame)), "items": frame.to_dict(orient="records")})
+
+
+@app.route("/api/data/intraday_60m", methods=["GET"])
+def api_data_intraday_60m():
+    from market_data.datasets import WebDatasetService
+
+    codes_param = str(request.args.get("codes", "") or "").strip()
+    codes = [item.strip() for item in codes_param.split(",") if item.strip()] or None
+    start_date = request.args.get("start")
+    end_date = request.args.get("end")
+    limit = _parse_limit_arg(default=500, maximum=10000)
+
+    frame = WebDatasetService().get_intraday_60m_bars(codes=codes, start_date=start_date, end_date=end_date)
+    if not frame.empty:
+        frame = frame.head(limit)
+    return jsonify({"count": int(len(frame)), "items": frame.to_dict(orient="records")})
+
 
 @app.route("/api/data/download", methods=["POST"])
 def api_data_download():

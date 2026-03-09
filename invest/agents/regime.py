@@ -36,30 +36,7 @@ _MARKET_REGIME_SYSTEM_PROMPT = """你是一个专业的A股市场分析师。
     "reasoning": "一句话说明判断依据"
 }"""
 
-# 三种市场状态对应的交易参数
-REGIME_PARAMS = {
-    "bull": {
-        "top_n": 8,
-        "max_positions": 5,
-        "position_size": 0.20,
-        "stop_loss_pct": 0.07,
-        "take_profit_pct": 0.20,
-    },
-    "oscillation": {
-        "top_n": 6,
-        "max_positions": 4,
-        "position_size": 0.20,
-        "stop_loss_pct": 0.05,
-        "take_profit_pct": 0.15,
-    },
-    "bear": {
-        "top_n": 3,
-        "max_positions": 2,
-        "position_size": 0.15,
-        "stop_loss_pct": 0.03,
-        "take_profit_pct": 0.10,
-    },
-}
+
 
 
 class MarketRegimeAgent(InvestAgent):
@@ -67,7 +44,7 @@ class MarketRegimeAgent(InvestAgent):
     市场分析师
 
     判断当前市场处于牛市/熊市/震荡市
-    输出影响后续选股数量、仓位大小、止损止盈参数
+    输出市场状态审计结论，不携带策略参数。
     两种模式：analyze()（LLM）/ _fallback_analysis()（纯算法兜底）
     """
 
@@ -84,7 +61,7 @@ class MarketRegimeAgent(InvestAgent):
         return self.analyze(perception)
 
     def act(self, reasoning: dict) -> dict:
-        """行动：返回最终分析结果（含参数）"""
+        """行动：返回最终分析结果（不含交易参数）"""
         return reasoning
 
     def analyze_context(self, agent_context: AgentContext) -> dict:
@@ -101,7 +78,7 @@ class MarketRegimeAgent(InvestAgent):
             market_stats: compute_market_stats() 的输出
 
         Returns:
-            {"regime", "confidence", "suggested_exposure", "reasoning", "source", "params"}
+            {"regime", "confidence", "suggested_exposure", "reasoning", "source"}
         """
         if not self.llm:
             return self._fallback_analysis(market_stats)
@@ -120,7 +97,6 @@ class MarketRegimeAgent(InvestAgent):
 
         result = self._validate(result)
         result["source"] = "llm"
-        result["params"] = REGIME_PARAMS.get(result["regime"], REGIME_PARAMS["oscillation"])
         self._record(result, market_stats)
         return result
 
@@ -134,7 +110,6 @@ class MarketRegimeAgent(InvestAgent):
             "suggested_exposure": exposure_map[regime],
             "reasoning": reasoning,
             "source": "algorithm",
-            "params": REGIME_PARAMS[regime],
         }
         self._record(result, market_stats)
         return result
@@ -224,4 +199,4 @@ class MarketRegimeAgent(InvestAgent):
 # ============================================================
 # Part 3: 趋势猎手 Agent
 
-__all__ = ["MarketRegimeAgent", "REGIME_PARAMS"]
+__all__ = ["MarketRegimeAgent"]

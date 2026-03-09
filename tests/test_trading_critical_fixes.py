@@ -126,3 +126,33 @@ def test_daily_record_reflects_end_of_day_state():
     assert math.isclose(record["cash"], trader.cash, rel_tol=1e-9, abs_tol=1e-9)
     assert math.isclose(record["total_value"], trader.get_total_value(), rel_tol=1e-9, abs_tol=1e-9)
     assert record["trades_today"] >= 1
+
+
+
+def test_trade_history_keeps_entry_and_exit_reasons():
+    data = pd.DataFrame(
+        {
+            "trade_date": ["20240102", "20240103"],
+            "open": [10.0, 9.0],
+            "high": [10.2, 9.2],
+            "low": [9.8, 8.8],
+            "close": [10.0, 9.0],
+            "volume": [1.0, 1.0],
+            "pct_chg": [0.0, -10.0],
+        }
+    )
+
+    trader = SimulatedTrader(enable_risk_control=False, slippage_rate=0.0)
+    trader.set_stock_data({"X": data})
+    assert trader.buy("X", "20240102", 10.0, reason="趋势突破", stop_loss_pct=0.05, take_profit_pct=0.10, source="trend_hunter")
+    trader.hold_days["X"] = 1
+    trader.sell(trader.positions[0], "20240103", 9.0, "止损")
+
+    buy_record = trader.trade_history[0]
+    sell_record = trader.trade_history[1]
+    assert buy_record.entry_reason == "趋势突破"
+    assert buy_record.source == "trend_hunter"
+    assert sell_record.entry_reason == "趋势突破"
+    assert sell_record.exit_reason == "止损"
+    assert sell_record.exit_trigger == "stop_loss"
+    assert sell_record.holding_days == 1

@@ -16,7 +16,7 @@ flowchart TD
         TRE["📈 TrendHunterAgent<br/>(趋势标的发现)"]
         CON["📉 ContrarianAgent<br/>(逆势反转发现)"]
         STRA["💡 StrategistAgent<br/>(宏观策略把控)"]
-        CMD["🚀 CommanderAgent<br/>(总体指挥官)"]
+        CMD["🚀 ReviewDecisionAgent<br/>(总体指挥官)"]
         JUD["🧑‍⚖️ EvoJudgeAgent<br/>(进化与裁决评判)"]
     end
 

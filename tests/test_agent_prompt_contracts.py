@@ -9,6 +9,7 @@ def test_invest_agent_prompts_include_examples_and_negative_constraints():
         'TrendHunter',
         'Contrarian',
         'Strategist',
+        'ReviewDecision',
         'Commander',
         'EvoJudge',
     ]

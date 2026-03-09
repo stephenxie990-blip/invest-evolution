@@ -100,8 +100,12 @@ class LLMOptimizer:
 
     def _parse_response(self, response: str, cycle_result: Dict) -> AnalysisResult:
         data = parse_llm_json_object(response)
-        if data.get("_parse_error"):
-            logger.warning("解析 LLM 响应失败，使用默认分析")
+        has_expected_fields = any(
+            key in data
+            for key in ("cause", "suggestions", "strategy_adjustments", "new_strategy_needed")
+        )
+        if data.get("_parse_error") or data.get("dry_run") is True or not has_expected_fields:
+            logger.warning("解析 LLM 响应失败或为空占位，使用默认分析")
             return self._default_analysis(cycle_result)
         return AnalysisResult(
             cause=data.get("cause", "未知原因"),

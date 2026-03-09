@@ -1,8 +1,8 @@
-from invest.agents.reviewers import CommanderAgent
+from invest.agents.reviewers import ReviewDecisionAgent
 
 
-def test_commander_validate_allows_null_trailing_pct():
-    agent = CommanderAgent(llm_caller=False)
+def test_review_decision_validate_allows_null_trailing_pct():
+    agent = ReviewDecisionAgent(llm_caller=False)
     result = {
         "positions": [
             {

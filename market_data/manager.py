@@ -9,15 +9,20 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Dict, Optional, Protocol
 
+import sqlite3
+
 import numpy as np
 import pandas as pd
 
 from config import PROJECT_ROOT, config, normalize_date
-from .datasets import T0DatasetBuilder, TrainingDatasetBuilder
+from .datasets import CapitalFlowDatasetService, EventDatasetService, IntradayDatasetBuilder, T0DatasetBuilder, TrainingDatasetBuilder, WebDatasetService
 from .ingestion import DataIngestionService
 from .quality import DataQualityService
 
 logger = logging.getLogger(__name__)
+
+
+_DEFAULT_QUALITY_CACHE_TTL_SECONDS = 300
 
 DEFAULT_STOCK_POOL = [
     "sh.600519",
@@ -122,6 +127,7 @@ class DataProvider(Protocol):
         stock_count: int = 50,
         min_history_days: int = 200,
         include_future_days: int = 0,
+        include_capital_flow: bool = False,
     ) -> Dict[str, pd.DataFrame]:
         ...
 
@@ -175,12 +181,61 @@ class MockDataProvider:
             "quality_checks": {},
         }
 
+    def _ensure_point_in_time_derivatives(
+        self,
+        *,
+        cutoff_date: str,
+        stock_count: int,
+        min_history_days: int,
+        include_future_days: int,
+        include_capital_flow: bool = False,
+    ) -> None:
+        repository = self._offline.repository
+        service = DataIngestionService(repository=repository)
+        start_date = normalize_date(cutoff_date)
+        end_date = normalize_date(cutoff_date)
+        if include_future_days > 0:
+            cutoff_dt = datetime.strptime(start_date, "%Y%m%d")
+            end_date = (cutoff_dt + timedelta(days=include_future_days * 2)).strftime("%Y%m%d")
+        history_start = (datetime.strptime(start_date, "%Y%m%d") - timedelta(days=max(120, min_history_days * 2))).strftime("%Y%m%d")
+        codes = repository.select_codes_with_history(cutoff_date, min_history_days, stock_count)
+        if not codes:
+            return
+        service.sync_trading_calendar(start_date=history_start, end_date=end_date)
+        service.sync_security_status_daily(codes=codes, start_date=history_start, end_date=end_date)
+        service.sync_factor_snapshots(codes=codes, start_date=history_start, end_date=end_date)
+        if include_capital_flow:
+            try:
+                service.sync_capital_flow_daily_from_akshare(codes=codes)
+            except Exception as exc:
+                logger.warning("点时资金流增强同步失败: %s", exc)
+
+    def get_benchmark_daily_values(self, trading_dates: list[str], index_code: str = "sh.000300") -> list[float]:
+        if not trading_dates:
+            return []
+        df = self._offline.repository.query_index_bars(index_codes=[index_code], start_date=min(trading_dates), end_date=max(trading_dates))
+        if df.empty:
+            return []
+        frame = df.copy()
+        frame["trade_date"] = frame["trade_date"].astype(str)
+        frame = frame.sort_values("trade_date").drop_duplicates("trade_date", keep="last")
+        frame = frame.set_index("trade_date")
+        closes = frame["close"].astype(float)
+        aligned = closes.reindex(trading_dates).ffill().bfill()
+        return [float(x) for x in aligned.tolist() if x is not None]
+
+    def get_market_index_frame(self, index_code: str = "sh.000300", start_date: str | None = None, end_date: str | None = None) -> pd.DataFrame:
+        if not self._offline.available:
+            return pd.DataFrame()
+        return self._offline.repository.query_index_bars(index_codes=[index_code], start_date=start_date, end_date=end_date)
+
     def load_stock_data(
         self,
         cutoff_date: str,
         stock_count: int = 50,
         min_history_days: int = 200,
         include_future_days: int = 0,
+        include_capital_flow: bool = False,
     ) -> Dict[str, pd.DataFrame]:
         del include_future_days
         selected: Dict[str, pd.DataFrame] = {}
@@ -267,6 +322,12 @@ class DataManager:
     ):
         self._provider = data_provider
         self._offline = TrainingDatasetBuilder(db_path=str(db_path) if db_path else str(_default_db_path()))
+        self._quality_service = DataQualityService(repository=self._offline.repository)
+        self._web = WebDatasetService(repository=self._offline.repository)
+        self._capital_flow = CapitalFlowDatasetService(repository=self._offline.repository)
+        self._events = EventDatasetService(repository=self._offline.repository)
+        self._intraday = IntradayDatasetBuilder(repository=self._offline.repository)
+        self._quality_audit_cache: dict[str, object] = {}
         self._online: Optional[EvolutionDataLoader] = None
         self._prefer_offline = prefer_offline
         self.last_source: str = "unknown"
@@ -274,6 +335,16 @@ class DataManager:
 
         if not self._offline.available:
             logger.info("离线数据库不可用，将使用在线数据源或模拟数据")
+
+    def _get_cached_quality_audit(self) -> dict[str, object]:
+        now_ts = datetime.now().timestamp()
+        cached_at = float(self._quality_audit_cache.get("cached_at", 0.0) or 0.0)
+        payload = self._quality_audit_cache.get("payload")
+        if payload and (now_ts - cached_at) <= _DEFAULT_QUALITY_CACHE_TTL_SECONDS:
+            return dict(payload)
+        payload = self._quality_service.audit()
+        self._quality_audit_cache = {"cached_at": now_ts, "payload": dict(payload)}
+        return dict(payload)
 
     def random_cutoff_date(self, min_date: str = "20180101", max_date: str | None = None) -> str:
         if self._provider is not None:
@@ -295,6 +366,72 @@ class DataManager:
 
         return _random_cutoff_date(min_date, max_date, config.min_history_days)
 
+    def check_training_readiness(
+        self,
+        cutoff_date: str,
+        stock_count: int = 50,
+        min_history_days: int = 200,
+    ) -> dict[str, object]:
+        if self._provider is not None:
+            diagnostics = self._provider.diagnose_training_data(cutoff_date, stock_count, min_history_days)
+            self.last_diagnostics = diagnostics
+            return diagnostics
+
+        cutoff = normalize_date(cutoff_date)
+        target_stock_count = max(1, int(stock_count))
+        eligible_count = self._offline.repository.count_codes_with_history(
+            cutoff_date=cutoff,
+            min_history_days=min_history_days,
+        )
+        date_min, date_max = self._offline.get_available_date_range()
+        index_min, index_max = self._offline.repository.get_index_available_date_range()
+        stock_count_available = self._offline.get_stock_count()
+
+        issues: list[str] = []
+        suggestions: list[str] = []
+        ready = bool(eligible_count > 0)
+
+        if stock_count_available <= 0:
+            issues.append("security_master 为空")
+            suggestions.append("先初始化股票主数据")
+        if not date_max:
+            issues.append("daily_bar 为空")
+            suggestions.append("先下载历史日线")
+            ready = False
+        elif date_max < cutoff:
+            issues.append(f"离线库最新日期 {date_max} 早于训练截断日 {cutoff}")
+            suggestions.append("补齐最近日线，避免截断日超出覆盖范围")
+        if eligible_count <= 0:
+            issues.append(f"截至 {cutoff} 没有股票满足至少 {int(min_history_days)} 个交易日历史")
+            suggestions.append("降低 min_history_days，或把 start 日期调早后重新补数")
+        elif eligible_count < target_stock_count:
+            issues.append(f"满足历史长度要求的股票只有 {eligible_count} 只，低于目标 {target_stock_count} 只")
+            suggestions.append("扩大数据覆盖范围，或临时下调 max_stocks")
+        if not index_max:
+            suggestions.append("建议补齐指数日线，便于 benchmark 评估")
+
+        diagnostics = {
+            "cutoff_date": cutoff,
+            "target_stock_count": target_stock_count,
+            "min_history_days": int(min_history_days),
+            "eligible_stock_count": eligible_count,
+            "ready": ready,
+            "issues": issues,
+            "suggestions": suggestions,
+            "offline_available": self._offline.available,
+            "status": {
+                "stock_count": stock_count_available,
+                "latest_date": date_max or "",
+                "index_latest_date": index_max or "",
+            },
+            "date_range": {"min": date_min, "max": date_max},
+            "index_date_range": {"min": index_min, "max": index_max},
+            "quality_checks": {},
+            "diagnostic_mode": "training_lightweight",
+        }
+        self.last_diagnostics = diagnostics
+        return diagnostics
+
     def diagnose_training_data(
         self,
         cutoff_date: str,
@@ -307,7 +444,7 @@ class DataManager:
             return diagnostics
 
         cutoff = normalize_date(cutoff_date)
-        quality = DataQualityService(repository=self._offline.repository).audit()
+        quality = self._get_cached_quality_audit()
         status = quality["status"]
         date_range = quality["date_range"]
         eligible_count = self._offline.repository.count_codes_with_history(
@@ -335,6 +472,11 @@ class DataManager:
             suggestions.append("补齐最近日线，避免训练截断日超出离线库覆盖范围")
 
         ready = status["kline_count"] > 0 and eligible_count > 0
+        if status.get("financial_count", 0) <= 0:
+            suggestions.append("可选：执行 python3 -m market_data --source akshare --financials 补齐财务快照；如已配置 TUSHARE_TOKEN 也可使用 tushare")
+        if status.get("index_kline_count", 0) <= 0:
+            suggestions.append("先执行 python3 -m market_data --source baostock 补齐指数日线")
+
         diagnostics = {
             "cutoff_date": cutoff,
             "target_stock_count": target_stock_count,
@@ -351,12 +493,61 @@ class DataManager:
         self.last_diagnostics = diagnostics
         return diagnostics
 
+    def _ensure_point_in_time_derivatives(
+        self,
+        *,
+        cutoff_date: str,
+        stock_count: int,
+        min_history_days: int,
+        include_future_days: int,
+        include_capital_flow: bool = False,
+    ) -> None:
+        repository = self._offline.repository
+        service = DataIngestionService(repository=repository)
+        start_date = normalize_date(cutoff_date)
+        end_date = normalize_date(cutoff_date)
+        if include_future_days > 0:
+            cutoff_dt = datetime.strptime(start_date, "%Y%m%d")
+            end_date = (cutoff_dt + timedelta(days=include_future_days * 2)).strftime("%Y%m%d")
+        history_start = (datetime.strptime(start_date, "%Y%m%d") - timedelta(days=max(120, min_history_days * 2))).strftime("%Y%m%d")
+        codes = repository.select_codes_with_history(cutoff_date, min_history_days, stock_count)
+        if not codes:
+            return
+        service.sync_trading_calendar(start_date=history_start, end_date=end_date)
+        service.sync_security_status_daily(codes=codes, start_date=history_start, end_date=end_date)
+        service.sync_factor_snapshots(codes=codes, start_date=history_start, end_date=end_date)
+        if include_capital_flow:
+            try:
+                service.sync_capital_flow_daily_from_akshare(codes=codes)
+            except Exception as exc:
+                logger.warning("点时资金流增强同步失败: %s", exc)
+
+    def get_benchmark_daily_values(self, trading_dates: list[str], index_code: str = "sh.000300") -> list[float]:
+        if not trading_dates:
+            return []
+        df = self._offline.repository.query_index_bars(index_codes=[index_code], start_date=min(trading_dates), end_date=max(trading_dates))
+        if df.empty:
+            return []
+        frame = df.copy()
+        frame["trade_date"] = frame["trade_date"].astype(str)
+        frame = frame.sort_values("trade_date").drop_duplicates("trade_date", keep="last")
+        frame = frame.set_index("trade_date")
+        closes = frame["close"].astype(float)
+        aligned = closes.reindex(trading_dates).ffill().bfill()
+        return [float(x) for x in aligned.tolist() if x is not None]
+
+    def get_market_index_frame(self, index_code: str = "sh.000300", start_date: str | None = None, end_date: str | None = None) -> pd.DataFrame:
+        if not self._offline.available:
+            return pd.DataFrame()
+        return self._offline.repository.query_index_bars(index_codes=[index_code], start_date=start_date, end_date=end_date)
+
     def load_stock_data(
         self,
         cutoff_date: str,
         stock_count: int = 50,
         min_history_days: int = 200,
         include_future_days: int = 0,
+        include_capital_flow: bool = False,
     ) -> Dict[str, pd.DataFrame]:
         if self._provider is not None:
             self.last_source = "mock" if isinstance(self._provider, MockDataProvider) else "provider"
@@ -365,19 +556,28 @@ class DataManager:
                 stock_count=stock_count,
                 min_history_days=min_history_days,
                 include_future_days=include_future_days,
+                include_capital_flow=include_capital_flow,
             )
 
         if self._prefer_offline and self._offline.available:
-            offline_diagnostics = self.diagnose_training_data(
+            offline_diagnostics = self.check_training_readiness(
                 cutoff_date=cutoff_date,
                 stock_count=stock_count,
                 min_history_days=min_history_days,
+            )
+            self._ensure_point_in_time_derivatives(
+                cutoff_date=cutoff_date,
+                stock_count=stock_count,
+                min_history_days=min_history_days,
+                include_future_days=include_future_days,
+                include_capital_flow=include_capital_flow,
             )
             stock_data = self._offline.get_stocks(
                 cutoff_date=cutoff_date,
                 stock_count=stock_count,
                 min_history_days=min_history_days,
                 include_future_days=include_future_days,
+                include_capital_flow=include_capital_flow,
             )
             if stock_data:
                 self.last_source = "offline"
@@ -415,6 +615,33 @@ class DataManager:
         self.last_source = "mock"
         return generate_mock_stock_data(stock_count)
 
+    def get_status_summary(self, *, refresh: bool = False) -> dict[str, object]:
+        return self._web.get_status_summary(refresh=refresh)
+
+    def get_capital_flow_data(
+        self,
+        codes: list[str] | None = None,
+        start_date: str | None = None,
+        end_date: str | None = None,
+    ) -> pd.DataFrame:
+        return self._capital_flow.get_capital_flow(codes=codes, start_date=start_date, end_date=end_date)
+
+    def get_dragon_tiger_events(
+        self,
+        codes: list[str] | None = None,
+        start_date: str | None = None,
+        end_date: str | None = None,
+    ) -> pd.DataFrame:
+        return self._events.get_dragon_tiger_events(codes=codes, start_date=start_date, end_date=end_date)
+
+    def get_intraday_60m_data(
+        self,
+        codes: list[str] | None = None,
+        start_date: str | None = None,
+        end_date: str | None = None,
+    ) -> pd.DataFrame:
+        return self._intraday.get_bars(codes=codes, start_date=start_date, end_date=end_date)
+
     @property
     def offline_available(self) -> bool:
         return self._offline.available
@@ -426,9 +653,14 @@ def _cli_main():
     parser.add_argument("--start", type=str, default="20180101", help="开始日期 YYYYMMDD")
     parser.add_argument("--end", type=str, default=None, help="结束日期 YYYYMMDD")
     parser.add_argument("--token", type=str, default=None, help="Tushare Token")
+    parser.add_argument("--offset", type=int, default=0, help="分批同步时跳过前 N 只股票")
     parser.add_argument("--test", action="store_true", help="测试模式（只下3只）")
-    parser.add_argument("--source", choices=["baostock", "tushare"], default="baostock", help="数据源")
-    parser.add_argument("--financials", action="store_true", help="同步财务快照（当前需配合 tushare）")
+    parser.add_argument("--source", choices=["baostock", "tushare", "akshare"], default="baostock", help="数据源")
+    parser.add_argument("--financials", action="store_true", help="同步财务快照（支持 tushare / akshare）")
+    parser.add_argument("--calendar", action="store_true", help="同步交易日历")
+    parser.add_argument("--capital-flow", action="store_true", help="同步个股资金流")
+    parser.add_argument("--dragon-tiger", action="store_true", help="同步龙虎榜")
+    parser.add_argument("--intraday-60m", action="store_true", help="同步60分钟线")
     parser.add_argument("--status", action="store_true", help="输出当前离线库审计结果并退出")
     parser.add_argument("--cutoff", type=str, default=None, help="配合 --status 输出训练截断日诊断")
     parser.add_argument("--min-history-days", type=int, default=None, help="配合 --status 指定最小历史天数")
@@ -447,14 +679,66 @@ def _cli_main():
         return
 
     service = DataIngestionService(tushare_token=args.token)
-    if args.financials:
-        if args.source != "tushare":
-            raise RuntimeError("财务快照同步当前仅支持 --source tushare")
-        financial = service.sync_financial_snapshots_from_tushare(
+    payload: dict[str, object] = {}
+
+    if args.calendar:
+        if args.source == "akshare":
+            payload["calendar"] = service.sync_trading_calendar_from_akshare(
+                start_date=args.start,
+                end_date=args.end,
+            )
+        elif args.source == "baostock":
+            payload["calendar"] = service.sync_trading_calendar(
+                start_date=args.start,
+                end_date=args.end,
+            )
+        else:
+            raise RuntimeError("交易日历同步当前仅支持 --source baostock 或 --source akshare")
+
+    if args.capital_flow:
+        if args.source != "akshare":
+            raise RuntimeError("资金流同步当前仅支持 --source akshare")
+        payload["capital_flow"] = service.sync_capital_flow_daily_from_akshare(
             stock_limit=args.stocks,
-            test_mode=args.test,
+            offset=args.offset,
         )
-        print(json.dumps({"financial": financial}, ensure_ascii=False, indent=2))
+
+    if args.dragon_tiger:
+        if args.source != "akshare":
+            raise RuntimeError("龙虎榜同步当前仅支持 --source akshare")
+        payload["dragon_tiger"] = service.sync_dragon_tiger_list_from_akshare(
+            start_date=args.start,
+            end_date=args.end,
+        )
+
+    if getattr(args, "intraday_60m", False):
+        if args.source != "baostock":
+            raise RuntimeError("60分钟线同步当前仅支持 --source baostock")
+        payload["intraday_60m"] = service.sync_intraday_bars_60m(
+            start_date=args.start,
+            end_date=args.end,
+            stock_limit=args.stocks,
+            offset=args.offset,
+        )
+
+    if args.financials:
+        if args.source == "tushare":
+            payload["financial"] = service.sync_financial_snapshots_from_tushare(
+                stock_limit=args.stocks,
+                test_mode=args.test,
+            )
+        elif args.source == "akshare":
+            payload["financial"] = service.sync_financial_snapshots_from_akshare_bulk(
+                stock_limit=args.stocks,
+                offset=args.offset,
+                start_date=args.start,
+                end_date=args.end,
+            )
+        else:
+            raise RuntimeError("财务快照同步当前仅支持 --source tushare 或 --source akshare")
+
+    if payload:
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
         return
 
     if args.source == "baostock":
@@ -462,7 +746,7 @@ def _cli_main():
         daily = service.sync_daily_bars(start_date=args.start, end_date=args.end)
         index = service.sync_index_bars(start_date=args.start, end_date=args.end)
         print(json.dumps({"security": security, "daily": daily, "index": index}, ensure_ascii=False, indent=2))
-    else:
+    elif args.source == "tushare":
         daily = service.sync_daily_bars_from_tushare(
             start_date=args.start,
             end_date=args.end,
@@ -470,6 +754,12 @@ def _cli_main():
             test_mode=args.test,
         )
         print(json.dumps({"daily": daily}, ensure_ascii=False, indent=2))
+    else:
+        calendar = service.sync_trading_calendar_from_akshare(
+            start_date=args.start,
+            end_date=args.end,
+        )
+        print(json.dumps({"calendar": calendar}, ensure_ascii=False, indent=2))
 
 
 if __name__ == "__main__":

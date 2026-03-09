@@ -12,6 +12,7 @@ API Key 优先从环境变量读取：
 import os
 import json
 import logging
+import sqlite3
 from pathlib import Path
 from dataclasses import dataclass, field
 from typing import List, Optional, Any
@@ -118,6 +119,9 @@ class EvolutionConfig:
     })
     investment_model: str = "momentum"  # 当前激活的投资模型
     investment_model_config: str = "invest/models/configs/momentum_v1.yaml"
+    allocator_enabled: bool = False
+    allocator_top_n: int = 3
+    stop_on_freeze: bool = True
     rsi_thresholds: dict = field(default_factory=lambda: {
         "oversold": 25,
         "overbought": 75,
@@ -210,33 +214,66 @@ class IndustryRegistry:
     """
     统一行业映射注册表
 
-    数据源: data/industry_map.json
-    - get_industry(code)  → 行业名称 或 "其他"
-    - register(code, ind) → 运行时动态注册
-    - all()               → 返回完整映射副本
+    数据源优先级:
+    1. security_master.industry（数据库主事实源）
+    2. data/industry_map.json（人工覆盖补丁）
     """
 
-    def __init__(self, json_path: Path = None):
-        self._map: dict[str, str] = {}
+    def __init__(self, json_path: Path = None, db_path: Path = None):
+        self._db_map: dict[str, str] = {}
+        self._override_map: dict[str, str] = {}
         self._path = json_path or DATA_DIR / "industry_map.json"
+        self._db_path = db_path or Path(os.environ.get("INVEST_DB_PATH", str(DATA_DIR / "stock_history.db")))
         self._load()
 
-    def _load(self):
+    def _load_db(self):
+        self._db_map = {}
+        if not self._db_path.exists():
+            return
+        try:
+            conn = sqlite3.connect(str(self._db_path))
+            rows = conn.execute(
+                "SELECT code, industry FROM security_master WHERE industry IS NOT NULL AND trim(industry) != ''"
+            ).fetchall()
+            conn.close()
+            self._db_map = {str(code): str(industry) for code, industry in rows if str(code).strip()}
+        except Exception:
+            self._db_map = {}
+
+    def _load_overrides(self):
+        self._override_map = {}
         if self._path.exists():
             with open(self._path, encoding="utf-8") as f:
-                self._map = _json.load(f)
+                self._override_map = _json.load(f)
+
+    def _load(self):
+        self._load_db()
+        self._load_overrides()
+
+    def refresh(self):
+        self._load()
 
     def get_industry(self, code: str) -> str:
-        """查询股票所属行业，未命中返回 '其他'"""
-        return self._map.get(code, "其他")
+        """查询股票所属行业，优先数据库，JSON 作为覆盖层，未命中返回 '其他'"""
+        key = str(code or "").strip()
+        if not key:
+            return "其他"
+        if key in self._override_map:
+            return self._override_map[key]
+        if key in self._db_map:
+            return self._db_map[key]
+        self._load_db()
+        return self._override_map.get(key) or self._db_map.get(key) or "其他"
 
     def register(self, code: str, industry: str):
         """运行时动态注册 / 覆盖"""
-        self._map[code] = industry
+        self._override_map[str(code)] = industry
 
     def all(self) -> dict[str, str]:
         """返回完整映射的副本"""
-        return dict(self._map)
+        merged = dict(self._db_map)
+        merged.update(self._override_map)
+        return merged
 
 
 # 全局行业注册表单例

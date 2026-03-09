@@ -1,6 +1,6 @@
 import logging
 import math
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
@@ -8,6 +8,70 @@ import pandas as pd
 from ..engine.contracts import EmergencyAction, EmergencyEvent, EmergencyType, Position, RiskMetrics
 
 logger = logging.getLogger(__name__)
+
+
+DEFAULT_RISK_POLICY: Dict[str, Any] = {
+    "clamps": {
+        "stop_loss_pct": {"min": 0.02, "max": 0.15},
+        "take_profit_pct": {"min": 0.05, "max": 0.50},
+        "position_size": {"min": 0.05, "max": 0.30},
+    },
+    "dynamic_stop": {
+        "atr_period": 14,
+        "stop_loss_atr_multiplier": 2.0,
+        "take_profit_atr_multiplier": 3.0,
+        "trailing_atr_multiplier": 1.5,
+    },
+    "portfolio": {
+        "max_drawdown_to_reduce": 0.08,
+        "max_drawdown_to_close": 0.12,
+        "market_ma_period": 60,
+        "bull_threshold": 1.05,
+        "bear_threshold": 0.95,
+        "max_industry_pct": 0.30,
+        "max_correlation": 0.60,
+    },
+    "emergency": {
+        "single_stock_crash_pct": -7.0,
+        "rapid_loss_pct": -5.0,
+        "rapid_loss_days": 3,
+        "crash_severity_divisor": 15.0,
+        "tighten_stop_severity_threshold": 0.6,
+        "rapid_loss_severity_divisor": 10.0,
+        "reduce_all_severity_threshold": 0.7,
+        "all_positions_red_severity": 0.5,
+    },
+}
+
+
+def _merge_policy(policy: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    merged: Dict[str, Any] = {
+        "clamps": dict(DEFAULT_RISK_POLICY["clamps"]),
+        "dynamic_stop": dict(DEFAULT_RISK_POLICY["dynamic_stop"]),
+        "portfolio": dict(DEFAULT_RISK_POLICY["portfolio"]),
+        "emergency": dict(DEFAULT_RISK_POLICY["emergency"]),
+    }
+    for section, value in (policy or {}).items():
+        if isinstance(value, dict) and isinstance(merged.get(section), dict):
+            nested = dict(merged[section])
+            for key, nested_value in value.items():
+                if isinstance(nested_value, dict) and isinstance(nested.get(key), dict):
+                    nested_inner = dict(nested[key])
+                    nested_inner.update(nested_value)
+                    nested[key] = nested_inner
+                else:
+                    nested[key] = nested_value
+            merged[section] = nested
+        else:
+            merged[section] = value
+    return merged
+
+
+def _clamp_range(policy: Dict[str, Any], key: str) -> Tuple[float, float]:
+    section = dict((policy.get("clamps") or {}).get(key, {}) or {})
+    lower = float(section.get("min", DEFAULT_RISK_POLICY["clamps"][key]["min"]))
+    upper = float(section.get("max", DEFAULT_RISK_POLICY["clamps"][key]["max"]))
+    return lower, upper
 
 
 def clamp_stop_loss_pct(value: float, lower: float = 0.02, upper: float = 0.15) -> float:
@@ -22,17 +86,21 @@ def clamp_position_size(value: float, lower: float = 0.05, upper: float = 0.30) 
     return max(lower, min(upper, float(value)))
 
 
-def sanitize_risk_params(params: Dict[str, float]) -> Dict[str, float]:
+def sanitize_risk_params(params: Dict[str, float], policy: Optional[Dict[str, Any]] = None) -> Dict[str, float]:
+    active_policy = _merge_policy(policy)
     clean: Dict[str, float] = {}
+    stop_lower, stop_upper = _clamp_range(active_policy, "stop_loss_pct")
+    profit_lower, profit_upper = _clamp_range(active_policy, "take_profit_pct")
+    pos_lower, pos_upper = _clamp_range(active_policy, "position_size")
     for key, value in (params or {}).items():
         if value is None:
             continue
         if key == "stop_loss_pct":
-            clean[key] = clamp_stop_loss_pct(value)
+            clean[key] = clamp_stop_loss_pct(value, lower=stop_lower, upper=stop_upper)
         elif key == "take_profit_pct":
-            clean[key] = clamp_take_profit_pct(value)
+            clean[key] = clamp_take_profit_pct(value, lower=profit_lower, upper=profit_upper)
         elif key == "position_size":
-            clean[key] = clamp_position_size(value)
+            clean[key] = clamp_position_size(value, lower=pos_lower, upper=pos_upper)
         else:
             clean[key] = float(value)
     return clean
@@ -49,14 +117,29 @@ class EmergencyDetector:
         self,
         single_stock_crash_pct: float = None,
         rapid_loss_pct: float = None,
-        rapid_loss_days: int = 3,
+        rapid_loss_days: Optional[int] = None,
+        policy: Optional[Dict[str, Any]] = None,
     ):
-        from config import config
-        params = config.emergency_params
-        
-        self.single_stock_crash_pct = single_stock_crash_pct if single_stock_crash_pct is not None else params.get("single_stock_crash_pct", -7.0)
-        self.rapid_loss_pct = rapid_loss_pct if rapid_loss_pct is not None else params.get("rapid_loss_pct", -5.0)
-        self.rapid_loss_days = rapid_loss_days
+        self.policy = _merge_policy(policy)
+        emergency = dict(self.policy.get("emergency", {}))
+        self.single_stock_crash_pct = float(
+            single_stock_crash_pct
+            if single_stock_crash_pct is not None
+            else emergency.get("single_stock_crash_pct", DEFAULT_RISK_POLICY["emergency"]["single_stock_crash_pct"])
+        )
+        self.rapid_loss_pct = float(
+            rapid_loss_pct
+            if rapid_loss_pct is not None
+            else emergency.get("rapid_loss_pct", DEFAULT_RISK_POLICY["emergency"]["rapid_loss_pct"])
+        )
+        self.rapid_loss_days = int(
+            rapid_loss_days if rapid_loss_days is not None else emergency.get("rapid_loss_days", DEFAULT_RISK_POLICY["emergency"]["rapid_loss_days"])
+        )
+        self.crash_severity_divisor = float(emergency.get("crash_severity_divisor", 15.0) or 15.0)
+        self.tighten_stop_severity_threshold = float(emergency.get("tighten_stop_severity_threshold", 0.6) or 0.6)
+        self.rapid_loss_severity_divisor = float(emergency.get("rapid_loss_severity_divisor", 10.0) or 10.0)
+        self.reduce_all_severity_threshold = float(emergency.get("reduce_all_severity_threshold", 0.7) or 0.7)
+        self.all_positions_red_severity = float(emergency.get("all_positions_red_severity", 0.5) or 0.5)
         self.events: List[EmergencyEvent] = []
         self.portfolio_values: List[float] = []
 
@@ -100,13 +183,13 @@ class EmergencyDetector:
                 worst_pct, worst_code = pct, pos.ts_code
 
         if worst_code:
-            severity = min(1.0, abs(worst_pct) / 15.0)
+            severity = min(1.0, abs(worst_pct) / self.crash_severity_divisor)
             return EmergencyEvent(
                 date=date,
                 event_type=EmergencyType.SINGLE_STOCK_CRASH,
                 severity=severity,
                 description=f"{worst_code}单日跌{worst_pct:+.1f}%",
-                action=EmergencyAction.TIGHTEN_STOP if severity < 0.6 else EmergencyAction.SELL_WORST,
+                action=EmergencyAction.TIGHTEN_STOP if severity < self.tighten_stop_severity_threshold else EmergencyAction.SELL_WORST,
                 affected_codes=[worst_code],
             )
         return None
@@ -120,13 +203,13 @@ class EmergencyDetector:
             return None
         change_pct = (current / past - 1) * 100
         if change_pct < self.rapid_loss_pct:
-            severity = min(1.0, abs(change_pct) / 10.0)
+            severity = min(1.0, abs(change_pct) / self.rapid_loss_severity_divisor)
             return EmergencyEvent(
                 date=date,
                 event_type=EmergencyType.RAPID_PORTFOLIO_LOSS,
                 severity=severity,
                 description=f"组合{self.rapid_loss_days}日亏损{change_pct:+.1f}%",
-                action=EmergencyAction.REDUCE_ALL if severity > 0.7 else EmergencyAction.TIGHTEN_STOP,
+                action=EmergencyAction.REDUCE_ALL if severity > self.reduce_all_severity_threshold else EmergencyAction.TIGHTEN_STOP,
             )
         return None
 
@@ -141,7 +224,7 @@ class EmergencyDetector:
             return EmergencyEvent(
                 date=date,
                 event_type=EmergencyType.ALL_POSITIONS_RED,
-                severity=0.5,
+                severity=self.all_positions_red_severity,
                 description=f"全部{len(codes)}只持仓亏损",
                 action=EmergencyAction.LOG_ONLY,
                 affected_codes=codes,
@@ -159,28 +242,29 @@ class EmergencyDetector:
         return {"total_events": len(self.events), "by_type": type_counts}
 
 
-# ============================================================
-# Part 3: 风控体系
-# ============================================================
-
 class DynamicStopLoss:
     """
     基于 ATR 的动态止损止盈
 
-    止损 = entry - 2×ATR
-    止盈 = entry + 3×ATR
-    移动止盈 = 最高价 - 1.5×ATR（不低于成本价）
+    止损 = entry - stop_loss_atr_multiplier×ATR
+    止盈 = entry + take_profit_atr_multiplier×ATR
+    移动止盈 = 最高价 - trailing_atr_multiplier×ATR（不低于成本价）
     """
 
-    def __init__(self, atr_period: int = 14):
-        self.atr_period = atr_period
+    def __init__(self, atr_period: int = 14, policy: Optional[Dict[str, Any]] = None):
+        self.policy = _merge_policy(policy)
+        dynamic_stop = dict(self.policy.get("dynamic_stop", {}))
+        self.atr_period = int(dynamic_stop.get("atr_period", atr_period) or atr_period)
+        self.stop_loss_atr_multiplier = float(dynamic_stop.get("stop_loss_atr_multiplier", 2.0) or 2.0)
+        self.take_profit_atr_multiplier = float(dynamic_stop.get("take_profit_atr_multiplier", 3.0) or 3.0)
+        self.trailing_atr_multiplier = float(dynamic_stop.get("trailing_atr_multiplier", 1.5) or 1.5)
         self.highest_price: Dict[str, float] = {}
 
     def calculate_atr(self, df: pd.DataFrame) -> float:
         if len(df) < self.atr_period + 1:
             return 0
         high = df["high"].values
-        low  = df["low"].values
+        low = df["low"].values
         close = df["close"].values
         tr = np.maximum(
             high[1:] - low[1:],
@@ -200,9 +284,9 @@ class DynamicStopLoss:
         if current_price > self.highest_price[code]:
             self.highest_price[code] = current_price
 
-        stop_loss     = entry_price - 2 * atr
-        take_profit   = entry_price + 3 * atr
-        trailing_stop = max(self.highest_price[code] - 1.5 * atr, entry_price)
+        stop_loss = entry_price - self.stop_loss_atr_multiplier * atr
+        take_profit = entry_price + self.take_profit_atr_multiplier * atr
+        trailing_stop = max(self.highest_price[code] - self.trailing_atr_multiplier * atr, entry_price)
         effective_stop = max(stop_loss, trailing_stop)
 
         return {
@@ -221,10 +305,10 @@ class PortfolioRiskManager:
     """
     组合风险管理器
 
-    Level 1: 单股仓位 ≤ 20%
-    Level 2: 行业集中度 ≤ 30%
-    Level 3: 回撤 > 8% 减仓 / > 12% 清仓
-    Level 4: 大盘跌破 MA60 限制仓位
+    Level 1: 单股仓位 ≤ 模型配置上限
+    Level 2: 行业集中度 ≤ 模型配置上限
+    Level 3: 回撤超过模型阈值时减仓/清仓
+    Level 4: 大盘相对均线状态限制开仓
     """
 
     def __init__(
@@ -234,12 +318,17 @@ class PortfolioRiskManager:
         market_ma_period: int = 60,
         max_industry_pct: float = 0.30,
         max_correlation: float = 0.60,
+        policy: Optional[Dict[str, Any]] = None,
     ):
-        self.max_drawdown_to_reduce = max_drawdown_to_reduce
-        self.max_drawdown_to_close  = max_drawdown_to_close
-        self.market_ma_period       = market_ma_period
-        self.max_industry_pct       = max_industry_pct
-        self.max_correlation        = max_correlation
+        self.policy = _merge_policy(policy)
+        portfolio = dict(self.policy.get("portfolio", {}))
+        self.max_drawdown_to_reduce = float(portfolio.get("max_drawdown_to_reduce", max_drawdown_to_reduce) or max_drawdown_to_reduce)
+        self.max_drawdown_to_close = float(portfolio.get("max_drawdown_to_close", max_drawdown_to_close) or max_drawdown_to_close)
+        self.market_ma_period = int(portfolio.get("market_ma_period", market_ma_period) or market_ma_period)
+        self.max_industry_pct = float(portfolio.get("max_industry_pct", max_industry_pct) or max_industry_pct)
+        self.max_correlation = float(portfolio.get("max_correlation", max_correlation) or max_correlation)
+        self.market_bull_threshold = float(portfolio.get("bull_threshold", 1.05) or 1.05)
+        self.market_bear_threshold = float(portfolio.get("bear_threshold", 0.95) or 0.95)
 
     def get_industry(self, code: str) -> str:
         from config import industry_registry
@@ -251,9 +340,9 @@ class PortfolioRiskManager:
         close = hs300_data["close"].values
         ma = np.mean(close[-self.market_ma_period:])
         current = close[-1]
-        if current > ma * 1.05:
+        if current > ma * self.market_bull_threshold:
             return "bull"
-        if current < ma * 0.95:
+        if current < ma * self.market_bear_threshold:
             return "bear"
         return "normal"
 
@@ -265,7 +354,7 @@ class PortfolioRiskManager:
         hs300_data: Optional[pd.DataFrame] = None,
     ) -> Dict:
         market_state = self.check_market_state(hs300_data)
-        drawdown = (initial_capital - current_capital) / initial_capital
+        drawdown = (initial_capital - current_capital) / max(initial_capital, 1)
 
         industry_exposure: Dict[str, float] = {}
         for code, pos in positions.items():
@@ -309,9 +398,10 @@ class PortfolioRiskManager:
 class RiskController:
     """整合所有风控逻辑的统一接口"""
 
-    def __init__(self):
-        self.dynamic_stop    = DynamicStopLoss(atr_period=14)
-        self.portfolio_risk  = PortfolioRiskManager()
+    def __init__(self, policy: Optional[Dict[str, Any]] = None):
+        self.policy = _merge_policy(policy)
+        self.dynamic_stop = DynamicStopLoss(policy=self.policy)
+        self.portfolio_risk = PortfolioRiskManager(policy=self.policy)
 
     def should_stop_loss(self, code, entry_price, current_price, df) -> bool:
         levels = self.dynamic_stop.get_stop_levels(code, entry_price, current_price, df)
@@ -336,11 +426,8 @@ class RiskController:
         )
 
 
-# ============================================================
-# Part 4: 候选池与交易调度
-# ============================================================
-
 __all__ = [
+    "DEFAULT_RISK_POLICY",
     "clamp_position_size",
     "clamp_stop_loss_pct",
     "clamp_take_profit_pct",

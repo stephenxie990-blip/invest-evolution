@@ -48,8 +48,11 @@ class BenchmarkEvaluator:
         "monthly_turnover":  3.0,   # 月换手 < 300%
     }
 
-    def __init__(self, risk_free_rate: float = 0.03):
+    def __init__(self, risk_free_rate: float = 0.03, criteria: Optional[Dict[str, float]] = None):
         self.risk_free_rate = risk_free_rate  # 年化无风险利率
+        merged = dict(self.CRITERIA)
+        merged.update(criteria or {})
+        self.criteria = merged
 
     def evaluate(
         self,
@@ -139,20 +142,20 @@ class BenchmarkEvaluator:
         failed: List[str] = []
 
         checks = [
-            (excess_return <= self.CRITERIA["excess_return"],
-             f"超额收益{excess_return:.1f}% ≤ {self.CRITERIA['excess_return']}%"),
-            (sharpe_ratio <= self.CRITERIA["sharpe_ratio"],
-             f"Sharpe{sharpe_ratio:.2f} ≤ {self.CRITERIA['sharpe_ratio']}"),
-            (max_drawdown >= self.CRITERIA["max_drawdown"],
-             f"回撤{max_drawdown:.1f}% ≥ {self.CRITERIA['max_drawdown']}%"),
-            (calmar_ratio <= self.CRITERIA["calmar_ratio"],
-             f"Calmar{calmar_ratio:.2f} ≤ {self.CRITERIA['calmar_ratio']}"),
-            (win_rate <= self.CRITERIA["win_rate"],
-             f"胜率{win_rate*100:.1f}% ≤ {self.CRITERIA['win_rate']*100}%"),
-            (profit_loss_ratio <= self.CRITERIA["profit_loss_ratio"],
-             f"盈亏比{profit_loss_ratio:.2f} ≤ {self.CRITERIA['profit_loss_ratio']}"),
-            (monthly_turnover >= self.CRITERIA["monthly_turnover"],
-             f"月换手{monthly_turnover*100:.0f}% ≥ {self.CRITERIA['monthly_turnover']*100}%"),
+            (excess_return <= self.criteria["excess_return"],
+             f"超额收益{excess_return:.1f}% ≤ {self.criteria['excess_return']}%"),
+            (sharpe_ratio <= self.criteria["sharpe_ratio"],
+             f"Sharpe{sharpe_ratio:.2f} ≤ {self.criteria['sharpe_ratio']}"),
+            (max_drawdown >= self.criteria["max_drawdown"],
+             f"回撤{max_drawdown:.1f}% ≥ {self.criteria['max_drawdown']}%"),
+            (calmar_ratio <= self.criteria["calmar_ratio"],
+             f"Calmar{calmar_ratio:.2f} ≤ {self.criteria['calmar_ratio']}"),
+            (win_rate <= self.criteria["win_rate"],
+             f"胜率{win_rate*100:.1f}% ≤ {self.criteria['win_rate']*100}%"),
+            (profit_loss_ratio <= self.criteria["profit_loss_ratio"],
+             f"盈亏比{profit_loss_ratio:.2f} ≤ {self.criteria['profit_loss_ratio']}"),
+            (monthly_turnover >= self.criteria["monthly_turnover"],
+             f"月换手{monthly_turnover*100:.0f}% ≥ {self.criteria['monthly_turnover']*100}%"),
         ]
         for cond, msg in checks:
             if cond:

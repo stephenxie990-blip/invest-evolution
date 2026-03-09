@@ -61,8 +61,6 @@ def _extract_jsonish_float(raw: str, key: str, next_keys: List[str] | None = Non
 def _recover_hunter_result(
     raw: str,
     valid_codes: List[str],
-    default_stop_loss: float,
-    default_take_profit: float,
 ) -> dict:
     confidence = _extract_jsonish_float(raw, 'confidence')
     overall_view = _extract_jsonish_string(raw, 'overall_view', ['confidence'])
@@ -79,16 +77,12 @@ def _recover_hunter_result(
         code = _normalize_candidate_code(code_match.group(1), valid_codes)
         if not code:
             continue
-        score = _extract_jsonish_float(segment, 'score', ['reasoning', 'stop_loss_pct', 'take_profit_pct'])
-        reasoning = _extract_jsonish_string(segment, 'reasoning', ['stop_loss_pct', 'take_profit_pct', 'code'])
-        stop_loss = _extract_jsonish_float(segment, 'stop_loss_pct', ['take_profit_pct', 'code'])
-        take_profit = _extract_jsonish_float(segment, 'take_profit_pct', ['code'])
+        score = _extract_jsonish_float(segment, 'score', ['reasoning'])
+        reasoning = _extract_jsonish_string(segment, 'reasoning', ['code'])
         picks.append({
             'code': code,
             'score': float(score if score is not None else 0.5),
             'reasoning': reasoning or 'LLM 输出截断，已自动恢复',
-            'stop_loss_pct': float(stop_loss if stop_loss is not None else default_stop_loss),
-            'take_profit_pct': float(take_profit if take_profit is not None else default_take_profit),
         })
 
     return {
@@ -246,7 +240,7 @@ class TrendHunterAgent(InvestAgent):
             return self._fallback_analysis(candidates)
 
         if result.get("_parse_error"):
-            recovered = _recover_hunter_result(result.get("_raw", ""), [c["code"] for c in candidates], 0.05, 0.15)
+            recovered = _recover_hunter_result(result.get("_raw", ""), [c["code"] for c in candidates])
             if recovered.get("picks"):
                 result = recovered
             else:
@@ -266,8 +260,6 @@ class TrendHunterAgent(InvestAgent):
                 "code": s["code"],
                 "score": min(1.0, s.get("trend_score", s.get("algo_score", 0.5))),
                 "reasoning": f"MA{s['ma_trend']}/MACD{s['macd']}/RSI{s['rsi']:.0f}",
-                "stop_loss_pct": 0.05,
-                "take_profit_pct": 0.15,
             })
         logger.info(f"🎯 TrendHunter(算法): 推荐{len(picks)}只")
         return {"picks": picks, "overall_view": "算法选股", "confidence": 0.5}
@@ -282,8 +274,6 @@ class TrendHunterAgent(InvestAgent):
                 "code": code,
                 "score": max(0.0, min(1.0, float(p.get("score", 0.5)))),
                 "reasoning": str(p.get("reasoning", "")),
-                "stop_loss_pct": max(0.01, min(0.15, float(p.get("stop_loss_pct", 0.05)))),
-                "take_profit_pct": max(0.05, min(0.50, float(p.get("take_profit_pct", 0.15)))),
             })
         if not valid_picks and valid_codes:
             return self._fallback_analysis([
@@ -312,7 +302,7 @@ _CONTRARIAN_SYSTEM_PROMPT = """你是一个专业的逆向投资猎手，专注�
 4. 量比：底部放量是反弹信号，但不作为硬性条件
 
 注意：
-- 超跌反弹的风险较大，止损应比趋势股更宽
+- 超跌反弹风险较高，但你只负责识别候选，不负责给执行参数
 - 必须从提供的候选列表中选择，不要编造股票代码
 
 请从候选股中选择2-4只最有反弹潜力的股票。
@@ -323,9 +313,7 @@ _CONTRARIAN_SYSTEM_PROMPT = """你是一个专业的逆向投资猎手，专注�
         {
             "code": "候选列表中的股票代码",
             "score": 0.0到1.0的评分,
-            "reasoning": "一句话选择理由",
-            "stop_loss_pct": 0.06到0.12之间的止损比例,
-            "take_profit_pct": 0.12到0.30之间的止盈比例
+            "reasoning": "一句话选择理由"
         }
     ],
     "overall_view": "一句话总结",
@@ -419,7 +407,7 @@ class ContrarianAgent(InvestAgent):
             return self._fallback_analysis(candidates)
 
         if result.get("_parse_error"):
-            recovered = _recover_hunter_result(result.get("_raw", ""), [c["code"] for c in candidates], 0.03, 0.10)
+            recovered = _recover_hunter_result(result.get("_raw", ""), [c["code"] for c in candidates])
             if recovered.get("picks"):
                 result = recovered
             else:
@@ -439,8 +427,6 @@ class ContrarianAgent(InvestAgent):
                 "code": s["code"],
                 "score": min(1.0, s.get("contrarian_score", s.get("algo_score", 0.5))),
                 "reasoning": f"RSI{s['rsi']:.0f}/BB{s['bb_pos']:.2f}/{s['change_5d']:+.1f}%",
-                "stop_loss_pct": 0.03,
-                "take_profit_pct": 0.10,
             })
         return {"picks": picks, "overall_view": "算法选股", "confidence": 0.5}
 
@@ -454,8 +440,6 @@ class ContrarianAgent(InvestAgent):
                 "code": code,
                 "score": max(0.0, min(1.0, float(p.get("score", 0.5)))),
                 "reasoning": str(p.get("reasoning", "")),
-                "stop_loss_pct": max(0.01, min(0.15, float(p.get("stop_loss_pct", 0.03)))),
-                "take_profit_pct": max(0.05, min(0.50, float(p.get("take_profit_pct", 0.10)))),
             })
         if not valid_picks and valid_codes:
             return self._fallback_analysis([

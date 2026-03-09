@@ -102,7 +102,7 @@ class LLMRouter:
 
         适用场景：
         - StrategistAgent 组合风险评估
-        - ReviewMeeting EvoJudge / Commander 复盘裁判
+        - ReviewMeeting EvoJudge / ReviewDecision 复盘裁判
         - DebateOrchestrator 辩论裁判
         """
         return self._deep_caller

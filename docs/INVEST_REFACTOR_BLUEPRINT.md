@@ -79,7 +79,7 @@ invest/
     base.py             # InvestAgent / AgentConfig / Belief
     regime.py           # MarketRegimeAgent
     hunters.py          # TrendHunterAgent / ContrarianAgent
-    reviewers.py        # StrategistAgent / CommanderAgent / EvoJudgeAgent
+    reviewers.py        # StrategistAgent / ReviewDecisionAgent / EvoJudgeAgent
 
   meetings/
     __init__.py

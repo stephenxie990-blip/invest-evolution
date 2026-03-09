@@ -12,6 +12,14 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
+
+
+def _normalize_param_value(key: str, value: float) -> float:
+    percent_like = {"stop_loss_pct", "take_profit_pct", "position_size", "cash_reserve", "trailing_pct"}
+    if key in percent_like and value > 1.0 and value <= 100.0:
+        value = value / 100.0
+    return value
+
 _REVIEW_STRATEGIST_SYSTEM = """你是投资复盘会议中的策略分析师，负责基于已给出的交易事实总结“策略层面”的问题与改进建议。
 
 任务目标：
@@ -58,7 +66,7 @@ _REVIEW_EVO_JUDGE_SYSTEM = """你是复盘会议中的进化裁判，负责根�
 
 严格输出：{"param_adjustments":{"stop_loss_pct":null,"take_profit_pct":null,"position_size":null},"evolution_direction":"maintain","suggestions":["建议1"],"confidence":0.0,"reasoning":"一句话说明依据"}"""
 
-_REVIEW_COMMANDER_SYSTEM = """你是复盘会议的最终指挥官，负责综合策略分析与进化评估，输出“下一轮执行层面”的采纳决策。
+_REVIEW_DECISION_SYSTEM = """你是复盘决策综合员，负责综合策略分析与进化评估，输出下一轮的采纳建议。
 
 任务目标：
 1. 产出 strategy_suggestions。
@@ -92,7 +100,7 @@ class ReviewMeeting:
     1. 事实对账（算法）：Agent 预测 vs 实际结果
     2. Strategist 分析（LLM）：策略层面问题
     3. EvoJudge 评估（LLM）：参数层面调整建议
-    4. Commander 决策（LLM）：最终采纳
+    4. ReviewDecision 决策（LLM）：最终采纳
 
     触发条件：连续亏损 ≥ 3 / 每 N 个 cycle / 重大偏差
     """
@@ -109,12 +117,13 @@ class ReviewMeeting:
         deep_llm_caller: Optional[LLMCaller] = None,
         progress_callback: Optional[Callable[[dict], None]] = None,
     ):
-        from invest.agents import StrategistAgent, EvoJudgeAgent, CommanderAgent
+        from invest.agents import StrategistAgent, EvoJudgeAgent, ReviewDecisionAgent
         self.llm = llm_caller
         self.tracker = agent_tracker
         self.strategist = strategist or StrategistAgent()
         self.evo_judge = evo_judge or EvoJudgeAgent()
-        self.commander = commander or CommanderAgent()
+        self.review_decision_agent = commander or ReviewDecisionAgent()
+        self.commander = self.review_decision_agent
         self.review_count = 0
         self.progress_callback = progress_callback
         self.last_facts: Dict[str, Any] = {}
@@ -198,9 +207,9 @@ class ReviewMeeting:
             "confidence": evo_assessment.get("confidence"),
             "details": evo_assessment,
         })
-        decision = self._commander_decision(facts, strategy_analysis, evo_assessment, current_params)
+        decision = self._review_decision(facts, strategy_analysis, evo_assessment, current_params)
         self._notify_progress({
-            "agent": "Commander",
+            "agent": "ReviewDecision",
             "status": "completed",
             "stage": "review",
             "progress_pct": 96,
@@ -280,7 +289,7 @@ class ReviewMeeting:
 
         self.strategist.reflect(outcome)
         self.evo_judge.reflect(outcome)
-        self.commander.reflect(outcome)
+        self.review_decision_agent.reflect(outcome)
         
     def _compile_facts(self, recent_results: List[dict], agent_accuracy: dict) -> dict:
         """编译事实数据"""
@@ -411,7 +420,7 @@ class ReviewMeeting:
 
         return self._evo_judge_fallback(facts)
 
-    def _commander_decision(
+    def _review_decision(
         self,
         facts: dict,
         strategy_analysis: dict,
@@ -419,10 +428,10 @@ class ReviewMeeting:
         current_params: dict,
     ) -> dict:
         if not self.llm or facts.get("empty"):
-            return self._commander_fallback(facts, evo_assessment)
+            return self._review_decision_fallback(facts, evo_assessment)
 
         system = (
-            "你是投资团队指挥官。综合策略分析和进化评估，做最终决策。\n"
+            "你是复盘决策综合员。综合策略分析和进化评估，形成下一轮调整建议。\n"
             '以JSON输出：{"strategy_suggestions": ["建议1"], '
             '"param_adjustments": {"key": value}, '
             '"agent_weight_adjustments": {"trend_hunter": 1.0, "contrarian": 0.8}, '
@@ -452,9 +461,9 @@ class ReviewMeeting:
             if not result.get("_parse_error"):
                 return self._validate_decision(result, facts)
         except Exception as e:
-            logger.exception(f"Commander LLM调用失败: {e}")
+            logger.exception(f"ReviewDecision LLM调用失败: {e}")
 
-        return self._commander_fallback(facts, evo_assessment)
+        return self._review_decision_fallback(facts, evo_assessment)
 
     # ===== 算法兜底 =====
 
@@ -486,7 +495,7 @@ class ReviewMeeting:
             "reasoning": f"算法判断当前方向为 {direction}",
         }
 
-    def _commander_fallback(self, facts: dict, evo_assessment: dict) -> dict:
+    def _review_decision_fallback(self, facts: dict, evo_assessment: dict) -> dict:
         weight_adjustments = {}
         for agent, stats in facts.get("agent_accuracy", {}).items():
             acc = stats.get("accuracy", 0.5)
@@ -570,7 +579,7 @@ class ReviewMeeting:
             if value is None:
                 continue
             try:
-                value = float(value)
+                value = _normalize_param_value(key, float(value))
             except (TypeError, ValueError):
                 continue
             if key == "stop_loss_pct":
@@ -579,6 +588,10 @@ class ReviewMeeting:
                 clean_params[key] = max(0.05, min(0.50, value))
             elif key == "position_size":
                 clean_params[key] = max(0.05, min(0.30, value))
+            elif key == "cash_reserve":
+                clean_params[key] = max(0.0, min(0.80, value))
+            elif key == "trailing_pct":
+                clean_params[key] = max(0.03, min(0.20, value))
         result["param_adjustments"] = clean_params
         if result.get("evolution_direction") not in {"aggressive", "conservative", "maintain"}:
             result["evolution_direction"] = "maintain"
@@ -603,13 +616,17 @@ class ReviewMeeting:
             if v is None:
                 continue
             try:
-                v = float(v)
+                v = _normalize_param_value(k, float(v))
                 if k == "stop_loss_pct":
                     v = max(0.02, min(0.15, v))
                 elif k == "take_profit_pct":
                     v = max(0.05, min(0.50, v))
                 elif k == "position_size":
                     v = max(0.05, min(0.30, v))
+                elif k == "cash_reserve":
+                    v = max(0.0, min(0.80, v))
+                elif k == "trailing_pct":
+                    v = max(0.03, min(0.20, v))
                 clean_params[k] = v
             except (TypeError, ValueError):
                 continue
@@ -647,7 +664,7 @@ class ReviewMeeting:
                     numeric_value = float(value)
                 except (TypeError, ValueError):
                     continue
-                if key in {"stop_loss_pct", "take_profit_pct", "position_size"}:
+                if key in {"stop_loss_pct", "take_profit_pct", "position_size", "cash_reserve", "trailing_pct"}:
                     param_parts.append(f"{key}={numeric_value:.0%}")
                 else:
                     param_parts.append(f"{key}={numeric_value:g}")

@@ -23,6 +23,7 @@ class Position:
     trailing_pct: Optional[float] = None   # 跟踪止盈回撤比例
     highest_price: float = 0.0             # 入场后最高价
     source: str = "algorithm"              # 推荐来源
+    entry_reason: str = ""                # 入场理由
     plan_stop_loss_pct: float = 0.05
     plan_take_profit_pct: float = 0.15
 
@@ -67,6 +68,16 @@ class TradeRecord:
     pct_chg: float = 0.0
     turnover_rate: float = 0.0
     market_cap: float = 0.0
+    source: str = ""
+    entry_reason: str = ""
+    exit_reason: str = ""
+    exit_trigger: str = ""
+    entry_date: str = ""
+    entry_price: float = 0.0
+    holding_days: int = 0
+    stop_loss_price: float = 0.0
+    take_profit_price: float = 0.0
+    trailing_pct: Optional[float] = None
 
 
 @dataclass

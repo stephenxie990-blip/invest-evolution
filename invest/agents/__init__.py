@@ -1,7 +1,8 @@
 from .base import AgentConfig, RegimeResult, Belief, InvestAgent
-from .regime import MarketRegimeAgent, REGIME_PARAMS
+from .regime import MarketRegimeAgent
 from .hunters import TrendHunterAgent, ContrarianAgent
-from .reviewers import StrategistAgent, CommanderAgent, EvoJudgeAgent
+from .specialists import QualityAgent, DefensiveAgent
+from .reviewers import StrategistAgent, ReviewDecisionAgent, EvoJudgeAgent
 
 __all__ = [
     "AgentConfig",
@@ -9,10 +10,11 @@ __all__ = [
     "Belief",
     "InvestAgent",
     "MarketRegimeAgent",
-    "REGIME_PARAMS",
     "TrendHunterAgent",
     "ContrarianAgent",
+    "QualityAgent",
+    "DefensiveAgent",
     "StrategistAgent",
-    "CommanderAgent",
+    "ReviewDecisionAgent",
     "EvoJudgeAgent",
 ]

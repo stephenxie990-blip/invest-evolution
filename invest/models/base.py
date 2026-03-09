@@ -9,6 +9,13 @@ import yaml
 
 from config import PROJECT_ROOT
 from invest.contracts import AgentContext, ModelOutput, SignalPacket
+from invest.models.defaults import (
+    COMMON_BENCHMARK_DEFAULTS,
+    COMMON_EXECUTION_DEFAULTS,
+    COMMON_PARAM_DEFAULTS,
+    COMMON_RISK_DEFAULTS,
+)
+from invest.models.validation import validate_model_config
 
 
 @dataclass
@@ -41,6 +48,7 @@ class InvestmentModel(ABC):
     def load_config(cls, config_path: Optional[str | Path]) -> ModelConfig:
         path = cls.resolve_config_path(config_path)
         data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+        validate_model_config(data)
         name = str(data.get("name") or path.stem)
         return ModelConfig(name=name, path=path, data=data)
 
@@ -51,6 +59,57 @@ class InvestmentModel(ABC):
 
     def update_runtime_overrides(self, params: Dict[str, Any]) -> None:
         self.runtime_overrides.update(params or {})
+
+    def config_section(self, key: str, default: Any = None) -> Any:
+        value = self.config.data.get(key, default)
+        if isinstance(value, dict):
+            return dict(value)
+        if isinstance(value, list):
+            return list(value)
+        return value
+
+    def param(self, key: str, default: Any = None) -> Any:
+        if key in self.runtime_overrides:
+            return self.runtime_overrides[key]
+        params = self.config.data.get("params", {}) or {}
+        if key in params:
+            return params[key]
+        if key in COMMON_PARAM_DEFAULTS:
+            return COMMON_PARAM_DEFAULTS[key]
+        return default
+
+    def risk_param(self, key: str, default: Any = None) -> Any:
+        if key in self.runtime_overrides:
+            return self.runtime_overrides[key]
+        params = self.config.data.get("params", {}) or {}
+        if key in params:
+            return params[key]
+        risk = self.config.data.get("risk", {}) or {}
+        if key in risk:
+            return risk[key]
+        if key in COMMON_RISK_DEFAULTS:
+            return COMMON_RISK_DEFAULTS[key]
+        return default
+
+    def execution_param(self, key: str, default: Any = None) -> Any:
+        execution = self.config.data.get("execution", {}) or {}
+        if key in execution:
+            return execution[key]
+        if key in COMMON_EXECUTION_DEFAULTS:
+            return COMMON_EXECUTION_DEFAULTS[key]
+        return default
+
+    def benchmark_param(self, key: str, default: Any = None) -> Any:
+        benchmark = self.config.data.get("benchmark", {}) or {}
+        if key in benchmark:
+            return benchmark[key]
+        if key in COMMON_BENCHMARK_DEFAULTS:
+            return COMMON_BENCHMARK_DEFAULTS[key]
+        return default
+
+    def scoring_section(self) -> Dict[str, Any]:
+        scoring = self.config.data.get("scoring", {}) or {}
+        return dict(scoring)
 
     @abstractmethod
     def build_signal_packet(self, stock_data: Dict[str, Any], cutoff_date: str) -> SignalPacket:
