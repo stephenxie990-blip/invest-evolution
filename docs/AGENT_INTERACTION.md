@@ -1,464 +1,188 @@
-# 投资进化系统 - Agent 交互图
+# Agent 交互说明（当前实现）
 
-## 1. Agent 角色与职责
+当前项目里的 Agent 主要分成四层：市场判断、选股猎手、复盘裁判、系统编排。
 
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                              Agent 角色矩阵                                     │
-├──────────────────┬──────────────────────────────────────────────────────────────┤
-│ Agent            │ 职责                                                      │
-├──────────────────┼──────────────────────────────────────────────────────────────┤
-│ MarketRegime     │ • 判断市场状态 (bull/oscillation/bear)                    │
-│ (市场状态专家)    │ • 评估置信度                                               │
-│                  │ • 提供参数建议 (max_positions, top_n, 仓位等)              │
-├──────────────────┼──────────────────────────────────────────────────────────────┤
-│ TrendHunter      │ • 趋势策略选股                                             │
-│ (趋势猎手)       │ • 条件: MA5>MA20, 量比>1.5, RSI 40-70, MACD金叉         │
-│                  │ • 输出: selected + confidence + reasoning                 │
-├──────────────────┼──────────────────────────────────────────────────────────────┤
-│ Contrarian       │ • 逆向策略选股                                             │
-│ (逆向投资者)      │ • 条件: 5日跌幅>5%, RSI<35, 布林带<0.3, 量比>1.2       │
-│                  │ • 输出: selected + confidence + reasoning                 │
-├──────────────────┼──────────────────────────────────────────────────────────────┤
-│ Commander        │ • 策略整合                                                 │
-│ (指挥官)         │ • 参数调优 (stop_loss, take_profit, trailing_pct)         │
-│                  │ • 仓位管理                                                │
-│                  │ • 综合多Agent建议给出最终决策                              │
-└──────────────────┴──────────────────────────────────────────────────────────────┘
-```
+## 1. 角色总览
 
-## 2. 选股会议时序图
+### 1.1 市场判断
 
-```
-┌──────────────────────────────────────────────────────────────────────────────────┐
-│                         选股会议 (SelectionMeeting) 时序图                         │
-└──────────────────────────────────────────────────────────────────────────────────┘
+- `MarketRegimeAgent`
+  - 只负责判断 `bull / bear / oscillation`
+  - 输出 `confidence` 与 `suggested_exposure`
+  - 不负责任何交易执行参数
 
-   训练循环                                           SimulatedTrader
-      │                                                    │
-      ▼                                                    │
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                                                                                 │
-│   StockAnalyzer                                                                  │
-│   summarize_stocks()                                                             │
-│        │                                                                         │
-│        │ stock_summaries (技术指标)                                              │
-│        ▼                                                                         │
-│   ┌─────────────────────────────────────────────────────────────────────────┐  │
-│   │                    SelectionMeeting.run_with_data()                     │  │
-│   │                                                                          │  │
-│   │   ┌───────────────────────────────────────────────────────────────┐      │  │
-│   │   │ Step 1: 获取候选股票 (最多30只)                             │      │  │
-│   │   │        format_stock_table()                                 │      │  │
-│   │   └───────────────────────────────────────────────────────────────┘      │  │
-│   │                              │                                           │  │
-│   │                              ▼                                           │  │
-│   │   ┌───────────────────────────────────────────────────────────────┐      │  │
-│   │   │ Step 2: 调用 MarketRegime Agent (已在外部完成)               │      │  │
-│   │   │        regime = {regime, confidence, params}                 │      │  │
-│   │   └───────────────────────────────────────────────────────────────┘      │  │
-│   │                              │                                           │  │
-│   │                              ▼                                           │  │
-│   │   ┌───────────────────────────────────────────────────────────────┐      │  │
-│   │   │ Step 3: 调用 TrendHunter Agent                              │      │  │
-│   │   │        _run_llm(TREND_HUNTER_PROMPT)                       │      │  │
-│   │   │                                                            │      │  │
-│   │   │   LLMCaller.call_json()                                    │      │  │
-│   │   │        │                                                    │      │  │
-│   │   │        │ prompt                                            │      │  │
-│   │   │        ▼                                                   │      │  │
-│   │   │   ┌──────────────────┐                                     │      │  │
-│   │   │   │   MiniMax API    │                                     │      │  │
-│   │   │   │   (litellm)      │                                     │      │  │
-│   │   │   └──────────────────┘                                     │      │  │
-│   │   │        │                                                    │      │  │
-│   │   │        │ response (JSON)                                    │      │  │
-│   │   │        ▼                                                   │      │  │
-│   │   │   ┌──────────────────────────────────────────────┐         │      │  │
-│   │   │   │  解析: {selected: [...], confidence: 0.8,   │         │      │  │
-│   │   │   │         reasoning: "..."}                    │         │      │  │
-│   │   │   └──────────────────────────────────────────────┘         │      │  │
-│   │   │        │                                                    │      │  │
-│   │   │        ▼                                                   │      │  │
-│   │   │   hunter_outputs.append({                                  │      │  │
-│   │   │       "name": "trend_hunter",                             │      │  │
-│   │   │       "result": {...}                                      │      │  │
-│   │   │   })                                                        │      │  │
-│   │   │                              │                              │      │  │
-│   │   └──────────────────────────────┼──────────────────────────────┘      │  │
-│   │                                  │                                      │  │
-│   │                                  ▼                                      │  │
-│   │   ┌───────────────────────────────────────────────────────────────┐      │  │
-│   │   │ Step 4: 调用 Contrarian Agent                              │      │  │
-│   │   │        _run_llm(CONTRARIAN_PROMPT)                         │      │  │
-│   │   │                                                            │      │  │
-│   │   │   (同上，返回 hunter_outputs.append({                       │      │  │
-│   │   │          "name": "contrarian",                             │      │  │
-│   │   │          "result": {...}                                    │      │  │
-│   │   │   }))                                                       │      │  │
-│   │   │                              │                              │      │  │
-│   │   └──────────────────────────────┼──────────────────────────────┘      │  │
-│   │                                  │                                      │  │
-│   │                                  ▼                                      │  │
-│   │   ┌───────────────────────────────────────────────────────────────┐      │  │
-│   │   │ Step 5: 应用 Agent 权重                                     │      │  │
-│   │   │                                                            │      │  │
-│   │   │   for hunter in hunter_outputs:                            │      │  │
-│   │   │       weight = agent_weights[hunter["name"]]                │      │  │
-│   │   │       for p in picks:                                     │      │  │
-│   │   │           p["score"] = p["score"] * weight                │      │  │
-│   │   │                                                            │      │  │
-│   │   │   logger.info(f"Agent权重: trend={trend_weight:.2f}, ...) │      │  │
-│   │   └───────────────────────────────────────────────────────────────┘      │  │
-│   │                              │                                           │  │
-│   │                              ▼                                           │  │
-│   │   ┌───────────────────────────────────────────────────────────────┐      │  │
-│   │   │ Step 6: 汇总各Agent输出                                     │      │  │
-│   │   │        _aggregate(hunter_outputs, regime)                   │      │  │
-│   │   │                                                            │      │  │
-│   │   │   stock_scores = {}                                        │      │  │
-│   │   │   for hunter in hunter_outputs:                            │      │  │
-│   │   │       for code in selected:                                │      │  │
-│   │   │           stock_scores[code] += confidence                 │      │  │
-│   │   │                                                            │      │  │
-│   │   │   sorted_codes = sorted(stock_scores.items(), ...)         │      │  │
-│   │   │   final_selected = [code for code,_ in sorted[:max_pos]]   │      │  │
-│   │   │                                                            │      │  │
-│   │   │   return {                                                 │      │  │
-│   │   │       "selected": final_selected,                          │      │  │
-│   │   │       "reasoning": "...",                                  │      │  │
-│   │   │       "confidence": ...,                                   │      │  │
-│   │   │       "hunters": hunter_outputs                             │      │  │
-│   │   │   }                                                         │      │  │
-│   │   └───────────────────────────────────────────────────────────────┘      │  │
-│   │                              │                                           │  │
-│   │                              ▼                                           │  │
-│   │   ┌───────────────────────────────────────────────────────────────┐      │  │
-│   │   │ Step 7: 生成 TradingPlan                                    │      │  │
-│   │   │        _to_trading_plan(meeting_result, regime, date)       │      │  │
-│   │   │                                                            │      │  │
-│   │   │   for code in selected:                                    │      │  │
-│   │   │       pos = PositionPlan(                                  │      │  │
-│   │   │           code=code,                                       │      │  │
-│   │   │           weight=0.20,                                     │      │  │
-│   │   │           stop_loss_pct=0.05,                             │      │  │
-│   │   │           take_profit_pct=0.15,                           │      │  │
-│   │   │           trailing_pct=0.10,  # 跟踪止盈                  │      │  │
-│   │   │           ...                                              │      │  │
-│   │   │       )                                                     │      │  │
-│   │   │                                                            │      │  │
-│   │   │   plan = TradingPlan(positions=positions, ...)             │      │  │
-│   │   └───────────────────────────────────────────────────────────────┘      │  │
-│   │                                                                          │  │
-│   └──────────────────────────────────────────────────────────────────────────┘  │
-│        │                                                                        │
-│        │ trading_plan                                                           │
-│        ▼                                                                        │
-│   ┌─────────────────────────────────────────────────────────────────────────┐   │
-│   │  SimulatedTrader.set_trading_plan(plan)                               │   │
-│   │  • 存储交易计划                                                         │   │
-│   │  • 后续按计划执行                                                       │   │
-│   └─────────────────────────────────────────────────────────────────────────┘   │
-│                                                                                 │
-└─────────────────────────────────────────────────────────────────────────────────┘
+### 1.2 选股猎手
+
+- `TrendHunterAgent`
+  - 偏趋势延续
+- `ContrarianAgent`
+  - 偏超跌反弹 / 均值回复
+- `QualityAgent`
+  - 偏质量和稳健约束
+- `DefensiveAgent`
+  - 偏低波与防御风格
+
+### 1.3 复盘裁判
+
+- `StrategistAgent`
+  - 组合层风险分析
+- `EvoJudgeAgent`
+  - 判断是否应该进化、为什么进化
+- `ReviewDecisionAgent`
+  - 形成最终复盘建议，并输出参数与权重调整
+
+### 1.4 运行编排
+
+- `Commander`
+  - 负责任务编排、状态检查、实验计划与工具调用
+  - 不直接扮演单票选股分析师
+
+## 2. 选股会议链路
+
+当前选股会议入口是 `invest/meetings/selection.py` 的 `SelectionMeeting`。
+
+```mermaid
+flowchart TD
+    A[InvestmentModel.process] --> B[SignalPacket + AgentContext]
+    B --> C[SelectionMeeting.run_with_model_output]
+    C --> D[TrendHunter]
+    C --> E[Contrarian]
+    C --> F[Quality]
+    C --> G[Defensive]
+    D --> H[候选与评分]
+    E --> H
+    F --> H
+    G --> H
+    H --> I[加权汇总]
+    I --> J[TradingPlan]
+    J --> K[StrategyAdvice + Meeting Log]
 ```
 
-## 3. 复盘会议时序图
+### 2.1 会议输入
 
-```
-┌──────────────────────────────────────────────────────────────────────────────────┐
-│                         复盘会议 (ReviewMeeting) 时序图                           │
-└──────────────────────────────────────────────────────────────────────────────────┘
+- 模型选出的 `selected_codes`
+- 股票摘要 `stock_summaries`
+- 市场状态与置信度
+- 当前模型名 / 配置名
+- Agent 权重
 
-   训练循环                                           AgentTracker
-      │                                                    │
-      ▼                                                    │
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                                                                                 │
-│   ReviewMeeting.review()                                                        │
-│        │                                                                        │
-│        │ cycle, selected_codes, per_stock_pnl, regime, return_pct              │
-│        ▼                                                                        │
-│   ┌─────────────────────────────────────────────────────────────────────────┐   │
-│   │ Step 1: 结果验证                                                        │   │
-│   │                                                                          │   │
-│   │   is_profitable = return_pct > 0                                        │   │
-│   │   if not is_profitable:                                                 │   │
-│   │       trigger_optimization = True                                        │   │
-│   └─────────────────────────────────────────────────────────────────────────┘   │
-│        │                                                                        │
-│        ▼                                                                        │
-│   ┌─────────────────────────────────────────────────────────────────────────┐   │
-│   │ Step 2: 归因分析                                                        │   │
-│   │                                                                          │   │
-│   │   for code in selected_codes:                                           │   │
-│   │       pnl = per_stock_pnl.get(code, 0)                                  │   │
-│   │       # 判断: 市场因素 / 选股因素 / 执行因素                             │   │
-│   │                                                                          │   │
-│   │   agent_performance = {}                                                 │   │
-│   │   for agent in ["trend_hunter", "contrarian"]:                          │   │
-│   │       # 计算 Agent 命中率                                               │   │
-│   │       accuracy = agent_tracker.compute_accuracy(agent)                  │   │
-│   │       agent_performance[agent] = accuracy                               │   │
-│   └─────────────────────────────────────────────────────────────────────────┘   │
-│        │                                                                        │
-│        ▼                                                                        │
-│   ┌─────────────────────────────────────────────────────────────────────────┐   │
-│   │ Step 3: Agent权重调整                                                   │   │
-│   │                                                                          │   │
-│   │   if agent_performance:                                                 │   │
-│   │       for agent, acc in agent_performance.items():                      │   │
-│   │           if acc > 0.6:                                                 │   │
-│   │               # 表现好，增加权重                                         │   │
-│   │               adjustments[agent] = 1.2                                  │   │
-│   │           elif acc < 0.4:                                               │   │
-│   │               # 表现差，降低权重                                         │   │
-│   │               adjustments[agent] = 0.8                                  │   │
-│   │                                                                          │   │
-│   │   # EMA平滑更新                                                         │   │
-│   │   new_weight = old * 0.6 + new * 0.4                                  │   │
-│   │                                                                          │   │
-│   │   return {"adjusted_weights": adjustments, ...}                        │   │
-│   └─────────────────────────────────────────────────────────────────────────┘   │
-│        │                                                                        │
-│        ▼                                                                        │
-│   ┌─────────────────────────────────────────────────────────────────────────┐   │
-│   │ Step 4: LLMOptimizer.analyze_loss() (可选)                            │   │
-│   │                                                                          │   │
-│   │   if use_llm and consecutive_losses >= 3:                               │   │
-│   │       prompt = _build_analysis_prompt(cycle_result, trade_history)    │   │
-│   │       response = _call_llm(prompt)                                     │   │
-│   │       analysis = _parse_analysis_response(response)                    │   │
-│   │       # analysis: {cause, suggestions, strategy_adjustments, ...}     │   │
-│   │       return analysis                                                   │   │
-│   │   else:                                                                 │   │
-│   │       return _default_analysis(cycle_result)                          │   │
-│   └─────────────────────────────────────────────────────────────────────────┘   │
-│        │                                                                        │
-│        ▼                                                                        │
-│   ┌─────────────────────────────────────────────────────────────────────────┐   │
-│   │ Step 5: 策略更新                                                        │   │
-│   │                                                                          │   │
-│   │   # 1. 应用 Agent 权重调整                                              │   │
-│   │   selection_meeting.update_weights(review_result.weights)             │   │
-│   │                                                                          │   │
-│   │   # 2. 应用 LLM 策略调整                                                │   │
-│   │   if analysis and analysis.strategy_adjustments:                       │   │
-│   │       for k, v in analysis.strategy_adjustments.items():                │   │
-│   │           if v is not None:                                            │   │
-│   │               params[k] = v                                             │   │
-│   │                                                                          │   │
-│   │   # 3. 遗传算法优化                                                     │   │
-│   │   evolution_engine.evolve(fitness_history)                             │   │
-│   │   new_params = evolution_engine.get_best_params()                     │   │
-│   │   params.update(new_params)                                            │   │
-│   └─────────────────────────────────────────────────────────────────────────┘   │
-│                                                                                 │
-└─────────────────────────────────────────────────────────────────────────────────┘
+### 2.2 会议输出
+
+- `TradingPlan`
+- `meeting_log`
+- `StrategyAdvice`
+
+### 2.3 会议模式
+
+- 有 LLM：优先走 LLM 会议
+- 无 LLM / 不可用：走算法 fallback
+- 可选 debate：若启用 debate 且 LLM 可用，会引入额外辩论层
+
+## 3. 复盘会议链路
+
+当前复盘会议入口是 `invest/meetings/review.py` 的 `ReviewMeeting`。
+
+```mermaid
+flowchart TD
+    A[EvalReport] --> B[Strategist]
+    A --> C[EvoJudge]
+    B --> D[组合风险分析]
+    C --> E[进化建议]
+    D --> F[ReviewDecision]
+    E --> F
+    F --> G[param_adjustments]
+    F --> H[agent_weight_adjustments]
+    F --> I[strategy_suggestions]
+    I --> J[MeetingRecorder]
 ```
 
-## 4. Agent 协作数据流
+### 3.1 输入事实
 
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                              Agent 协作数据流                                     │
-└─────────────────────────────────────────────────────────────────────────────────┘
+- 收益率
+- 胜率
+- trade history / total trades
+- benchmark pass
+- sharpe / drawdown / excess return
+- selected codes
+- 最近 Agent 准确率统计
 
-      ┌─────────────┐
-      │   输入数据   │
-      │ stock_data   │
-      │ cutoff_date │
-      └──────┬──────┘
-             │
-             ▼
-   ┌──────────────────┐
-   │  StockAnalyzer   │
-   │ summarize_stocks │
-   └────────┬─────────┘
-            │
-            ▼
-   ┌──────────────────┐
-   │   股票技术摘要    │
-   │  (MA/RSI/MACD)  │
-   └────────┬─────────┘
-            │
-     ┌──────┴──────┐
-     │             │
-     ▼             ▼
-┌─────────┐   ┌──────────────┐
-│ Market  │   │ StockScores  │
-│ Regime  │   │ (排序后)     │
-│ Agent   │   └──────┬───────┘
-└────┬────┘          │
-     │               │
-     │ regime        │
-     ▼               │
-┌─────────────┐      │
-│ params:     │      │
-│ - regime    │      │
-│ - confidence│      │
-│ - max_pos   │      │
-│ - top_n     │      │
-│ - stop_loss │      │
-│ - take_profit     │
-└──────┬──────┘      │
-       │             │
-       └──────┬──────┘
-              │
-              ▼
-      ┌────────────────┐
-      │ SelectionMeeting│
-      │   run()        │
-      └───────┬────────┘
-              │
-     ┌────────┴────────┐
-     │                 │
-     ▼                 ▼
-┌──────────────┐  ┌──────────────┐
-│ TrendHunter  │  │ Contrarian  │
-│   Agent      │  │   Agent     │
-│              │  │              │
-│ 输出:        │  │ 输出:        │
-│ - selected[] │  │ - selected[] │
-│ - confidence│  │ - confidence │
-│ - reasoning │  │ - reasoning  │
-│ - strategy  │  │ - strategy   │
-└──────┬───────┘  └──────┬───────┘
-       │                 │
-       │ hunter_outputs   │
-       └────────┬────────┘
-                │
-                ▼
-        ┌───────────────┐
-        │   权重应用     │
-        │ weight * score │
-        └───────┬───────┘
-                │
-                ▼
-        ┌───────────────┐
-        │   汇总输出     │
-        │ _aggregate()  │
-        │               │
-        │ final_selected │
-        │ reasoning      │
-        │ confidence     │
-        └───────┬───────┘
-                │
-                ▼
-        ┌───────────────┐
-        │ TradingPlan   │
-        │               │
-        │ positions[]    │
-        │ cash_reserve  │
-        │ max_positions  │
-        └───────┬───────┘
-                │
-                ▼
-        ┌───────────────┐
-        │SimulatedTrader│
-        │  按计划执行    │
-        └───────────────┘
-```
+### 3.2 输出内容
 
-## 5. Agent 权重调整机制
+- `strategy_suggestions`
+- `param_adjustments`
+- `agent_weight_adjustments`
+- `reasoning`
 
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                           Agent 权重调整机制                                       │
-└─────────────────────────────────────────────────────────────────────────────────┘
+### 3.3 复盘后的副作用
 
-初始权重:
-┌────────────────┬────────┐
-│ trend_hunter   │ 1.0   │
-│ contrarian     │ 1.0   │
-└────────────────┴────────┘
+- 更新 runtime params
+- 更新 `SelectionMeeting` 的 agent weights
+- 写 review meeting 工件
+- 记录 optimization event（触发源为 `review_meeting`）
+- 触发各 Agent 的反思记忆更新
 
-触发条件:
-  • ReviewMeeting.review() 执行后
-  • 连续亏损 >= 2 次
+## 4. Agent 边界治理
 
-调整规则:
-┌────────────────────────────────────────────────────────────┐
-│  步骤1: 计算命中率                                         │
-│                                                            │
-│  for agent in agents:                                      │
-│      total_picks = len(predictions[agent])                 │
-│      hits = sum(1 for p in predictions[agent]             │
-│                   if p["code"] in selected and pnl > 0)    │
-│      accuracy = hits / total_picks if total_picks > 0     │
-│                                                            │
-│  步骤2: 权重调整                                           │
-│                                                            │
-│  if accuracy > 0.6:           # 表现优秀                  │
-│      new_weight = min(current_weight * 1.2, 1.5)         │
-│  elif accuracy > 0.4:          # 表现一般                 │
-│      new_weight = current_weight                           │
-│  else:                          # 表现差                  │
-│      new_weight = max(current_weight * 0.8, 0.5)          │
-│                                                            │
-│  步骤3: EMA平滑                                            │
-│                                                            │
-│  final_weight = old * 0.6 + new_weight * 0.4             │
-│                                                            │
-└────────────────────────────────────────────────────────────┘
+当前 Agent prompt 与代码共同约束了角色边界：
 
-应用:
-  • 选股时: score = original_score * agent_weight
-  • 汇总时: stock_score += confidence * agent_weight
+- `MarketRegime` 不输出交易参数
+- Hunter 类 Agent 不输出仓位/止损/现金比例
+- `ReviewDecision` 不接管系统编排
+- `Commander` 不直接冒充 Hunter 或 ReviewAgent
+- 多数 Agent 输出要求为单个 JSON 对象
 
-示例:
-  初始: trend_hunter=1.0, contrarian=1.0
-  第一轮: trend命中率60% → 调整为1.2
-  EMA后: trend = 1.0*0.6 + 1.2*0.4 = 1.08
-```
+这些 prompt 当前落在：
 
-## 6. 异常流程处理
+- `agent_settings/agents_config.json`
 
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                              异常流程处理                                         │
-└─────────────────────────────────────────────────────────────────────────────────┘
+并可通过：
 
-LLM调用失败:
-  │
-  ▼
-┌──────────────────┐
-│ try: llm.call()  │
-└────────┬─────────┘
-         │
-    ┌────┴────┐
-    │ 异常     │
-    ▼         ▼
-┌────────┐ ┌─────────────┐
-│ 捕获   │ │ 返回fallback│
-│ 警告   │ │ 算法结果    │
-│ 日志   │ │             │
-└────────┘ └─────────────┘
-         │
-         ▼
-  logger.warning("Agent调用失败，使用算法兜底")
+- `/api/agent_configs`
 
-────────────────────────────────────────────────────────────────
+在线修改。
 
-无候选股票:
-  │
-  ▼
-  return {
-      "selected": [],
-      "reasoning": "无候选股票",
-      "confidence": 0.0,
-      "source": "algorithm",
-      "hunters": [],
-  }
+## 5. 会议记录与审计
 
-────────────────────────────────────────────────────────────────
+### 5.1 选股会议
 
-连续亏损>=3次:
-  │
-  ▼
-  1. ReviewMeeting.review()
-  2. LLMOptimizer.analyze_loss()
-  3. EvolutionEngine.evolve()
-  4. 更新参数
-  5. 重置 consecutive_losses = 0
-```
+- JSON：`runtime/logs/meetings/selection/meeting_<cycle>.json`
+- Markdown：`runtime/logs/meetings/selection/meeting_<cycle>.md`
+
+### 5.2 复盘会议
+
+- JSON：`runtime/logs/meetings/review/review_<cycle>.json`
+- Markdown：`runtime/logs/meetings/review/review_<cycle>.md`
+
+### 5.3 周期结果中的引用
+
+周期结果 JSON 里会带上这些工件路径，便于：
+
+- Web Memory detail 回溯
+- Training Lab 评估查看
+- 人工审计一次训练为什么得出当前结论
+
+## 6. 当前实现的重点特点
+
+### 6.1 不是“所有 Agent 直接交易”
+
+真正驱动交易模拟的是：
+
+- `InvestmentModel` 先产出结构化上下文
+- `SelectionMeeting` 再把上下文转成 `TradingPlan`
+- `SimulatedTrader` 最终执行交易模拟
+
+### 6.2 复盘永远比优化更靠后
+
+- 亏损达到阈值会触发 optimization
+- 但成功周期仍然会进入 review meeting
+- review 是每轮训练的标准收尾动作，不是异常补救动作
+
+### 6.3 Agent 权重是可学习的
+
+当前系统支持在 review 后动态调整：
+
+- `trend_hunter`
+- `contrarian`
+- 其他参与会议的角色权重
+
+这使得会议不是静态 ensemble，而是带反馈回路的协作系统。

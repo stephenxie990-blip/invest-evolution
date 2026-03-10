@@ -1,245 +1,137 @@
-# 投资进化系统 - 完整架构图
+# 架构图（当前代码实现）
 
-```
-┌─────────────────────────────────────────────────────────────────────────────────────────┐
-│                                   用户层 (User Layer)                                   │
-│                                                                                         │
-│   ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐                  │
-│   │ 命令行界面   │  │  nanobot   │  │  Claude    │  │  输出报告   │                  │
-│   │ test_self   │  │  Agent调用  │  │   Code     │  │  结果导出   │                  │
-│   │ _learning.py│  │             │  │            │  │  (JSON/CSV) │                  │
-│   └──────┬──────┘  └──────┬──────┘  └──────┬──────┘  └──────┬──────┘                  │
-│          │                 │                 │                 │                         │
-└──────────┼─────────────────┼─────────────────┼─────────────────┼─────────────────────────┘
-           │                 │                 │                 │
-           ▼                 ▼                 ▼                 ▼
-┌─────────────────────────────────────────────────────────────────────────────────────────┐
-│                              入口层 (Entry Layer)                                       │
-│                                                                                         │
-│   ┌─────────────────────────────────────────────────────────────────────────────────┐   │
-│   │                         commander.py / train.py / web_server.py                                    │   │
-│   │   • 主训练循环 (1200轮)  • Agent触发控制  • 结果导出  • 固化评估               │   │
-│   └─────────────────────────────────────────────────────────────────────────────────┘   │
-└─────────────────────────────────────────────────────────────────────────────────────────┘
-                                       │
-                                       ▼
-┌─────────────────────────────────────────────────────────────────────────────────────────┐
-│                              核心决策层 (Core Decision Layer)                            │
-│                                                                                         │
-│   ┌─────────────────────────────┐  ┌─────────────────────────────────────────────┐     │
-│   │     SelectionMeeting        │  │            ReviewMeeting                    │     │
-│   │   (选股会议编排器)          │  │           (复盘会议)                        │     │
-│   │                             │  │                                            │     │
-│   │  • 多Agent协商选股          │  │  • 周期结果验证                            │     │
-│   │  • 汇总各猎手输出          │  │  • 归因分析                                │     │
-│   │  • 生成TradingPlan          │  │  • Agent权重调整                           │     │
-│   └──────────────┬──────────────┘  └──────────────────────┬──────────────────┘     │
-│                  │                                        │                            │
-│                  ▼                                        ▼                            │
-│   ┌─────────────────────────────────────────────────────────────────────────────────┐   │
-│   │                    Meeting Protocol (会议协议)                                  │   │
-│   │                                                                                 │   │
-│   │    ┌──────────┐    ┌──────────┐    ┌──────────┐    ┌──────────┐            │   │
-│   │    │ Market   │    │  Trend   │    │Contrarian│    │ Commander│            │   │
-│   │    │  Regime  │───▶│  Hunter  │───▶│  Agent   │───▶│  Agent   │            │   │
-│   │    │  Agent   │    │  Agent   │    │          │    │          │            │   │
-│   │    └──────────┘    └──────────┘    └──────────┘    └──────────┘            │   │
-│   │        │                │                │                │                   │   │
-│   │        ▼                ▼                ▼                ▼                   │   │
-│   │    ┌─────────────────────────────────────────────────────────────────────┐   │   │
-│   │    │                      TradingPlan (统一合同)                          │   │   │
-│   │    │  • positions: List[PositionPlan]  • cash_reserve: float            │   │   │
-│   │    │  • max_positions: int  • source: algorithm/meeting                  │   │   │
-│   │    └─────────────────────────────────────────────────────────────────────┘   │   │
-│   └─────────────────────────────────────────────────────────────────────────────────┘   │
-└─────────────────────────────────────────────────────────────────────────────────────────┘
-          │                                          │
-          ▼                                          ▼
-┌─────────────────────────────────────────────────────────────────────────────────────────┐
-│                              Agent层 (Agent Layer)                                      │
-│                                                                                         │
-│   ┌────────────────┐  ┌────────────────┐  ┌────────────────┐  ┌────────────────┐    │
-│   │  MarketRegime  │  │   TrendHunter  │  │   Contrarian   │  │   Commander    │    │
-│   │    Agent       │  │    Agent       │  │    Agent       │  │    Agent       │    │
-│   │                │  │                │  │                │  │                │    │
-│   │ • 市场状态判断  │  │ • 趋势策略选股 │  │ • 逆向策略选股 │  │ • 策略整合     │    │
-│   │ • 置信度评估   │  │ • 均线多头排列 │  │ • 超跌反弹     │  │ • 参数调优     │    │
-│   │ • 参数建议     │  │ • 量价配合     │  │ • RSI超卖     │  │ • 仓位管理     │    │
-│   └───────┬────────┘  └───────┬────────┘  └───────┬────────┘  └───────┬────────┘    │
-│           │                    │                    │                    │             │
-│           └────────────────────┴────────────────────┴────────────────────┘             │
-│                                        │                                              │
-│                                        ▼                                              │
-│   ┌─────────────────────────────────────────────────────────────────────────────────┐   │
-│   │                         LLMCaller (LLM调用器)                                   │   │
-│   │                                                                                 │   │
-│   │    • litellm 集成 (MiniMax API)  • JSON解析  • Token统计  • 错误处理         │   │
-│   └─────────────────────────────────────────────────────────────────────────────────┘   │
-└─────────────────────────────────────────────────────────────────────────────────────────┘
-          │
-          ▼
-┌─────────────────────────────────────────────────────────────────────────────────────────┐
-│                              数据处理层 (Data Processing Layer)                          │
-│                                                                                         │
-│   ┌──────────────────┐  ┌──────────────────┐  ┌──────────────────┐                   │
-│   │  StockAnalyzer  │  │  MarketStats    │  │  Selector       │                   │
-│   │   (股票分析)     │  │   (市场统计)     │  │  (自适应选股)    │                   │
-│   │                 │  │                 │  │                 │                   │
-│   │ • 技术指标计算   │  │ • 大盘指标       │  │ • 多因子选股     │                   │
-│   │ • MA/RSI/MACD  │  │ • 涨跌统计       │  │ • 动量/反转     │                   │
-│   │ • 布林带/量比   │  │ • 波动率计算     │  │ • 自适应调整     │                   │
-│   └──────────────────┘  └──────────────────┘  └──────────────────┘                   │
-└─────────────────────────────────────────────────────────────────────────────────────────┘
-          │
-          ▼
-┌─────────────────────────────────────────────────────────────────────────────────────────┐
-│                              交易执行层 (Trading Execution Layer)                        │
-│                                                                                         │
-│   ┌─────────────────────────────────────────────────────────────────────────────────┐   │
-│   │                       SimulatedTrader (模拟交易器)                              │   │
-│   │                                                                                 │   │
-│   │   • 按TradingPlan执行  • 买入/卖出  • 止损/止盈  • 跟踪止盈  • 风控检查       │   │
-│   └─────────────────────────────────────────────────────────────────────────────────┘   │
-└─────────────────────────────────────────────────────────────────────────────────────────┘
-          │
-          ▼
-┌─────────────────────────────────────────────────────────────────────────────────────────┐
-│                              进化优化层 (Evolution Optimization Layer)                   │
-│                                                                                         │
-│   ┌──────────────────┐  ┌──────────────────┐  ┌──────────────────┐                   │
-│   │   LLMOptimizer  │  │ EvolutionEngine  │  │  FreezeEvaluator │                   │
-│   │  (LLM亏损分析)   │  │   (进化引擎)      │  │  (固化评估)      │                   │
-│   │                 │  │                 │  │                 │                   │
-│   │ • 亏损原因分析   │  │ • 遗传算法       │  │ • 胜率检查       │                   │
-│   │ • 策略调整建议   │  │ • 交叉/变异      │  │ • 回撤检查       │   │
-│   │ • 参数优化       │  │ • 适应度评估     │  │ • 夏普比率       │   │
-│   └──────────────────┘  └──────────────────┘  └──────────────────┘                   │
-│                                                                                         │
-│   ┌──────────────────┐  ┌──────────────────┐  ┌──────────────────┐                   │
-│   │   AgentTracker   │  │ MeetingRecorder  │  │   RiskController │                   │
-│   │  (Agent追踪)     │  │  (会议记录)       │  │   (风控)         │                   │
-│   │                 │  │                 │  │                 │                   │
-│   │ • 预测记录       │  │ • 选股会议记录   │  │ • 仓位限制       │   │
-│   │ • 准确率统计     │  │ • 复盘会议记录   │  │ • 异常检测       │   │
-│   │ • 权重管理       │  │ • 持久化存储     │  │ • 熔断机制       │   │
-│   └──────────────────┘  └──────────────────┘  └──────────────────┘                   │
-└─────────────────────────────────────────────────────────────────────────────────────────┘
-          │
-          ▼
-┌─────────────────────────────────────────────────────────────────────────────────────────┐
-│                           统一数据平台层 (Unified Data Layer)                           │
-│                                                                                         │
-│   ┌──────────────────┐  ┌────────────────────┐  ┌────────────────────┐                │
-│   │    Baostock      │  │ DataIngestionService│  │ MarketDataRepository│               │
-│   │   (行情/主数据)   │  │   (统一写入入口)     │  │ (canonical SQLite)  │               │
-│   └──────────────────┘  └────────────────────┘  └────────────────────┘                │
-│                                                                                         │
-│   ┌──────────────────┐  ┌────────────────────┐  ┌────────────────────┐                │
-│   │     Tushare      │  │ Training/T0/Web    │  │ DataQualityService │                │
-│   │   (补充行情源)    │  │ Dataset Builders   │  │   (质量巡检)        │                │
-│   └──────────────────┘  └────────────────────┘  └────────────────────┘                │
-└─────────────────────────────────────────────────────────────────────────────────────────┘
+## 1. 系统全景图
+
+```mermaid
+flowchart TD
+    USER[用户 / 脚本 / Web] --> ENTRY[app/commander.py / app/train.py / app/web_server.py]
+
+    ENTRY --> CMD[CommanderRuntime]
+    ENTRY --> TRAIN[SelfLearningController]
+    ENTRY --> WEB[Flask API]
+
+    CMD --> BRAIN[brain/]
+    CMD --> BODY[InvestmentBodyService]
+    WEB --> CMD
+    BODY --> TRAIN
+
+    TRAIN --> DATA[market_data/]
+    TRAIN --> DOMAIN[invest/]
+
+    DATA --> DB[(data/stock_history.db)]
+    DATA --> SRC1[Baostock]
+    DATA --> SRC2[Tushare]
+    DATA --> SRC3[Akshare]
+
+    DOMAIN --> MODELS[invest/models]
+    DOMAIN --> MEET[invest/meetings]
+    DOMAIN --> FOUNDATION[invest/foundation]
+    DOMAIN --> EVO[invest/evolution]
+    DOMAIN --> ALLOC[invest/allocator]
+    DOMAIN --> BOARD[invest/leaderboard]
+
+    CMD --> RUNTIME[runtime/]
+    WEB --> STATIC[static/index.html]
 ```
 
-## 架构分层说明
+## 2. Commander 运行时图
 
-### 1. 用户层 (User Layer)
-- CLI 入口 `commander.py`（统一状态/守护/策略热重载）
-- 训练入口 `train.py`（专注训练循环与实验）
-- Web 入口 `web_server.py`（Flask 前端/API）
-- nanobot Agent 调用接口
-- Claude Code 交互
-- JSON/CSV 结果导出
+```mermaid
+flowchart LR
+    A[CommanderRuntime] --> B[BrainRuntime]
+    A --> C[InvestmentBodyService]
+    A --> D[MemoryStore]
+    A --> E[CronService]
+    A --> F[HeartbeatService]
+    A --> G[BridgeHub]
+    A --> H[StrategyGeneRegistry]
+    A --> I[TrainingLabArtifactStore]
+    A --> J[EvolutionConfigService]
 
-### 2. 入口层 (Entry Layer)
-- `commander.py`：统一运行时与守护调度
-- `train.py`：主训练循环、结果汇总与导出
-- `web_server.py`：状态查询、训练触发、配置管理
-
-### 3. 核心决策层 (Core Decision Layer)
-- **SelectionMeeting**: 多 Agent 协商选股，生成统一交易计划
-- **ReviewMeeting**: 复盘分析，调整 Agent 权重
-- **TradingPlan**: Agent 与 Trader 之间的唯一合同
-
-### 4. Agent 层 (Agent Layer)
-- **MarketRegime Agent**: 市场状态判断 (牛市/熊市/震荡)
-- **TrendHunter Agent**: 趋势策略选股
-- **Contrarian Agent**: 逆向策略选股
-- **Commander Agent**: 策略整合与参数调优
-
-### 5. 数据处理层 (Data Processing Layer)
-- **StockAnalyzer**: 技术指标计算 (MA, RSI, MACD, 布林带)
-- **MarketStats**: 大盘统计
-- **Selector**: 多因子选股
-
-### 6. 交易执行层 (Trading Execution Layer)
-- **SimulatedTrader**: 按 TradingPlan 执行交易
-- 止损/止盈/跟踪止盈
-- 风控检查
-
-### 7. 进化优化层 (Evolution Optimization Layer)
-- **LLMOptimizer**: LLM 亏损分析
-- **EvolutionEngine**: 遗传算法进化
-- **FreezeEvaluator**: 策略固化评估
-- **AgentTracker**: Agent 性能追踪
-- **MeetingRecorder**: 会议记录持久化
-
-### 8. 统一数据平台层 (Unified Data Layer)
-- **DataIngestionService**: Baostock/Tushare 统一写入入口
-- **MarketDataRepository**: canonical schema（`security_master` / `daily_bar` / `financial_snapshot` / `ingestion_meta`）
-- **TrainingDatasetBuilder / T0DatasetBuilder / WebDatasetService**: 训练、T0、Web 统一读取
-- **DataQualityService**: 数据覆盖率与健康巡检
-
-## 数据流
-
-```
-用户输入 → `commander.py` / `train.py` / `web_server.py`
-              │
-              ▼
-     CommanderRuntime / SelfLearningController
-              │
-              ▼
-         数据加载 (canonical SQLite + 在线兜底)
-              │
-              ▼
-         市场分析 (MarketStats)
-              │
-              ▼
-         Agent判断 (MarketRegime Agent)
-              │
-              ▼
-         选股会议 (SelectionMeeting)
-              │         │         │
-              ▼         ▼         ▼
-         TrendHunter Contrarian Commander
-              │         │         │
-              └─────────┴─────────┘
-                         │
-                         ▼
-                    TradingPlan
-                         │
-                         ▼
-                   SimulatedTrader
-                         │
-                         ▼
-                    交易结果
-                         │
-                         ▼
-                    ReviewMeeting
-                         │
-                         ▼
-              LLMOptimizer / EvolutionEngine
-                         │
-                         ▼
-                    参数更新 / 策略冻结
+    B --> K[LLMGateway]
+    B --> L[Tool Registry]
+    L --> M[invest_status / invest_train / memory / cron / strategies / plugins]
 ```
 
-## Phase 实现状态
+## 3. 训练闭环图
 
-| Phase | 功能 | 状态 |
-|-------|------|------|
-| Phase 0 | 架构清理 | ✅ 完成 |
-| Phase 1 | 单 Agent (MarketRegime) | ✅ 完成 |
-| Phase 2 | 选股会议 (多 Agent 协作) | ✅ 完成 |
-| Phase 3 | 交易计划 (TradingPlan) | ✅ 完成 |
-| Phase 4 | 复盘 + 进化 | ✅ 完成 |
+```mermaid
+flowchart LR
+    A[DataManager] --> B[InvestmentModel]
+    B --> C[SelectionMeeting]
+    C --> D[TradingPlan]
+    D --> E[SimulatedTrader]
+    E --> F[StrategyEvaluator]
+    E --> G[BenchmarkEvaluator]
+    F --> H[ReviewMeeting]
+    G --> H
+    H --> I[参数调整]
+    H --> J[Agent 权重调整]
+    I --> K[Optimization Events]
+    J --> K
+    K --> L[Cycle JSON / Leaderboard / Training Lab]
+```
+
+## 4. 数据层图
+
+```mermaid
+flowchart TD
+    SRC[baostock / tushare / akshare] --> ING[DataIngestionService]
+    ING --> REPO[MarketDataRepository]
+    REPO --> DB[(stock_history.db)]
+
+    REPO --> TRAIN_DS[TrainingDatasetBuilder]
+    REPO --> WEB_DS[WebDatasetService]
+    REPO --> CF[CapitalFlowDatasetService]
+    REPO --> EVT[EventDatasetService]
+    REPO --> INTRA[IntradayDatasetBuilder]
+    REPO --> T0[T0DatasetBuilder]
+
+    TRAIN_DS --> MANAGER[DataManager]
+    WEB_DS --> API[Web API /api/data/*]
+    MANAGER --> TRAIN[SelfLearningController]
+```
+
+## 5. 运行态工件图
+
+```mermaid
+flowchart TD
+    TRAIN[训练执行] --> CYCLE[runtime/outputs/training/cycle_*.json]
+    TRAIN --> OPT[runtime/outputs/training/optimization_events.jsonl]
+    TRAIN --> SEL[runtime/logs/meetings/selection/*.json|md]
+    TRAIN --> REV[runtime/logs/meetings/review/*.json|md]
+    TRAIN --> SNAP[runtime/state/config_snapshots/*]
+    TRAIN --> LAB1[runtime/state/training_plans/*]
+    TRAIN --> LAB2[runtime/state/training_runs/*]
+    TRAIN --> LAB3[runtime/state/training_evals/*]
+    TRAIN --> BOARD[runtime/outputs/leaderboard.json]
+    CMD[CommanderRuntime] --> STATE[runtime/outputs/commander/state.json]
+    CMD --> MEM[runtime/memory/commander_memory.jsonl]
+```
+
+## 6. 设计要点
+
+### 6.1 单进程融合
+
+当前系统不是“Web 一套、训练一套、Agent 一套”的三套运行时，而是：
+
+- Commander 把 Brain 与 Invest Body 融在一个进程里
+- Web 只是复用 CommanderRuntime
+- 训练入口则直接复用训练控制器
+
+### 6.2 读写分层
+
+- 写数据统一走 `market_data/ingestion.py`
+- 读数据统一走 dataset builder / service
+- 训练与 Web 都不应直接拼 SQL
+
+### 6.3 审计优先
+
+以下信息都能落盘追溯：
+
+- 周期结果
+- 会议记录
+- 优化事件
+- 配置快照
+- 训练计划 / 运行 / 评估
+- Commander memory

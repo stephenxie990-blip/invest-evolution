@@ -1,76 +1,212 @@
-# 主链路说明
+# 主链路说明（以当前实现为准）
 
-## 入口分工
+本文描述当前仓库真正生效的主链路，基于以下实现：
 
-- `app/commander.py`：推荐的统一 CLI 入口，适合状态检查、守护运行、策略热重载和单轮训练。
-- `app/train.py`：面向训练流程本身的专用入口，适合批量 cycle 和研究型实验。
-- `app/web_server.py`：Flask Web 前端/API 入口，适合手动触发训练、查看状态、编辑配置和数据同步。
-- `market_data/manager.py`：统一数据同步命令入口；内部已收口到 canonical 数据层。
+- `app/commander.py`
+- `app/train.py`
+- `app/web_server.py`
+- `market_data/`
+- `invest/`
+- `brain/`
 
-## 从入口到执行的主链路
+## 1. 三个正式入口
+
+### 1.1 Commander 入口
+
+`app/commander.py` 负责装配统一运行时：
+
+- 构建 `CommanderConfig`
+- 注入 runtime path override
+- 启动 `CommanderRuntime`
+- 挂接 `BrainRuntime`、`InvestmentBodyService`、`CronService`、`HeartbeatService`
+- 提供 CLI 子命令：`run`、`status`、`train-once`、`ask`、`strategies`
+
+### 1.2 训练入口
+
+`app/train.py` 直接暴露 `SelfLearningController` 的研究/批量训练能力，适合：
+
+- 纯训练
+- mock 验证
+- 单独跑 freeze / optimization / allocator 相关逻辑
+
+### 1.3 Web 入口
+
+`app/web_server.py` 提供：
+
+- 静态控制台页面
+- 状态 / 训练 / 策略 / 配置 / 数据 API
+- SSE 实时事件流
+- Training Lab 计划 / 运行 / 评估接口
+
+Web 模式会显式关闭：
+
+- autopilot
+- heartbeat
+- bridge
+
+以保证前端交互是**手动触发、可观察、低副作用**的。
+
+## 2. Commander 主链路
+
+```mermaid
+flowchart TD
+    U[CLI / Web / Bridge / Cron / Heartbeat] --> C[CommanderRuntime]
+    C --> B[BrainRuntime]
+    C --> BODY[InvestmentBodyService]
+    B --> TOOLS[Commander Tools]
+    TOOLS --> BODY
+    TOOLS --> MEM[MemoryStore]
+    TOOLS --> CRON[CronService]
+    TOOLS --> STRAT[StrategyGeneRegistry]
+    BODY --> CTRL[SelfLearningController]
+```
+
+### 2.1 `CommanderRuntime` 做什么
+
+- 持有全局 runtime 状态
+- 管理单实例锁 `runtime/state/commander.lock`
+- 管理训练互斥锁 `runtime/state/training.lock`
+- 向 Brain 暴露投资相关工具
+- 生成并持久化 training plan / run / evaluation 工件
+- 将训练摘要追加到 memory
+- 暴露统一 `status()` 快照给 CLI / Web / tool calling
+
+### 2.2 `BrainRuntime` 做什么
+
+- 管理 session
+- 调用统一 LLM 出口 `app/llm_gateway.py`
+- 执行 tool calling
+- 负责 Commander 对话、任务编排与自然语言交互
+
+### 2.3 `InvestmentBodyService` 做什么
+
+- 维护训练运行态统计
+- 串行执行训练轮次，避免并发训练
+- 将 `SelfLearningController.run_training_cycle()` 的结果转换为统一结果字典
+- 维护 `total_cycles / success_cycles / no_data_cycles / failed_cycles`
+- 发射训练开始/结束事件
+
+## 3. 训练主链路
+
+训练核心只认 `SelfLearningController.run_training_cycle()` 这一条链路。
+
+```mermaid
+flowchart LR
+    A[随机截断日] --> B[DataManager 训练准备检查]
+    B --> C[加载股票历史数据]
+    C --> D[InvestmentModel.process]
+    D --> E[SelectionMeeting]
+    E --> F[TradingPlan]
+    F --> G[SimulatedTrader]
+    G --> H[StrategyEvaluator / BenchmarkEvaluator]
+    H --> I[ReviewMeeting]
+    I --> J[Loss Optimization / YAML Mutation]
+    J --> K[保存周期结果与快照]
+```
+
+详细步骤见 `docs/TRAINING_FLOW.md`。
+
+## 4. 数据读取主链路
+
+### 4.1 写路径
+
+- `market_data/ingestion.py` 负责从 `baostock` / `tushare` / `akshare` 同步数据
+- 所有同步都写入 `MarketDataRepository` 管理的 canonical SQLite
+- 默认数据库路径为 `data/stock_history.db`
+
+### 4.2 读路径
+
+- 训练读取：`TrainingDatasetBuilder`
+- Web 状态读取：`WebDatasetService`
+- T0 / 盘中读取：`T0DatasetBuilder`、`IntradayDatasetBuilder`
+- 兼容 façade：`DataManager`
+
+## 5. Training Lab 主链路
+
+`CommanderRuntime` 在每次直接训练或计划执行时，都会维护三类工件：
+
+- `runtime/state/training_plans/*.json`
+- `runtime/state/training_runs/*.json`
+- `runtime/state/training_evals/*.json`
+
+其职责分工为：
+
+- **plan**：描述实验目标、轮次、数据/模型/优化协议
+- **run**：记录一次实际执行的原始输出
+- **evaluation**：记录汇总指标、promotion 判断与对 baseline 的比较
+
+## 6. Web API 主链路
+
+当前 Web API 可以按职责分成 7 组：
+
+1. **状态与事件**
+   - `/api/status`
+   - `/api/lab/status/quick`
+   - `/api/lab/status/deep`
+   - `/api/events`
+2. **对话与训练**
+   - `/api/chat`
+   - `/api/train`
+3. **Training Lab**
+   - `/api/lab/training/plans`
+   - `/api/lab/training/runs`
+   - `/api/lab/training/evaluations`
+4. **模型与策略**
+   - `/api/investment-models`
+   - `/api/leaderboard`
+   - `/api/allocator`
+   - `/api/strategies`
+5. **调度与记忆**
+   - `/api/cron`
+   - `/api/memory`
+6. **配置治理**
+   - `/api/agent_configs`
+   - `/api/runtime_paths`
+   - `/api/evolution_config`
+7. **数据管理**
+   - `/api/data/status`
+   - `/api/data/capital_flow`
+   - `/api/data/dragon_tiger`
+   - `/api/data/intraday_60m`
+   - `/api/data/download`
+
+## 7. 结果状态语义
+
+### 7.1 单周期结果
+
+`InvestmentBodyService.run_cycles()` 中单轮结果有三种状态：
+
+- `ok`：周期成功完成
+- `no_data`：因为数据不足、无可交易标的或未来交易日不足而跳过
+- `error`：周期执行异常
+
+### 7.2 多轮运行结果
+
+多轮运行的顶层 `status` 由结果聚合得出：
+
+- `completed`
+- `completed_with_skips`
+- `insufficient_data`
+- `partial_failure`
+- `failed`
+- `busy`
+
+## 8. 当前主链的边界约束
+
+- 所有外部 LLM 调用都必须走 `app/llm_gateway.py`
+- Web 只是薄壳，不重复实现训练/配置逻辑
+- 训练计划与训练运行必须可审计、可重放、可追溯
+- 当前运行时默认单实例
+- 当前默认数据主路径是单库 `data/stock_history.db`
+
+## 9. 阅读建议
+
+如果你正在理解当前代码，推荐顺序：
 
 1. `app/commander.py`
-   - 构建 `CommanderConfig`
-   - 初始化 `CommanderRuntime`
-   - 装配 `BrainRuntime`、`CronService`、Bridge、Memory、Plugins
-   - 通过 `InvestmentBodyService` 驱动 `SelfLearningController`
 2. `app/train.py`
-   - `SelfLearningController.run_training_cycle()` 执行单轮训练
-   - `DataManager` 优先从离线 canonical 库读取数据；离线不可用时才降级到在线抓取或 mock
-   - 使用 `compute_market_stats()` 与 Agent/算法判断市场状态
-   - 调用 `SelectionMeeting.run_with_data()` 生成 `TradingPlan`
-   - 交给 `SimulatedTrader.run_simulation()` 执行模拟交易
-   - 用 `StrategyEvaluator` / `BenchmarkEvaluator` / `FreezeEvaluator` 做评估
-   - 在亏损或触发条件下调用 `LLMOptimizer` 与 `EvolutionEngine` 做优化
-3. `app/web_server.py`
-   - 复用 `CommanderRuntime`
-   - 暴露 `/api/status`、`/api/train`、`/api/strategies`、`/api/evolution_config`
-   - 通过 `WebDatasetService` 提供 `/api/data/status`
-   - 通过 `DataIngestionService` 提供 `/api/data/download`
-4. `market_data/manager.py`
-   - 仅保留 `DataManager`、`MockDataProvider`、`EvolutionDataLoader` 与数据同步 CLI
-   - 训练读取直接由 `TrainingDatasetBuilder` 提供
-   - T0 读取直接由 `T0DatasetBuilder` 提供
-
-## 数据主链路
-
-1. 写入链路
-   - `DataIngestionService.sync_security_master()` 将股票主数据写入 `security_master`
-   - `DataIngestionService.sync_daily_bars()` / `sync_daily_bars_from_tushare()` 将行情写入 `daily_bar`
-   - 当前项目已清除 legacy 双表链路，只维护 canonical schema
-2. 读取链路
-   - `TrainingDatasetBuilder` 负责训练/回测 cutoff、最小历史长度和未来窗口规则
-   - `T0DatasetBuilder` 负责 T0 股票池与幸存者偏差修正
-   - `WebDatasetService` 负责 Web 状态聚合
-3. 质量链路
-   - `DataQualityService` 输出结构化巡检结果
-   - Agent 只消费巡检结果做解释，不参与下载、清洗、裁切和落库
-
-## 模块映射
-
-- `market_data/repository.py`：SQLite canonical schema、迁移、查询与旧表清理
-- `market_data/ingestion.py`：Baostock/Tushare 接入与统一写入
-- `market_data/datasets.py`：训练集、T0 数据集、Web 读取构造器
-- `market_data/quality.py`：数据覆盖率和健康检查
-- `market_data/manager.py`：对外 façade、mock 数据、在线兜底和命令行同步入口
-- `invest/core.py`：`invest.shared` 的兼容入口，保留历史公共导入路径
-- `invest/shared/`：公共数据结构、指标计算、市场统计、追踪器
-- `invest/agents/`：各类 Agent 定义
-- `invest/meetings/`：选股会议、复盘会议与会议记录
-- `invest/trading/`：交易执行与风控
-- `invest/evaluation/`：评估、冻结与策略管理
-- `invest/selection/` / `invest/evolution/`：选股、优化、进化与分析
-
-## 代码结构约束
-
-- `app/` 是顶层应用真实入口；根目录同名模块仅保留兼容启动壳。
-- 数据库 canonical schema 只有一套：`security_master`、`daily_bar`、`financial_snapshot`、`ingestion_meta`。
-- 训练、Web、T0 统一从 canonical schema 读数据。
-- 安装与运行统一以 `pyproject.toml` 为单一依赖来源。
-- Agent 不参与数据下载、清洗、落库和 cutoff 裁切。
-
-
-## 第四轮目录收口补充
-
-- 顶层应用实现已收口到 `app/` 包。
-- 根目录 `commander.py`、`train.py`、`web_server.py`、`llm_gateway.py`、`llm_router.py` 现为兼容壳或兼容转发模块。
+3. `market_data/manager.py`
+4. `market_data/datasets.py`
+5. `invest/meetings/selection.py`
+6. `invest/meetings/review.py`
+7. `app/web_server.py`

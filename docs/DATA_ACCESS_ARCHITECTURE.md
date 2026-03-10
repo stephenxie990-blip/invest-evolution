@@ -1,134 +1,156 @@
-# 数据管理与调用接口架构
+# 数据访问架构
 
-## 目标
+当前系统的数据访问已经统一到 `market_data/`，核心原则是：
 
-在保持现有日频训练/回测主链路稳定的前提下，把项目的数据访问能力划分为清晰的四层：
+- **写入统一入库**
+- **读取统一经由 dataset builder / service**
+- **训练与 Web 不直接拼 SQL**
 
-1. 日频主链路
-2. 日频增强层
-3. 事件查询层
-4. 日内执行层
+## 1. 核心对象
 
-## 分层原则
+### 1.1 Repository
 
-### 1. `TrainingDatasetBuilder`
+`market_data/repository.py` 中的 `MarketDataRepository` 负责：
 
-职责：
-- 输出训练/回测主数据
-- 以 `daily_bar` 为骨架
-- 点时拼接 `security_master`、`financial_snapshot`、`factor_snapshot`、`security_status_daily`
-- 可选拼接 `capital_flow_daily`
+- 初始化 canonical schema
+- 提供查询接口
+- 提供 upsert 接口
+- 维护 ingestion meta 与状态摘要
 
-适用：
-- 日频选股
-- 回测
-- 模型训练
+### 1.2 Ingestion
 
-### 2. `CapitalFlowDatasetService`
+`market_data/ingestion.py` 中的 `DataIngestionService` 负责：
 
-职责：
-- 提供 `capital_flow_daily` 的读取
-- 支持把资金流按 `trade_date` 合并回日频 frame
+- 股票主数据同步
+- 日线同步
+- 指数同步
+- 交易日历同步
+- 财务快照同步
+- 资金流同步
+- 龙虎榜同步
+- 60 分钟线同步
 
-适用：
-- 资金流因子增强
-- 资金面过滤
+### 1.3 Read-side Builders / Services
 
-### 3. `EventDatasetService`
+`market_data/datasets.py` 当前提供：
 
-职责：
-- 提供 `dragon_tiger_list` 事件查询
-- 保持事件数据独立，不破坏主日频 frame
+- `TrainingDatasetBuilder`
+- `WebDatasetService`
+- `CapitalFlowDatasetService`
+- `EventDatasetService`
+- `IntradayDatasetBuilder`
+- `T0DatasetBuilder`
 
-适用：
-- 事件研究
-- 标签构建
-- 风险提示与选股过滤
+### 1.4 Compatibility Facade
 
-### 4. `IntradayDatasetBuilder`
+`market_data/manager.py` 中的 `DataManager` 负责：
 
-职责：
-- 提供 `intraday_bar_60m` 读取能力
-- 独立承载日内执行 / 择时数据
+- 训练 readiness 检查
+- stock data 加载
+- 离线优先 / 在线兜底 / mock 兜底
+- 对外提供统一方法入口
 
-适用：
-- 60分钟择时
-- 执行层研究
-- T+0 / 日内策略
+## 2. 当前 canonical schema
 
-## 统一入口
+主要表包括：
 
-### `DataManager`
+- `security_master`
+- `daily_bar`
+- `index_bar`
+- `financial_snapshot`
+- `trading_calendar`
+- `security_status_daily`
+- `factor_snapshot`
+- `capital_flow_daily`
+- `dragon_tiger_list`
+- `intraday_bar_60m`
+- `ingestion_meta`
 
-保留为统一高层入口，但不再强制把所有数据都塞进同一张日频表：
+## 3. 读写分层
 
-- `load_stock_data(...)`：日频主入口，可选 `include_capital_flow=True`
-- `get_status_summary(...)`：统一状态
-- `get_capital_flow_data(...)`：资金流查询
-- `get_dragon_tiger_events(...)`：事件查询
-- `get_intraday_60m_data(...)`：60分钟线查询
-- `get_market_index_frame(...)`：指数数据
+### 3.1 写路径
 
-## 当前实施状态
-
-已落地：
-- `intraday_bar_60m` repository / ingestion / CLI / 高层读取入口
-- `capital_flow_daily` repository / ingestion / 高层查询入口
-- `dragon_tiger_list` repository / ingestion / 高层查询入口
-- `DataManager` 已形成分层式访问方法
-
-## 推荐调用方式
-
-### 日频主链路
-
-```python
-from market_data import DataManager
-
-manager = DataManager()
-stocks = manager.load_stock_data("20250115", stock_count=100, min_history_days=250)
+```text
+External Source -> DataIngestionService -> MarketDataRepository -> SQLite
 ```
 
-### 日频 + 资金流增强
+### 3.2 读路径
 
-```python
-stocks = manager.load_stock_data(
-    "20250115",
-    stock_count=100,
-    min_history_days=250,
-    include_capital_flow=True,
-)
+```text
+SQLite -> Repository Query -> DatasetBuilder / Service -> Controller / Web API
 ```
 
-### 龙虎榜事件查询
+## 4. 训练读取方式
 
-```python
-events = manager.get_dragon_tiger_events(
-    start_date="20240101",
-    end_date="20251231",
-)
-```
+训练不再依赖散落的数据拼装逻辑，而是：
 
-### 60分钟线查询
+1. `DataManager.check_training_readiness()`
+2. `DataManager.load_stock_data()`
+3. `TrainingDatasetBuilder.get_stocks()`
+4. 追加 point-in-time 上下文（财务、因子、状态、资金流等）
 
-```python
-bars_60m = manager.get_intraday_60m_data(
-    codes=["sh.600000"],
-    start_date="20240101",
-    end_date="20240131",
-)
-```
+## 5. Web 读取方式
 
-## 部署建议
+Web API 的 `/api/data/*` 路由统一走 `WebDatasetService`，典型能力包括：
 
-1. 主程序继续以日频能力为默认路径
-2. 资金流作为可选增强打开
-3. 龙虎榜作为独立事件服务使用
-4. 60分钟线只在执行层 / 日内研究里使用
-5. 避免把事件表和日内表直接塞进默认训练 frame
+- status summary
+- capital flow
+- dragon tiger events
+- intraday 60m
 
-## 后续建议
+## 6. 质量与诊断
 
-1. Web API 增加扩展查询端点
-2. 为 `IntradayDatasetBuilder` 增加按单日 / 单股切片助手
-3. 为 `CapitalFlowDatasetService` 增加常用资金流派生指标
-4. 为 `EventDatasetService` 增加事件窗口标注工具
+`DataQualityService` 提供：
+
+- 数据是否健康
+- 主数据/日线/指数/财务/日历等是否齐全
+- 日期范围是否有效
+- 最新日期、股票数、K 线数等摘要
+
+`DataManager.check_training_readiness()` 则提供训练视角的诊断，例如：
+
+- 是否有足够股票满足最小历史天数
+- 截断日是否落在离线覆盖范围内
+- 是否需要降低 `min_history_days`
+- 是否需要补齐近期日线或指数
+
+## 7. 数据源分工
+
+### 7.1 Baostock
+
+当前主要用于：
+
+- security master
+- daily bars
+- index bars
+- trading calendar
+- intraday 60m
+
+### 7.2 Tushare
+
+当前主要用于：
+
+- financial snapshots
+- 可选日线补数
+
+### 7.3 Akshare
+
+当前主要用于：
+
+- trading calendar
+- financial snapshots
+- capital flow
+- dragon tiger list
+
+## 8. 默认数据库路径
+
+- `data/stock_history.db`
+
+除非显式传参覆盖，否则训练、Web 和状态诊断都默认读这里。
+
+## 9. 当前架构收益
+
+- 数据模型统一，训练与 Web 口径一致
+- 可在 read-side builder 里做 point-in-time enrichment
+- 数据质量检查可以复用 repository status
+- 后续若需要换 DB，改 repository 和 ingestion 层即可

@@ -1,10 +1,56 @@
 # 投资进化系统 v1.0
 
-A股量化交易策略的自我进化训练平台（融合版 Commander）。
+当前仓库是一套**A 股离线数据驱动的策略训练与运行平台**：它把 `Commander` 指挥运行时、训练主循环、统一数据层、Web 控制台、训练实验室、模型排行榜与 allocator 放在同一个工程里。
+
+当前代码主链已经稳定收敛到以下能力：
+
+- **统一入口**：CLI、训练入口、Web 服务都以 `app/` 下实现为准，根目录同名脚本只保留兼容启动壳。
+- **统一数据层**：`market_data/` 负责 SQLite canonical schema、离线同步、质量审计、训练/网页读取构造器。
+- **统一训练闭环**：`SelfLearningController` 完成“数据加载 → 模型产出 → Agent 会议 → 模拟交易 → 评估 → 复盘 → 优化/固化”。
+- **统一运行时**：`CommanderRuntime` 把 `brain/` 本地 agent loop 与投资训练主体融合到单进程内。
+- **统一实验产物**：训练计划、训练运行、训练评估、周期结果、会议记录、配置快照、优化事件都落盘到 `runtime/`。
+
+## 当前功能一览
+
+### 1. 训练与研究
+
+- 支持四个内置投资模型：`momentum`、`mean_reversion`、`value_quality`、`defensive_low_vol`
+- 支持模型 YAML 配置、评分权重、风险策略、训练门控与 mutation space
+- 支持 mock 数据模式，便于本地验证训练链路
+- 支持训练计划 / 训练运行 / 训练评估三层实验工件
+- 支持 leaderboard 聚合与按市场状态分配模型权重
+
+### 2. Agent 与会议系统
+
+- 选股侧：`MarketRegimeAgent`、`TrendHunterAgent`、`ContrarianAgent`、`QualityAgent`、`DefensiveAgent`
+- 复盘侧：`StrategistAgent`、`EvoJudgeAgent`、`ReviewDecisionAgent`
+- 支持 debate 开关、Agent 权重调整、复盘建议回写、反思记忆
+- Agent prompt 可通过 `agent_settings/agents_config.json` 与 Web API 修改
+
+### 3. Commander 运行时
+
+- `BrainRuntime` 提供本地多轮对话 + tool calling
+- 内置工具覆盖：状态查询、训练执行、训练计划、策略基因、cron、记忆搜索、插件重载
+- 支持单实例锁、训练互斥锁、Bridge 收发箱、cron、heartbeat、记忆审计
+- 支持将训练结果自动写入 memory 与 training lab 工件目录
+
+### 4. Web 控制台与 API
+
+- Dashboard / Chat / Train / Strategies / Cron / Memory / Agents / Data 等前端面板
+- Flask API 覆盖状态、训练、训练实验室、策略、leaderboard、allocator、配置、数据查询与后台下载
+- SSE 事件流：`/api/events`
+- Web 模式默认关闭 autopilot / heartbeat / bridge，仅保留手动触发与监控
+
+### 5. 数据层
+
+- 默认离线库：`data/stock_history.db`
+- 数据源：`baostock`、`tushare`、`akshare`
+- 已统一表：`security_master`、`daily_bar`、`index_bar`、`financial_snapshot`、`trading_calendar`、`security_status_daily`、`factor_snapshot`、`capital_flow_daily`、`dragon_tiger_list`、`intraday_bar_60m`、`ingestion_meta`
+- 支持数据健康审计、训练 readiness 诊断、资金流 / 龙虎榜 / 60 分钟线读取
 
 ## 快速开始
 
-推荐安装方式：`python3 -m pip install -e ".[dev]"`。
+推荐使用 Python 3.11+ 与虚拟环境。
 
 ```bash
 cd ~/Desktop/投资进化系统v1.0
@@ -12,85 +58,136 @@ python3 -m venv .venv
 source .venv/bin/activate
 python3 -m pip install --upgrade pip
 python3 -m pip install -e ".[dev]"
-
-# 初始化统一离线库（推荐首次执行）
-python3 -m market_data --source baostock --start 20180101
-
-# 检查离线库状态 / 训练可用性
-python3 -m market_data --status --cutoff 20241231 --stocks 200
-
-# 补充财务快照（需设置 TUSHARE_TOKEN）
-python3 -m market_data --source tushare --financials --stocks 500
-
-# CLI 状态检查
-python3 commander.py status
-
-# 查看并热重载策略基因
-python3 commander.py strategies --reload
-
-# 单轮训练（mock）
-python3 commander.py train-once --rounds 1 --mock
-
-# 常驻运行
-python3 commander.py run
-
-# Web 前端
-python3 web_server.py --mock
 ```
 
-## 主链路说明
+### 1. 初始化离线库
 
-- `app/commander.py`：统一 CLI 与守护入口的真实实现，负责拼装 `CommanderRuntime`、调度、Bridge、策略基因与训练执行；根目录 `commander.py` 仅保留兼容启动壳。
-- `brain/runtime.py` + `brain/tools.py`：提供多轮推理与 tool-calling 外壳，把训练、状态、策略、记忆、定时任务暴露给 Commander。
-- `app/train.py`：训练主控制器 `SelfLearningController` 的真实实现，负责“加载数据 → 市场判断 → 选股会议 → 模拟交易 → 评估 → 优化”；根目录 `train.py` 为兼容壳。
-- `market_data/repository.py` + `market_data/ingestion.py` + `market_data/datasets.py`：统一数据仓储、同步服务、训练/T0/Web 读取构造器。
-- `market_data/manager.py`：保留对外 façade，统一转发到 canonical 数据层。
-- `invest/meetings/`：`SelectionMeeting` 生成交易计划，`ReviewMeeting` 进行复盘与权重调整，`MeetingRecorder` 负责会议审计落盘。
-- `invest/trading/`：`SimulatedTrader`、风险控制、候选调度与交易执行。
-- `invest/evaluation/`：收益、基准、冻结与策略管理评估。
-- `invest/selection/` + `invest/evolution/`：多因子选股、LLM 亏损分析、遗传进化、参数优化与交易分析。
-- `app/web_server.py`：Flask Web API/前端入口的真实实现，复用 `CommanderRuntime` 提供状态、训练、策略与配置操作；根目录 `web_server.py` 为兼容壳。
-- 详细说明见 `docs/MAIN_FLOW.md`。
+```bash
+# 初始化股票主数据、日线与指数日线
+python3 -m market_data --source baostock --start 20180101
 
-## 当前目录结构（与代码一致）
+# 查看离线库健康状态 + 指定训练截断日是否可用
+python3 -m market_data --status --cutoff 20241231 --stocks 200
+```
 
-## 目录收口说明
+### 2. 可选补数
 
-- `app/`：顶层应用实现包，收纳原先散落在根目录的 `commander.py`、`train.py`、`web_server.py`、`llm_gateway.py`、`llm_router.py` 实现。
-- 根目录同名文件现为兼容启动壳，保留 `python commander.py ...`、`python train.py ...`、`python web_server.py ...` 等既有用法。
-- 业务包继续保留为 `invest/`、`market_data/`、`brain/`、`config/`，避免把业务逻辑重新散回根目录。
+```bash
+# 财务快照（需要 Tushare Token）
+python3 -m market_data --source tushare --financials --stocks 500 --token "$TUSHARE_TOKEN"
 
-- `app/commander.py`: 融合主入口真实实现（守护进程、调度、工具编排）
-- `brain/runtime.py`: 指挥官多轮推理 + tool-calling 运行时
-- `brain/scheduler.py`: 本地 heartbeat + interval job 调度
-- `brain/tools.py`: 投资工具注册（status/train/strategies/cron/memory/plugins）
-- `brain/memory.py`: 持久记忆存储（jsonl）
-- `brain/bridge.py`: 多通道桥接总线（file inbox/outbox）
-- `brain/plugins.py`: 插件工具加载（plugins/*.json）
-- `app/llm_gateway.py`: 全系统唯一外部 LLM 通道（训练与指挥官共用）；根目录 `llm_gateway.py` 为兼容转发模块
-- `invest/core.py`: `invest.shared` 的兼容入口，保留公共能力旧导入路径
-- `market_data/repository.py`: SQLite canonical schema 与查询仓储
-- `market_data/ingestion.py`: Baostock/Tushare 同步写入服务
-- `market_data/datasets.py`: 训练集、T0 数据集、Web 状态读取
-- `market_data/quality.py`: 数据质量巡检
-- `market_data/manager.py`: 向后兼容 façade 与命令行同步入口
-- `invest/shared/`: 公共数据结构、LLMCaller、技术指标、摘要与追踪器
-- `invest/agents/`: 多 Agent 定义（regime/trend/contrarian/commander 等）
-- `invest/meetings/`: 选股会议、复盘会议与会议记录
-- `invest/trading/`: 交易执行、风险控制与调度
-- `invest/evaluation/`: 评估、冻结与策略管理
-- `invest/selection/` / `invest/evolution/`: 选股、优化、进化与分析
-- `app/train.py`: 训练流程控制器真实实现
+# 资金流（akshare）
+python3 -m market_data --source akshare --capital-flow --stocks 300
 
-## 融合运行模型
+# 龙虎榜（akshare）
+python3 -m market_data --source akshare --dragon-tiger --start 20240101
 
-- 单进程：Brain (nanobot风格)+ Body (投资训练引擎)
-- 多通道桥接：`runtime/sessions/inbox` 输入，`runtime/sessions/outbox` 输出（24h 守护）
-- 插件能力：`agent_settings/plugins/*.json` 声明式工具热加载
-- 长期记忆：`runtime/memory/commander_memory.jsonl` 检索与审计
-- 策略基因：`strategies/*.md|*.json|*.py`（可编辑、可替换、可热重载）
-- 数据路径：统一默认到项目内 `data/stock_history.db`
-- 输出路径：`runtime/outputs/`，日志路径：`runtime/logs/`
+# 60 分钟线（baostock）
+python3 -m market_data --source baostock --intraday-60m --start 20230101 --stocks 200
+```
+
+### 3. 运行 Commander
+
+```bash
+# 推荐用兼容脚本
+python3 commander.py status --detail fast
+python3 commander.py strategies --reload
+python3 commander.py train-once --rounds 1 --mock
+python3 commander.py run --interactive
+
+# 等价 console script
+invest-commander status --detail fast
+invest-commander train-once --rounds 1 --mock
+```
+
+### 4. 直接跑训练
+
+```bash
+python3 train.py --cycles 5 --mock
+
+# 等价 console script
+invest-train --cycles 5 --mock
+```
+
+### 5. 启动 Web 控制台
+
+```bash
+python3 web_server.py --mock
+# 默认地址: http://127.0.0.1:8080
+```
+
+## 当前正式入口
+
+### 入口脚本
+
+- `app/commander.py`：统一 Commander CLI / daemon / runtime 装配入口
+- `app/train.py`：训练/研究入口
+- `app/web_server.py`：Flask API + 静态控制台入口
+- `market_data/__main__.py`：统一数据同步与状态诊断入口
+
+### 兼容壳
+
+以下根目录文件仍可继续使用，但真实实现都在 `app/`：
+
+- `commander.py`
+- `train.py`
+- `web_server.py`
+- `llm_gateway.py`
+- `llm_router.py`
+
+## 项目结构（与当前代码一致）
+
+```text
+app/                 顶层应用实现（commander/train/web_server/lab/training）
+brain/               本地 agent loop、工具、cron、bridge、memory、plugin loader
+market_data/         canonical SQLite 数据层、同步服务、读侧 dataset builder
+invest/              投资域模型：模型、Agent、会议、交易模拟、评估、进化、allocator
+config/              全局配置、可编辑配置服务、Agent 配置注册表
+strategies/          可插拔策略基因（md/json/py）
+static/              Web 控制台静态资源
+runtime/             运行态输出、锁文件、记忆、会话、日志、训练实验室工件
+agent_settings/      Agent prompt / model 配置与插件模板
+tests/               当前实现对应的回归测试
+历史归档区/          已退出主链但保留追溯价值的历史资料
+```
+
+## 运行时产物
+
+默认运行态目录都在 `runtime/`：
+
+- `runtime/outputs/training/`：周期结果、冻结报告、优化事件等
+- `runtime/outputs/leaderboard.json`：模型排行榜
+- `runtime/outputs/commander/state.json`：运行时状态快照
+- `runtime/logs/meetings/`：选股会议 / 复盘会议 JSON 与 Markdown
+- `runtime/memory/commander_memory.jsonl`：Commander 长期记忆
+- `runtime/state/`：锁文件、训练计划、训练运行、训练评估、配置快照、路径配置
+- `runtime/sessions/inbox` / `runtime/sessions/outbox`：Bridge 收发目录
+
+## 配置说明
+
+### 核心配置来源
+
+1. `config/evolution.yaml`
+2. 环境变量（优先级更高）
+3. `config/__init__.py` 中的默认值
+
+### 常用环境变量
+
+- `LLM_API_KEY`
+- `LLM_API_BASE`
+- `LLM_MODEL`
+- `LLM_DEEP_MODEL`
+- `COMMANDER_MODEL`
+- `COMMANDER_AUTOPILOT`
+- `COMMANDER_HEARTBEAT`
+- `COMMANDER_BRIDGE`
+- `COMMANDER_MOCK`
+
+### Web 可改配置
+
+- `/api/evolution_config`：训练与模型级运行参数
+- `/api/runtime_paths`：训练输出、会议日志、配置审计与快照路径
+- `/api/agent_configs`：Agent prompt / model 配置
 
 ## 测试
 
@@ -98,17 +195,29 @@ python3 web_server.py --mock
 pytest -q
 ```
 
-## 依赖
+当前测试覆盖的主题包括：
 
-运行依赖和开发依赖统一由 `pyproject.toml` 管理，推荐使用 `python3 -m pip install -e ".[dev]"`。
+- Commander / Brain / Web API 主链
+- 数据层统一与状态审计
+- 训练计划 / 训练运行 / 训练实验室工件
+- 模型配置校验、mutation、策略评分与 allocator
+- Agent prompt 边界、导入约束与结构守卫
 
-## 配置
+## 相关文档
 
-- 示例配置：`config/evolution.yaml.example`
-- 复制为 `config/evolution.yaml` 后按需修改
-- 也可通过环境变量覆盖（如 `LLM_API_KEY`）
+- `docs/MAIN_FLOW.md`：系统主链路
+- `docs/TRAINING_FLOW.md`：训练周期细节
+- `docs/AGENT_INTERACTION.md`：Agent 与会议协作
+- `docs/ARCHITECTURE_DIAGRAM.md`：当前架构图
+- `docs/DATA_ACCESS_ARCHITECTURE.md`：数据层架构
+- `docs/CONFIG_GOVERNANCE.md`：配置治理与审计
+- `docs/RUNTIME_STATE_DESIGN.md`：运行态文件设计
+- `docs/PROJECT_AUDIT_20260310.md`：当前实现审计摘要
 
-## 打包
+## 现阶段建议的阅读顺序
 
-- 已提供 `pyproject.toml`
-- CLI 入口：`invest-commander`、`invest-train`
+1. 先读 `README.md`
+2. 再看 `docs/MAIN_FLOW.md`
+3. 需要训练细节时看 `docs/TRAINING_FLOW.md`
+4. 需要数据层时看 `docs/DATA_ACCESS_ARCHITECTURE.md`
+5. 需要运行时/配置排障时看 `docs/RUNTIME_STATE_DESIGN.md` 与 `docs/CONFIG_GOVERNANCE.md`

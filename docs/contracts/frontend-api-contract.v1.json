@@ -1,0 +1,2787 @@
+{
+  "contract_id": "frontend-v1",
+  "version": "1.0.0",
+  "published_at": "2026-03-10",
+  "api_base": "/api",
+  "frontend_shell_mount": "/app",
+  "legacy_shell_mount": "/",
+  "contract_endpoint": "/api/contracts/frontend-v1",
+  "goals": [
+    "Keep backend headless and CLI-first while allowing a standalone frontend to evolve independently.",
+    "Freeze the current API surface as a versioned contract even though the runtime URLs are still unversioned.",
+    "Let the frontend consume documented stable fields and ignore extra debug/diagnostic payloads."
+  ],
+  "compatibility": {
+    "cli_remains_supported": true,
+    "runtime_urls_are_unversioned": true,
+    "contract_versioning_strategy": "Document versioning via /api/contracts/frontend-v1, not via URL path changes.",
+    "unknown_fields_policy": "Frontend clients must ignore unknown object fields.",
+    "nullable_fields_policy": "Missing and null should be treated equivalently unless explicitly required.",
+    "error_normalization_recommendation": "Frontend SDK should normalize flat {error} and {status,error} bodies into one client-side error type."
+  },
+  "frontend_preferred_flows": {
+    "dashboard_bootstrap": [
+      "GET /api/lab/status/quick",
+      "open /api/events",
+      "optionally GET /api/lab/status/deep for drill-down"
+    ],
+    "training_lab": [
+      "POST /api/lab/training/plans",
+      "POST /api/lab/training/plans/{plan_id}/execute",
+      "GET /api/lab/training/runs/{run_id}",
+      "GET /api/lab/training/evaluations/{run_id}"
+    ],
+    "settings": [
+      "GET/POST /api/runtime_paths",
+      "GET/POST /api/evolution_config",
+      "GET/POST /api/agent_configs"
+    ],
+    "data_console": [
+      "GET /api/data/status",
+      "POST /api/data/download",
+      "optional drill-down: /api/data/capital_flow, /api/data/dragon_tiger, /api/data/intraday_60m"
+    ]
+  },
+  "components": {
+    "error_schemas": {
+      "flatError": {
+        "type": "object",
+        "description": "Most current endpoints return a flat error body on non-2xx.",
+        "properties": {
+          "error": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "error"
+        ],
+        "additionalProperties": false
+      },
+      "statusError": {
+        "type": "object",
+        "description": "Config mutation endpoints may return a status-bearing error body.",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "error"
+            ]
+          },
+          "error": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "error"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "schemas": {
+      "contractCatalog": {
+        "type": "object",
+        "properties": {
+          "count": {
+            "type": "integer"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "format": {
+                  "type": "string"
+                },
+                "kind": {
+                  "type": "string"
+                },
+                "path": {
+                  "type": "string"
+                },
+                "source_path": {
+                  "type": "string"
+                },
+                "shell_mount": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "format",
+                "kind",
+                "path"
+              ],
+              "additionalProperties": true
+            }
+          }
+        },
+        "required": [
+          "count",
+          "items"
+        ],
+        "additionalProperties": false
+      },
+      "runtimeStatus": {
+        "type": "object",
+        "description": "Commander runtime snapshot. Frontend should rely on documented top-level sections and ignore unknown fields inside nested diagnostic objects.",
+        "properties": {
+          "ts": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "detail_mode": {
+            "type": "string",
+            "enum": [
+              "fast",
+              "slow"
+            ]
+          },
+          "instance_id": {
+            "type": "string"
+          },
+          "workspace": {
+            "type": "string"
+          },
+          "strategy_dir": {
+            "type": "string"
+          },
+          "model": {
+            "type": "string"
+          },
+          "autopilot_enabled": {
+            "type": "boolean"
+          },
+          "heartbeat_enabled": {
+            "type": "boolean"
+          },
+          "training_interval_sec": {
+            "type": "integer"
+          },
+          "heartbeat_interval_sec": {
+            "type": "integer"
+          },
+          "runtime": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "brain": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "body": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "memory": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "bridge": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "plugins": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "strategies": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "config": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "data": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "training_lab": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        },
+        "required": [
+          "ts",
+          "detail_mode",
+          "runtime",
+          "brain",
+          "body",
+          "memory",
+          "bridge",
+          "plugins",
+          "strategies",
+          "config",
+          "data",
+          "training_lab"
+        ],
+        "additionalProperties": true
+      },
+      "labStatus": {
+        "type": "object",
+        "properties": {
+          "mode": {
+            "type": "string",
+            "enum": [
+              "quick",
+              "deep"
+            ]
+          },
+          "snapshot": {
+            "$ref": "#/components/schemas/runtimeStatus"
+          }
+        },
+        "required": [
+          "mode",
+          "snapshot"
+        ],
+        "additionalProperties": false
+      },
+      "chatReply": {
+        "type": "object",
+        "properties": {
+          "reply": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "reply"
+        ],
+        "additionalProperties": false
+      },
+      "trainingPlan": {
+        "type": "object",
+        "properties": {
+          "plan_id": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "status": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          },
+          "auto_generated": {
+            "type": "boolean"
+          },
+          "spec": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "protocol": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "dataset": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "model_scope": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "optimization": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "llm": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "objective": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "artifacts": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "last_run_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "last_run_at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "started_at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "plan_id",
+          "created_at",
+          "status",
+          "source",
+          "spec",
+          "protocol",
+          "dataset",
+          "model_scope",
+          "optimization",
+          "llm",
+          "objective",
+          "artifacts"
+        ],
+        "additionalProperties": true
+      },
+      "artifactList": {
+        "type": "object",
+        "properties": {
+          "count": {
+            "type": "integer"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          }
+        },
+        "required": [
+          "count",
+          "items"
+        ],
+        "additionalProperties": false
+      },
+      "trainingExecution": {
+        "type": "object",
+        "description": "Result of executing a training plan or the convenience /api/train shortcut.",
+        "properties": {
+          "status": {
+            "type": "string"
+          },
+          "rounds": {
+            "type": "integer"
+          },
+          "results": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          },
+          "summary": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "training_lab": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        },
+        "required": [
+          "status",
+          "results",
+          "summary",
+          "training_lab"
+        ],
+        "additionalProperties": true
+      },
+      "trainingRun": {
+        "type": "object",
+        "properties": {
+          "run_id": {
+            "type": "string"
+          },
+          "plan_id": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "status": {
+            "type": "string"
+          },
+          "error": {
+            "type": "string"
+          },
+          "plan": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "payload": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        },
+        "required": [
+          "run_id",
+          "plan_id",
+          "created_at",
+          "status",
+          "error",
+          "plan",
+          "payload"
+        ],
+        "additionalProperties": true
+      },
+      "trainingEvaluation": {
+        "type": "object",
+        "properties": {
+          "run_id": {
+            "type": "string"
+          },
+          "plan_id": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "status": {
+            "type": "string"
+          },
+          "objective": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "spec": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "assessment": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "promotion": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "error": {
+            "type": "string"
+          },
+          "artifacts": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        },
+        "required": [
+          "run_id",
+          "plan_id",
+          "created_at",
+          "status",
+          "objective",
+          "spec",
+          "assessment",
+          "promotion",
+          "error",
+          "artifacts"
+        ],
+        "additionalProperties": true
+      },
+      "investmentModels": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "active_model": {
+            "type": "string"
+          },
+          "active_config": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "items",
+          "active_model",
+          "active_config"
+        ],
+        "additionalProperties": false
+      },
+      "leaderboard": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "allocator": {
+        "type": "object",
+        "properties": {
+          "leaderboard_generated_at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "allocation": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        },
+        "required": [
+          "leaderboard_generated_at",
+          "allocation"
+        ],
+        "additionalProperties": false
+      },
+      "strategyGeneList": {
+        "type": "object",
+        "properties": {
+          "count": {
+            "type": "integer"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          }
+        },
+        "required": [
+          "count",
+          "items"
+        ],
+        "additionalProperties": false
+      },
+      "strategyReload": {
+        "type": "object",
+        "properties": {
+          "count": {
+            "type": "integer"
+          },
+          "genes": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          }
+        },
+        "required": [
+          "count",
+          "genes"
+        ],
+        "additionalProperties": false
+      },
+      "cronList": {
+        "type": "object",
+        "properties": {
+          "count": {
+            "type": "integer"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          }
+        },
+        "required": [
+          "count",
+          "items"
+        ],
+        "additionalProperties": false
+      },
+      "cronMutation": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string"
+          },
+          "job": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "job_id": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": true
+      },
+      "memoryList": {
+        "type": "object",
+        "properties": {
+          "count": {
+            "type": "integer"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          }
+        },
+        "required": [
+          "count",
+          "items"
+        ],
+        "additionalProperties": false
+      },
+      "memoryDetail": {
+        "type": "object",
+        "properties": {
+          "item": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "details": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        },
+        "required": [
+          "item",
+          "details"
+        ],
+        "additionalProperties": false
+      },
+      "agentConfigList": {
+        "type": "object",
+        "properties": {
+          "configs": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          }
+        },
+        "required": [
+          "configs"
+        ],
+        "additionalProperties": false
+      },
+      "agentConfigMutation": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "ok",
+              "error"
+            ]
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "additionalProperties": false
+      },
+      "statusWrappedConfig": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "ok"
+            ]
+          },
+          "updated": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "config": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        },
+        "required": [
+          "status",
+          "config"
+        ],
+        "additionalProperties": true
+      },
+      "dataStatus": {
+        "type": "object",
+        "properties": {
+          "db_path": {
+            "type": "string"
+          },
+          "size_mb": {
+            "type": "number"
+          },
+          "stock_count": {
+            "type": "integer"
+          },
+          "kline_count": {
+            "type": "integer"
+          },
+          "financial_count": {
+            "type": "integer"
+          },
+          "calendar_count": {
+            "type": "integer"
+          },
+          "status_count": {
+            "type": "integer"
+          },
+          "factor_count": {
+            "type": "integer"
+          },
+          "capital_flow_count": {
+            "type": "integer"
+          },
+          "dragon_tiger_count": {
+            "type": "integer"
+          },
+          "intraday_60m_count": {
+            "type": "integer"
+          },
+          "latest_date": {
+            "type": "string"
+          },
+          "index_count": {
+            "type": "integer"
+          },
+          "index_kline_count": {
+            "type": "integer"
+          },
+          "index_latest_date": {
+            "type": "string"
+          },
+          "schema": {
+            "type": "string",
+            "enum": [
+              "canonical_v1"
+            ]
+          },
+          "quality": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "detail_mode": {
+            "type": "string",
+            "enum": [
+              "fast",
+              "slow"
+            ]
+          }
+        },
+        "required": [
+          "db_path",
+          "size_mb",
+          "stock_count",
+          "kline_count",
+          "latest_date",
+          "schema",
+          "quality",
+          "detail_mode"
+        ],
+        "additionalProperties": true
+      },
+      "countedItems": {
+        "type": "object",
+        "properties": {
+          "count": {
+            "type": "integer"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          }
+        },
+        "required": [
+          "count",
+          "items"
+        ],
+        "additionalProperties": false
+      },
+      "dataDownload": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "started",
+              "running"
+            ]
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "message"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "sse_schemas": {
+      "connected": {
+        "event": "connected",
+        "data": {
+          "type": "object",
+          "properties": {
+            "status": {
+              "type": "string",
+              "enum": [
+                "connected"
+              ]
+            }
+          },
+          "required": [
+            "status"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "cycleStart": {
+        "event": "cycle_start",
+        "data": {
+          "type": "object",
+          "properties": {
+            "cycle_id": {
+              "type": "integer"
+            },
+            "cutoff_date": {
+              "type": "string"
+            },
+            "phase": {
+              "type": "string"
+            },
+            "timestamp": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          "required": [
+            "cycle_id",
+            "cutoff_date",
+            "phase",
+            "timestamp"
+          ],
+          "additionalProperties": true
+        }
+      },
+      "cycleComplete": {
+        "event": "cycle_complete",
+        "data": {
+          "type": "object",
+          "properties": {
+            "cycle_id": {
+              "type": "integer"
+            },
+            "cutoff_date": {
+              "type": "string"
+            },
+            "return_pct": {
+              "type": "number"
+            },
+            "is_profit": {
+              "type": "boolean"
+            },
+            "selected_count": {
+              "type": "integer"
+            },
+            "selected_stocks": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "trade_count": {
+              "type": "integer"
+            },
+            "final_value": {
+              "type": "number"
+            },
+            "review_applied": {
+              "type": "boolean"
+            },
+            "selection_mode": {
+              "type": "string"
+            },
+            "timestamp": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          "required": [
+            "cycle_id",
+            "cutoff_date",
+            "return_pct",
+            "is_profit",
+            "selected_count",
+            "trade_count",
+            "final_value",
+            "review_applied",
+            "selection_mode",
+            "timestamp"
+          ],
+          "additionalProperties": true
+        }
+      },
+      "cycleSkipped": {
+        "event": "cycle_skipped",
+        "data": {
+          "type": "object",
+          "properties": {
+            "status": {
+              "type": "string",
+              "enum": [
+                "no_data"
+              ]
+            },
+            "cycle_id": {
+              "type": "integer"
+            },
+            "cutoff_date": {
+              "type": "string"
+            },
+            "stage": {
+              "type": "string"
+            },
+            "reason": {
+              "type": "string"
+            },
+            "timestamp": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          "required": [
+            "status",
+            "cycle_id",
+            "cutoff_date",
+            "stage",
+            "reason",
+            "timestamp"
+          ],
+          "additionalProperties": true
+        }
+      },
+      "agentStatus": {
+        "event": "agent_status|agent_progress",
+        "data": {
+          "type": "object",
+          "properties": {
+            "timestamp": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "cycle_id": {
+              "type": "integer"
+            },
+            "cutoff_date": {
+              "type": "string"
+            },
+            "agent": {
+              "type": "string"
+            },
+            "status": {
+              "type": "string"
+            },
+            "message": {
+              "type": "string"
+            },
+            "stage": {
+              "type": "string"
+            },
+            "progress_pct": {
+              "type": "integer"
+            },
+            "step": {
+              "type": "integer"
+            },
+            "total_steps": {
+              "type": "integer"
+            },
+            "thinking": {
+              "type": "string"
+            },
+            "selected_stocks": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "details": {
+              "type": [
+                "object",
+                "array",
+                "string",
+                "number",
+                "boolean",
+                "null"
+              ],
+              "additionalProperties": true
+            }
+          },
+          "required": [
+            "timestamp",
+            "agent",
+            "status",
+            "message"
+          ],
+          "additionalProperties": true
+        }
+      },
+      "moduleLog": {
+        "event": "module_log",
+        "data": {
+          "type": "object",
+          "properties": {
+            "timestamp": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "cycle_id": {
+              "type": "integer"
+            },
+            "cutoff_date": {
+              "type": "string"
+            },
+            "module": {
+              "type": "string"
+            },
+            "title": {
+              "type": "string"
+            },
+            "message": {
+              "type": "string"
+            },
+            "kind": {
+              "type": "string"
+            },
+            "level": {
+              "type": "string"
+            },
+            "details": {
+              "type": [
+                "object",
+                "array",
+                "string",
+                "number",
+                "boolean",
+                "null"
+              ],
+              "additionalProperties": true
+            },
+            "metrics": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          },
+          "required": [
+            "timestamp",
+            "module",
+            "title",
+            "kind",
+            "level"
+          ],
+          "additionalProperties": true
+        }
+      },
+      "meetingSpeech": {
+        "event": "meeting_speech",
+        "data": {
+          "type": "object",
+          "properties": {
+            "timestamp": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "cycle_id": {
+              "type": "integer"
+            },
+            "cutoff_date": {
+              "type": "string"
+            },
+            "meeting": {
+              "type": "string"
+            },
+            "speaker": {
+              "type": "string"
+            },
+            "speech": {
+              "type": "string"
+            },
+            "role": {
+              "type": "string"
+            },
+            "picks": {
+              "type": "array",
+              "items": {
+                "type": [
+                  "object",
+                  "string"
+                ],
+                "additionalProperties": true
+              }
+            },
+            "suggestions": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "decision": {
+              "type": "object",
+              "additionalProperties": true
+            },
+            "confidence": {
+              "type": [
+                "number",
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "timestamp",
+            "meeting",
+            "speaker",
+            "speech"
+          ],
+          "additionalProperties": true
+        }
+      }
+    }
+  },
+  "sse": {
+    "path": "/api/events",
+    "content_type": "text/event-stream",
+    "protocol": {
+      "initial_event": "connected",
+      "keepalive": "comment frame (: keepalive)",
+      "event_id": "monotonic in-process integer",
+      "resume_behavior": "best-effort only; client should reconnect and refresh status if history gaps occur"
+    },
+    "event_refs": [
+      "#/components/sse_schemas/connected",
+      "#/components/sse_schemas/cycleStart",
+      "#/components/sse_schemas/cycleComplete",
+      "#/components/sse_schemas/cycleSkipped",
+      "#/components/sse_schemas/agentStatus",
+      "#/components/sse_schemas/moduleLog",
+      "#/components/sse_schemas/meetingSpeech"
+    ]
+  },
+  "endpoints": [
+    {
+      "id": "contracts.list",
+      "group": "contracts",
+      "method": "GET",
+      "path": "/api/contracts",
+      "summary": "List available machine-readable API contracts.",
+      "runtime_required": false,
+      "frontend_preferred": true,
+      "replacement": null,
+      "query_params": [],
+      "path_params": [],
+      "request_body": null,
+      "success": {
+        "http_status": 200,
+        "body_ref": "contractCatalog"
+      },
+      "errors": [],
+      "latency": "fast",
+      "pagination": "none",
+      "realtime": false,
+      "notes": [
+        "Safe to call before runtime initialization."
+      ]
+    },
+    {
+      "id": "contracts.frontendV1",
+      "group": "contracts",
+      "method": "GET",
+      "path": "/api/contracts/frontend-v1",
+      "summary": "Fetch the frozen frontend API contract document.",
+      "runtime_required": false,
+      "frontend_preferred": true,
+      "replacement": null,
+      "query_params": [],
+      "path_params": [],
+      "request_body": null,
+      "success": {
+        "http_status": 200,
+        "body_ref": "object"
+      },
+      "errors": [],
+      "latency": "fast",
+      "pagination": "none",
+      "realtime": false,
+      "notes": [
+        "Primary handoff contract for the standalone frontend."
+      ]
+    },
+    {
+      "id": "status.full",
+      "group": "status",
+      "method": "GET",
+      "path": "/api/status",
+      "summary": "Get a runtime snapshot with configurable detail.",
+      "runtime_required": true,
+      "frontend_preferred": true,
+      "replacement": null,
+      "query_params": [
+        {
+          "name": "detail",
+          "type": "string",
+          "required": false,
+          "default": "fast",
+          "enum": [
+            "fast",
+            "slow"
+          ]
+        }
+      ],
+      "path_params": [],
+      "request_body": null,
+      "success": {
+        "http_status": 200,
+        "body_ref": "runtimeStatus"
+      },
+      "errors": [
+        {
+          "http_status": 503,
+          "body_ref": "flatError",
+          "cases": [
+            "Commander runtime is not initialized or background loop is unavailable."
+          ]
+        }
+      ],
+      "latency": "fast_or_slow",
+      "pagination": "none",
+      "realtime": false,
+      "notes": [
+        "For new frontend bootstrap, prefer /api/lab/status/quick and /api/lab/status/deep."
+      ]
+    },
+    {
+      "id": "status.quick",
+      "group": "status",
+      "method": "GET",
+      "path": "/api/lab/status/quick",
+      "summary": "Get the preferred quick status payload for dashboard bootstrap.",
+      "runtime_required": true,
+      "frontend_preferred": true,
+      "replacement": "/api/status?detail=fast",
+      "query_params": [],
+      "path_params": [],
+      "request_body": null,
+      "success": {
+        "http_status": 200,
+        "body_ref": "labStatus"
+      },
+      "errors": [
+        {
+          "http_status": 503,
+          "body_ref": "flatError",
+          "cases": [
+            "Commander runtime is not initialized or background loop is unavailable."
+          ]
+        }
+      ],
+      "latency": "fast",
+      "pagination": "none",
+      "realtime": false,
+      "notes": []
+    },
+    {
+      "id": "status.deep",
+      "group": "status",
+      "method": "GET",
+      "path": "/api/lab/status/deep",
+      "summary": "Get the preferred deep status payload for diagnostics and drill-down.",
+      "runtime_required": true,
+      "frontend_preferred": true,
+      "replacement": "/api/status?detail=slow",
+      "query_params": [],
+      "path_params": [],
+      "request_body": null,
+      "success": {
+        "http_status": 200,
+        "body_ref": "labStatus"
+      },
+      "errors": [
+        {
+          "http_status": 503,
+          "body_ref": "flatError",
+          "cases": [
+            "Commander runtime is not initialized or background loop is unavailable."
+          ]
+        }
+      ],
+      "latency": "slow",
+      "pagination": "none",
+      "realtime": false,
+      "notes": []
+    },
+    {
+      "id": "events.stream",
+      "group": "realtime",
+      "method": "GET",
+      "path": "/api/events",
+      "summary": "Subscribe to server-sent training/runtime events.",
+      "runtime_required": false,
+      "frontend_preferred": true,
+      "replacement": null,
+      "query_params": [],
+      "path_params": [],
+      "request_body": null,
+      "success": {
+        "http_status": 200,
+        "body_ref": "text/event-stream"
+      },
+      "errors": [],
+      "latency": "stream",
+      "pagination": "none",
+      "realtime": true,
+      "notes": [
+        "Initial event is `connected`.",
+        "Keepalive comments are emitted when idle."
+      ]
+    },
+    {
+      "id": "chat.ask",
+      "group": "chat",
+      "method": "POST",
+      "path": "/api/chat",
+      "summary": "Send a natural-language message to Commander.",
+      "runtime_required": true,
+      "frontend_preferred": true,
+      "replacement": null,
+      "query_params": [],
+      "path_params": [],
+      "request_body": {
+        "type": "object",
+        "required": [
+          "message"
+        ],
+        "properties": {
+          "message": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "success": {
+        "http_status": 200,
+        "body_ref": "chatReply"
+      },
+      "errors": [
+        {
+          "http_status": 400,
+          "body_ref": "flatError",
+          "cases": [
+            "message is required"
+          ]
+        },
+        {
+          "http_status": 503,
+          "body_ref": "flatError",
+          "cases": [
+            "Commander runtime is not initialized or background loop is unavailable."
+          ]
+        },
+        {
+          "http_status": 500,
+          "body_ref": "flatError",
+          "cases": [
+            "Unexpected command/runtime error."
+          ]
+        }
+      ],
+      "latency": "medium",
+      "pagination": "none",
+      "realtime": false,
+      "notes": []
+    },
+    {
+      "id": "training.direct",
+      "group": "training",
+      "method": "POST",
+      "path": "/api/train",
+      "summary": "Convenience shortcut: auto-create a plan and execute it immediately.",
+      "runtime_required": true,
+      "frontend_preferred": false,
+      "replacement": "Use /api/lab/training/plans + /execute for the new frontend.",
+      "query_params": [],
+      "path_params": [],
+      "request_body": {
+        "type": "object",
+        "properties": {
+          "rounds": {
+            "type": "integer",
+            "default": 1,
+            "minimum": 1,
+            "maximum": 100
+          },
+          "mock": {
+            "type": "boolean",
+            "default": true,
+            "accepts_bool_like_strings": true
+          }
+        }
+      },
+      "success": {
+        "http_status": 200,
+        "body_ref": "trainingExecution"
+      },
+      "errors": [
+        {
+          "http_status": 400,
+          "body_ref": "flatError",
+          "cases": [
+            "rounds must be an integer",
+            "mock must be a boolean"
+          ]
+        },
+        {
+          "http_status": 503,
+          "body_ref": "flatError",
+          "cases": [
+            "Commander runtime is not initialized or background loop is unavailable."
+          ]
+        },
+        {
+          "http_status": 500,
+          "body_ref": "flatError",
+          "cases": [
+            "Unexpected training execution error."
+          ]
+        }
+      ],
+      "latency": "long",
+      "pagination": "none",
+      "realtime": true,
+      "notes": []
+    },
+    {
+      "id": "trainingPlans.create",
+      "group": "training_lab",
+      "method": "POST",
+      "path": "/api/lab/training/plans",
+      "summary": "Create a structured training plan artifact without executing it.",
+      "runtime_required": true,
+      "frontend_preferred": true,
+      "replacement": null,
+      "query_params": [],
+      "path_params": [],
+      "request_body": {
+        "type": "object",
+        "properties": {
+          "rounds": {
+            "type": "integer",
+            "default": 1,
+            "minimum": 1,
+            "maximum": 100
+          },
+          "mock": {
+            "type": "boolean",
+            "default": false,
+            "accepts_bool_like_strings": true
+          },
+          "goal": {
+            "type": "string"
+          },
+          "notes": {
+            "type": "string"
+          },
+          "tags": {
+            "type": [
+              "array",
+              "string"
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "detail_mode": {
+            "type": "string",
+            "default": "fast",
+            "enum": [
+              "fast",
+              "slow"
+            ]
+          },
+          "protocol": {
+            "type": "object"
+          },
+          "dataset": {
+            "type": "object"
+          },
+          "model_scope": {
+            "type": "object"
+          },
+          "optimization": {
+            "type": "object"
+          },
+          "llm": {
+            "type": "object"
+          }
+        }
+      },
+      "success": {
+        "http_status": 201,
+        "body_ref": "trainingPlan"
+      },
+      "errors": [
+        {
+          "http_status": 400,
+          "body_ref": "flatError",
+          "cases": [
+            "rounds must be an integer",
+            "mock must be a boolean",
+            "detail_mode must be one of: fast, slow",
+            "tags must be a list of strings or a comma-separated string"
+          ]
+        },
+        {
+          "http_status": 503,
+          "body_ref": "flatError",
+          "cases": [
+            "Commander runtime is not initialized or background loop is unavailable."
+          ]
+        }
+      ],
+      "latency": "fast",
+      "pagination": "none",
+      "realtime": false,
+      "notes": []
+    },
+    {
+      "id": "trainingPlans.list",
+      "group": "training_lab",
+      "method": "GET",
+      "path": "/api/lab/training/plans",
+      "summary": "List latest training plan artifacts.",
+      "runtime_required": true,
+      "frontend_preferred": true,
+      "replacement": null,
+      "query_params": [
+        {
+          "name": "limit",
+          "type": "integer",
+          "default": 20,
+          "minimum": 1,
+          "maximum": 200
+        }
+      ],
+      "path_params": [],
+      "request_body": null,
+      "success": {
+        "http_status": 200,
+        "body_ref": "artifactList"
+      },
+      "errors": [
+        {
+          "http_status": 400,
+          "body_ref": "flatError",
+          "cases": [
+            "limit must be an integer"
+          ]
+        },
+        {
+          "http_status": 503,
+          "body_ref": "flatError",
+          "cases": [
+            "Commander runtime is not initialized or background loop is unavailable."
+          ]
+        }
+      ],
+      "latency": "fast",
+      "pagination": "limit-only",
+      "realtime": false,
+      "notes": []
+    },
+    {
+      "id": "trainingPlans.get",
+      "group": "training_lab",
+      "method": "GET",
+      "path": "/api/lab/training/plans/{plan_id}",
+      "summary": "Fetch a single training plan artifact.",
+      "runtime_required": true,
+      "frontend_preferred": true,
+      "replacement": null,
+      "query_params": [],
+      "path_params": [
+        {
+          "name": "plan_id",
+          "type": "string",
+          "required": true
+        }
+      ],
+      "request_body": null,
+      "success": {
+        "http_status": 200,
+        "body_ref": "trainingPlan"
+      },
+      "errors": [
+        {
+          "http_status": 503,
+          "body_ref": "flatError",
+          "cases": [
+            "Commander runtime is not initialized or background loop is unavailable."
+          ]
+        },
+        {
+          "http_status": 404,
+          "body_ref": "flatError",
+          "cases": [
+            "training plan not found"
+          ]
+        }
+      ],
+      "latency": "fast",
+      "pagination": "none",
+      "realtime": false,
+      "notes": []
+    },
+    {
+      "id": "trainingPlans.execute",
+      "group": "training_lab",
+      "method": "POST",
+      "path": "/api/lab/training/plans/{plan_id}/execute",
+      "summary": "Execute a persisted training plan.",
+      "runtime_required": true,
+      "frontend_preferred": true,
+      "replacement": null,
+      "query_params": [],
+      "path_params": [
+        {
+          "name": "plan_id",
+          "type": "string",
+          "required": true
+        }
+      ],
+      "request_body": null,
+      "success": {
+        "http_status": 200,
+        "body_ref": "trainingExecution"
+      },
+      "errors": [
+        {
+          "http_status": 503,
+          "body_ref": "flatError",
+          "cases": [
+            "Commander runtime is not initialized or background loop is unavailable."
+          ]
+        },
+        {
+          "http_status": 404,
+          "body_ref": "flatError",
+          "cases": [
+            "training plan not found"
+          ]
+        },
+        {
+          "http_status": 500,
+          "body_ref": "flatError",
+          "cases": [
+            "Unexpected training plan execution error."
+          ]
+        }
+      ],
+      "latency": "long",
+      "pagination": "none",
+      "realtime": true,
+      "notes": []
+    },
+    {
+      "id": "trainingRuns.list",
+      "group": "training_lab",
+      "method": "GET",
+      "path": "/api/lab/training/runs",
+      "summary": "List latest training run artifacts.",
+      "runtime_required": true,
+      "frontend_preferred": true,
+      "replacement": null,
+      "query_params": [
+        {
+          "name": "limit",
+          "type": "integer",
+          "default": 20,
+          "minimum": 1,
+          "maximum": 200
+        }
+      ],
+      "path_params": [],
+      "request_body": null,
+      "success": {
+        "http_status": 200,
+        "body_ref": "artifactList"
+      },
+      "errors": [
+        {
+          "http_status": 400,
+          "body_ref": "flatError",
+          "cases": [
+            "limit must be an integer"
+          ]
+        },
+        {
+          "http_status": 503,
+          "body_ref": "flatError",
+          "cases": [
+            "Commander runtime is not initialized or background loop is unavailable."
+          ]
+        }
+      ],
+      "latency": "fast",
+      "pagination": "limit-only",
+      "realtime": false,
+      "notes": []
+    },
+    {
+      "id": "trainingRuns.get",
+      "group": "training_lab",
+      "method": "GET",
+      "path": "/api/lab/training/runs/{run_id}",
+      "summary": "Fetch a single training run artifact.",
+      "runtime_required": true,
+      "frontend_preferred": true,
+      "replacement": null,
+      "query_params": [],
+      "path_params": [
+        {
+          "name": "run_id",
+          "type": "string",
+          "required": true
+        }
+      ],
+      "request_body": null,
+      "success": {
+        "http_status": 200,
+        "body_ref": "trainingRun"
+      },
+      "errors": [
+        {
+          "http_status": 503,
+          "body_ref": "flatError",
+          "cases": [
+            "Commander runtime is not initialized or background loop is unavailable."
+          ]
+        },
+        {
+          "http_status": 404,
+          "body_ref": "flatError",
+          "cases": [
+            "training run not found"
+          ]
+        }
+      ],
+      "latency": "fast",
+      "pagination": "none",
+      "realtime": false,
+      "notes": []
+    },
+    {
+      "id": "trainingEvaluations.list",
+      "group": "training_lab",
+      "method": "GET",
+      "path": "/api/lab/training/evaluations",
+      "summary": "List latest training evaluation artifacts.",
+      "runtime_required": true,
+      "frontend_preferred": true,
+      "replacement": null,
+      "query_params": [
+        {
+          "name": "limit",
+          "type": "integer",
+          "default": 20,
+          "minimum": 1,
+          "maximum": 200
+        }
+      ],
+      "path_params": [],
+      "request_body": null,
+      "success": {
+        "http_status": 200,
+        "body_ref": "artifactList"
+      },
+      "errors": [
+        {
+          "http_status": 400,
+          "body_ref": "flatError",
+          "cases": [
+            "limit must be an integer"
+          ]
+        },
+        {
+          "http_status": 503,
+          "body_ref": "flatError",
+          "cases": [
+            "Commander runtime is not initialized or background loop is unavailable."
+          ]
+        }
+      ],
+      "latency": "fast",
+      "pagination": "limit-only",
+      "realtime": false,
+      "notes": []
+    },
+    {
+      "id": "trainingEvaluations.get",
+      "group": "training_lab",
+      "method": "GET",
+      "path": "/api/lab/training/evaluations/{run_id}",
+      "summary": "Fetch a single training evaluation artifact.",
+      "runtime_required": true,
+      "frontend_preferred": true,
+      "replacement": null,
+      "query_params": [],
+      "path_params": [
+        {
+          "name": "run_id",
+          "type": "string",
+          "required": true
+        }
+      ],
+      "request_body": null,
+      "success": {
+        "http_status": 200,
+        "body_ref": "trainingEvaluation"
+      },
+      "errors": [
+        {
+          "http_status": 503,
+          "body_ref": "flatError",
+          "cases": [
+            "Commander runtime is not initialized or background loop is unavailable."
+          ]
+        },
+        {
+          "http_status": 404,
+          "body_ref": "flatError",
+          "cases": [
+            "training evaluation not found"
+          ]
+        }
+      ],
+      "latency": "fast",
+      "pagination": "none",
+      "realtime": false,
+      "notes": []
+    },
+    {
+      "id": "models.list",
+      "group": "models",
+      "method": "GET",
+      "path": "/api/investment-models",
+      "summary": "List supported investment models and the currently active model.",
+      "runtime_required": true,
+      "frontend_preferred": true,
+      "replacement": null,
+      "query_params": [],
+      "path_params": [],
+      "request_body": null,
+      "success": {
+        "http_status": 200,
+        "body_ref": "investmentModels"
+      },
+      "errors": [
+        {
+          "http_status": 503,
+          "body_ref": "flatError",
+          "cases": [
+            "Commander runtime is not initialized or background loop is unavailable."
+          ]
+        }
+      ],
+      "latency": "fast",
+      "pagination": "none",
+      "realtime": false,
+      "notes": []
+    },
+    {
+      "id": "leaderboard.get",
+      "group": "models",
+      "method": "GET",
+      "path": "/api/leaderboard",
+      "summary": "Rebuild and return the model leaderboard snapshot.",
+      "runtime_required": true,
+      "frontend_preferred": true,
+      "replacement": null,
+      "query_params": [],
+      "path_params": [],
+      "request_body": null,
+      "success": {
+        "http_status": 200,
+        "body_ref": "leaderboard"
+      },
+      "errors": [
+        {
+          "http_status": 503,
+          "body_ref": "flatError",
+          "cases": [
+            "Commander runtime is not initialized or background loop is unavailable."
+          ]
+        }
+      ],
+      "latency": "medium",
+      "pagination": "none",
+      "realtime": false,
+      "notes": [
+        "Reads and aggregates training output artifacts."
+      ]
+    },
+    {
+      "id": "allocator.get",
+      "group": "models",
+      "method": "GET",
+      "path": "/api/allocator",
+      "summary": "Compute current allocation recommendation from leaderboard + requested regime.",
+      "runtime_required": true,
+      "frontend_preferred": true,
+      "replacement": null,
+      "query_params": [
+        {
+          "name": "regime",
+          "type": "string",
+          "default": "oscillation",
+          "enum": [
+            "bull",
+            "bear",
+            "oscillation",
+            "unknown"
+          ]
+        },
+        {
+          "name": "top_n",
+          "type": "integer",
+          "default": 3,
+          "minimum": 1,
+          "maximum": 4
+        }
+      ],
+      "path_params": [],
+      "request_body": null,
+      "success": {
+        "http_status": 200,
+        "body_ref": "allocator"
+      },
+      "errors": [
+        {
+          "http_status": 503,
+          "body_ref": "flatError",
+          "cases": [
+            "Commander runtime is not initialized or background loop is unavailable."
+          ]
+        }
+      ],
+      "latency": "medium",
+      "pagination": "none",
+      "realtime": false,
+      "notes": []
+    },
+    {
+      "id": "strategies.list",
+      "group": "strategies",
+      "method": "GET",
+      "path": "/api/strategies",
+      "summary": "List loaded strategy gene files.",
+      "runtime_required": true,
+      "frontend_preferred": true,
+      "replacement": null,
+      "query_params": [],
+      "path_params": [],
+      "request_body": null,
+      "success": {
+        "http_status": 200,
+        "body_ref": "strategyGeneList"
+      },
+      "errors": [
+        {
+          "http_status": 503,
+          "body_ref": "flatError",
+          "cases": [
+            "Commander runtime is not initialized or background loop is unavailable."
+          ]
+        }
+      ],
+      "latency": "fast",
+      "pagination": "none",
+      "realtime": false,
+      "notes": []
+    },
+    {
+      "id": "strategies.reload",
+      "group": "strategies",
+      "method": "POST",
+      "path": "/api/strategies/reload",
+      "summary": "Reload strategy genes from disk.",
+      "runtime_required": true,
+      "frontend_preferred": true,
+      "replacement": null,
+      "query_params": [],
+      "path_params": [],
+      "request_body": {
+        "type": "object",
+        "additionalProperties": false
+      },
+      "success": {
+        "http_status": 200,
+        "body_ref": "strategyReload"
+      },
+      "errors": [
+        {
+          "http_status": 503,
+          "body_ref": "flatError",
+          "cases": [
+            "Commander runtime is not initialized or background loop is unavailable."
+          ]
+        }
+      ],
+      "latency": "medium",
+      "pagination": "none",
+      "realtime": false,
+      "notes": []
+    },
+    {
+      "id": "cron.list",
+      "group": "cron",
+      "method": "GET",
+      "path": "/api/cron",
+      "summary": "List scheduled interval jobs.",
+      "runtime_required": true,
+      "frontend_preferred": true,
+      "replacement": null,
+      "query_params": [],
+      "path_params": [],
+      "request_body": null,
+      "success": {
+        "http_status": 200,
+        "body_ref": "cronList"
+      },
+      "errors": [
+        {
+          "http_status": 503,
+          "body_ref": "flatError",
+          "cases": [
+            "Commander runtime is not initialized or background loop is unavailable."
+          ]
+        }
+      ],
+      "latency": "fast",
+      "pagination": "none",
+      "realtime": false,
+      "notes": []
+    },
+    {
+      "id": "cron.create",
+      "group": "cron",
+      "method": "POST",
+      "path": "/api/cron",
+      "summary": "Create a scheduled interval job.",
+      "runtime_required": true,
+      "frontend_preferred": true,
+      "replacement": null,
+      "query_params": [],
+      "path_params": [],
+      "request_body": {
+        "type": "object",
+        "required": [
+          "name",
+          "message"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "message": {
+            "type": "string",
+            "minLength": 1
+          },
+          "every_sec": {
+            "type": "integer",
+            "default": 3600
+          },
+          "deliver": {
+            "type": "boolean",
+            "default": false,
+            "accepts_bool_like_strings": true
+          },
+          "channel": {
+            "type": "string",
+            "default": "web"
+          },
+          "to": {
+            "type": "string",
+            "default": "commander"
+          }
+        }
+      },
+      "success": {
+        "http_status": 200,
+        "body_ref": "cronMutation"
+      },
+      "errors": [
+        {
+          "http_status": 503,
+          "body_ref": "flatError",
+          "cases": [
+            "Commander runtime is not initialized or background loop is unavailable."
+          ]
+        },
+        {
+          "http_status": 400,
+          "body_ref": "flatError",
+          "cases": [
+            "every_sec must be an integer",
+            "deliver must be a boolean",
+            "name and message are required"
+          ]
+        }
+      ],
+      "latency": "fast",
+      "pagination": "none",
+      "realtime": false,
+      "notes": []
+    },
+    {
+      "id": "cron.delete",
+      "group": "cron",
+      "method": "DELETE",
+      "path": "/api/cron/{job_id}",
+      "summary": "Delete a scheduled interval job.",
+      "runtime_required": true,
+      "frontend_preferred": true,
+      "replacement": null,
+      "query_params": [],
+      "path_params": [
+        {
+          "name": "job_id",
+          "type": "string",
+          "required": true
+        }
+      ],
+      "request_body": null,
+      "success": {
+        "http_status": 200,
+        "body_ref": "cronMutation"
+      },
+      "errors": [
+        {
+          "http_status": 503,
+          "body_ref": "flatError",
+          "cases": [
+            "Commander runtime is not initialized or background loop is unavailable."
+          ]
+        }
+      ],
+      "latency": "fast",
+      "pagination": "none",
+      "realtime": false,
+      "notes": []
+    },
+    {
+      "id": "memory.list",
+      "group": "memory",
+      "method": "GET",
+      "path": "/api/memory",
+      "summary": "Search memory records or list recent entries.",
+      "runtime_required": true,
+      "frontend_preferred": true,
+      "replacement": null,
+      "query_params": [
+        {
+          "name": "q",
+          "type": "string",
+          "required": false,
+          "default": ""
+        },
+        {
+          "name": "limit",
+          "type": "integer",
+          "default": 20,
+          "minimum": 1,
+          "maximum": 200
+        }
+      ],
+      "path_params": [],
+      "request_body": null,
+      "success": {
+        "http_status": 200,
+        "body_ref": "memoryList"
+      },
+      "errors": [
+        {
+          "http_status": 503,
+          "body_ref": "flatError",
+          "cases": [
+            "Commander runtime is not initialized or background loop is unavailable."
+          ]
+        },
+        {
+          "http_status": 400,
+          "body_ref": "flatError",
+          "cases": [
+            "limit must be an integer"
+          ]
+        }
+      ],
+      "latency": "fast",
+      "pagination": "limit-only",
+      "realtime": false,
+      "notes": []
+    },
+    {
+      "id": "memory.get",
+      "group": "memory",
+      "method": "GET",
+      "path": "/api/memory/{record_id}",
+      "summary": "Fetch a single memory record with expanded training artifacts.",
+      "runtime_required": true,
+      "frontend_preferred": true,
+      "replacement": null,
+      "query_params": [],
+      "path_params": [
+        {
+          "name": "record_id",
+          "type": "string",
+          "required": true
+        }
+      ],
+      "request_body": null,
+      "success": {
+        "http_status": 200,
+        "body_ref": "memoryDetail"
+      },
+      "errors": [
+        {
+          "http_status": 503,
+          "body_ref": "flatError",
+          "cases": [
+            "Commander runtime is not initialized or background loop is unavailable."
+          ]
+        },
+        {
+          "http_status": 404,
+          "body_ref": "flatError",
+          "cases": [
+            "memory record not found"
+          ]
+        }
+      ],
+      "latency": "medium",
+      "pagination": "none",
+      "realtime": false,
+      "notes": []
+    },
+    {
+      "id": "agentConfigs.list",
+      "group": "config",
+      "method": "GET",
+      "path": "/api/agent_configs",
+      "summary": "List persisted agent configuration records.",
+      "runtime_required": true,
+      "frontend_preferred": true,
+      "replacement": null,
+      "query_params": [],
+      "path_params": [],
+      "request_body": null,
+      "success": {
+        "http_status": 200,
+        "body_ref": "agentConfigList"
+      },
+      "errors": [],
+      "latency": "fast",
+      "pagination": "none",
+      "realtime": false,
+      "notes": []
+    },
+    {
+      "id": "agentConfigs.update",
+      "group": "config",
+      "method": "POST",
+      "path": "/api/agent_configs",
+      "summary": "Persist llm_model/system_prompt changes for one agent.",
+      "runtime_required": true,
+      "frontend_preferred": true,
+      "replacement": null,
+      "query_params": [],
+      "path_params": [],
+      "request_body": {
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "llm_model": {
+            "type": "string"
+          },
+          "system_prompt": {
+            "type": "string"
+          }
+        }
+      },
+      "success": {
+        "http_status": 200,
+        "body_ref": "agentConfigMutation"
+      },
+      "errors": [
+        {
+          "http_status": 400,
+          "body_ref": "flatError",
+          "cases": [
+            "name is required"
+          ]
+        }
+      ],
+      "latency": "fast",
+      "pagination": "none",
+      "realtime": false,
+      "notes": []
+    },
+    {
+      "id": "runtimePaths.get",
+      "group": "config",
+      "method": "GET",
+      "path": "/api/runtime_paths",
+      "summary": "Read editable runtime artifact paths.",
+      "runtime_required": true,
+      "frontend_preferred": true,
+      "replacement": null,
+      "query_params": [],
+      "path_params": [],
+      "request_body": null,
+      "success": {
+        "http_status": 200,
+        "body_ref": "statusWrappedConfig"
+      },
+      "errors": [],
+      "latency": "fast",
+      "pagination": "none",
+      "realtime": false,
+      "notes": []
+    },
+    {
+      "id": "runtimePaths.update",
+      "group": "config",
+      "method": "POST",
+      "path": "/api/runtime_paths",
+      "summary": "Update runtime artifact paths without changing CLI usage.",
+      "runtime_required": true,
+      "frontend_preferred": true,
+      "replacement": null,
+      "query_params": [],
+      "path_params": [],
+      "request_body": {
+        "type": "object",
+        "properties": {
+          "training_output_dir": {
+            "type": "string"
+          },
+          "meeting_log_dir": {
+            "type": "string"
+          },
+          "config_audit_log_path": {
+            "type": "string"
+          },
+          "config_snapshot_dir": {
+            "type": "string"
+          }
+        }
+      },
+      "success": {
+        "http_status": 200,
+        "body_ref": "statusWrappedConfig"
+      },
+      "errors": [
+        {
+          "http_status": 400,
+          "body_ref": "statusError",
+          "cases": [
+            "Path fields must be non-empty."
+          ]
+        },
+        {
+          "http_status": 500,
+          "body_ref": "statusError",
+          "cases": [
+            "Unexpected runtime path mutation error."
+          ]
+        }
+      ],
+      "latency": "fast",
+      "pagination": "none",
+      "realtime": false,
+      "notes": []
+    },
+    {
+      "id": "evolutionConfig.get",
+      "group": "config",
+      "method": "GET",
+      "path": "/api/evolution_config",
+      "summary": "Read masked evolution/model/data configuration.",
+      "runtime_required": true,
+      "frontend_preferred": true,
+      "replacement": null,
+      "query_params": [],
+      "path_params": [],
+      "request_body": null,
+      "success": {
+        "http_status": 200,
+        "body_ref": "statusWrappedConfig"
+      },
+      "errors": [],
+      "latency": "fast",
+      "pagination": "none",
+      "realtime": false,
+      "notes": []
+    },
+    {
+      "id": "evolutionConfig.update",
+      "group": "config",
+      "method": "POST",
+      "path": "/api/evolution_config",
+      "summary": "Patch editable evolution/model/data configuration.",
+      "runtime_required": true,
+      "frontend_preferred": true,
+      "replacement": null,
+      "query_params": [],
+      "path_params": [],
+      "request_body": {
+        "type": "object",
+        "description": "Only editable keys are applied; extra keys are ignored.",
+        "properties": {
+          "llm_fast_model": {
+            "type": "string"
+          },
+          "llm_deep_model": {
+            "type": "string"
+          },
+          "llm_api_base": {
+            "type": "string"
+          },
+          "llm_api_key": {
+            "type": "string"
+          },
+          "llm_timeout": {
+            "type": "integer"
+          },
+          "llm_max_retries": {
+            "type": "integer"
+          },
+          "enable_debate": {
+            "type": "boolean"
+          },
+          "max_debate_rounds": {
+            "type": "integer"
+          },
+          "max_risk_discuss_rounds": {
+            "type": "integer"
+          },
+          "data_source": {
+            "type": "string"
+          },
+          "max_stocks": {
+            "type": "integer"
+          },
+          "simulation_days": {
+            "type": "integer"
+          },
+          "min_history_days": {
+            "type": "integer"
+          },
+          "initial_capital": {
+            "type": "number"
+          },
+          "max_positions": {
+            "type": "integer"
+          },
+          "position_size_pct": {
+            "type": "number"
+          },
+          "index_codes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "investment_model": {
+            "type": "string"
+          },
+          "investment_model_config": {
+            "type": "string"
+          },
+          "allocator_enabled": {
+            "type": "boolean"
+          },
+          "allocator_top_n": {
+            "type": "integer"
+          },
+          "stop_on_freeze": {
+            "type": "boolean"
+          }
+        }
+      },
+      "success": {
+        "http_status": 200,
+        "body_ref": "statusWrappedConfig"
+      },
+      "errors": [
+        {
+          "http_status": 400,
+          "body_ref": "statusError",
+          "cases": [
+            "Validation error for editable config keys."
+          ]
+        },
+        {
+          "http_status": 500,
+          "body_ref": "statusError",
+          "cases": [
+            "Unexpected evolution config mutation error."
+          ]
+        }
+      ],
+      "latency": "fast",
+      "pagination": "none",
+      "realtime": false,
+      "notes": []
+    },
+    {
+      "id": "data.status",
+      "group": "data",
+      "method": "GET",
+      "path": "/api/data/status",
+      "summary": "Read canonical market-data repository summary and quality audit.",
+      "runtime_required": true,
+      "frontend_preferred": true,
+      "replacement": null,
+      "query_params": [
+        {
+          "name": "refresh",
+          "type": "boolean",
+          "default": false,
+          "accepts_bool_like_strings": true
+        }
+      ],
+      "path_params": [],
+      "request_body": null,
+      "success": {
+        "http_status": 200,
+        "body_ref": "dataStatus"
+      },
+      "errors": [
+        {
+          "http_status": 400,
+          "body_ref": "flatError",
+          "cases": [
+            "refresh must be a boolean"
+          ]
+        }
+      ],
+      "latency": "fast_or_slow",
+      "pagination": "none",
+      "realtime": false,
+      "notes": []
+    },
+    {
+      "id": "data.capitalFlow",
+      "group": "data",
+      "method": "GET",
+      "path": "/api/data/capital_flow",
+      "summary": "Query capital flow enrichment rows.",
+      "runtime_required": true,
+      "frontend_preferred": true,
+      "replacement": null,
+      "query_params": [
+        {
+          "name": "codes",
+          "type": "string",
+          "format": "comma-separated stock codes",
+          "required": false
+        },
+        {
+          "name": "start",
+          "type": "string",
+          "format": "YYYYMMDD or compatible date"
+        },
+        {
+          "name": "end",
+          "type": "string",
+          "format": "YYYYMMDD or compatible date"
+        },
+        {
+          "name": "limit",
+          "type": "integer",
+          "default": 200,
+          "minimum": 1,
+          "maximum": 5000
+        }
+      ],
+      "path_params": [],
+      "request_body": null,
+      "success": {
+        "http_status": 200,
+        "body_ref": "countedItems"
+      },
+      "errors": [
+        {
+          "http_status": 400,
+          "body_ref": "flatError",
+          "cases": [
+            "limit must be an integer"
+          ]
+        }
+      ],
+      "latency": "medium",
+      "pagination": "limit-only",
+      "realtime": false,
+      "notes": []
+    },
+    {
+      "id": "data.dragonTiger",
+      "group": "data",
+      "method": "GET",
+      "path": "/api/data/dragon_tiger",
+      "summary": "Query dragon-tiger list events.",
+      "runtime_required": true,
+      "frontend_preferred": true,
+      "replacement": null,
+      "query_params": [
+        {
+          "name": "codes",
+          "type": "string",
+          "format": "comma-separated stock codes",
+          "required": false
+        },
+        {
+          "name": "start",
+          "type": "string",
+          "format": "YYYYMMDD or compatible date"
+        },
+        {
+          "name": "end",
+          "type": "string",
+          "format": "YYYYMMDD or compatible date"
+        },
+        {
+          "name": "limit",
+          "type": "integer",
+          "default": 200,
+          "minimum": 1,
+          "maximum": 5000
+        }
+      ],
+      "path_params": [],
+      "request_body": null,
+      "success": {
+        "http_status": 200,
+        "body_ref": "countedItems"
+      },
+      "errors": [
+        {
+          "http_status": 400,
+          "body_ref": "flatError",
+          "cases": [
+            "limit must be an integer"
+          ]
+        }
+      ],
+      "latency": "medium",
+      "pagination": "limit-only",
+      "realtime": false,
+      "notes": []
+    },
+    {
+      "id": "data.intraday60m",
+      "group": "data",
+      "method": "GET",
+      "path": "/api/data/intraday_60m",
+      "summary": "Query intraday 60m bars.",
+      "runtime_required": true,
+      "frontend_preferred": true,
+      "replacement": null,
+      "query_params": [
+        {
+          "name": "codes",
+          "type": "string",
+          "format": "comma-separated stock codes",
+          "required": false
+        },
+        {
+          "name": "start",
+          "type": "string",
+          "format": "YYYYMMDD or compatible date"
+        },
+        {
+          "name": "end",
+          "type": "string",
+          "format": "YYYYMMDD or compatible date"
+        },
+        {
+          "name": "limit",
+          "type": "integer",
+          "default": 500,
+          "minimum": 1,
+          "maximum": 10000
+        }
+      ],
+      "path_params": [],
+      "request_body": null,
+      "success": {
+        "http_status": 200,
+        "body_ref": "countedItems"
+      },
+      "errors": [
+        {
+          "http_status": 400,
+          "body_ref": "flatError",
+          "cases": [
+            "limit must be an integer"
+          ]
+        }
+      ],
+      "latency": "slow",
+      "pagination": "limit-only",
+      "realtime": false,
+      "notes": []
+    },
+    {
+      "id": "data.download",
+      "group": "data",
+      "method": "POST",
+      "path": "/api/data/download",
+      "summary": "Kick off background sync for security master, daily bars, and index bars.",
+      "runtime_required": true,
+      "frontend_preferred": true,
+      "replacement": null,
+      "query_params": [],
+      "path_params": [],
+      "request_body": {
+        "type": "object",
+        "additionalProperties": false
+      },
+      "success": {
+        "http_status": 200,
+        "body_ref": "dataDownload"
+      },
+      "errors": [],
+      "latency": "async",
+      "pagination": "none",
+      "realtime": false,
+      "notes": [
+        "Returns immediately; progress must be inferred from logs or refreshed data status."
+      ]
+    }
+  ]
+}

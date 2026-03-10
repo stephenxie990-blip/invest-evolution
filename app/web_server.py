@@ -173,6 +173,20 @@ def _parse_limit_arg(default: int = 20, maximum: int = 200) -> int:
     return max(1, min(maximum, value))
 
 
+_CONTRACTS_DIR = Path(__file__).parent.parent / "docs" / "contracts"
+_FRONTEND_API_CONTRACT_V1_PATH = _CONTRACTS_DIR / "frontend-api-contract.v1.json"
+_FRONTEND_DIST_DIR = Path(__file__).parent.parent / "frontend" / "dist"
+
+
+def _load_contract_document(path: Path) -> dict[str, Any]:
+    if not path.exists() or not path.is_file():
+        raise FileNotFoundError(path)
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise ValueError("contract document must be a JSON object")
+    return payload
+
+
 # ---------------------------------------------------------------------------
 # Flask app
 # ---------------------------------------------------------------------------
@@ -187,6 +201,51 @@ app = Flask(
 @app.route("/")
 def index():
     return send_from_directory(app.static_folder, "index.html")
+
+
+@app.route("/app")
+@app.route("/app/<path:asset_path>")
+def frontend_app(asset_path: str = ""):
+    if not _FRONTEND_DIST_DIR.exists():
+        return jsonify({
+            "error": "frontend dist is not available",
+            "expected_path": str(_FRONTEND_DIST_DIR),
+            "hint": "Build the standalone frontend into frontend/dist and revisit /app.",
+        }), 404
+    normalized = str(asset_path or "").strip()
+    if normalized:
+        asset = _FRONTEND_DIST_DIR / normalized
+        if asset.exists() and asset.is_file():
+            return send_from_directory(_FRONTEND_DIST_DIR, normalized)
+    return send_from_directory(_FRONTEND_DIST_DIR, "index.html")
+
+
+# ---- Contracts ----
+
+@app.route("/api/contracts")
+def api_contracts():
+    items = []
+    if _FRONTEND_API_CONTRACT_V1_PATH.exists():
+        items.append({
+            "id": "frontend-v1",
+            "format": "json",
+            "kind": "frontend-api-contract",
+            "path": "/api/contracts/frontend-v1",
+            "source_path": str(_FRONTEND_API_CONTRACT_V1_PATH),
+            "shell_mount": "/app",
+        })
+    return jsonify({"count": len(items), "items": items})
+
+
+@app.route("/api/contracts/frontend-v1")
+def api_contract_frontend_v1():
+    try:
+        return jsonify(_load_contract_document(_FRONTEND_API_CONTRACT_V1_PATH))
+    except FileNotFoundError:
+        return jsonify({"error": "frontend contract not found"}), 404
+    except Exception as exc:
+        logger.exception("Failed to load frontend API contract")
+        return jsonify({"error": str(exc)}), 500
 
 
 # ---- Status ----

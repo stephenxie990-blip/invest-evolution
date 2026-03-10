@@ -1,198 +1,204 @@
-# 投资进化系统 v1.0 全局系统架构平面图
+# 项目架构蓝图（当前状态）
 
-基于对项目当前真实代码（核心类名与逻辑关联）的深度扫描还原，本架构平面图从三个核心视角展示系统的设计与流转：
+本文不是未来理想图，而是**当前仓库已经形成的稳定结构**。
 
----
+## 1. 总体原则
 
-## 视图一：以 Agent 为核心的分工与协作视角
+### 1.1 入口收口到 `app/`
 
-此视图详述以 Agent 为核心的**多智能体网络**，以及它们是如何通过底层大脑运行时（Brain Engine）、会议机制（Meetings & Debate）被调度，并获取大模型能力的。
+所有正式实现都放在 `app/`：
 
-```mermaid
-flowchart TD
-    subgraph AgentTeam ["🤖 多智能体网络 (Multi-Agent System)"]
-        direction TB
-        REG["📊 MarketRegimeAgent<br/>(评估市场状态)"]
-        TRE["📈 TrendHunterAgent<br/>(趋势标的发现)"]
-        CON["📉 ContrarianAgent<br/>(逆势反转发现)"]
-        STRA["💡 StrategistAgent<br/>(宏观策略把控)"]
-        CMD["🚀 ReviewDecisionAgent<br/>(总体指挥官)"]
-        JUD["🧑‍⚖️ EvoJudgeAgent<br/>(进化与裁决评判)"]
-    end
+- `app/commander.py`
+- `app/train.py`
+- `app/web_server.py`
+- `app/llm_gateway.py`
+- `app/llm_router.py`
 
-    subgraph OrgLogic ["🗣️ 协作与辩论机制 (Meetings & Debate)"]
-        direction TB
-        SEL_MEET["👥 SelectionMeeting<br/>(选股委员会)"]
-        REV_MEET["📋 ReviewMeeting<br/>(复盘委员会)"]
-        DEBATE["⚔️ DebateOrchestrator<br/>(观点辩论引擎)"]
-        RISK_DEB["🛡️ RiskDebateOrchestrator<br/>(风控辩论引擎)"]
-    end
+根目录同名文件只做兼容转发。
 
-    subgraph BrainContext ["🧠 基础智能环境 (Brain Engine)"]
-        direction TB
-        BR["⚙️ BrainRuntime / BrainSession"]
-        MEM["💾 MemoryStore<br/>(MarketSituationMemory)"]
-        TOOL["🛠️ BrainToolRegistry<br/>(包含 InvestTrain/InvestStatus... 工具)"]
-        PLG["🧩 PluginLoader"]
-    end
+### 1.2 数据层收口到 `market_data/`
 
-    subgraph Interface ["🌐 大语言模型网关层"]
-        LLM["🔌 LLM Gateway / LLMRouter<br/>(调度具体模型)"]
-        CALL["🎙️ LLMCaller<br/>(发起请求记录TraceLog)"]
-    end
+所有离线库 schema、同步与读侧构造都集中到 `market_data/`，避免训练、Web、脚本分别维护一套数据逻辑。
 
-    %% Agent 到 机制的连线
-    REG & TRE & CON --> SEL_MEET
-    SEL_MEET -.触发.-> DEBATE
-    DEBATE --> STRA
-    STRA --> CMD
-    
-    CMD --> REV_MEET
-    CMD -.触发风控时.-> RISK_DEB
-    REV_MEET --> JUD
-    
-    %% Agent 与 Brain 的交互
-    AgentTeam ==读取/操作==> MEM
-    AgentTeam ==注册/调用==> TOOL
-    AgentTeam -.挂载于.-> BR
-    BR -.动态加载.-> PLG
-    
-    %% 调用关系
-    AgentTeam ==抽象封装==> CALL
-    CALL --> LLM
-    
-    classDef agents fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px,color:#1b5e20;
-    classDef tools fill:#e3f2fd,stroke:#1565c0,stroke-width:2px,color:#0d47a1;
-    classDef org fill:#fff3e0,stroke:#ef6c00,stroke-width:2px,color:#e65100;
-    class AgentTeam,REG,TRE,CON,STRA,CMD,JUD agents;
-    class BrainContext,BR,MEM,TOOL tools;
-    class OrgLogic,SEL_MEET,REV_MEET,DEBATE,RISK_DEB org;
+### 1.3 投资域能力收口到 `invest/`
+
+`invest/` 是核心业务域，包含：
+
+- 模型
+- Agent
+- 会议
+- 模拟交易与风险控制
+- 评估
+- 进化优化
+- allocator / leaderboard
+
+### 1.4 运行时编排收口到 `brain/`
+
+`brain/` 提供本地 agent loop 能力，但不直接承担投资业务本身。
+
+## 2. 当前包职责
+
+### 2.1 `app/`
+
+- 负责入口、编排、薄服务层、Training Lab 与 Web API
+- 不应沉淀大量领域算法
+
+### 2.2 `brain/`
+
+- `runtime.py`：tool calling + session 管理
+- `tools.py`：把投资能力包装成 BrainTool
+- `scheduler.py`：cron / heartbeat
+- `bridge.py`：文件消息桥
+- `memory.py`：Commander memory
+- `plugins.py`：声明式插件加载
+
+### 2.3 `market_data/`
+
+- `repository.py`：canonical SQLite schema 与查询
+- `ingestion.py`：数据同步写路径
+- `datasets.py`：训练 / Web / T0 / 事件读路径
+- `manager.py`：兼容 façade
+- `quality.py`：健康检查与审计
+
+### 2.4 `invest/`
+
+- `models/`：投资模型与 YAML 配置
+- `agents/`：市场、猎手、复盘裁判等角色
+- `meetings/`：Selection / Review / Recorder
+- `foundation/`：模拟交易、指标、风险控制、评估基础设施
+- `evolution/`：LLM 优化、遗传优化、mutation
+- `allocator/`：基于 leaderboard 与 regime 的模型分配
+- `leaderboard/`：训练结果聚合排行
+- `contracts/`：跨模块数据契约
+- `shared/`：共享指标、摘要、跟踪、LLM caller
+
+## 3. 依赖方向
+
+推荐理解为：
+
+```text
+entry(app) -> orchestration(brain/app service) -> domain(invest) -> data(market_data)
 ```
 
----
+但在当前实现里，训练控制器同时会用到 `invest/` 与 `market_data/`，所以更准确的方向是：
 
-## 视图二：以数据流为核心的流转视角
+```text
+app/*
+  ├─> brain/*
+  ├─> market_data/*
+  └─> invest/*
 
-此视图刻画了系统一次完整的**“特征认知 -> 交易决策 -> 仿真回测 -> 优化冻结”**的数据流转闭环。
+invest/*
+  ├─> invest/contracts + invest/shared
+  └─> config
 
-```mermaid
-flowchart LR
-    subgraph DataLoad ["1. 数据接入阶段 (Data Loader)"]
-        direction TB
-        SRC[("离线 canonical 库 / Mock")] --> OFF["💾 TrainingDatasetBuilder"]
-        SRC2[("在线API源")] --> ONL["📡 DataIngestionService"]
-        MOCK["MockDataProvider"] -.可替代.-> DM
-        ONL --> REPO["🗄️ MarketDataRepository"]
-        REPO --> OFF
-        OFF --> DM["🗄️ DataManager"]
-        REPO --> T0["✂️ T0DatasetBuilder<br/>(根据随机T0日截断)"]
-    end
-
-    subgraph SignalPlan ["2. 选股计划阶段 (Signal & Plan)"]
-        direction TB
-        T0 --> SEL["🎯 StockSelector / AdaptiveSelector"]
-        SEL --> FACT["🔢 Alpha & Risk FactorModel"]
-        FACT --> POOL["📥 CandidatePool"]
-        POOL --> RANK["📈 DailyRanker"]
-        RANK --> PLAN["📝 TradingPlan<br/>(拆分为 PositionPlan)"]
-    end
-
-    subgraph SimTrading ["3. 模拟执行阶段 (Trading Simulation)"]
-        direction TB
-        PLAN --> SCHED["⏰ TradingScheduler"]
-        SCHED --> SIM["💰 SimulatedTrader"]
-        SIM -.日级别风控拦截.-> RISK["🛡️ RiskController / DynamicStopLoss"]
-        SIM --> REC["📜 TradeRecord / SimulationResult"]
-    end
-
-    subgraph EvalOpt ["4. 评估进化阶段 (Evaluation & Optimization)"]
-        direction TB
-        REC --> EVAL["⚖️ StrategyEvaluator<br/>(提取 BenchmarkMetrics)"]
-        EVAL --> ANALYZE["📊 PerformanceAnalyzer / TradingAnalyzer"]
-        ANALYZE --> OPT["🧬 核心 Optimizer<br/>(ThreeStage / Genetic / Bayesian)"]
-        OPT --> LLMOPT["🧠 LLMOptimizer<br/>(大语言模型语义解析优化)"]
-        LLMOPT --> FREEZE["❄️ FreezeEvaluator / ModelFreezer"]
-    end
-    
-    subgraph Store ["5. 落盘固化 (Persistence)"]
-        FREEZE ==满意==> REGISTRY["🧬 StrategyGeneRegistry<br/>(落盘为策略基因)"]
-        FREEZE ==不满意==> LOVER["🔄 SelfLearningController<br/>(再次从随机T0开启周期)"]
-    end
-
-    DataLoad ==提供历史知识库==> SignalPlan
-    SignalPlan ==提供待交易决策单==> SimTrading
-    SimTrading ==提供运行仿真战绩单==> EvalOpt
-    
-    classDef loader fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px,color:#4a148c;
-    classDef planner fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px,color:#1b5e20;
-    classDef trader fill:#fff3e0,stroke:#ef6c00,stroke-width:2px,color:#e65100;
-    classDef eval fill:#e3f2fd,stroke:#1565c0,stroke-width:2px,color:#0d47a1;
-    class DataLoad,DM,T0 loader;
-    class SignalPlan,SEL,FACT,POOL,RANK,PLAN planner;
-    class SimTrading,SCHED,SIM,RISK,REC trader;
-    class EvalOpt,EVAL,ANALYZE,OPT,LLMOPT,FREEZE eval;
+market_data/*
+  └─> config
 ```
 
----
+## 4. 当前稳定接口
 
-## 视图三：以模块和功能层级为核心的系统分层视角
+### 4.1 CLI
 
-此视图展现了项目源码中各 `.py` 文件模块的具体划分、调用及功能承载关系。
+- `python3 commander.py ...`
+- `python3 train.py ...`
+- `python3 web_server.py ...`
+- `python3 -m market_data ...`
+- `invest-commander`
+- `invest-train`
+- `invest-data`
 
-```mermaid
-flowchart TB
-    subgraph CoreEngine ["核心控制层 (Entry & Controllers)"]
-        direction LR
-        CMD_R["🚀 CommanderRuntime<br/>(commander.py<br/>控制全局系统上下文)"]
-        TRAIN_C["🎛️ SelfLearningController<br/>(train.py<br/>大循环与自学习引擎)"]
-        CMD_R <--> TRAIN_C
-    end
+### 4.2 Web API
 
-    subgraph IntelLayer ["智能与编排决策层 (Intelligence)"]
-        AGEN["🤖 agents.py<br/>(多种InvestAgent实现基类)"]
-        MEET["👥 meetings.py<br/>(会议室及发言记录器)"]
-        DEBA["⚔️ debate.py<br/>(辩论与观点碰撞器)"]
-        MEM["💾 memory.py & brain/memory.py<br/>(系统状态实体)"]
-        BRN["🧠 brain/runtime.py / _plugins.py...<br/>(工作环境/工具挂载点)"]
-        
-        AGEN --- MEET
-        MEET --- DEBA
-        AGEN -.交互.-> MEM
-        AGEN -.托管于.-> BRN
-    end
+当前已经形成稳定资源面：
 
-    subgraph TradeLayer ["量化应用与实验层 (Trading Domain)"]
-        TRD["💰 trading.py<br/>(仿真交易/风控模块/仓位模拟)"]
-        OPT["🧬 optimization.py<br/>(遗传/贝叶斯/大模型三阶层优化栈)"]
-        EVA["⚖️ evaluation.py<br/>(基准提取 Benchmark/评估与冷冻机制)"]
-        
-        TRD -.事后审计发送给.-> EVA
-        EVA -.指导迭代演化调用.-> OPT
-    end
+- runtime status
+- training
+- training lab
+- strategies
+- leaderboard / allocator
+- cron / memory
+- agent configs / evolution config / runtime paths
+- data status / data query / download
 
-    subgraph DataLayer ["底层驱动与基建层 (Infrastructure)"]
-        DAT["📊 data.py<br/>(下载API/读取/Mock/处理)"]
-        CFG["⚙️ config/__init__.py<br/>(系统核心参数/配置中心/配置组)"]
-        GW["🔌 llm_gateway.py / router.py<br/>(模型通道/API路由管理)"]
-    end
+### 4.3 文件工件接口
 
-    %% 层级间依赖关系
-    CoreEngine ===> IntelLayer
-    CoreEngine ===> TradeLayer
-    TradeLayer ===> DataLayer
-    IntelLayer ===> DataLayer
-    
-    %% 特定的具体依赖
-    IntelLayer -.把计划投喂给.-> TradeLayer
-    TradeLayer -.将表现成绩单反馈给.-> IntelLayer
-    
-    classDef default fill:#f9f9f9,stroke:#333,stroke-width:1px;
-    classDef l1 fill:#ffebee,stroke:#c62828,stroke-width:2px,color:#b71c1c;
-    classDef l2 fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px,color:#1b5e20;
-    classDef l3 fill:#fff3e0,stroke:#ef6c00,stroke-width:2px,color:#e65100;
-    classDef l4 fill:#eceff1,stroke:#455a64,stroke-width:2px,color:#263238;
-    class CoreEngine l1;
-    class IntelLayer l2;
-    class TradeLayer l3;
-    class DataLayer l4;
-```
+- `runtime/outputs/training/cycle_*.json`
+- `runtime/outputs/leaderboard.json`
+- `runtime/state/training_plans/*.json`
+- `runtime/state/training_runs/*.json`
+- `runtime/state/training_evals/*.json`
+
+## 5. 目前仍然保留的兼容层
+
+### 5.1 根目录启动壳
+
+- `commander.py`
+- `train.py`
+- `web_server.py`
+- `llm_gateway.py`
+- `llm_router.py`
+
+### 5.2 独立工具脚本
+
+- `allocator.py`
+- `leaderboard.py`
+- `sync_data.py`
+
+其中 `sync_data.py` 更偏历史辅助脚本，不是主链入口。
+
+## 6. 当前扩展点
+
+### 6.1 可插拔策略基因
+
+`strategies/` 支持三类文件：
+
+- `.md`
+- `.json`
+- `.py`
+
+并由 `StrategyGeneRegistry` 统一加载、排序和热重载。
+
+### 6.2 可编辑 Agent Prompt
+
+- 存储：`agent_settings/agents_config.json`
+- 接口：`/api/agent_configs`
+
+### 6.3 可编辑运行路径
+
+- 存储：`runtime/state/runtime_paths.json`
+- 接口：`/api/runtime_paths`
+
+### 6.4 可编辑训练主配置
+
+- 主文件：`config/evolution.yaml`
+- 服务：`EvolutionConfigService`
+- 接口：`/api/evolution_config`
+
+## 7. 当前架构上的约束与建议
+
+### 7.1 不要再新增根目录真实实现
+
+如果新增入口，应继续放到 `app/`，根目录仅保留兼容壳。
+
+### 7.2 不要让 Web 直接调用底层细节
+
+优先通过：
+
+- `CommanderRuntime`
+- `RuntimePathConfigService`
+- `EvolutionConfigService`
+- `WebDatasetService`
+
+### 7.3 不要在训练链路里直接写 SQL
+
+训练链路应继续依赖 `DataManager` / dataset builder。
+
+### 7.4 不要绕过 `LLMGateway`
+
+所有外部 LLM 请求都应统一从 `app/llm_gateway.py` 出口出去，保证：
+
+- timeout
+- retry
+- provider error 处理
+- future 可观测性

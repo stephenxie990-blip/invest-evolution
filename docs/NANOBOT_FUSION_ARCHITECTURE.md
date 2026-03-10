@@ -1,91 +1,143 @@
-# Nanobot × Invest 融合架构与代码方案
+# Commander 融合架构说明
 
-## 目标
-把 `nanobot` 与投资进化系统从“两个独立程序”改为“一个统一主程序”。
+当前系统的“融合”不是概念层面的，而是代码层面的：`CommanderRuntime` 把本地 agent runtime 与投资训练主体装在同一个进程里。
 
-融合后定义：
-- 大脑（Brain）: `brain/` 包内的本地 runtime（保留 nanobot 思路）
-- 身体（Body）: `app/` + `invest/` 包内的投资训练与交易执行引擎
-- 基因（Genes）: 可插拔策略资产（`md/json/py`）
-- 指挥官入口（Commander）: `python commander.py`
+## 1. 融合对象
 
-## 落地结果（本次已实现）
-1. 新增统一入口 `commander.py`
-- 单进程编排本地 brain runtime + 投资引擎
-- 支持 `run/status/train-once/ask/strategies` 子命令
+### 1.1 Brain
 
-2. 统一进程内调用
-- `invest_train`、`invest_quick_test` 等核心投资工具改为同进程调用
-- 去掉 subprocess 桥接路径依赖
-- 训练循环直接复用 `SelfLearningController`
+`brain/` 提供：
 
-3. 策略基因可插拔
-- 新增 `StrategyGeneRegistry`
-- 支持扫描 `strategies/*.md|*.json|*.py`
-- 支持热重载：`invest_reload_strategies`
-- 自动生成模板策略：`momentum_trend.md` / `mean_reversion.json` / `risk_guard.py`
+- 多轮 session
+- tool calling
+- cron / heartbeat
+- bridge
+- memory
+- plugin
 
-4. 24小时常驻调度骨架（本地实现）
-- autopilot 周期训练循环
-- heartbeat 周期唤醒任务
-- cron 作业执行回调（调用融合后指挥官）
+### 1.2 Body
 
-5. 运行时代码统一在明确分层的包目录
-- 新增 `brain/runtime.py`（本地 AgentLoop/Tool 调用核心）
-- 新增 `brain/scheduler.py`（本地 cron + heartbeat）
-- 新增 `brain/tools.py`（投资工具集）
+`InvestmentBodyService` + `SelfLearningController` 提供：
 
-## 运行架构
+- 训练执行
+- 周期结果统计
+- 模型切换
+- 会议、模拟交易、评估、优化
+- 周期工件落盘
 
-```mermaid
-flowchart LR
-    U["User / Channel"] --> C["Commander (commander.py)"]
-    C --> B["Local Brain\nbrain/runtime + brain/tools + brain/scheduler"]
-    C --> I["Invest Body\nSelfLearningController"]
-    C --> G["Strategy Genes\nstrategies/*.md|*.json|*.py"]
+## 2. 核心装配点
 
-    B --> T1["invest_status / invest_train / invest_list_strategies"]
-    T1 --> I
-    T1 --> G
+装配入口：`app/commander.py`
 
-    B --> H["Heartbeat"]
-    B --> R["Cron"]
-    H --> B
-    R --> B
+关键对象：
 
-    I --> O["runtime/outputs/commander/state.json"]
-```
+- `CommanderConfig`
+- `CommanderRuntime`
+- `BrainRuntime`
+- `InvestmentBodyService`
+- `TrainingLabArtifactStore`
+- `StrategyGeneRegistry`
+- `MemoryStore`
+- `CronService`
+- `HeartbeatService`
+- `BridgeHub`
 
-## 关键代码边界（按包分层）
-- 主入口: `commander.py`
-- Brain核心: `brain/runtime.py`
-- 调度核心: `brain/scheduler.py`
-- 工具核心: `brain/tools.py`
-- 训练/评估主体: `app/train.py`, `invest/evaluation/`, `invest/trading/`, `invest/selection/`, `invest/evolution/`
+## 3. 为什么说是融合运行时
 
-> 说明：根目录 `nanobot-main_副本/` 现作为参考代码保留，不再是 Commander 运行时必需依赖。
+### 3.1 一个状态源
 
-## 指挥官命令
-```bash
-# 状态
-python commander.py status
+`CommanderRuntime.status()` 会一次性返回：
 
-# 策略基因
-python commander.py strategies --reload
+- runtime 状态
+- brain 工具与 session 统计
+- body 训练状态
+- memory 状态
+- bridge 状态
+- 插件列表
+- 策略基因
+- 配置摘要
+- 数据状态
+- training lab 摘要
 
-# 单轮训练（mock）
-python commander.py train-once --rounds 1 --mock
+### 3.2 一个动作面
 
-# 常驻运行
-python commander.py run
-```
+Brain 通过 `brain/tools.py` 注册的工具，可以直接驱动：
 
-## 设计取舍
-- 保留 nanobot 设计理念，但真实运行时代码已收口到 `app/` 与 `brain/` 包，根目录仅保留兼容入口。
-- 将投资工具内聚到同进程，避免“系统作为插件被调用”的反向关系。
-- 策略层保留文件形态，保障可编辑、可替换、可审计。
+- 查询系统状态
+- 生成训练计划
+- 执行训练计划
+- 单轮训练
+- 列出/重载策略
+- 管理 cron
+- 搜索记忆
+- 重载插件
 
-## 后续建议
-1. 把实时行情接入与交易日历接入 `Commander` 的调度条件（仅交易时段触发实盘流程）。
-2. 增加 `paper/live` 双通道门控，把训练与实盘执行彻底隔离。
-3. 为 `strategies/*.py` 增加沙箱执行与签名校验，降低可执行基因风险。
+### 3.3 一个落盘现场
+
+融合后的动作不会分别落到多套日志系统，而是统一进入 `runtime/`：
+
+- 状态快照
+- memory
+- training lab
+- 会议记录
+- 训练结果
+- 配置快照
+
+## 4. 工具面设计
+
+当前内置工具包括：
+
+- `invest_status`
+- `invest_quick_status`
+- `invest_deep_status`
+- `invest_train`
+- `invest_quick_test`
+- `invest_list_strategies`
+- `invest_training_plan_create`
+- `invest_training_plan_list`
+- `invest_training_plan_execute`
+- `invest_reload_strategies`
+- `invest_cron_add`
+- `invest_cron_list`
+- `invest_cron_remove`
+- `invest_memory_search`
+- `invest_plugin_reload`
+
+## 5. Bridge / Cron / Heartbeat 的位置
+
+### 5.1 Bridge
+
+- 文件通道在 `runtime/sessions/inbox` 与 `runtime/sessions/outbox`
+- 用于外部系统以文件形式向 Commander 投递消息
+
+### 5.2 Cron
+
+- `CronService` 支持 interval 型任务
+- 任务内容本质上仍是“向 Commander 发送一条消息”
+
+### 5.3 Heartbeat
+
+- 心跳任务用于定期触发自检或常规维持动作
+- Web 模式默认关闭 heartbeat
+
+## 6. 策略基因如何参与融合
+
+`StrategyGeneRegistry` 会把 `strategies/` 中的可插拔策略文件整理为摘要，并写入：
+
+- `runtime/workspace/SOUL.md`
+- `runtime/workspace/HEARTBEAT.md`
+
+这使得 Brain 在进行工具决策前，能感知当前激活的策略 DNA。
+
+## 7. 当前设计的优势
+
+- 指挥与执行之间没有 RPC 边界，链路更短
+- 所有状态可聚合成统一快照
+- Web / CLI / tool calling 使用同一套真实能力
+- 训练实验室、策略基因、记忆搜索都能被自然语言工作流直接驱动
+
+## 8. 当前设计的注意点
+
+- 仍然是单进程、单实例优先架构
+- 训练执行依赖互斥锁，避免并发污染
+- 长时间运行时，要重点关注 `runtime/state/*.lock` 与训练输出目录增长

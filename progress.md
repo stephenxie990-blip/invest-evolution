@@ -9,3 +9,5 @@
 - 审查了模型编排与实验层：`invest/models/`、`invest/allocator/engine.py`、`invest/leaderboard/engine.py`、`invest/evolution/*`。
 - 跑完一轮测试并定位主要失败原因。
 - 输出完整审查报告到 `docs/PROJECT_AUDIT_20260310.md`。
+- 读取并应用 `agentic-engineering`、`autonomous-loops`、`eval-harness`、`verification-loop`、`tdd-workflow`、`security-review`、`search-first`
+- 输出完整修复路线图、subagent 调度方案、评审机制与技能矩阵
