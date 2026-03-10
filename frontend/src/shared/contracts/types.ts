@@ -114,14 +114,35 @@ export const DataSourceUnavailableErrorSchema = z.object({
   allow_mock_fallback: z.boolean(),
 }).passthrough()
 
+const RuntimePathsConfigSchema = z.object({
+  training_output_dir: z.string().optional(),
+  meeting_log_dir: z.string().optional(),
+  config_audit_log_path: z.string().optional(),
+  config_snapshot_dir: z.string().optional(),
+}).passthrough()
+
+const EvolutionConfigPayloadSchema = z.object({
+  llm_api_key_masked: z.string().optional(),
+  llm_api_key_source: z.string().optional(),
+  config_layers: z.array(z.string()).optional(),
+  local_override_path: z.string().optional(),
+  audit_log_path: z.string().optional(),
+  snapshot_dir: z.string().optional(),
+  web_ui_shell_mode: z.enum(['legacy', 'app']).optional(),
+  frontend_canary_enabled: z.boolean().optional(),
+  frontend_canary_query_param: z.string().optional(),
+}).passthrough()
+
 export const RuntimePathsSchema = z.object({
   status: z.string(),
-  config: z.record(z.string(), z.unknown()),
+  updated: z.array(z.string()).optional(),
+  config: RuntimePathsConfigSchema,
 }).passthrough()
 
 export const EvolutionConfigSchema = z.object({
   status: z.string(),
-  config: z.record(z.string(), z.unknown()),
+  updated: z.array(z.string()).optional(),
+  config: EvolutionConfigPayloadSchema,
 }).passthrough()
 
 export const InvestmentModelsSchema = z.object({

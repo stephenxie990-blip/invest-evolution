@@ -7,8 +7,8 @@ from .base import AgentConfig, InvestAgent
 
 logger = logging.getLogger(__name__)
 
-_QUALITY_SYSTEM_PROMPT = "你是价值质量分析师。你的职责是从候选股中识别估值合理、质量稳定、基本面更扎实的标的。请只输出 JSON。"
-_DEFENSIVE_SYSTEM_PROMPT = "你是防御型配置分析师。你的职责是从候选股中识别低波动、回撤更可控、在弱势市里更抗跌的标的。请只输出 JSON。"
+_QUALITY_SYSTEM_PROMPT = "你是价值质量分析师。你的职责是从候选股中识别估值合理、质量稳定、基本面更扎实的标的。请只输出 JSON，格式如下：{\"picks\": [{\"code\": \"股票代码\", \"score\": 0.5, \"reasoning\": \"选股理由\"}], \"confidence\": 0.5, \"overall_view\": \"总体观点\"}"
+_DEFENSIVE_SYSTEM_PROMPT = "你是防御型配置分析师。你的职责是从候选股中识别低波动、回撤更可控、在弱势市里更抗跌的标的。请只输出 JSON，格式如下：{\"picks\": [{\"code\": \"股票代码\", \"score\": 0.5, \"reasoning\": \"选股理由\"}], \"confidence\": 0.5, \"overall_view\": \"总体观点\"}"
 
 
 class QualityAgent(InvestAgent):

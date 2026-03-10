@@ -19,6 +19,8 @@ except Exception:  # pragma: no cover
 class EvolutionConfigService:
     """Unified service for reading, validating, persisting and auditing evolution config."""
 
+    SECRET_KEYS = {"llm_api_key", "web_api_token"}
+
     EDITABLE_KEYS = {
         "llm_fast_model",
         "llm_deep_model",
@@ -104,12 +106,29 @@ class EvolutionConfigService:
             return "runtime"
         return "unset"
 
+    def _web_auth_secret_source(self) -> str:
+        if str(os.environ.get("WEB_API_TOKEN", "")).strip():
+            return "env"
+        local_payload = self._read_yaml_dict(self.local_override_path)
+        if str(local_payload.get("web_api_token", "")).strip():
+            return "local_yaml"
+        primary_payload = self._read_yaml_dict(self.config_path)
+        if str(primary_payload.get("web_api_token", "")).strip():
+            return "yaml"
+        if str(getattr(self.live_config, "web_api_token", "")).strip():
+            return "runtime"
+        return "unset"
+
     def get_masked_payload(self) -> dict[str, Any]:
         cfg = self.live_config
         llm_key_masked = ""
         if getattr(cfg, "llm_api_key", ""):
             v = str(getattr(cfg, "llm_api_key"))
             llm_key_masked = ("*" * max(0, len(v) - 4)) + v[-4:]
+        web_api_token_masked = ""
+        if getattr(cfg, "web_api_token", ""):
+            v = str(getattr(cfg, "web_api_token"))
+            web_api_token_masked = ("*" * max(0, len(v) - 4)) + v[-4:]
         return {
             "config_path": str(self.config_path),
             "config_file_exists": self.config_path.exists(),
@@ -117,6 +136,9 @@ class EvolutionConfigService:
             "llm_deep_model": cfg.llm_deep_model,
             "llm_api_base": cfg.llm_api_base,
             "llm_api_key_masked": llm_key_masked,
+            "web_api_token_masked": web_api_token_masked,
+            "web_api_require_auth": bool(getattr(cfg, "web_api_require_auth", False)),
+            "web_api_public_read_enabled": bool(getattr(cfg, "web_api_public_read_enabled", False)),
             "llm_timeout": cfg.llm_timeout,
             "llm_max_retries": cfg.llm_max_retries,
             "enable_debate": cfg.enable_debate,
@@ -150,6 +172,7 @@ class EvolutionConfigService:
             "config_layers": [str(path) for path in get_config_layer_paths(self.config_path)],
             "local_override_path": str(self.local_override_path),
             "llm_api_key_source": self._secret_source(),
+            "web_api_token_source": self._web_auth_secret_source(),
             "audit_log_path": str(self.audit_log_path),
             "snapshot_dir": str(self.snapshot_dir),
         }
@@ -423,7 +446,7 @@ class EvolutionConfigService:
 
     @staticmethod
     def _redact(key: str, value: Any) -> Any:
-        if key != "llm_api_key":
+        if key not in EvolutionConfigService.SECRET_KEYS:
             return value
         if not value:
             return ""
@@ -443,6 +466,10 @@ class RuntimePathConfigService:
     def __init__(self, project_root: Path | None = None, config_path: Path | None = None):
         self.project_root = Path(project_root or PROJECT_ROOT)
         self._config_path = Path(config_path) if config_path else None
+
+    @property
+    def runtime_root(self) -> Path:
+        return (self.project_root / "runtime").resolve()
 
     @property
     def config_path(self) -> Path:
@@ -505,6 +532,10 @@ class RuntimePathConfigService:
     def _normalize_path(self, value: str | Path) -> Path:
         path = Path(value).expanduser()
         if not path.is_absolute():
-            path = self.project_root / path
-        return path.resolve()
-
+            path = self.runtime_root / path
+        resolved = path.resolve()
+        try:
+            resolved.relative_to(self.runtime_root)
+        except ValueError as exc:
+            raise ValueError(f"path must stay within runtime directory: {self.runtime_root}") from exc
+        return resolved

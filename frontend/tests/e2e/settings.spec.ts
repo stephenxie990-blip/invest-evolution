@@ -23,7 +23,7 @@ const quickPayload = {
 }
 
 test.describe('Settings', () => {
-  test('loads config drafts, preserves unsaved edits on refetch, and saves updates', async ({ page }) => {
+  test('loads config drafts, shows safe config metadata, preserves unsaved edits on refetch, and saves updates', async ({ page }) => {
     let runtimePatch: Record<string, unknown> | null = null
     let evolutionPatch: Record<string, unknown> | null = null
     let runtimeGetCount = 0
@@ -51,12 +51,16 @@ test.describe('Settings', () => {
           status: 'ok',
           config: runtimeGetCount === 1
             ? {
-                project_root: '/Users/zhangsan/Desktop/投资进化系统v1.0',
-                runtime_dir: 'runtime/workspace',
+                training_output_dir: '/Users/zhangsan/Desktop/投资进化系统v1.0/runtime',
+                meeting_log_dir: '/Users/zhangsan/Desktop/投资进化系统v1.0/runtime/logs/meetings',
+                config_audit_log_path: '/Users/zhangsan/Desktop/投资进化系统v1.0/runtime/state/config_changes.jsonl',
+                config_snapshot_dir: '/Users/zhangsan/Desktop/投资进化系统v1.0/runtime/state/config_snapshots',
               }
             : {
-                project_root: '/server/changed/by-refetch',
-                runtime_dir: 'runtime/from-refetch',
+                training_output_dir: '/server/changed/by-refetch',
+                meeting_log_dir: '/server/runtime/meetings',
+                config_audit_log_path: '/server/runtime/audit.jsonl',
+                config_snapshot_dir: '/server/runtime/snapshots',
               },
         },
       })
@@ -68,7 +72,19 @@ test.describe('Settings', () => {
         await route.fulfill({
           json: {
             status: 'ok',
-            config: evolutionPatch,
+            config: {
+              ...evolutionPatch,
+              llm_api_key_masked: '********4321',
+              llm_api_key_source: 'local_yaml',
+              config_layers: [
+                '/Users/zhangsan/Desktop/投资进化系统v1.0/config/evolution.yaml',
+                '/Users/zhangsan/Desktop/投资进化系统v1.0/config/evolution.local.yaml',
+              ],
+              local_override_path: '/Users/zhangsan/Desktop/投资进化系统v1.0/config/evolution.local.yaml',
+              frontend_canary_query_param: '__frontend',
+              audit_log_path: '/Users/zhangsan/Desktop/投资进化系统v1.0/runtime/state/config_changes.jsonl',
+              snapshot_dir: '/Users/zhangsan/Desktop/投资进化系统v1.0/runtime/state/config_snapshots',
+            },
           },
         })
         return
@@ -83,11 +99,32 @@ test.describe('Settings', () => {
                 population_size: 24,
                 max_generations: 12,
                 training_rounds: 3,
+                web_ui_shell_mode: 'legacy',
+                frontend_canary_enabled: false,
+                llm_api_key_masked: '********1234',
+                llm_api_key_source: 'yaml',
+                config_layers: [
+                  '/Users/zhangsan/Desktop/投资进化系统v1.0/config/evolution.yaml',
+                  '/Users/zhangsan/Desktop/投资进化系统v1.0/config/evolution.local.yaml',
+                ],
+                local_override_path: '/Users/zhangsan/Desktop/投资进化系统v1.0/config/evolution.local.yaml',
+                frontend_canary_query_param: '__frontend',
+                audit_log_path: '/Users/zhangsan/Desktop/投资进化系统v1.0/runtime/state/config_changes.jsonl',
+                snapshot_dir: '/Users/zhangsan/Desktop/投资进化系统v1.0/runtime/state/config_snapshots',
               }
             : {
                 population_size: 99,
                 max_generations: 77,
                 training_rounds: 66,
+                web_ui_shell_mode: 'legacy',
+                frontend_canary_enabled: false,
+                llm_api_key_masked: '********0000',
+                llm_api_key_source: 'yaml',
+                config_layers: ['/server/config/evolution.yaml'],
+                local_override_path: '/server/config/evolution.local.yaml',
+                frontend_canary_query_param: '__frontend',
+                audit_log_path: '/server/runtime/audit.jsonl',
+                snapshot_dir: '/server/runtime/snapshots',
               },
         },
       })
@@ -100,20 +137,35 @@ test.describe('Settings', () => {
     await appShell.openSettings()
 
     await expect(settings.root).toBeVisible()
-    await expect(settings.runtimePathsTextarea).toContainText('project_root')
-    await expect(settings.runtimePathsTextarea).toContainText('runtime/workspace')
+    await expect(settings.runtimePathsTextarea).toContainText('training_output_dir')
+    await expect(settings.runtimePathsTextarea).toContainText('runtime/logs/meetings')
     await expect(settings.evolutionConfigTextarea).toContainText('population_size')
     await expect(settings.evolutionConfigTextarea).toContainText('max_generations')
+    await expect(settings.configSecurityPanel).toContainText('********1234')
+    await expect(settings.configSecurityPanel).toContainText('llm_api_key_source: yaml')
+    await expect(settings.configLayerList).toContainText('evolution.yaml')
+    await expect(settings.configLayerList).toContainText('evolution.local.yaml')
+    await expect(settings.securityWarning).toBeVisible()
+    await expect(settings.evolutionConfigTextarea).not.toContainText('llm_api_key_masked')
+    await expect(settings.webUiShellModeSelect).toHaveValue('legacy')
+    await expect(settings.frontendCanaryEnabledCheckbox).not.toBeChecked()
+    await expect(settings.frontendRolloutHint).toContainText('?__frontend=app')
 
     await settings.runtimePathsTextarea.fill(JSON.stringify({
-      project_root: '/draft/not-overwritten',
-      runtime_dir: 'runtime/local-draft',
+      training_output_dir: '/draft/not-overwritten',
+      meeting_log_dir: '/draft/runtime/meetings',
+      config_audit_log_path: '/draft/runtime/audit.jsonl',
+      config_snapshot_dir: '/draft/runtime/snapshots',
     }, null, 2))
     await settings.evolutionConfigTextarea.fill(JSON.stringify({
       population_size: 88,
       max_generations: 44,
       training_rounds: 5,
+      web_ui_shell_mode: 'legacy',
+      frontend_canary_enabled: false,
     }, null, 2))
+    await settings.webUiShellModeSelect.selectOption('app')
+    await settings.frontendCanaryEnabledCheckbox.check()
 
     await settings.refreshRuntimePaths.click()
     await settings.refreshEvolutionConfig.click()
@@ -124,18 +176,21 @@ test.describe('Settings', () => {
     await expect(settings.runtimePathsTextarea).not.toContainText('/server/changed/by-refetch')
     await expect(settings.evolutionConfigTextarea).toContainText('88')
     await expect(settings.evolutionConfigTextarea).not.toContainText('99')
+    await expect(settings.webUiShellModeSelect).toHaveValue('app')
+    await expect(settings.frontendCanaryEnabledCheckbox).toBeChecked()
 
     const runtimeDraft = {
-      project_root: '/Users/zhangsan/Desktop/投资进化系统v1.0',
-      runtime_dir: 'runtime/frontend-ready',
-      strategy_dir: 'strategies/generated',
+      training_output_dir: '/Users/zhangsan/Desktop/投资进化系统v1.0/runtime/frontend-ready',
+      meeting_log_dir: '/Users/zhangsan/Desktop/投资进化系统v1.0/runtime/logs/meetings',
+      config_audit_log_path: '/Users/zhangsan/Desktop/投资进化系统v1.0/runtime/state/config_changes.jsonl',
+      config_snapshot_dir: '/Users/zhangsan/Desktop/投资进化系统v1.0/runtime/state/config_snapshots',
     }
 
     await settings.runtimePathsTextarea.fill(JSON.stringify(runtimeDraft, null, 2))
     await settings.saveRuntimePaths.click()
 
     await expect(settings.successMessage).toContainText('Runtime Paths 已提交更新')
-    await expect(settings.runtimePathsTextarea).toContainText('runtime/frontend-ready')
+    await expect(settings.runtimePathsTextarea).toContainText('frontend-ready')
     expect(runtimePatch).toEqual(runtimeDraft)
 
     const evolutionDraft = {
@@ -143,13 +198,18 @@ test.describe('Settings', () => {
       max_generations: 18,
       training_rounds: 5,
       mutation_rate: 0.12,
+      web_ui_shell_mode: 'app',
+      frontend_canary_enabled: true,
     }
 
     await settings.evolutionConfigTextarea.fill(JSON.stringify(evolutionDraft, null, 2))
+    await settings.webUiShellModeSelect.selectOption('app')
+    await settings.frontendCanaryEnabledCheckbox.check()
     await settings.saveEvolutionConfig.click()
 
     await expect(settings.successMessage).toContainText('Evolution Config 已提交更新')
     await expect(settings.evolutionConfigTextarea).toContainText('0.12')
+    await expect(settings.configSecurityPanel).toContainText('llm_api_key_source: local_yaml')
     expect(evolutionPatch).toEqual(evolutionDraft)
   })
 })

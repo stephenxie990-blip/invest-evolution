@@ -160,6 +160,9 @@ def _apply_env_overrides(data: dict[str, Any]) -> dict[str, Any]:
         "llm_api_base": ("LLM_API_BASE", str),
         "llm_timeout": ("LLM_TIMEOUT", int),
         "llm_max_retries": ("LLM_MAX_RETRIES", int),
+        "web_api_token": ("WEB_API_TOKEN", str),
+        "web_api_require_auth": ("WEB_API_REQUIRE_AUTH", lambda raw: str(raw).strip().lower() in _TRUE_VALUES),
+        "web_api_public_read_enabled": ("WEB_API_PUBLIC_READ_ENABLED", lambda raw: str(raw).strip().lower() in _TRUE_VALUES),
         "web_ui_shell_mode": ("WEB_UI_SHELL_MODE", str),
         "frontend_canary_enabled": ("FRONTEND_CANARY_ENABLED", lambda raw: str(raw).strip().lower() in _TRUE_VALUES),
     }
@@ -246,6 +249,9 @@ class EvolutionConfig:
         "default_regime": "oscillation",
     })
     stop_on_freeze: bool = True
+    web_api_token: str = field(default_factory=lambda: os.environ.get("WEB_API_TOKEN", ""))
+    web_api_require_auth: bool = field(default_factory=lambda: _env_bool("WEB_API_REQUIRE_AUTH", bool(os.environ.get("WEB_API_TOKEN", "").strip())))
+    web_api_public_read_enabled: bool = field(default_factory=lambda: _env_bool("WEB_API_PUBLIC_READ_ENABLED", False))
     web_ui_shell_mode: str = field(default_factory=lambda: os.environ.get("WEB_UI_SHELL_MODE", "legacy"))
     frontend_canary_enabled: bool = field(default_factory=lambda: _env_bool("FRONTEND_CANARY_ENABLED", False))
     frontend_canary_query_param: str = field(default_factory=lambda: os.environ.get("FRONTEND_CANARY_QUERY_PARAM", "__frontend"))
@@ -289,6 +295,12 @@ class EvolutionConfig:
             self.logs_dir = LOGS_DIR
         if self.memory_dir is None:
             self.memory_dir = OUTPUT_DIR / "memory"
+        self.web_api_token = str(self.web_api_token or "").strip()
+        if self.web_api_require_auth and not self.web_api_token:
+            logger.warning(
+                "WEB_API_REQUIRE_AUTH 已开启，但 WEB_API_TOKEN 未配置；"
+                "仅允许回环地址本地启动，非回环部署会被拒绝。"
+            )
         self.web_ui_shell_mode = str(self.web_ui_shell_mode or "legacy").strip().lower() or "legacy"
         if self.web_ui_shell_mode not in {"legacy", "app"}:
             logger.warning("Invalid web_ui_shell_mode=%r, fallback to legacy", self.web_ui_shell_mode)

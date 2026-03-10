@@ -132,14 +132,26 @@ invest-train --cycles 1 --mock
 ### 6. 启动 Web 控制台
 
 ```bash
-# 默认 Web API 走真实数据模式（mock=false）
+# 本地调试：默认绑定回环地址，未配置鉴权也可启动
 python3 web_server.py
 
-# 仅用于演示 / 健康检查的 smoke 模式
+# 本地 smoke / demo / health-check 模式
 python3 web_server.py --mock
 # 默认地址: http://127.0.0.1:8080
 ```
 
+```bash
+# 生产部署：必须开启 Web API 鉴权
+export WEB_API_TOKEN="<strong-random-token>"
+export WEB_API_REQUIRE_AUTH=true
+export WEB_API_PUBLIC_READ_ENABLED=false
+pip install -e ".[prod]"
+gunicorn -c gunicorn.conf.py wsgi:app
+```
+
+- 非回环地址部署时，若未开启 `WEB_API_REQUIRE_AUTH=true` 且未配置 `WEB_API_TOKEN`，服务会拒绝启动。
+- 鉴权支持 `Authorization: Bearer <token>` 或 `X-Invest-Token: <token>`。
+- 健康检查：`GET /healthz`。
 - 旧静态壳：`/legacy`
 - 新前端挂载点：`/app`
 - 默认 `web_ui_shell_mode=legacy`，即 `/` 仍指向旧壳；设置为 `app` 后 `/` 指向新前端。

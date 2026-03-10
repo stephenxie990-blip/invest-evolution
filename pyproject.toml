@@ -22,6 +22,7 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0"]
+prod = ["gunicorn>=23.0"]
 
 [project.scripts]
 invest-commander = "app.commander:main"

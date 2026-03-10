@@ -15,6 +15,7 @@ import argparse
 import asyncio
 from collections import deque
 from datetime import datetime
+import hmac
 import json
 import logging
 from queue import Full, Queue
@@ -117,7 +118,7 @@ def _run_async(coro: Any) -> Any:
     """Submit a coroutine to the background event loop and wait for result."""
     assert _loop is not None
     future = asyncio.run_coroutine_threadsafe(coro, _loop)
-    return future.result(timeout=300)
+    return future.result(timeout=600)
 
 
 def _data_source_unavailable_response(exc: DataSourceUnavailableError):
@@ -204,6 +205,125 @@ app = Flask(
     static_folder=str(Path(__file__).parent.parent / "static"),
     static_url_path="/static",
 )
+
+_PUBLIC_API_PATHS = {
+    "/api/contracts",
+    "/api/contracts/frontend-v1",
+    "/api/contracts/frontend-v1/schema",
+    "/api/contracts/frontend-v1/openapi",
+}
+_OPTIONALLY_PUBLIC_READ_PATHS = {
+    "/api/status",
+    "/api/lab/status/quick",
+    "/api/lab/status/deep",
+}
+
+
+def _current_web_config():
+    import config as config_module
+
+    return config_module.config
+
+
+def _is_loopback_host(host: str) -> bool:
+    normalized = str(host or "").strip().lower()
+    return normalized in {"127.0.0.1", "localhost", "::1"}
+
+
+def _web_api_token() -> str:
+    return str(getattr(_current_web_config(), "web_api_token", "") or "").strip()
+
+
+def _web_api_require_auth() -> bool:
+    return bool(getattr(_current_web_config(), "web_api_require_auth", False))
+
+
+def _web_api_public_read_enabled() -> bool:
+    return bool(getattr(_current_web_config(), "web_api_public_read_enabled", False))
+
+
+def _extract_request_token() -> str:
+    auth_header = str(request.headers.get("Authorization", "") or "").strip()
+    if auth_header.lower().startswith("bearer "):
+        return auth_header[7:].strip()
+    return str(request.headers.get("X-Invest-Token", "") or "").strip()
+
+
+def _request_requires_auth() -> bool:
+    path = str(request.path or "")
+    if path == "/healthz" or path == "/" or path == "/legacy":
+        return False
+    if path.startswith("/static/") or path == "/app" or path.startswith("/app/"):
+        return False
+    if not path.startswith("/api/"):
+        return False
+    if path in _PUBLIC_API_PATHS:
+        return False
+    if not _web_api_require_auth():
+        return False
+    if request.method in {"GET", "HEAD", "OPTIONS"} and _web_api_public_read_enabled() and path in _OPTIONALLY_PUBLIC_READ_PATHS:
+        return False
+    return True
+
+
+def _artifact_read_roots(runtime: CommanderRuntime) -> list[Path]:
+    cfg = runtime.cfg
+    roots = [
+        Path(cfg.training_output_dir),
+        Path(cfg.meeting_log_dir),
+        Path(cfg.config_snapshot_dir),
+        Path(cfg.config_audit_log_path).parent,
+        Path(cfg.training_plan_dir),
+        Path(cfg.training_run_dir),
+        Path(cfg.training_eval_dir),
+    ]
+    deduped: list[Path] = []
+    for root in roots:
+        resolved = root.resolve()
+        if resolved not in deduped:
+            deduped.append(resolved)
+    return deduped
+
+
+def _resolve_runtime_artifact_path(path_str: str) -> Path | None:
+    runtime = _runtime
+    if runtime is None:
+        return None
+    raw = str(path_str or "").strip()
+    if not raw:
+        return None
+    path = Path(raw).expanduser()
+    if not path.is_absolute():
+        path = Path(runtime.cfg.runtime_state_dir) / path
+    try:
+        resolved = path.resolve()
+    except OSError:
+        return None
+    for root in _artifact_read_roots(runtime):
+        try:
+            resolved.relative_to(root)
+            if resolved.exists() and resolved.is_file():
+                return resolved
+            return None
+        except ValueError:
+            continue
+    logger.warning("Rejected artifact read outside runtime roots: %s", resolved)
+    return None
+
+
+@app.before_request
+def _enforce_api_auth():
+    if not _request_requires_auth():
+        return None
+    expected_token = _web_api_token()
+    if not expected_token:
+        return jsonify({"error": "web api auth is enabled but token is not configured"}), 503
+    provided_token = _extract_request_token()
+    if not provided_token:
+        return jsonify({"error": "authentication required"}), 401
+    if not hmac.compare_digest(provided_token, expected_token):
+        return jsonify({"error": "invalid authentication token"}), 403
+    return None
 
 
 def _legacy_index_response():
@@ -330,6 +450,11 @@ def api_contract_frontend_v1_openapi():
     except Exception as exc:
         logger.exception("Failed to load frontend API contract openapi")
         return jsonify({"error": str(exc)}), 500
+
+
+@app.route("/healthz")
+def healthz():
+    return jsonify({"status": "ok", "service": "invest-web"})
 
 
 # ---- Status ----
@@ -765,8 +890,8 @@ def _memory_brief_row(row: dict[str, Any]) -> dict[str, Any]:
 
 
 def _safe_read_json(path_str: str) -> Any:
-    path = Path(path_str)
-    if not path.exists() or not path.is_file():
+    path = _resolve_runtime_artifact_path(path_str)
+    if path is None:
         return None
     try:
         return json.loads(path.read_text(encoding="utf-8"))
@@ -775,8 +900,8 @@ def _safe_read_json(path_str: str) -> Any:
 
 
 def _safe_read_text(path_str: str, limit: int = 12000) -> str:
-    path = Path(path_str)
-    if not path.exists() or not path.is_file():
+    path = _resolve_runtime_artifact_path(path_str)
+    if path is None:
         return ""
     try:
         return path.read_text(encoding="utf-8")[:limit]
@@ -785,8 +910,8 @@ def _safe_read_text(path_str: str, limit: int = 12000) -> str:
 
 
 def _safe_read_jsonl(path_str: str, limit: int = 400) -> list[dict[str, Any]]:
-    path = Path(path_str)
-    if not path.exists() or not path.is_file():
+    path = _resolve_runtime_artifact_path(path_str)
+    if path is None:
         return []
     rows: list[dict[str, Any]] = []
     try:
@@ -1234,6 +1359,15 @@ def main() -> None:
         level=logging.INFO,
         format="%(asctime)s [%(levelname)s] %(message)s",
     )
+
+    if not _is_loopback_host(args.host):
+        if not (_web_api_require_auth() and _web_api_token()):
+            raise RuntimeError(
+                "Refusing to bind a non-loopback host without WEB_API_REQUIRE_AUTH=true and WEB_API_TOKEN configured."
+            )
+        logger.warning(
+            "Binding non-loopback host via Flask dev server. For production, prefer gunicorn with `wsgi:app`."
+        )
 
     # Build commander runtime
     cfg = CommanderConfig.from_args(argparse.Namespace())

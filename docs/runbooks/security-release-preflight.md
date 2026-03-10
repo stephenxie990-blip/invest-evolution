@@ -15,6 +15,21 @@
 - 环境变量优先级最高：`LLM_API_KEY`、`LLM_API_BASE`、`LLM_MODEL`、`LLM_DEEP_MODEL`
 - 临时覆盖文件：`INVEST_CONFIG_PATH=/abs/path/to/override.yaml`
 
+### Web API 鉴权
+
+- 生产部署必须配置：`WEB_API_TOKEN`、`WEB_API_REQUIRE_AUTH=true`。
+- 可选：`WEB_API_PUBLIC_READ_ENABLED=true` 仅放开只读状态接口，其余接口仍需鉴权。
+- 支持请求头：`Authorization: Bearer <token>` 或 `X-Invest-Token: <token>`。
+- `GET /healthz` 为无鉴权健康检查接口，仅返回最小存活信息。
+
+### 发布前检查（Web API）
+
+- [ ] 非回环部署时已设置 `WEB_API_TOKEN`。
+- [ ] 非回环部署时已设置 `WEB_API_REQUIRE_AUTH=true`。
+- [ ] 如需开放匿名读，仅确认 `WEB_API_PUBLIC_READ_ENABLED` 对应风险可接受。
+- [ ] Gunicorn / 反向代理启动命令已验证，不直接暴露 Flask 开发服务器。
+
+
 ### 发布前检查
 
 - [ ] `config/evolution.yaml` 中不包含真实密钥。

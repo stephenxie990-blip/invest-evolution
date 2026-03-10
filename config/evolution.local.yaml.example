@@ -8,3 +8,8 @@ llm_api_key: ""
 
 # 灰度开关（本地联调时可覆盖）
 frontend_canary_enabled: false
+
+# Web API 鉴权（生产部署强烈建议开启）
+# web_api_token: ${ENV:WEB_API_TOKEN}
+# web_api_require_auth: true
+# web_api_public_read_enabled: false

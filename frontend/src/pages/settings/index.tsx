@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 
 import {
   useEvolutionConfig,
@@ -7,8 +7,79 @@ import {
   useRuntimePaths,
 } from '@/shared/api/settings'
 import { ApiError } from '@/shared/api/errors'
-import { LoadingState, ErrorState } from '@/shared/ui/AsyncState'
+import { ErrorState, LoadingState } from '@/shared/ui/AsyncState'
+import { KeyValueList } from '@/shared/ui/KeyValueList'
 import { Panel } from '@/shared/ui/Panel'
+import { StatusBadge } from '@/shared/ui/StatusBadge'
+
+type UnknownRecord = Record<string, unknown>
+
+type UiShellMode = 'legacy' | 'app'
+
+const NON_EDITABLE_EVOLUTION_CONFIG_KEYS = new Set([
+  'llm_api_key',
+  'llm_api_key_masked',
+  'llm_api_key_source',
+  'config_layers',
+  'local_override_path',
+  'audit_log_path',
+  'snapshot_dir',
+  'frontend_canary_query_param',
+])
+
+function asRecord(value: unknown): UnknownRecord | null {
+  return value && typeof value === 'object' && !Array.isArray(value) ? (value as UnknownRecord) : null
+}
+
+function readString(value: unknown, fallback = '--'): string {
+  return typeof value === 'string' && value.trim() ? value : fallback
+}
+
+function readBoolean(value: unknown, fallback = false): boolean {
+  return typeof value === 'boolean' ? value : fallback
+}
+
+function readShellMode(value: unknown): UiShellMode {
+  return value === 'app' ? 'app' : 'legacy'
+}
+
+function toneFromSource(value: string): 'neutral' | 'good' | 'warn' | 'danger' {
+  if (value === 'env' || value === 'local_yaml') {
+    return 'good'
+  }
+  if (value === 'yaml') {
+    return 'warn'
+  }
+  if (value === 'unset') {
+    return 'danger'
+  }
+  return 'neutral'
+}
+
+function safeParseObject(value: string): UnknownRecord {
+  const parsed = JSON.parse(value) as unknown
+  const record = asRecord(parsed)
+  if (!record) {
+    throw new Error('配置必须是 JSON object')
+  }
+  return record
+}
+
+function sanitizeEvolutionConfig(config: UnknownRecord): UnknownRecord {
+  return Object.fromEntries(Object.entries(config).filter(([key]) => !NON_EDITABLE_EVOLUTION_CONFIG_KEYS.has(key)))
+}
+
+function stringifyConfig(value: UnknownRecord): string {
+  return JSON.stringify(value, null, 2)
+}
+
+function withRolloutValues(config: UnknownRecord, shellMode: UiShellMode, frontendCanaryEnabled: boolean): UnknownRecord {
+  return {
+    ...config,
+    web_ui_shell_mode: shellMode,
+    frontend_canary_enabled: frontendCanaryEnabled,
+  }
+}
 
 export function SettingsPage() {
   const runtimePaths = useRuntimePaths()
@@ -20,8 +91,18 @@ export function SettingsPage() {
   const [evolutionDraft, setEvolutionDraft] = useState('{}')
   const [runtimeDirty, setRuntimeDirty] = useState(false)
   const [evolutionDirty, setEvolutionDirty] = useState(false)
+  const [shellMode, setShellMode] = useState<UiShellMode>('legacy')
+  const [frontendCanaryEnabled, setFrontendCanaryEnabled] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
+
+  const runtimeConfig = asRecord(runtimePaths.data?.config) ?? {}
+  const evolutionConfigPayload = asRecord(evolutionConfig.data?.config) ?? {}
+  const securitySource = readString(evolutionConfigPayload.llm_api_key_source, 'unset')
+  const canaryQueryParam = readString(evolutionConfigPayload.frontend_canary_query_param, '__frontend')
+  const configLayers = Array.isArray(evolutionConfigPayload.config_layers)
+    ? evolutionConfigPayload.config_layers.map((item) => String(item))
+    : []
 
   useEffect(() => {
     if (runtimePaths.data && !runtimeDirty) {
@@ -31,15 +112,18 @@ export function SettingsPage() {
 
   useEffect(() => {
     if (evolutionConfig.data && !evolutionDirty) {
-      setEvolutionDraft(JSON.stringify(evolutionConfig.data.config, null, 2))
+      const sanitized = sanitizeEvolutionConfig(evolutionConfigPayload)
+      setEvolutionDraft(stringifyConfig(sanitized))
+      setShellMode(readShellMode(evolutionConfigPayload.web_ui_shell_mode))
+      setFrontendCanaryEnabled(readBoolean(evolutionConfigPayload.frontend_canary_enabled))
     }
-  }, [evolutionConfig.data, evolutionDirty])
+  }, [evolutionConfig.data, evolutionDirty, evolutionConfigPayload])
 
   const saveRuntimePaths = async () => {
     setMessage(null)
     setErrorMessage(null)
     try {
-      const payload = JSON.parse(runtimeDraft) as Record<string, unknown>
+      const payload = safeParseObject(runtimeDraft)
       const response = await patchRuntimePaths.mutateAsync(payload)
       setRuntimeDraft(JSON.stringify(response.config, null, 2))
       setRuntimeDirty(false)
@@ -53,9 +137,12 @@ export function SettingsPage() {
     setMessage(null)
     setErrorMessage(null)
     try {
-      const payload = JSON.parse(evolutionDraft) as Record<string, unknown>
+      const payload = withRolloutValues(safeParseObject(evolutionDraft), shellMode, frontendCanaryEnabled)
       const response = await patchEvolutionConfig.mutateAsync(payload)
-      setEvolutionDraft(JSON.stringify(response.config, null, 2))
+      const updatedConfig = asRecord(response.config) ?? {}
+      setEvolutionDraft(stringifyConfig(sanitizeEvolutionConfig(updatedConfig)))
+      setShellMode(readShellMode(updatedConfig.web_ui_shell_mode))
+      setFrontendCanaryEnabled(readBoolean(updatedConfig.frontend_canary_enabled))
       setEvolutionDirty(false)
       setMessage('Evolution Config 已提交更新')
     } catch (error) {
@@ -63,8 +150,102 @@ export function SettingsPage() {
     }
   }
 
+  const updateRolloutDraft = (nextMode: UiShellMode, nextCanaryEnabled: boolean) => {
+    setShellMode(nextMode)
+    setFrontendCanaryEnabled(nextCanaryEnabled)
+    setEvolutionDirty(true)
+
+    try {
+      const nextDraft = withRolloutValues(safeParseObject(evolutionDraft), nextMode, nextCanaryEnabled)
+      setEvolutionDraft(stringifyConfig(nextDraft))
+    } catch {
+      // 保留当前文本草稿，等待用户修正 JSON 后再保存；rollout 控件状态单独跟踪
+    }
+  }
+
+  const rolloutSummary = useMemo(() => {
+    const canaryUrl = `/?${canaryQueryParam}=app`
+    return [
+      { label: 'Root Shell', value: shellMode },
+      { label: 'Canary Enabled', value: frontendCanaryEnabled ? 'true' : 'false' },
+      { label: 'Canary URL', value: canaryUrl },
+      { label: 'Legacy Rollback', value: '/legacy' },
+      { label: 'Standalone App', value: '/app' },
+    ]
+  }, [canaryQueryParam, frontendCanaryEnabled, shellMode])
+
   return (
     <div className="page-grid" data-testid="settings-page">
+      <Panel title="配置安全与分层">
+        {evolutionConfig.isLoading ? <LoadingState label="正在读取 evolution config metadata..." /> : null}
+        {evolutionConfig.error ? <ErrorState error={evolutionConfig.error} /> : null}
+        {!evolutionConfig.isLoading && !evolutionConfig.error ? (
+          <div className="content-stack" data-testid="config-security-panel">
+            <div className="status-badge-row">
+              <StatusBadge tone={toneFromSource(securitySource)}>{`llm_api_key_source: ${securitySource}`}</StatusBadge>
+              <StatusBadge tone={shellMode === 'app' ? 'good' : 'neutral'}>{`web_ui_shell_mode: ${shellMode}`}</StatusBadge>
+              <StatusBadge tone={frontendCanaryEnabled ? 'warn' : 'neutral'}>{`frontend_canary_enabled: ${frontendCanaryEnabled}`}</StatusBadge>
+            </div>
+            <KeyValueList
+              entries={[
+                { label: 'LLM Key Masked', value: readString(evolutionConfigPayload.llm_api_key_masked, '未配置') },
+                { label: 'Key Source', value: securitySource },
+                { label: 'Local Override', value: readString(evolutionConfigPayload.local_override_path) },
+                { label: 'Audit Log', value: readString(evolutionConfigPayload.audit_log_path) },
+                { label: 'Snapshot Dir', value: readString(evolutionConfigPayload.snapshot_dir) },
+              ]}
+            />
+            <div className="detail-section">
+              <h4 className="detail-section__title">配置层路径</h4>
+              {configLayers.length > 0 ? (
+                <ul className="result-card__list" data-testid="config-layer-list">
+                  {configLayers.map((layer) => <li key={layer}>{layer}</li>)}
+                </ul>
+              ) : (
+                <div className="state-block state-block--muted">当前未返回 config_layers</div>
+              )}
+            </div>
+            {securitySource === 'yaml' ? (
+              <div className="state-block state-block--warn" data-testid="settings-security-warning">
+                检测到 `llm_api_key_source=yaml`。建议迁移到环境变量或 `config/evolution.local.yaml`，避免把密钥保存在主配置中。
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+      </Panel>
+
+      <Panel title="前端发布开关">
+        <div className="content-stack" data-testid="frontend-rollout-panel">
+          <div className="form-grid">
+            <label>
+              <span>Root Shell 模式</span>
+              <select
+                className="input"
+                data-testid="web-ui-shell-mode-select"
+                onChange={(event) => updateRolloutDraft(event.target.value === 'app' ? 'app' : 'legacy', frontendCanaryEnabled)}
+                value={shellMode}
+              >
+                <option value="legacy">legacy</option>
+                <option value="app">app</option>
+              </select>
+            </label>
+            <label className="checkbox-field">
+              <input
+                checked={frontendCanaryEnabled}
+                data-testid="frontend-canary-enabled-checkbox"
+                onChange={(event) => updateRolloutDraft(shellMode, event.target.checked)}
+                type="checkbox"
+              />
+              <span>开启 Canary 入口</span>
+            </label>
+          </div>
+          <KeyValueList entries={rolloutSummary} />
+          <div className="state-block state-block--muted" data-testid="frontend-rollout-hint">
+            `legacy` 模式下，根路径 `/` 继续走旧壳；启用 canary 后，可通过 `?{canaryQueryParam}=app` 或请求头 `X-Invest-Frontend-Canary: app` 进入新前端。`/legacy` 始终保留为回滚入口。
+          </div>
+        </div>
+      </Panel>
+
       <Panel
         title="运行路径配置"
         actions={(
@@ -76,7 +257,15 @@ export function SettingsPage() {
         {runtimePaths.isLoading ? <LoadingState label="正在读取 runtime paths..." /> : null}
         {runtimePaths.error ? <ErrorState error={runtimePaths.error} /> : null}
         {!runtimePaths.isLoading && !runtimePaths.error ? (
-          <>
+          <div className="content-stack">
+            <KeyValueList
+              entries={[
+                { label: 'Training Output', value: readString(runtimeConfig.training_output_dir) },
+                { label: 'Meeting Logs', value: readString(runtimeConfig.meeting_log_dir) },
+                { label: 'Config Audit Log', value: readString(runtimeConfig.config_audit_log_path) },
+                { label: 'Config Snapshot Dir', value: readString(runtimeConfig.config_snapshot_dir) },
+              ]}
+            />
             <textarea
               className="textarea textarea--lg"
               data-testid="runtime-paths-textarea"
@@ -88,7 +277,7 @@ export function SettingsPage() {
                 {patchRuntimePaths.isPending ? '提交中...' : '保存 Runtime Paths'}
               </button>
             </div>
-          </>
+          </div>
         ) : null}
       </Panel>
 
@@ -103,7 +292,10 @@ export function SettingsPage() {
         {evolutionConfig.isLoading ? <LoadingState label="正在读取 evolution config..." /> : null}
         {evolutionConfig.error ? <ErrorState error={evolutionConfig.error} /> : null}
         {!evolutionConfig.isLoading && !evolutionConfig.error ? (
-          <>
+          <div className="content-stack">
+            <div className="state-block state-block--muted" data-testid="evolution-config-safety-note">
+              下方 JSON 草稿已自动过滤安全元数据与密钥字段；密钥状态请以上方“配置安全与分层”面板为准。
+            </div>
             <textarea
               className="textarea textarea--lg"
               data-testid="evolution-config-textarea"
@@ -115,7 +307,7 @@ export function SettingsPage() {
                 {patchEvolutionConfig.isPending ? '提交中...' : '保存 Evolution Config'}
               </button>
             </div>
-          </>
+          </div>
         ) : null}
       </Panel>
 
