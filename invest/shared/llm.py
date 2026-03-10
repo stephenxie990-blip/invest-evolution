@@ -61,6 +61,19 @@ class LLMCaller:
         self.total_time = 0.0
         self.errors = 0
 
+    def apply_runtime_limits(self, *, timeout: int | None = None, max_retries: int | None = None) -> None:
+        updated = False
+        if timeout is not None:
+            self.timeout = int(timeout)
+            updated = True
+        if max_retries is not None:
+            self.max_retries = int(max_retries)
+            updated = True
+        if updated:
+            self.gateway.timeout = self.timeout
+            self.gateway.max_retries = self.max_retries
+
+
     def call(
         self,
         system_prompt: str,

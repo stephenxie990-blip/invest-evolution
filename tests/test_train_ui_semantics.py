@@ -417,3 +417,140 @@ def test_save_cycle_result_persists_strategy_scores(tmp_path):
     controller._save_cycle_result(result)
     payload = json.loads((tmp_path / 'training' / 'cycle_3.json').read_text(encoding='utf-8'))
     assert payload['strategy_scores']['overall_score'] == 0.71
+
+
+def test_run_continuous_report_counts_skipped_cycles(tmp_path):
+    from app.train import TrainingResult
+
+    controller = SelfLearningController(
+        output_dir=str(tmp_path / 'training'),
+        meeting_log_dir=str(tmp_path / 'meetings'),
+        config_audit_log_path=str(tmp_path / 'audit' / 'changes.jsonl'),
+        config_snapshot_dir=str(tmp_path / 'snapshots'),
+    )
+
+    ok_result = TrainingResult(
+        cycle_id=1,
+        cutoff_date='20240101',
+        selected_stocks=['sh.600000'],
+        initial_capital=100000,
+        final_value=101000,
+        return_pct=1.0,
+        is_profit=True,
+        trade_history=[],
+        params={},
+    )
+
+    def _side_effect():
+        calls = getattr(_side_effect, 'calls', 0)
+        _side_effect.calls = calls + 1
+        if calls == 0:
+            controller.cycle_history.append(ok_result)
+            controller.current_cycle_id = 1
+            return ok_result
+        controller.last_cycle_meta = {
+            'status': 'no_data',
+            'cycle_id': 2,
+            'cutoff_date': '20240229',
+            'stage': 'selection',
+            'reason': '无可交易标的',
+            'timestamp': '2026-03-10T00:00:00',
+        }
+        return None
+
+    controller.run_training_cycle = MagicMock(side_effect=_side_effect)
+
+    report = controller.run_continuous(max_cycles=2)
+
+    assert report['status'] == 'completed_with_skips'
+    assert report['total_cycles'] == 2
+    assert report['attempted_cycles'] == 2
+    assert report['successful_cycles'] == 1
+    assert report['skipped_cycles'] == 1
+    assert report['profit_cycles'] == 1
+    assert report['loss_cycles'] == 0
+
+
+def test_run_continuous_report_no_data_counts_attempts(tmp_path):
+    controller = SelfLearningController(
+        output_dir=str(tmp_path / 'training'),
+        meeting_log_dir=str(tmp_path / 'meetings'),
+        config_audit_log_path=str(tmp_path / 'audit' / 'changes.jsonl'),
+        config_snapshot_dir=str(tmp_path / 'snapshots'),
+    )
+
+    def _skip_cycle():
+        controller.last_cycle_meta = {
+            'status': 'no_data',
+            'cycle_id': 1,
+            'cutoff_date': '20240229',
+            'stage': 'selection',
+            'reason': '无可交易标的',
+            'timestamp': '2026-03-10T00:00:00',
+        }
+        return None
+
+    controller.run_training_cycle = MagicMock(side_effect=_skip_cycle)
+
+    report = controller.run_continuous(max_cycles=2)
+
+    assert report['status'] == 'no_data'
+    assert report['total_cycles'] == 2
+    assert report['attempted_cycles'] == 2
+    assert report['successful_cycles'] == 0
+    assert report['skipped_cycles'] == 2
+
+
+def test_yaml_mutation_generates_candidate_without_auto_apply_by_default(tmp_path):
+    from app.train import SelfLearningController
+
+    controller = SelfLearningController(
+        output_dir=str(tmp_path / 'training'),
+        meeting_log_dir=str(tmp_path / 'meetings'),
+        config_audit_log_path=str(tmp_path / 'audit' / 'changes.jsonl'),
+        config_snapshot_dir=str(tmp_path / 'snapshots'),
+    )
+
+    mutation = controller.model_mutator.mutate(
+        controller.model_config_path,
+        param_adjustments={'signal_threshold': 0.61},
+        generation_label='test_candidate',
+        parent_meta={'cycle_id': 1},
+    )
+
+    reloaded = {'called': False}
+
+    def _fake_reload(path):
+        reloaded['called'] = True
+
+    controller._reload_investment_model = _fake_reload
+    auto_applied = bool(controller.auto_apply_mutation)
+    if auto_applied:
+        controller._reload_investment_model(mutation['config_path'])
+
+    assert controller.auto_apply_mutation is False
+    assert Path(mutation['config_path']).exists()
+    assert reloaded['called'] is False
+
+
+
+def test_generate_report_wrapper_preserves_fields(tmp_path):
+    from app.train import TrainingResult
+
+    controller = SelfLearningController(
+        output_dir=str(tmp_path / 'training'),
+        meeting_log_dir=str(tmp_path / 'meetings'),
+        config_audit_log_path=str(tmp_path / 'audit' / 'changes.jsonl'),
+        config_snapshot_dir=str(tmp_path / 'snapshots'),
+    )
+    controller.total_cycle_attempts = 2
+    controller.skipped_cycle_count = 1
+    controller.cycle_history.append(TrainingResult(
+        cycle_id=1, cutoff_date='20240101', selected_stocks=['x'], initial_capital=1, final_value=2, return_pct=1.0, is_profit=True, trade_history=[], params={}
+    ))
+
+    report = controller._generate_report()
+    assert report['status'] == 'completed_with_skips'
+    assert report['successful_cycles'] == 1
+    assert report['skipped_cycles'] == 1
+

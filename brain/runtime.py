@@ -219,7 +219,7 @@ class BrainRuntime:
         if not self.gateway.available:
             fallback = (
                 "LLM is not configured. Provide COMMANDER_API_KEY/LLM_API_KEY or use explicit tool calls: "
-                "`/tool invest_status {}` / `/tool invest_train {\"rounds\":1,\"mock\":true}`"
+                "`/tool invest_quick_status {}` / `/tool invest_train {\"rounds\":1,\"mock\":true}`"
             )
             self._append_turn(session, {"role": "user", "content": content}, {"role": "assistant", "content": fallback})
             return fallback

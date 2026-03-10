@@ -16,7 +16,7 @@ from .indicators import (
 )
 
 
-def compute_stock_summary(df: pd.DataFrame, code: str, cutoff_norm: str) -> Optional[dict]:
+def compute_stock_summary(df: pd.DataFrame, code: str, cutoff_norm: str, summary_scoring: Optional[dict] = None) -> Optional[dict]:
     try:
         sub = filter_by_cutoff(df, cutoff_norm)
         if len(sub) < 30:
@@ -29,9 +29,13 @@ def compute_stock_summary(df: pd.DataFrame, code: str, cutoff_norm: str) -> Opti
         change_20d = calc_pct_change(latest, close, 20)
         ma5 = float(close.iloc[-5:].mean()) if len(close) >= 5 else latest
         ma20 = float(close.iloc[-20:].mean()) if len(close) >= 20 else latest
-        if ma5 > ma20 * 1.01:
+        summary_profile = dict(summary_scoring or {})
+        logic = dict(summary_profile.get("logic", {}) or {})
+        ma_bull_ratio = float(logic.get("ma_bull_ratio", 1.0) or 1.0)
+        ma_bear_ratio = float(logic.get("ma_bear_ratio", 1.0) or 1.0)
+        if ma5 > ma20 * ma_bull_ratio:
             ma_trend = "多头"
-        elif ma5 < ma20 * 0.99:
+        elif ma5 < ma20 * ma_bear_ratio:
             ma_trend = "空头"
         else:
             ma_trend = "交叉"
@@ -41,7 +45,7 @@ def compute_stock_summary(df: pd.DataFrame, code: str, cutoff_norm: str) -> Opti
         vol_ratio = calc_volume_ratio(sub)
         returns = close.pct_change().dropna()
         volatility = float(returns.iloc[-20:].std()) if len(returns) >= 20 else 0.0
-        algo_score = calc_algo_score(change_5d, change_20d, ma_trend, rsi, macd_signal, bb_pos)
+        algo_score = calc_algo_score(change_5d, change_20d, ma_trend, rsi, macd_signal, bb_pos, profile=summary_profile)
         return {
             "code": code,
             "close": round(latest, 2),
@@ -59,21 +63,21 @@ def compute_stock_summary(df: pd.DataFrame, code: str, cutoff_norm: str) -> Opti
         return None
 
 
-def summarize_stocks(stock_data: Dict[str, pd.DataFrame], codes: List[str], cutoff_date: str) -> List[dict]:
+def summarize_stocks(stock_data: Dict[str, pd.DataFrame], codes: List[str], cutoff_date: str, summary_scoring: Optional[dict] = None) -> List[dict]:
     cutoff_norm = normalize_date(cutoff_date)
     results = []
     for code in codes:
         df = stock_data.get(code)
         if df is None:
             continue
-        summary = compute_stock_summary(df, code, cutoff_norm)
+        summary = compute_stock_summary(df, code, cutoff_norm, summary_scoring=summary_scoring)
         if summary:
             results.append(summary)
     results.sort(key=lambda item: item.get("algo_score", 0), reverse=True)
     return results
 
 
-def compute_market_stats(stock_data: Dict[str, pd.DataFrame], cutoff_date: str, min_valid: Optional[int] = None) -> dict:
+def compute_market_stats(stock_data: Dict[str, pd.DataFrame], cutoff_date: str, min_valid: Optional[int] = None, regime_policy: Optional[dict] = None) -> dict:
     total = len(stock_data)
     if total == 0:
         return {
@@ -145,11 +149,19 @@ def compute_market_stats(stock_data: Dict[str, pd.DataFrame], cutoff_date: str, 
     above_ma20_ratio = above_ma20 / valid_count
     market_breadth = sum(1 for item in changes_5d if item > 0) / valid_count
 
-    regime_hint = "oscillation"
-    if avg_change_20d > 3 and above_ma20_ratio > 0.55:
-        regime_hint = "bull"
-    elif avg_change_20d < -3 and above_ma20_ratio < 0.45:
-        regime_hint = "bear"
+    policy = dict(regime_policy or {})
+    bull_avg_change_20d = policy.get("bull_avg_change_20d")
+    bull_above_ma20_ratio = policy.get("bull_above_ma20_ratio")
+    bear_avg_change_20d = policy.get("bear_avg_change_20d")
+    bear_above_ma20_ratio = policy.get("bear_above_ma20_ratio")
+    default_regime = str(policy.get("default_regime", "unknown") or "unknown")
+    regime_hint = default_regime
+    if bull_avg_change_20d is not None and bull_above_ma20_ratio is not None:
+        if avg_change_20d > float(bull_avg_change_20d) and above_ma20_ratio > float(bull_above_ma20_ratio):
+            regime_hint = "bull"
+    if regime_hint == default_regime and bear_avg_change_20d is not None and bear_above_ma20_ratio is not None:
+        if avg_change_20d < float(bear_avg_change_20d) and above_ma20_ratio < float(bear_above_ma20_ratio):
+            regime_hint = "bear"
 
     return {
         "valid_stocks": valid_count,

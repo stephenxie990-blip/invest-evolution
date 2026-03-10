@@ -71,6 +71,38 @@ DEFAULT_LLM_API_BASE = os.environ.get(
 DATE_FORMAT = "%Y%m%d"  # 内部标准: 20240315
 
 
+def _env_int(name: str, default: int) -> int:
+    raw = os.environ.get(name)
+    if raw is None or str(raw).strip() == "":
+        return default
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        logger.warning("Invalid %s=%r, fallback to %s", name, raw, default)
+        return default
+
+
+def _apply_env_overrides(data: dict[str, Any]) -> dict[str, Any]:
+    env_map: dict[str, tuple[str, callable]] = {
+        "llm_fast_model": ("LLM_MODEL", str),
+        "llm_deep_model": ("LLM_DEEP_MODEL", str),
+        "llm_api_key": ("LLM_API_KEY", str),
+        "llm_api_base": ("LLM_API_BASE", str),
+        "llm_timeout": ("LLM_TIMEOUT", int),
+        "llm_max_retries": ("LLM_MAX_RETRIES", int),
+    }
+    merged = dict(data)
+    for field, (env_name, caster) in env_map.items():
+        raw = os.environ.get(env_name)
+        if raw is None or str(raw).strip() == "":
+            continue
+        try:
+            merged[field] = caster(raw)
+        except (TypeError, ValueError):
+            logger.warning("Invalid %s=%r for %s; keep existing value %r", env_name, raw, field, merged.get(field))
+    return merged
+
+
 def normalize_date(d) -> str:
     """
     将各种日期格式归一化为 YYYYMMDD
@@ -139,8 +171,8 @@ class EvolutionConfig:
     llm_deep_model: str = DEFAULT_LLM_DEEP_MODEL
     llm_api_key: str = DEFAULT_LLM_API_KEY
     llm_api_base: str = DEFAULT_LLM_API_BASE
-    llm_timeout: int = 60
-    llm_max_retries: int = 2
+    llm_timeout: int = field(default_factory=lambda: _env_int("LLM_TIMEOUT", 60))
+    llm_max_retries: int = field(default_factory=lambda: _env_int("LLM_MAX_RETRIES", 2))
 
     # --- 辩论配置 (Phase 3) ---
     enable_debate: bool = True          # 是否启用多空辩论（可关闭省 Token）
@@ -184,19 +216,22 @@ class EvolutionConfig:
 
 
 def load_config(config_path: str = None) -> EvolutionConfig:
-    """从 YAML 或默认值加载配置"""
+    """从 YAML 或默认值加载配置。
+
+    优先级：环境变量 > YAML > dataclass 默认值。
+    """
     if config_path is None:
         config_path = PROJECT_ROOT / "config" / "evolution.yaml"
 
+    data: dict[str, Any] = {}
     if _HAS_YAML and Path(config_path).exists():
         with open(config_path, encoding="utf-8") as f:
-            data = yaml.safe_load(f) or {}
-        # 过滤不认识的 key，避免 dataclass 报错
+            loaded = yaml.safe_load(f) or {}
         known = {f.name for f in EvolutionConfig.__dataclass_fields__.values()}
-        data = {k: v for k, v in data.items() if k in known}
-        return EvolutionConfig(**data)
+        data = {k: v for k, v in loaded.items() if k in known}
 
-    return EvolutionConfig()
+    data = _apply_env_overrides(data)
+    return EvolutionConfig(**data)
 
 
 # 全局单例（各模块直接 import 使用）

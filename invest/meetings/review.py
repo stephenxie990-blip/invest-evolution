@@ -3,6 +3,7 @@ from typing import Any, Dict, List, Optional, Callable
 
 from invest.shared import AgentTracker, LLMCaller
 from invest.contracts import EvalReport, StrategyAdvice
+from invest.foundation.risk import sanitize_risk_params
 
 try:
     from invest.debate import DebateOrchestrator, RiskDebateOrchestrator
@@ -91,6 +92,10 @@ _REVIEW_DECISION_SYSTEM = """你是复盘决策综合员，负责综合策略分
 
 严格输出：{"strategy_suggestions":["建议1"],"param_adjustments":{"key":0.1},"agent_weight_adjustments":{"trend_hunter":1.0,"contrarian":1.0},"reasoning":"一句话说明依据"}"""
 
+# backward-compatible alias for older imports
+_REVIEW_COMMANDER_SYSTEM = _REVIEW_DECISION_SYSTEM
+
+
 
 class ReviewMeeting:
     """
@@ -126,6 +131,7 @@ class ReviewMeeting:
         self.commander = self.review_decision_agent
         self.review_count = 0
         self.progress_callback = progress_callback
+        self.review_policy: dict[str, Any] = {}
         self.last_facts: Dict[str, Any] = {}
 
         self._risk_debate: Optional[Any] = None
@@ -430,76 +436,100 @@ class ReviewMeeting:
         if not self.llm or facts.get("empty"):
             return self._review_decision_fallback(facts, evo_assessment)
 
-        system = (
-            "你是复盘决策综合员。综合策略分析和进化评估，形成下一轮调整建议。\n"
-            '以JSON输出：{"strategy_suggestions": ["建议1"], '
-            '"param_adjustments": {"key": value}, '
-            '"agent_weight_adjustments": {"trend_hunter": 1.0, "contrarian": 0.8}, '
-            '"reasoning": "决策理由"}'
+        if hasattr(self.review_decision_agent, "set_policy"):
+            self.review_decision_agent.set_policy(self.review_policy)
+
+        result = self.review_decision_agent.decide(
+            facts=facts,
+            strategy_analysis=strategy_analysis,
+            evo_assessment=evo_assessment,
+            current_params=current_params,
         )
+        return self._validate_decision(result, facts)
 
-        aa = facts.get("agent_accuracy", {})
-        agent_lines = [
-            f"  {name}: 准确率{stats['accuracy']:.0%} (盈利{stats['profitable_count']}/{stats['traded_count']})"
-            for name, stats in aa.items()
-        ]
 
-        user = (
-            f"## 近期表现\n胜率{facts['win_rate']:.0%}，平均收益{facts['avg_return']:+.2f}%\n\n"
-            f"## Agent准确率\n" + "\n".join(agent_lines) + "\n\n"
-            f"## 策略分析师意见\n问题：{strategy_analysis.get('problems', [])}\n"
-            f"建议：{strategy_analysis.get('suggestions', [])}\n\n"
-            f"## 进化裁判意见\n方向：{evo_assessment.get('evolution_direction', '未知')}\n"
-            f"参数调整：{evo_assessment.get('param_adjustments', {})}\n\n"
-            f"## 当前参数\n{current_params}\n\n"
-            f"请综合以上信息，输出最终决策。"
-            f"对于Agent权重：准确率高的给更高权重（>1.0），低的降低（<1.0）。"
-        )
+    def set_policy(self, policy: Optional[dict[str, Any]] = None) -> None:
+        self.review_policy = dict(policy or {})
+        if hasattr(self.review_decision_agent, "set_policy"):
+            self.review_decision_agent.set_policy(self.review_policy)
 
+    def _policy_value(self, path: str, default: Any) -> Any:
+        current: Any = self.review_policy
+        for key in path.split('.'):
+            if not isinstance(current, dict) or key not in current:
+                return default
+            current = current[key]
+        return current
+
+    def _sanitize_adjustment_payload(self, payload: dict[str, Any]) -> dict[str, Any]:
+        normalized: dict[str, float] = {}
+        for key, value in (payload or {}).items():
+            if value is None:
+                continue
+            try:
+                normalized[key] = _normalize_param_value(key, float(value))
+            except (TypeError, ValueError):
+                continue
+        risk_like = {key: value for key, value in normalized.items() if key in {"stop_loss_pct", "take_profit_pct", "position_size"}}
+        clean_params = sanitize_risk_params(risk_like)
+        cash_bounds = dict(self._policy_value('param_clamps.cash_reserve', {'min': 0.0, 'max': 0.80}) or {})
+        trailing_bounds = dict(self._policy_value('param_clamps.trailing_pct', {'min': 0.03, 'max': 0.20}) or {})
+        if 'cash_reserve' in normalized:
+            clean_params['cash_reserve'] = max(float(cash_bounds.get('min', 0.0)), min(float(cash_bounds.get('max', 0.80)), normalized['cash_reserve']))
+        if 'trailing_pct' in normalized:
+            clean_params['trailing_pct'] = max(float(trailing_bounds.get('min', 0.03)), min(float(trailing_bounds.get('max', 0.20)), normalized['trailing_pct']))
+        return clean_params
+
+    def _normalize_confidence(self, raw: Any) -> float:
+        default_conf = float(self._policy_value('confidence.default', 0.5) or 0.5)
         try:
-            result = self.llm.call_json(system, user)
-            if not result.get("_parse_error"):
-                return self._validate_decision(result, facts)
-        except Exception as e:
-            logger.exception(f"ReviewDecision LLM调用失败: {e}")
-
-        return self._review_decision_fallback(facts, evo_assessment)
+            return max(0.0, min(1.0, float(raw if raw is not None else default_conf)))
+        except (TypeError, ValueError):
+            return default_conf
 
     # ===== 算法兜底 =====
 
     def _strategist_fallback(self, facts: dict) -> dict:
         problems, suggestions = [], []
-        if facts.get("win_rate", 0) < 0.4:
+        if facts.get("win_rate", 0) < float(self._policy_value('fallback.strategy.win_rate_low', 0.4) or 0.4):
             problems.append("胜率过低"); suggestions.append("收紧选股标准")
-        if facts.get("avg_return", 0) < -3:
+        if facts.get("avg_return", 0) < float(self._policy_value('fallback.strategy.avg_return_low', -3.0) or -3.0):
             problems.append("平均亏损过大"); suggestions.append("降低仓位")
-        return {"problems": problems, "suggestions": suggestions, "confidence": 0.4}
+        return {"problems": problems, "suggestions": suggestions, "confidence": float(self._policy_value('fallback.strategy.confidence', 0.4) or 0.4)}
 
     def _evo_judge_fallback(self, facts: dict) -> dict:
         adjustments, direction = {}, "maintain"
         suggestions = []
         win_rate = facts.get("win_rate", 0.5)
-        if win_rate < 0.35:
-            adjustments = {"stop_loss_pct": 0.03, "position_size": 0.15}
+        if win_rate < float(self._policy_value('fallback.evo.win_rate_conservative', 0.35) or 0.35):
+            adjustments = self._sanitize_adjustment_payload(dict(self._policy_value('fallback.evo.conservative_adjustments', {"stop_loss_pct": 0.03, "position_size": 0.15}) or {}))
             direction = "conservative"
             suggestions = ["先收紧止损并降低仓位暴露"]
-        elif win_rate > 0.65:
-            adjustments = {"position_size": 0.25}
+        elif win_rate > float(self._policy_value('fallback.evo.win_rate_aggressive', 0.65) or 0.65):
+            adjustments = self._sanitize_adjustment_payload(dict(self._policy_value('fallback.evo.aggressive_adjustments', {"position_size": 0.25}) or {}))
             direction = "aggressive"
             suggestions = ["在保持纪律前提下可小幅提高仓位"]
         return {
             "param_adjustments": adjustments,
             "evolution_direction": direction,
             "suggestions": suggestions,
-            "confidence": 0.4,
+            "confidence": float(self._policy_value('fallback.evo.confidence', 0.4) or 0.4),
             "reasoning": f"算法判断当前方向为 {direction}",
         }
 
     def _review_decision_fallback(self, facts: dict, evo_assessment: dict) -> dict:
         weight_adjustments = {}
+        min_trades = int(self._policy_value('agent_weight.min_traded_count', 3) or 3)
+        formula_base = float(self._policy_value('agent_weight.formula_base', 0.5) or 0.5)
+        default_weight = float(self._policy_value('agent_weight.default', 1.0) or 1.0)
+        min_weight = float(self._policy_value('agent_weight.min', 0.3) or 0.3)
+        max_weight = float(self._policy_value('agent_weight.max', 2.0) or 2.0)
         for agent, stats in facts.get("agent_accuracy", {}).items():
             acc = stats.get("accuracy", 0.5)
-            weight_adjustments[agent] = round(0.5 + acc, 2) if stats.get("traded_count", 0) >= 3 else 1.0
+            if stats.get("traded_count", 0) >= min_trades:
+                weight_adjustments[agent] = round(max(min_weight, min(max_weight, formula_base + acc)), 2)
+            else:
+                weight_adjustments[agent] = default_weight
 
         param_adj = {k: v for k, v in evo_assessment.get("param_adjustments", {}).items() if v is not None}
         return {
@@ -565,42 +595,18 @@ class ReviewMeeting:
         suggestions = result.get("suggestions") if isinstance(result.get("suggestions"), list) else []
         result["problems"] = [str(item).strip() for item in problems if str(item).strip()][:4]
         result["suggestions"] = [str(item).strip() for item in suggestions if str(item).strip()][:4]
-        try:
-            result["confidence"] = max(0.0, min(1.0, float(result.get("confidence", 0.5))))
-        except (TypeError, ValueError):
-            result["confidence"] = 0.5
+        result["confidence"] = self._normalize_confidence(result.get("confidence"))
         return result
 
     def _validate_evo_assessment(self, result: dict) -> dict:
         if not isinstance(result.get("param_adjustments"), dict):
             result["param_adjustments"] = {}
-        clean_params = {}
-        for key, value in result.get("param_adjustments", {}).items():
-            if value is None:
-                continue
-            try:
-                value = _normalize_param_value(key, float(value))
-            except (TypeError, ValueError):
-                continue
-            if key == "stop_loss_pct":
-                clean_params[key] = max(0.02, min(0.15, value))
-            elif key == "take_profit_pct":
-                clean_params[key] = max(0.05, min(0.50, value))
-            elif key == "position_size":
-                clean_params[key] = max(0.05, min(0.30, value))
-            elif key == "cash_reserve":
-                clean_params[key] = max(0.0, min(0.80, value))
-            elif key == "trailing_pct":
-                clean_params[key] = max(0.03, min(0.20, value))
-        result["param_adjustments"] = clean_params
+        result["param_adjustments"] = self._sanitize_adjustment_payload(result.get("param_adjustments", {}))
         if result.get("evolution_direction") not in {"aggressive", "conservative", "maintain"}:
             result["evolution_direction"] = "maintain"
         suggestions = result.get("suggestions") if isinstance(result.get("suggestions"), list) else []
         result["suggestions"] = [str(item).strip() for item in suggestions if str(item).strip()][:4]
-        try:
-            result["confidence"] = max(0.0, min(1.0, float(result.get("confidence", 0.5))))
-        except (TypeError, ValueError):
-            result["confidence"] = 0.5
+        result["confidence"] = self._normalize_confidence(result.get("confidence"))
         if not isinstance(result.get("reasoning"), str):
             result["reasoning"] = ""
         return result
@@ -611,36 +617,20 @@ class ReviewMeeting:
         if not isinstance(result.get("param_adjustments"), dict):
             result["param_adjustments"] = {}
 
-        clean_params = {}
-        for k, v in result.get("param_adjustments", {}).items():
-            if v is None:
-                continue
-            try:
-                v = _normalize_param_value(k, float(v))
-                if k == "stop_loss_pct":
-                    v = max(0.02, min(0.15, v))
-                elif k == "take_profit_pct":
-                    v = max(0.05, min(0.50, v))
-                elif k == "position_size":
-                    v = max(0.05, min(0.30, v))
-                elif k == "cash_reserve":
-                    v = max(0.0, min(0.80, v))
-                elif k == "trailing_pct":
-                    v = max(0.03, min(0.20, v))
-                clean_params[k] = v
-            except (TypeError, ValueError):
-                continue
-        result["param_adjustments"] = clean_params
+        result["param_adjustments"] = self._sanitize_adjustment_payload(result.get("param_adjustments", {}))
 
         valid_agents = set(facts.get("agent_accuracy", {}).keys())
         clean_weights = {}
+        min_weight = float(self._policy_value('agent_weight.min', 0.3) or 0.3)
+        max_weight = float(self._policy_value('agent_weight.max', 2.0) or 2.0)
+        default_weight = float(self._policy_value('agent_weight.default', 1.0) or 1.0)
         for agent, w in result.get("agent_weight_adjustments", {}).items():
             if valid_agents and agent not in valid_agents:
                 continue
             try:
-                clean_weights[agent] = round(max(0.3, min(2.0, float(w))), 2)
+                clean_weights[agent] = round(max(min_weight, min(max_weight, float(w))), 2)
             except (TypeError, ValueError):
-                clean_weights[agent] = 1.0
+                clean_weights[agent] = default_weight
         result["agent_weight_adjustments"] = clean_weights
 
         if not isinstance(result.get("reasoning"), str):

@@ -10,7 +10,7 @@ from invest.shared import (
     summarize_stocks,
 )
 from invest.contracts import AgentContext, ModelOutput, SignalPacket, StrategyAdvice
-from invest.foundation.risk import clamp_stop_loss_pct, clamp_take_profit_pct
+from invest.foundation.risk import clamp_position_size, clamp_stop_loss_pct, clamp_take_profit_pct
 from invest.models.defaults import COMMON_PARAM_DEFAULTS
 
 try:
@@ -405,6 +405,28 @@ class SelectionMeeting:
             "hunters": hunter_outputs,
         }
 
+
+    def _resolve_default_weight(self, preferred_weight: Any, available_weight: float, count: int) -> float:
+        if count <= 0:
+            return float(COMMON_PARAM_DEFAULTS["position_size"])
+        try:
+            preferred = float(preferred_weight)
+        except (TypeError, ValueError):
+            preferred = float(COMMON_PARAM_DEFAULTS["position_size"])
+        spread = max(0.0, available_weight / max(count, 1))
+        if spread <= 0:
+            return 0.0
+        return round(min(clamp_position_size(preferred), spread), 3)
+
+    @staticmethod
+    def _clamp_trailing_pct(value: Any) -> float | None:
+        if value is None:
+            return None
+        try:
+            return max(0.03, min(0.30, float(value)))
+        except (TypeError, ValueError):
+            return None
+
     def _to_trading_plan(
         self, meeting_result: Dict[str, Any], regime: Dict[str, Any], date: str
     ) -> TradingPlan:
@@ -416,7 +438,7 @@ class SelectionMeeting:
         suggested_exposure = float(regime.get("suggested_exposure", 0.7) or 0.7)
         cash_reserve = round(max(0.0, min(0.7, 1.0 - suggested_exposure)), 3)
         available_weight = max(0.0, 1.0 - cash_reserve)
-        default_weight = round(min(0.25, available_weight / max(len(selected_meta), 1)), 3) if selected_meta else COMMON_PARAM_DEFAULTS["position_size"]
+        default_weight = self._resolve_default_weight(regime_params.get("position_size", COMMON_PARAM_DEFAULTS["position_size"]), available_weight, len(selected_meta))
 
         positions = []
         for i, item in enumerate(selected_meta):
@@ -424,17 +446,18 @@ class SelectionMeeting:
             trailing_pct = item.get("trailing_pct")
             if trailing_pct is None and source == "trend_hunter":
                 trailing_pct = COMMON_PARAM_DEFAULTS["trailing_pct"]
-            if trailing_pct is not None:
-                trailing_pct = max(0.05, min(0.20, float(trailing_pct)))
+            trailing_pct = self._clamp_trailing_pct(trailing_pct)
 
+            stop_loss_value = item.get("stop_loss_pct", regime_params.get("stop_loss_pct", COMMON_PARAM_DEFAULTS["stop_loss_pct"]))
+            take_profit_value = item.get("take_profit_pct", regime_params.get("take_profit_pct", COMMON_PARAM_DEFAULTS["take_profit_pct"]))
             positions.append(
                 PositionPlan(
                     code=item["code"],
                     priority=i + 1,
-                    weight=default_weight,
+                    weight=float(item.get("weight") or default_weight),
                     entry_method="market",
-                    stop_loss_pct=max(0.01, min(0.15, float(regime_params.get("stop_loss_pct", COMMON_PARAM_DEFAULTS["stop_loss_pct"])))),
-                    take_profit_pct=max(0.05, min(0.50, float(regime_params.get("take_profit_pct", COMMON_PARAM_DEFAULTS["take_profit_pct"])))),
+                    stop_loss_pct=clamp_stop_loss_pct(stop_loss_value),
+                    take_profit_pct=clamp_take_profit_pct(take_profit_value),
                     trailing_pct=trailing_pct,
                     max_hold_days=int(regime_params.get("max_hold_days", COMMON_PARAM_DEFAULTS["max_hold_days"]) or COMMON_PARAM_DEFAULTS["max_hold_days"]),
                     reason=str(item.get("reasoning") or meeting_result.get("reasoning", "选股会议推荐")),
@@ -463,14 +486,13 @@ class SelectionMeeting:
         ]
         cash_reserve = max(0.0, min(0.7, float(signal_packet.cash_reserve)))
         available_weight = max(0.0, 1.0 - cash_reserve)
-        default_weight = round(min(0.25, available_weight / max(len(selected_meta), 1)), 3) if selected_meta else COMMON_PARAM_DEFAULTS["position_size"]
+        default_weight = self._resolve_default_weight(signal_packet.params.get("position_size", COMMON_PARAM_DEFAULTS["position_size"]), available_weight, len(selected_meta))
         positions = []
         for idx, item in enumerate(selected_meta, start=1):
             code = item["code"]
             signal = signal_by_code.get(code)
             trailing_pct = item.get("trailing_pct", signal.trailing_pct if signal else signal_packet.params.get("trailing_pct"))
-            if trailing_pct is not None:
-                trailing_pct = max(0.05, min(0.20, float(trailing_pct)))
+            trailing_pct = self._clamp_trailing_pct(trailing_pct)
             stop_loss_value = item.get("stop_loss_pct")
             if stop_loss_value is None:
                 stop_loss_value = signal.stop_loss_pct if signal and signal.stop_loss_pct is not None else signal_packet.params.get("stop_loss_pct", COMMON_PARAM_DEFAULTS["stop_loss_pct"])
@@ -481,7 +503,7 @@ class SelectionMeeting:
                 PositionPlan(
                     code=code,
                     priority=idx,
-                    weight=float(item.get("weight") or (signal.weight_hint if signal and signal.weight_hint is not None else default_weight)),
+                    weight=min(float(item.get("weight") or (signal.weight_hint if signal and signal.weight_hint is not None else default_weight)), max(available_weight, 0.0)),
                     entry_method="market",
                     stop_loss_pct=clamp_stop_loss_pct(stop_loss_value),
                     take_profit_pct=clamp_take_profit_pct(take_profit_value),

@@ -10,7 +10,11 @@ from ..engine.contracts import EmergencyAction, EmergencyEvent, EmergencyType, P
 logger = logging.getLogger(__name__)
 
 
-DEFAULT_RISK_POLICY: Dict[str, Any] = {
+def _policy_source(policy: Optional[Dict[str, Any]] = None) -> str:
+    return "explicit" if bool(policy) else "safety_fallback"
+
+
+SAFETY_FALLBACK_RISK_POLICY: Dict[str, Any] = {
     "clamps": {
         "stop_loss_pct": {"min": 0.02, "max": 0.15},
         "take_profit_pct": {"min": 0.05, "max": 0.50},
@@ -46,10 +50,10 @@ DEFAULT_RISK_POLICY: Dict[str, Any] = {
 
 def _merge_policy(policy: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     merged: Dict[str, Any] = {
-        "clamps": dict(DEFAULT_RISK_POLICY["clamps"]),
-        "dynamic_stop": dict(DEFAULT_RISK_POLICY["dynamic_stop"]),
-        "portfolio": dict(DEFAULT_RISK_POLICY["portfolio"]),
-        "emergency": dict(DEFAULT_RISK_POLICY["emergency"]),
+        "clamps": dict(SAFETY_FALLBACK_RISK_POLICY["clamps"]),
+        "dynamic_stop": dict(SAFETY_FALLBACK_RISK_POLICY["dynamic_stop"]),
+        "portfolio": dict(SAFETY_FALLBACK_RISK_POLICY["portfolio"]),
+        "emergency": dict(SAFETY_FALLBACK_RISK_POLICY["emergency"]),
     }
     for section, value in (policy or {}).items():
         if isinstance(value, dict) and isinstance(merged.get(section), dict):
@@ -69,20 +73,30 @@ def _merge_policy(policy: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
 
 def _clamp_range(policy: Dict[str, Any], key: str) -> Tuple[float, float]:
     section = dict((policy.get("clamps") or {}).get(key, {}) or {})
-    lower = float(section.get("min", DEFAULT_RISK_POLICY["clamps"][key]["min"]))
-    upper = float(section.get("max", DEFAULT_RISK_POLICY["clamps"][key]["max"]))
+    lower = float(section.get("min", SAFETY_FALLBACK_RISK_POLICY["clamps"][key]["min"]))
+    upper = float(section.get("max", SAFETY_FALLBACK_RISK_POLICY["clamps"][key]["max"]))
     return lower, upper
 
 
-def clamp_stop_loss_pct(value: float, lower: float = 0.02, upper: float = 0.15) -> float:
+def _section_fallback(section: str, key: str) -> Any:
+    return SAFETY_FALLBACK_RISK_POLICY[section][key]
+
+
+def clamp_stop_loss_pct(value: float, lower: float | None = None, upper: float | None = None) -> float:
+    lower = float(_section_fallback("clamps", "stop_loss_pct")["min"] if lower is None else lower)
+    upper = float(_section_fallback("clamps", "stop_loss_pct")["max"] if upper is None else upper)
     return max(lower, min(upper, float(value)))
 
 
-def clamp_take_profit_pct(value: float, lower: float = 0.05, upper: float = 0.50) -> float:
+def clamp_take_profit_pct(value: float, lower: float | None = None, upper: float | None = None) -> float:
+    lower = float(_section_fallback("clamps", "take_profit_pct")["min"] if lower is None else lower)
+    upper = float(_section_fallback("clamps", "take_profit_pct")["max"] if upper is None else upper)
     return max(lower, min(upper, float(value)))
 
 
-def clamp_position_size(value: float, lower: float = 0.05, upper: float = 0.30) -> float:
+def clamp_position_size(value: float, lower: float | None = None, upper: float | None = None) -> float:
+    lower = float(_section_fallback("clamps", "position_size")["min"] if lower is None else lower)
+    upper = float(_section_fallback("clamps", "position_size")["max"] if upper is None else upper)
     return max(lower, min(upper, float(value)))
 
 
@@ -120,26 +134,27 @@ class EmergencyDetector:
         rapid_loss_days: Optional[int] = None,
         policy: Optional[Dict[str, Any]] = None,
     ):
+        self.policy_source = _policy_source(policy)
         self.policy = _merge_policy(policy)
         emergency = dict(self.policy.get("emergency", {}))
         self.single_stock_crash_pct = float(
             single_stock_crash_pct
             if single_stock_crash_pct is not None
-            else emergency.get("single_stock_crash_pct", DEFAULT_RISK_POLICY["emergency"]["single_stock_crash_pct"])
+            else emergency.get("single_stock_crash_pct", SAFETY_FALLBACK_RISK_POLICY["emergency"]["single_stock_crash_pct"])
         )
         self.rapid_loss_pct = float(
             rapid_loss_pct
             if rapid_loss_pct is not None
-            else emergency.get("rapid_loss_pct", DEFAULT_RISK_POLICY["emergency"]["rapid_loss_pct"])
+            else emergency.get("rapid_loss_pct", SAFETY_FALLBACK_RISK_POLICY["emergency"]["rapid_loss_pct"])
         )
         self.rapid_loss_days = int(
-            rapid_loss_days if rapid_loss_days is not None else emergency.get("rapid_loss_days", DEFAULT_RISK_POLICY["emergency"]["rapid_loss_days"])
+            rapid_loss_days if rapid_loss_days is not None else emergency.get("rapid_loss_days", SAFETY_FALLBACK_RISK_POLICY["emergency"]["rapid_loss_days"])
         )
-        self.crash_severity_divisor = float(emergency.get("crash_severity_divisor", 15.0) or 15.0)
-        self.tighten_stop_severity_threshold = float(emergency.get("tighten_stop_severity_threshold", 0.6) or 0.6)
-        self.rapid_loss_severity_divisor = float(emergency.get("rapid_loss_severity_divisor", 10.0) or 10.0)
-        self.reduce_all_severity_threshold = float(emergency.get("reduce_all_severity_threshold", 0.7) or 0.7)
-        self.all_positions_red_severity = float(emergency.get("all_positions_red_severity", 0.5) or 0.5)
+        self.crash_severity_divisor = float(emergency.get("crash_severity_divisor", _section_fallback("emergency", "crash_severity_divisor")) or _section_fallback("emergency", "crash_severity_divisor"))
+        self.tighten_stop_severity_threshold = float(emergency.get("tighten_stop_severity_threshold", _section_fallback("emergency", "tighten_stop_severity_threshold")) or _section_fallback("emergency", "tighten_stop_severity_threshold"))
+        self.rapid_loss_severity_divisor = float(emergency.get("rapid_loss_severity_divisor", _section_fallback("emergency", "rapid_loss_severity_divisor")) or _section_fallback("emergency", "rapid_loss_severity_divisor"))
+        self.reduce_all_severity_threshold = float(emergency.get("reduce_all_severity_threshold", _section_fallback("emergency", "reduce_all_severity_threshold")) or _section_fallback("emergency", "reduce_all_severity_threshold"))
+        self.all_positions_red_severity = float(emergency.get("all_positions_red_severity", _section_fallback("emergency", "all_positions_red_severity")) or _section_fallback("emergency", "all_positions_red_severity"))
         self.events: List[EmergencyEvent] = []
         self.portfolio_values: List[float] = []
 
@@ -252,12 +267,13 @@ class DynamicStopLoss:
     """
 
     def __init__(self, atr_period: int = 14, policy: Optional[Dict[str, Any]] = None):
+        self.policy_source = _policy_source(policy)
         self.policy = _merge_policy(policy)
         dynamic_stop = dict(self.policy.get("dynamic_stop", {}))
         self.atr_period = int(dynamic_stop.get("atr_period", atr_period) or atr_period)
-        self.stop_loss_atr_multiplier = float(dynamic_stop.get("stop_loss_atr_multiplier", 2.0) or 2.0)
-        self.take_profit_atr_multiplier = float(dynamic_stop.get("take_profit_atr_multiplier", 3.0) or 3.0)
-        self.trailing_atr_multiplier = float(dynamic_stop.get("trailing_atr_multiplier", 1.5) or 1.5)
+        self.stop_loss_atr_multiplier = float(dynamic_stop.get("stop_loss_atr_multiplier", _section_fallback("dynamic_stop", "stop_loss_atr_multiplier")) or _section_fallback("dynamic_stop", "stop_loss_atr_multiplier"))
+        self.take_profit_atr_multiplier = float(dynamic_stop.get("take_profit_atr_multiplier", _section_fallback("dynamic_stop", "take_profit_atr_multiplier")) or _section_fallback("dynamic_stop", "take_profit_atr_multiplier"))
+        self.trailing_atr_multiplier = float(dynamic_stop.get("trailing_atr_multiplier", _section_fallback("dynamic_stop", "trailing_atr_multiplier")) or _section_fallback("dynamic_stop", "trailing_atr_multiplier"))
         self.highest_price: Dict[str, float] = {}
 
     def calculate_atr(self, df: pd.DataFrame) -> float:
@@ -320,6 +336,7 @@ class PortfolioRiskManager:
         max_correlation: float = 0.60,
         policy: Optional[Dict[str, Any]] = None,
     ):
+        self.policy_source = _policy_source(policy)
         self.policy = _merge_policy(policy)
         portfolio = dict(self.policy.get("portfolio", {}))
         self.max_drawdown_to_reduce = float(portfolio.get("max_drawdown_to_reduce", max_drawdown_to_reduce) or max_drawdown_to_reduce)
@@ -327,8 +344,8 @@ class PortfolioRiskManager:
         self.market_ma_period = int(portfolio.get("market_ma_period", market_ma_period) or market_ma_period)
         self.max_industry_pct = float(portfolio.get("max_industry_pct", max_industry_pct) or max_industry_pct)
         self.max_correlation = float(portfolio.get("max_correlation", max_correlation) or max_correlation)
-        self.market_bull_threshold = float(portfolio.get("bull_threshold", 1.05) or 1.05)
-        self.market_bear_threshold = float(portfolio.get("bear_threshold", 0.95) or 0.95)
+        self.market_bull_threshold = float(portfolio.get("bull_threshold", _section_fallback("portfolio", "bull_threshold")) or _section_fallback("portfolio", "bull_threshold"))
+        self.market_bear_threshold = float(portfolio.get("bear_threshold", _section_fallback("portfolio", "bear_threshold")) or _section_fallback("portfolio", "bear_threshold"))
 
     def get_industry(self, code: str) -> str:
         from config import industry_registry
@@ -399,9 +416,10 @@ class RiskController:
     """整合所有风控逻辑的统一接口"""
 
     def __init__(self, policy: Optional[Dict[str, Any]] = None):
+        self.policy_source = _policy_source(policy)
         self.policy = _merge_policy(policy)
-        self.dynamic_stop = DynamicStopLoss(policy=self.policy)
-        self.portfolio_risk = PortfolioRiskManager(policy=self.policy)
+        self.dynamic_stop = DynamicStopLoss(policy=policy)
+        self.portfolio_risk = PortfolioRiskManager(policy=policy)
 
     def should_stop_loss(self, code, entry_price, current_price, df) -> bool:
         levels = self.dynamic_stop.get_stop_levels(code, entry_price, current_price, df)
@@ -427,7 +445,7 @@ class RiskController:
 
 
 __all__ = [
-    "DEFAULT_RISK_POLICY",
+    "SAFETY_FALLBACK_RISK_POLICY",
     "clamp_position_size",
     "clamp_stop_loss_pct",
     "clamp_take_profit_pct",

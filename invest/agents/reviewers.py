@@ -1,7 +1,8 @@
 import logging
-from typing import Dict, List
+from typing import Any, Dict, List, Optional
 
 from invest.contracts import EvalReport
+from invest.foundation.risk import sanitize_risk_params
 from .base import AgentConfig, InvestAgent
 
 logger = logging.getLogger(__name__)
@@ -52,7 +53,7 @@ class StrategistAgent(InvestAgent):
 
     def review_report(self, eval_report: EvalReport) -> dict:
         regime = {"regime": eval_report.regime}
-        picks = {"picks": [{"code": code, "score": 0.5, "stop_loss_pct": 0.05, "take_profit_pct": 0.15} for code in eval_report.selected_codes]}
+        picks = {"picks": [{"code": code, "score": 0.5} for code in eval_report.selected_codes]}
         return self.review(picks, {"picks": []}, regime)
 
     def review(self, trend_picks: dict, contrarian_picks: dict, regime: dict) -> dict:
@@ -129,251 +130,187 @@ class StrategistAgent(InvestAgent):
 
 
 # ============================================================
-# Part 6: 组合构建代理
+# Part 6: 复盘决策综合员
 # ============================================================
-
-_COMMANDER_SYSTEM_PROMPT = """你是组合构建代理，负责把已给出的候选结论整合成可执行的持仓方案。
-
-你的行动规则：
-1. 根据市场状态决定总仓位与持仓数量。
-2. 在趋势与逆向候选之间做适度分散，不盲目偏向单一风格。
-3. 优先依据候选评分与理由排序，但单只股票权重不超过25%。
-4. 止损、止盈、跟踪止盈属于模型/执行层参数，你只能读取输入里已有参数，不得自行发明。
-5. 必须输出可执行的 positions 列表，不能返回空计划。
-
-严格以JSON格式输出，不要有其他文字：
-{
-    "positions": [
-        {
-            "code": "股票代码",
-            "weight": 0.05到0.25之间的仓位权重,
-            "stop_loss_pct": 止损比例（必须来自输入）,
-            "take_profit_pct": 止盈比例（必须来自输入）,
-            "trailing_pct": 跟踪止盈回撤比例（必须来自输入或为null）,
-            "entry_method": "market",
-            "source": "trend_hunter或contrarian",
-            "reasoning": "选择理由"
-        }
-    ],
-    "cash_reserve": 0.15到0.55之间的现金储备比例,
-    "reasoning": "整体决策理由"
-}"""
 
 
 class ReviewDecisionAgent(InvestAgent):
-    """
-    复盘决策综合员
+    """复盘决策综合员。
 
-    在复盘阶段整合风险分析、进化建议与近期表现，形成最终调整建议。
-    该角色不是系统总指挥官，不负责编排运行时。
+    在复盘阶段综合策略分析、参数建议和 Agent 历史表现，
+    形成下一轮可执行的调参/调权建议。
+    该角色不负责编排运行时，也不再承担组合构建职责。
     """
 
-    def __init__(self, llm_caller=None, agent_weights: dict = None):
+    def __init__(self, llm_caller=None, policy: Optional[dict] = None):
         super().__init__(AgentConfig(name="ReviewDecision", role="review_decision"), llm_caller)
-        self.agent_weights = agent_weights or {
-            "trend_hunter": 1.0,
-            "contrarian": 1.0,
-            "strategist": 1.0,
-        }
+        self.review_policy = dict(policy or {})
 
     def perceive(self, data: dict) -> dict:
-        """感知：收集所有子 Agent 的结论"""
         return data
 
     def reason(self, perception: dict) -> dict:
-        """推理：整合所有结论做出最终决策"""
-        regime = perception.get("regime", {})
-        trend_picks = perception.get("trend_picks", {"picks": []})
-        contrarian_picks = perception.get("contrarian_picks", {"picks": []})
-        strategy_review = perception.get("strategy_review", {"risk_level": "medium"})
-        return self.integrate(regime, trend_picks, contrarian_picks, strategy_review)
+        return self.decide(
+            facts=dict(perception.get("facts") or {}),
+            strategy_analysis=dict(perception.get("strategy_analysis") or {}),
+            evo_assessment=dict(perception.get("evo_assessment") or {}),
+            current_params=dict(perception.get("current_params") or {}),
+        )
 
     def act(self, reasoning: dict) -> dict:
-        """行动：产出建仓计划"""
         return reasoning
 
-    def set_agent_weights(self, weights: dict):
-        """设置 Agent 权重（由 ReviewMeeting 调用）"""
-        self.agent_weights = weights
-        logger.info(f"📊 ReviewDecision 权重已更新: {weights}")
+    def set_policy(self, policy: Optional[dict] = None) -> None:
+        self.review_policy = dict(policy or {})
 
-    def integrate(
+    def decide(
         self,
-        regime: dict,
-        trend_picks: dict,
-        contrarian_picks: dict,
-        strategy_review: dict,
+        facts: dict,
+        strategy_analysis: dict,
+        evo_assessment: dict,
+        current_params: dict,
     ) -> dict:
-        """
-        整合所有意见，输出建仓决策
+        if not self.llm or facts.get("empty"):
+            return self._fallback_decision(facts, strategy_analysis, evo_assessment)
 
-        Returns:
-            {"positions": [...], "cash_reserve": float, "reasoning": str}
-        """
-        if not self.llm:
-            return self._fallback_integration(regime, trend_picks, contrarian_picks, strategy_review)
-
-        user_msg = self._build_prompt(regime, trend_picks, contrarian_picks, strategy_review)
+        user_msg = self._build_prompt(facts, strategy_analysis, evo_assessment, current_params)
         try:
             result = self.llm.call_json(self.config.system_prompt, user_msg)
-        except Exception as e:
-            logger.exception(f"ReviewDecision LLM调用失败: {e}")
-            return self._fallback_integration(regime, trend_picks, contrarian_picks, strategy_review)
+        except Exception as exc:
+            logger.exception(f"ReviewDecision LLM调用失败: {exc}")
+            return self._fallback_decision(facts, strategy_analysis, evo_assessment)
 
         if result.get("_parse_error"):
-            return self._fallback_integration(regime, trend_picks, contrarian_picks, strategy_review)
+            return self._fallback_decision(facts, strategy_analysis, evo_assessment)
 
-        all_valid_codes = set(
-            p["code"] for p in trend_picks.get("picks", []) + contrarian_picks.get("picks", [])
-        )
-        result = self._validate(result, all_valid_codes, regime)
-        logger.info(f"🧭 ReviewDecision(LLM): {len(result['positions'])}只入选, 现金储备{result['cash_reserve']:.0%}")
-        return result
+        return self._validate_decision(result, facts)
 
-    def _fallback_integration(
+    def _build_prompt(
         self,
-        regime: dict,
-        trend_picks: dict,
-        contrarian_picks: dict,
-        strategy_review: dict,
-    ) -> dict:
-        """算法兜底：合并推荐、按加权评分排序、分配仓位"""
-        regime_str = regime.get("regime", "oscillation")
-        regime_params = regime.get("params", {})
-        max_pos = regime_params.get("max_positions", 3)
-        cash_reserve = {"bull": 0.20, "oscillation": 0.30, "bear": 0.50}.get(regime_str, 0.30)
+        facts: dict,
+        strategy_analysis: dict,
+        evo_assessment: dict,
+        current_params: dict,
+    ) -> str:
+        agent_accuracy = facts.get("agent_accuracy", {})
+        agent_lines = []
+        for name, stats in agent_accuracy.items():
+            agent_lines.append(
+                f"- {name}: 准确率{stats.get('accuracy', 0):.0%}, 交易{stats.get('traded_count', 0)}次, 盈利{stats.get('profitable_count', 0)}次"
+            )
+        if not agent_lines:
+            agent_lines.append("- 暂无足够 Agent 准确率样本")
 
-        trend_w = self.agent_weights.get("trend_hunter", 1.0)
-        contrarian_w = self.agent_weights.get("contrarian", 1.0)
-
-        all_picks = []
-        for p in trend_picks.get("picks", []):
-            all_picks.append({**p, "source": "trend_hunter",
-                               "weighted_score": p.get("score", 0.5) * trend_w})
-        for p in contrarian_picks.get("picks", []):
-            all_picks.append({**p, "source": "contrarian",
-                               "weighted_score": p.get("score", 0.5) * contrarian_w})
-
-        # 去重（同一只取加权分数高的）
-        seen: Dict[str, dict] = {}
-        for p in all_picks:
-            code = p["code"]
-            if code not in seen or p["weighted_score"] > seen[code]["weighted_score"]:
-                seen[code] = p
-        unique = sorted(seen.values(), key=lambda x: x["weighted_score"], reverse=True)
-        selected = unique[:max_pos]
-
-        available = 1.0 - cash_reserve
-        base_weight = min(available / len(selected), 0.25) if selected else 0.20
-
-        default_stop = float(regime_params.get("stop_loss_pct", 0.05))
-        default_take = float(regime_params.get("take_profit_pct", 0.15))
-        default_trailing = regime_params.get("trailing_pct", 0.10)
-        positions = [{
-            "code": p["code"],
-            "weight": round(base_weight, 3),
-            "stop_loss_pct": p.get("stop_loss_pct", default_stop),
-            "take_profit_pct": p.get("take_profit_pct", default_take),
-            "trailing_pct": p.get("trailing_pct", default_trailing if p.get("source") == "trend_hunter" else None),
-            "entry_method": "market",
-            "source": p.get("source", "algorithm"),
-            "reasoning": p.get("reasoning", "算法整合"),
-        } for p in selected]
-
-        logger.info(f"🧭 ReviewDecision(算法): {len(positions)}只入选, 现金储备{cash_reserve:.0%}")
-        return {"positions": positions, "cash_reserve": cash_reserve,
-                "reasoning": f"算法整合: {regime_str}市, {len(positions)}只持仓"}
-
-    def _build_prompt(self, regime, trend_picks, contrarian_picks, strategy_review) -> str:
-        regime_str = regime.get("regime", "未知")
-        regime_conf = regime.get("confidence", 0)
-        regime_params = regime.get("params", {})
-        trend_w = self.agent_weights.get("trend_hunter", 1.0)
-        contrarian_w = self.agent_weights.get("contrarian", 1.0)
-
-        lines = [
-            f"## 市场状态",
-            f"判断: {regime_str} (置信度{regime_conf:.0%})",
-            f"建议最大持仓数: {regime_params.get('max_positions', 3)}",
-            "",
-            f"## Agent 权重",
-            f"- 趋势猎手权重: {trend_w:.1f}",
-            f"- 逆向猎手权重: {contrarian_w:.1f}",
-            "",
-            f"## 趋势猎手推荐 (置信度{trend_picks.get('confidence', 0):.0%}, 权重{trend_w:.1f})",
+        sections = [
+            f"## 近期表现\n胜率{facts.get('win_rate', 0):.0%}，平均收益{facts.get('avg_return', 0):+.2f}%，总轮数{facts.get('total_cycles', 0)}",
+            "## Agent 准确率",
+            *agent_lines,
+            f"## 策略分析师意见\n问题：{strategy_analysis.get('problems', [])}\n建议：{strategy_analysis.get('suggestions', [])}",
+            f"## 进化裁判意见\n方向：{evo_assessment.get('evolution_direction', 'maintain')}\n参数调整：{evo_assessment.get('param_adjustments', {})}\n建议：{evo_assessment.get('suggestions', [])}",
+            f"## 当前参数\n{current_params}",
+            "请综合以上事实，输出下一轮的采纳建议。只允许输出 strategy_suggestions / param_adjustments / agent_weight_adjustments / reasoning。",
         ]
-        for p in trend_picks.get("picks", []):
-            lines.append(
-                f"- {p['code']} 评分{p['score']:.2f} | {p.get('reasoning', '')}"
-            )
-        if not trend_picks.get("picks"):
-            lines.append("- （无推荐）")
+        return "\n".join(sections)
 
-        lines.append(f"\n## 逆向猎手推荐 (置信度{contrarian_picks.get('confidence', 0):.0%}, 权重{contrarian_w:.1f})")
-        for p in contrarian_picks.get("picks", []):
-            lines.append(
-                f"- {p['code']} 评分{p['score']:.2f} | {p.get('reasoning', '')}"
-            )
-        if not contrarian_picks.get("picks"):
-            lines.append("- （无推荐）")
+    def _validate_decision(self, result: dict, facts: dict) -> dict:
+        suggestions = result.get("strategy_suggestions") if isinstance(result.get("strategy_suggestions"), list) else []
+        result["strategy_suggestions"] = [str(item).strip() for item in suggestions if str(item).strip()][:6]
 
-        lines.append(f"\n## 策略分析师评估 (风险: {strategy_review.get('risk_level', '未知')})")
-        lines.append(strategy_review.get("assessment", ""))
-        for c in strategy_review.get("concerns", []):
-            lines.append(f"- ⚠️ {c}")
-        for s in strategy_review.get("suggestions", []):
-            lines.append(f"- 💡 {s}")
+        if not isinstance(result.get("param_adjustments"), dict):
+            result["param_adjustments"] = {}
+        result["param_adjustments"] = self._sanitize_adjustment_payload(result.get("param_adjustments", {}))
 
-        lines.append("\n请综合以上信息，输出最终建仓计划。")
-        return "\n".join(lines)
-
-    def _validate(self, result: dict, valid_codes: set, regime: dict) -> dict:
-        regime_params = regime.get("params", {})
-        max_pos = regime_params.get("max_positions", 5)
-
-        valid_positions = []
-        for p in result.get("positions", []):
-            code = p.get("code", "")
-            if code not in valid_codes:
+        valid_agents = set((facts or {}).get("agent_accuracy", {}).keys())
+        min_weight = float(self._policy_value('agent_weight.min', 0.3) or 0.3)
+        max_weight = float(self._policy_value('agent_weight.max', 2.0) or 2.0)
+        default_weight = float(self._policy_value('agent_weight.default', 1.0) or 1.0)
+        clean_weights: dict[str, float] = {}
+        for agent, weight in (result.get("agent_weight_adjustments") or {}).items():
+            if valid_agents and agent not in valid_agents:
                 continue
-            trailing_raw = p.get("trailing_pct", 0.10)
-            trailing_pct = None if trailing_raw in (None, "", "null") else max(0.05, min(0.20, float(trailing_raw)))
-            valid_positions.append({
-                "code": code,
-                "weight": max(0.03, min(0.25, float(p.get("weight", 0.15)))),
-                "stop_loss_pct": max(0.01, min(0.15, float(p.get("stop_loss_pct", 0.05)))),
-                "take_profit_pct": max(0.05, min(0.50, float(p.get("take_profit_pct", 0.15)))),
-                "trailing_pct": trailing_pct,
-                "entry_method": p.get("entry_method", "market"),
-                "source": p.get("source", "commander"),
-                "reasoning": str(p.get("reasoning", "")),
-            })
+            try:
+                clean_weights[agent] = round(max(min_weight, min(max_weight, float(weight))), 2)
+            except (TypeError, ValueError):
+                clean_weights[agent] = default_weight
+        result["agent_weight_adjustments"] = clean_weights
 
-        valid_positions = valid_positions[:max_pos]
-        cash = max(0.0, min(0.6, float(result.get("cash_reserve", 0.3))))
-        total_weight = sum(p["weight"] for p in valid_positions)
-        available = 1.0 - cash
-
-        if total_weight > available and total_weight > 0:
-            for p in valid_positions:
-                p["weight"] = round(p["weight"] / total_weight * available, 3)
-
-        if not valid_positions:
-            return self._fallback_integration(
-                regime,
-                {"picks": [{"code": c, "score": 0.5, "stop_loss_pct": 0.05,
-                             "take_profit_pct": 0.15, "trailing_pct": 0.10, "reasoning": "兜底"}
-                            for c in list(valid_codes)[:3]]},
-                {"picks": []},
-                {"risk_level": "medium", "concerns": []},
-            )
-
-        result["positions"] = valid_positions
-        result["cash_reserve"] = cash
         if not isinstance(result.get("reasoning"), str):
             result["reasoning"] = ""
         return result
 
+    def _fallback_decision(self, facts: dict, strategy_analysis: dict, evo_assessment: dict) -> dict:
+        min_trades = int(self._policy_value('agent_weight.min_traded_count', 3) or 3)
+        formula_base = float(self._policy_value('agent_weight.formula_base', 0.5) or 0.5)
+        default_weight = float(self._policy_value('agent_weight.default', 1.0) or 1.0)
+        min_weight = float(self._policy_value('agent_weight.min', 0.3) or 0.3)
+        max_weight = float(self._policy_value('agent_weight.max', 2.0) or 2.0)
+
+        weight_adjustments: dict[str, float] = {}
+        for agent, stats in (facts.get("agent_accuracy") or {}).items():
+            accuracy = stats.get("accuracy", 0.5)
+            traded_count = stats.get("traded_count", 0)
+            if traded_count >= min_trades:
+                weight_adjustments[agent] = round(max(min_weight, min(max_weight, formula_base + float(accuracy))), 2)
+            else:
+                weight_adjustments[agent] = default_weight
+
+        param_adjustments = {
+            key: value
+            for key, value in (evo_assessment.get("param_adjustments") or {}).items()
+            if value is not None
+        }
+
+        strategy_suggestions: list[str] = []
+        for raw in list(strategy_analysis.get("suggestions") or []) + list(evo_assessment.get("suggestions") or []):
+            item = str(raw).strip()
+            if item and item not in strategy_suggestions:
+                strategy_suggestions.append(item)
+            if len(strategy_suggestions) >= 6:
+                break
+
+        decision = {
+            "strategy_suggestions": strategy_suggestions,
+            "param_adjustments": param_adjustments,
+            "agent_weight_adjustments": weight_adjustments,
+            "reasoning": f"复盘综合: 方向={evo_assessment.get('evolution_direction', 'maintain')}",
+        }
+        return self._validate_decision(decision, facts)
+
+    def _policy_value(self, path: str, default: Any) -> Any:
+        current: Any = self.review_policy
+        for key in path.split('.'):
+            if not isinstance(current, dict) or key not in current:
+                return default
+            current = current[key]
+        return current
+
+    def _sanitize_adjustment_payload(self, payload: dict[str, Any]) -> dict[str, Any]:
+        normalized: dict[str, float] = {}
+        for key, value in (payload or {}).items():
+            if value is None:
+                continue
+            try:
+                numeric = float(value)
+            except (TypeError, ValueError):
+                continue
+            if key in {"stop_loss_pct", "take_profit_pct", "position_size", "cash_reserve", "trailing_pct"} and 1.0 < numeric <= 100.0:
+                numeric = numeric / 100.0
+            normalized[key] = numeric
+
+        risk_like = {
+            key: value
+            for key, value in normalized.items()
+            if key in {"stop_loss_pct", "take_profit_pct", "position_size"}
+        }
+        clean_params = sanitize_risk_params(risk_like)
+
+        cash_bounds = dict(self._policy_value('param_clamps.cash_reserve', {'min': 0.0, 'max': 0.80}) or {})
+        trailing_bounds = dict(self._policy_value('param_clamps.trailing_pct', {'min': 0.03, 'max': 0.20}) or {})
+        if 'cash_reserve' in normalized:
+            clean_params['cash_reserve'] = max(float(cash_bounds.get('min', 0.0)), min(float(cash_bounds.get('max', 0.80)), normalized['cash_reserve']))
+        if 'trailing_pct' in normalized:
+            clean_params['trailing_pct'] = max(float(trailing_bounds.get('min', 0.03)), min(float(trailing_bounds.get('max', 0.20)), normalized['trailing_pct']))
+        return clean_params
 
 
 # ============================================================

@@ -47,3 +47,13 @@ def test_hunter_agents_do_not_emit_execution_params():
         assert "stop_loss_pct" not in pick
         assert "take_profit_pct" not in pick
 
+
+
+def test_strategist_review_report_does_not_emit_execution_params():
+    from invest.agents import StrategistAgent
+    from types import SimpleNamespace
+
+    agent = StrategistAgent(llm_caller=None)
+    report = SimpleNamespace(regime="bull", selected_codes=["AAA"])
+    result = agent.review_report(report)
+    assert isinstance(result.get("concerns", []), list)

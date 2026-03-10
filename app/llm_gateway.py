@@ -7,6 +7,10 @@ This module is the only outbound channel to external LLM providers.
 from __future__ import annotations
 
 import asyncio
+import contextlib
+import os
+import signal
+import threading
 import time
 from dataclasses import dataclass
 from typing import Any
@@ -25,6 +29,35 @@ class LLMUnavailableError(LLMGatewayError):
     """Raised when provider dependencies/configuration are unavailable."""
 
 
+def _hard_timeout_grace_seconds() -> float:
+    try:
+        return max(0.0, float(os.environ.get("INVEST_LLM_HARD_TIMEOUT_GRACE", "5")))
+    except (TypeError, ValueError):
+        return 5.0
+
+
+@contextlib.contextmanager
+def _sync_timeout_guard(seconds: float):
+    if seconds <= 0 or threading.current_thread() is not threading.main_thread() or not hasattr(signal, "setitimer"):
+        yield
+        return
+
+    def _raise_timeout(signum, frame):
+        raise TimeoutError(f"LLM hard timeout exceeded ({seconds:.1f}s)")
+
+    previous_handler = signal.getsignal(signal.SIGALRM)
+    previous_timer = signal.getitimer(signal.ITIMER_REAL)
+    signal.signal(signal.SIGALRM, _raise_timeout)
+    signal.setitimer(signal.ITIMER_REAL, seconds)
+    try:
+        yield
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, 0.0)
+        signal.signal(signal.SIGALRM, previous_handler)
+        if previous_timer != (0.0, 0.0):
+            signal.setitimer(signal.ITIMER_REAL, *previous_timer)
+
+
 @dataclass
 class LLMGateway:
     model: str
@@ -37,6 +70,13 @@ class LLMGateway:
         masked_key = f"{self.api_key[:4]}...{self.api_key[-4:]}" if self.api_key and len(self.api_key) > 8 else "***"
         import logging
         logging.getLogger(__name__).debug(f"LLMGateway initialized for model {self.model} with key {masked_key}")
+        if litellm is not None:
+            for attr, value in (("set_verbose", False), ("suppress_debug_info", True), ("turn_off_message_logging", True)):
+                if hasattr(litellm, attr):
+                    try:
+                        setattr(litellm, attr, value)
+                    except Exception:
+                        pass
 
     @property
     def available(self) -> bool:
@@ -83,6 +123,14 @@ class LLMGateway:
             kwargs["tool_choice"] = tool_choice or "auto"
         return kwargs
 
+    def _hard_timeout_seconds(self) -> float:
+        return max(1.0, float(self.timeout)) + _hard_timeout_grace_seconds()
+
+    @staticmethod
+    def _matches_provider_error(exc: Exception, error_name: str) -> bool:
+        provider_error = getattr(litellm, error_name, None)
+        return isinstance(provider_error, type) and isinstance(exc, provider_error)
+
     def completion_raw(
         self,
         messages: list[dict[str, Any]],
@@ -97,9 +145,11 @@ class LLMGateway:
 
         retries = max(1, int(self.max_retries))
         last_error: Exception | None = None
+        hard_timeout = self._hard_timeout_seconds()
         for attempt in range(1, retries + 1):
             try:
-                response = litellm.completion(**kwargs)
+                with _sync_timeout_guard(hard_timeout):
+                    response = litellm.completion(**kwargs)
                 if self._has_valid_choices(response):
                     return response
                 last_error = ValueError("LLM returned empty or malformed choices")
@@ -107,19 +157,22 @@ class LLMGateway:
                     time.sleep(min(3, 1 * attempt))
                     continue
                 break
-            except getattr(litellm, "RateLimitError", Exception) as exc: # pragma: no cover
+            except TimeoutError as exc:  # pragma: no cover
                 last_error = exc
-                if attempt < retries:
-                    time.sleep(min(15, 3 * attempt)) # Longer sleep for rate limit
-                continue
-            except getattr(litellm, "APIConnectionError", Exception) as exc: # pragma: no cover
-                last_error = exc
-                if attempt < retries:
-                    time.sleep(min(5, 1.5 * attempt))
-                continue
+                break
             except Exception as exc:  # pragma: no cover
                 last_error = exc
-                break # Don't retry on unknown exceptions like validation errors
+                if self._matches_provider_error(exc, "RateLimitError"):
+                    if attempt < retries:
+                        time.sleep(min(15, 3 * attempt))
+                        continue
+                    break
+                if self._matches_provider_error(exc, "APIConnectionError"):
+                    if attempt < retries:
+                        time.sleep(min(5, 1.5 * attempt))
+                        continue
+                    break
+                break
         raise LLMGatewayError(f"LLM completion failed: {last_error}")
 
     async def acompletion_raw(
@@ -136,9 +189,10 @@ class LLMGateway:
 
         retries = max(1, int(self.max_retries))
         last_error: Exception | None = None
+        hard_timeout = self._hard_timeout_seconds()
         for attempt in range(1, retries + 1):
             try:
-                response = await litellm.acompletion(**kwargs)
+                response = await asyncio.wait_for(litellm.acompletion(**kwargs), timeout=hard_timeout)
                 if self._has_valid_choices(response):
                     return response
                 last_error = ValueError("LLM returned empty or malformed choices")
@@ -146,17 +200,20 @@ class LLMGateway:
                     await asyncio.sleep(min(3, 1 * attempt))
                     continue
                 break
-            except getattr(litellm, "RateLimitError", Exception) as exc: # pragma: no cover
+            except asyncio.TimeoutError as exc:  # pragma: no cover
                 last_error = exc
-                if attempt < retries:
-                    await asyncio.sleep(min(15, 3 * attempt))
-                continue
-            except getattr(litellm, "APIConnectionError", Exception) as exc: # pragma: no cover
-                last_error = exc
-                if attempt < retries:
-                    await asyncio.sleep(min(5, 1.5 * attempt))
-                continue
+                break
             except Exception as exc:  # pragma: no cover
                 last_error = exc
+                if self._matches_provider_error(exc, "RateLimitError"):
+                    if attempt < retries:
+                        await asyncio.sleep(min(15, 3 * attempt))
+                        continue
+                    break
+                if self._matches_provider_error(exc, "APIConnectionError"):
+                    if attempt < retries:
+                        await asyncio.sleep(min(5, 1.5 * attempt))
+                        continue
+                    break
                 break
         raise LLMGatewayError(f"LLM async completion failed: {last_error}")

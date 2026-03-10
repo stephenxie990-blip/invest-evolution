@@ -46,3 +46,28 @@ def test_llm_gateway_retries_on_empty_choices(monkeypatch):
     resp = gateway.completion_raw(messages=[{"role": "user", "content": "hi"}], temperature=0.2, max_tokens=16)
     assert resp.choices[0].message.content == 'ok'
     assert calls["n"] == 2
+
+
+def test_llm_gateway_hard_timeout_fails_fast(monkeypatch):
+    gateway = LLMGateway(model="gpt-5.4", api_key="token", api_base="https://example.com", timeout=1, max_retries=3)
+
+    calls = {"n": 0}
+
+    class DummyLiteLLM:
+        @staticmethod
+        def completion(**kwargs):
+            import time
+            calls["n"] += 1
+            time.sleep(2.5)
+            return _DummyResp([_DummyChoice('late')])
+
+    import app.llm_gateway as mod
+    monkeypatch.setattr(mod, 'litellm', DummyLiteLLM)
+    monkeypatch.setenv('INVEST_LLM_HARD_TIMEOUT_GRACE', '0')
+
+    import pytest
+    from app.llm_gateway import LLMGatewayError
+
+    with pytest.raises(LLMGatewayError, match='timeout'):
+        gateway.completion_raw(messages=[{"role": "user", "content": "hi"}], temperature=0.2, max_tokens=16)
+    assert calls["n"] == 1

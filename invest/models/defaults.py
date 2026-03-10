@@ -27,4 +27,13 @@ COMMON_EXECUTION_DEFAULTS = {
 
 COMMON_BENCHMARK_DEFAULTS = {
     "risk_free_rate": 0.03,
+    "criteria": {
+        "excess_return": 0.0,
+        "sharpe_ratio": 1.0,
+        "max_drawdown": 15.0,
+        "calmar_ratio": 1.5,
+        "win_rate": 0.45,
+        "profit_loss_ratio": 1.5,
+        "monthly_turnover": 3.0,
+    },
 }

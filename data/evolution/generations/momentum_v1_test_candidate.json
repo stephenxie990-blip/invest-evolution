@@ -1,0 +1,19 @@
+{
+  "parent_config": "/Users/zhangsan/Desktop/投资进化系统v1.0/invest/models/configs/momentum_v1.yaml",
+  "output_config": "/Users/zhangsan/Desktop/投资进化系统v1.0/data/evolution/generations/momentum_v1_test_candidate.yaml",
+  "param_adjustments": {
+    "signal_threshold": 0.61
+  },
+  "scoring_adjustments": {},
+  "applied_adjustments": {
+    "params": {
+      "signal_threshold": 0.61
+    },
+    "scoring": {}
+  },
+  "narrative_adjustments": {},
+  "generated_at": "2026-03-10T11:12:54.393629",
+  "parent_meta": {
+    "cycle_id": 1
+  }
+}

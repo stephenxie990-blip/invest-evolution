@@ -18,20 +18,21 @@ class MomentumModel(InvestmentModel):
 
     def _risk_hints(self, market_stats: Dict[str, Any]) -> List[str]:
         hints: List[str] = []
-        if market_stats.get("avg_volatility", 0.0) > 0.03:
+        policy = self.config_section("market_hints", {}) or {}
+        if market_stats.get("avg_volatility", 0.0) > float(policy.get("avg_volatility_gt", 0.03) or 0.03):
             hints.append("短期波动偏高，需控制仓位")
-        if market_stats.get("market_breadth", 0.0) < 0.45:
+        if market_stats.get("market_breadth", 0.0) < float(policy.get("market_breadth_lt", 0.45) or 0.45):
             hints.append("市场广度偏弱，追高风险较大")
-        if market_stats.get("above_ma20_ratio", 0.0) < 0.4:
+        if market_stats.get("above_ma20_ratio", 0.0) < float(policy.get("above_ma20_ratio_lt", 0.40) or 0.40):
             hints.append("强势股占比不高，注意趋势延续性")
         return hints
 
     def build_signal_packet(self, stock_data: Dict[str, Any], cutoff_date: str) -> SignalPacket:
         params = self.effective_params()
-        market_stats = compute_market_stats(stock_data, cutoff_date)
+        market_stats = compute_market_stats(stock_data, cutoff_date, regime_policy=self.config_section("market_regime", {}) or None)
         regime = self._resolve_regime(market_stats)
         stock_codes = list(stock_data.keys())[: int(self.param("candidate_pool_size"))]
-        stock_summaries = summarize_stocks(stock_data, stock_codes, cutoff_date)
+        stock_summaries = summarize_stocks(stock_data, stock_codes, cutoff_date, summary_scoring=self.config_section("summary_scoring", {}) or None)
         top_n = max(1, int(self.param("top_n")))
         max_positions = max(1, int(self.param("max_positions", min(5, top_n))))
         stop_loss = float(self.risk_param("stop_loss_pct"))

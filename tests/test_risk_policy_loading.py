@@ -66,3 +66,17 @@ def test_simulated_trader_wires_risk_policy_into_controllers():
     assert trader.risk_controller.dynamic_stop.atr_period == 5
     assert trader.emergency_detector.rapid_loss_days == 2
     assert trader.risk_controller.portfolio_risk.max_industry_pct == 0.25
+
+
+def test_risk_controller_marks_explicit_policy_source():
+    trader = SimulatedTrader(enable_risk_control=True, risk_policy=RISK_POLICY)
+    assert trader.risk_controller.policy_source == 'explicit'
+    assert trader.risk_controller.dynamic_stop.policy_source == 'explicit'
+    assert trader.emergency_detector.policy_source == 'explicit'
+
+
+def test_risk_controller_marks_safety_fallback_when_policy_missing():
+    trader = SimulatedTrader(enable_risk_control=True, risk_policy=None)
+    assert trader.risk_controller.policy_source == 'safety_fallback'
+    assert trader.risk_controller.dynamic_stop.policy_source == 'safety_fallback'
+    assert trader.emergency_detector.policy_source == 'safety_fallback'

@@ -68,6 +68,38 @@ def validate_model_config(data: Dict[str, Any]) -> Dict[str, Any]:
                 raise ModelConfigValidationError(f"scoring.{key} must be a dict")
             _ensure_numeric_dict(f"scoring.{key}", section)
 
+    summary_scoring = data.get("summary_scoring")
+    if summary_scoring is not None:
+        if not isinstance(summary_scoring, dict):
+            raise ModelConfigValidationError("summary_scoring must be a dict")
+        for section_name in ["weights", "bands"]:
+            section = summary_scoring.get(section_name)
+            if section is not None and not isinstance(section, dict):
+                raise ModelConfigValidationError(f"summary_scoring.{section_name} must be a dict")
+        if "logic" in summary_scoring:
+            if not isinstance(summary_scoring["logic"], dict):
+                raise ModelConfigValidationError("summary_scoring.logic must be a dict")
+            _ensure_numeric_dict("summary_scoring.logic", summary_scoring["logic"])
+
+    market_hints = data.get("market_hints")
+    if market_hints is not None:
+        if not isinstance(market_hints, dict):
+            raise ModelConfigValidationError("market_hints must be a dict")
+        _ensure_numeric_dict("market_hints", market_hints)
+
+    review_policy = data.get("review_policy")
+    if review_policy is not None and not isinstance(review_policy, dict):
+        raise ModelConfigValidationError("review_policy must be a dict")
+
+    market_regime = data.get("market_regime")
+    if market_regime is not None:
+        if not isinstance(market_regime, dict):
+            raise ModelConfigValidationError("market_regime must be a dict")
+        numeric_fields = {k: v for k, v in market_regime.items() if k != "default_regime"}
+        _ensure_numeric_dict("market_regime", numeric_fields)
+        if "default_regime" in market_regime and not isinstance(market_regime["default_regime"], str):
+            raise ModelConfigValidationError("market_regime.default_regime must be a string")
+
     mutation_space = data.get("mutation_space")
     if mutation_space is not None:
         if not isinstance(mutation_space, dict):

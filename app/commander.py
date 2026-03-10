@@ -38,6 +38,12 @@ from config import PROJECT_ROOT, RUNTIME_DIR, OUTPUT_DIR, LOGS_DIR, MEMORY_DIR, 
 from config.services import EvolutionConfigService, RuntimePathConfigService
 from market_data import DataManager, MockDataProvider
 from app.train import SelfLearningController, TrainingResult
+from app.lab.artifacts import TrainingLabArtifactStore
+from app.lab.evaluation import (
+    build_promotion_summary,
+    build_training_evaluation_summary,
+    build_training_memory_summary,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -804,6 +810,11 @@ class CommanderRuntime:
         self._task_lock = threading.RLock()
         self._runtime_lock_acquired = False
 
+        self.training_lab = TrainingLabArtifactStore(
+            training_plan_dir=self.cfg.training_plan_dir,
+            training_run_dir=self.cfg.training_run_dir,
+            training_eval_dir=self.cfg.training_eval_dir,
+        )
         self.strategy_registry = StrategyGeneRegistry(self.cfg.strategy_dir)
         if self.cfg.strategy_dir.exists():
             self.strategy_registry.reload(create_dir=False)
@@ -1074,31 +1085,25 @@ class CommanderRuntime:
             raise
 
     def _lab_counts(self) -> dict[str, int]:
-        return {
-            "plan_count": len(list(self.cfg.training_plan_dir.glob("*.json"))) if self.cfg.training_plan_dir.exists() else 0,
-            "run_count": len(list(self.cfg.training_run_dir.glob("*.json"))) if self.cfg.training_run_dir.exists() else 0,
-            "evaluation_count": len(list(self.cfg.training_eval_dir.glob("*.json"))) if self.cfg.training_eval_dir.exists() else 0,
-        }
+        return self.training_lab.counts()
 
     def _new_training_plan_id(self) -> str:
-        return f"plan_{datetime.now().strftime('%Y%m%d_%H%M%S_%f')}"
+        return self.training_lab.new_plan_id()
 
     def _new_training_run_id(self) -> str:
-        return f"run_{datetime.now().strftime('%Y%m%d_%H%M%S_%f')}"
+        return self.training_lab.new_run_id()
 
     def _write_json_artifact(self, path: Path, payload: dict[str, Any]) -> Path:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(_jsonable(payload), ensure_ascii=False, indent=2), encoding="utf-8")
-        return path
+        return self.training_lab.write_json_artifact(path, payload)
 
     def _training_plan_path(self, plan_id: str) -> Path:
-        return self.cfg.training_plan_dir / f"{plan_id}.json"
+        return self.training_lab.plan_path(plan_id)
 
     def _training_run_path(self, run_id: str) -> Path:
-        return self.cfg.training_run_dir / f"{run_id}.json"
+        return self.training_lab.run_path(run_id)
 
     def _training_eval_path(self, run_id: str) -> Path:
-        return self.cfg.training_eval_dir / f"{run_id}.json"
+        return self.training_lab.evaluation_path(run_id)
 
     def _create_training_plan_payload(
         self,
@@ -1114,34 +1119,26 @@ class CommanderRuntime:
         dataset: dict[str, Any] | None = None,
         model_scope: dict[str, Any] | None = None,
         optimization: dict[str, Any] | None = None,
+        llm: dict[str, Any] | None = None,
         plan_id: str | None = None,
         auto_generated: bool = False,
     ) -> dict[str, Any]:
-        plan_id = plan_id or self._new_training_plan_id()
-        return {
-            "plan_id": plan_id,
-            "created_at": datetime.now().isoformat(),
-            "status": "planned",
-            "source": source,
-            "auto_generated": bool(auto_generated),
-            "spec": {
-                "rounds": int(rounds),
-                "mock": bool(mock),
-                "detail_mode": str(detail_mode or "fast"),
-            },
-            "protocol": _jsonable(dict(protocol or {})),
-            "dataset": _jsonable(dict(dataset or {})),
-            "model_scope": _jsonable(dict(model_scope or {})),
-            "optimization": _jsonable(dict(optimization or {})),
-            "objective": {
-                "goal": str(goal or ""),
-                "notes": str(notes or ""),
-                "tags": [str(tag) for tag in (tags or []) if str(tag).strip()],
-            },
-            "artifacts": {
-                "plan_path": str(self._training_plan_path(plan_id)),
-            },
-        }
+        return self.training_lab.build_training_plan_payload(
+            rounds=rounds,
+            mock=mock,
+            source=source,
+            goal=goal,
+            notes=notes,
+            tags=tags,
+            detail_mode=detail_mode,
+            protocol=protocol,
+            dataset=dataset,
+            model_scope=model_scope,
+            optimization=optimization,
+            llm=llm,
+            plan_id=plan_id,
+            auto_generated=auto_generated,
+        )
 
     def create_training_plan(
         self,
@@ -1156,6 +1153,7 @@ class CommanderRuntime:
         dataset: dict[str, Any] | None = None,
         model_scope: dict[str, Any] | None = None,
         optimization: dict[str, Any] | None = None,
+        llm: dict[str, Any] | None = None,
         source: str = "manual",
         auto_generated: bool = False,
     ) -> dict[str, Any]:
@@ -1172,6 +1170,7 @@ class CommanderRuntime:
             dataset=dataset,
             model_scope=model_scope,
             optimization=optimization,
+            llm=llm,
             auto_generated=auto_generated,
         )
         self._write_json_artifact(self._training_plan_path(plan["plan_id"]), plan)
@@ -1179,55 +1178,22 @@ class CommanderRuntime:
         return plan
 
     def list_training_plans(self, *, limit: int = 20) -> dict[str, Any]:
-        if not self.cfg.training_plan_dir.exists():
-            return {"count": 0, "items": []}
-        rows = []
-        for path in sorted(self.cfg.training_plan_dir.glob("*.json"), reverse=True)[: max(1, int(limit))]:
-            try:
-                rows.append(json.loads(path.read_text(encoding="utf-8")))
-            except Exception:
-                continue
-        return {"count": len(rows), "items": rows}
+        return self.training_lab.list_json_artifacts(self.cfg.training_plan_dir, limit=limit)
 
     def get_training_plan(self, plan_id: str) -> dict[str, Any]:
-        path = self._training_plan_path(str(plan_id))
-        if not path.exists():
-            raise FileNotFoundError(f"training plan not found: {plan_id}")
-        return json.loads(path.read_text(encoding="utf-8"))
+        return self.training_lab.read_json_artifact(self._training_plan_path(str(plan_id)), label='training plan')
 
     def get_training_run(self, run_id: str) -> dict[str, Any]:
-        path = self._training_run_path(str(run_id))
-        if not path.exists():
-            raise FileNotFoundError(f"training run not found: {run_id}")
-        return json.loads(path.read_text(encoding="utf-8"))
+        return self.training_lab.read_json_artifact(self._training_run_path(str(run_id)), label='training run')
 
     def get_training_evaluation(self, run_id: str) -> dict[str, Any]:
-        path = self._training_eval_path(str(run_id))
-        if not path.exists():
-            raise FileNotFoundError(f"training evaluation not found: {run_id}")
-        return json.loads(path.read_text(encoding="utf-8"))
+        return self.training_lab.read_json_artifact(self._training_eval_path(str(run_id)), label='training evaluation')
 
     def list_training_runs(self, *, limit: int = 20) -> dict[str, Any]:
-        if not self.cfg.training_run_dir.exists():
-            return {"count": 0, "items": []}
-        rows = []
-        for path in sorted(self.cfg.training_run_dir.glob("*.json"), reverse=True)[: max(1, int(limit))]:
-            try:
-                rows.append(json.loads(path.read_text(encoding="utf-8")))
-            except Exception:
-                continue
-        return {"count": len(rows), "items": rows}
+        return self.training_lab.list_json_artifacts(self.cfg.training_run_dir, limit=limit)
 
     def list_training_evaluations(self, *, limit: int = 20) -> dict[str, Any]:
-        if not self.cfg.training_eval_dir.exists():
-            return {"count": 0, "items": []}
-        rows = []
-        for path in sorted(self.cfg.training_eval_dir.glob("*.json"), reverse=True)[: max(1, int(limit))]:
-            try:
-                rows.append(json.loads(path.read_text(encoding="utf-8")))
-            except Exception:
-                continue
-        return {"count": len(rows), "items": rows}
+        return self.training_lab.list_json_artifacts(self.cfg.training_eval_dir, limit=limit)
 
     def _load_leaderboard_snapshot(self) -> dict[str, Any]:
         path = Path(self.cfg.training_output_dir).parent / "leaderboard.json"
@@ -1247,74 +1213,22 @@ class CommanderRuntime:
         avg_strategy_score: float | None,
         benchmark_pass_rate: float,
     ) -> dict[str, Any]:
-        gate = dict((plan.get("optimization") or {}).get("promotion_gate") or {})
-        model_scope = dict(plan.get("model_scope") or {})
-        protocol = dict(plan.get("protocol") or {})
-        holdout = protocol.get("holdout") if isinstance(protocol.get("holdout"), dict) else {}
-        walk_forward = protocol.get("walk_forward") if isinstance(protocol.get("walk_forward"), dict) else {}
-        candidate_model = "unknown"
-        candidate_config = ""
-        if ok_results:
-            first = ok_results[0]
-            candidate_model = str(first.get("model_name") or "unknown")
-            candidate_config = str(first.get("config_name") or "")
-        baseline_models = [str(x) for x in (model_scope.get("baseline_models") or []) if str(x).strip()]
+        baseline_models = [str(x) for x in ((plan.get("model_scope") or {}).get("baseline_models") or []) if str(x).strip()]
         board = self._load_leaderboard_snapshot()
         entries = list(board.get("entries") or [])
         baseline_entries = [entry for entry in entries if str(entry.get("model_name") or "") in baseline_models]
-        baseline_avg_return = round(sum(float(entry.get("avg_return_pct", 0.0) or 0.0) for entry in baseline_entries) / len(baseline_entries), 4) if baseline_entries else None
-        baseline_avg_score = round(sum(float(entry.get("avg_strategy_score", 0.0) or 0.0) for entry in baseline_entries) / len(baseline_entries), 4) if baseline_entries else None
-        checks = []
-        def add_check(name: str, passed: bool, actual, threshold):
-            checks.append({"name": name, "passed": bool(passed), "actual": actual, "threshold": threshold})
-        min_samples = int(gate.get("min_samples", 1) or 1)
-        add_check("min_samples", len(ok_results) >= min_samples, len(ok_results), min_samples)
-        if gate.get("min_avg_return_pct") is not None:
-            threshold = float(gate.get("min_avg_return_pct") or 0.0)
-            actual = avg_return_pct if avg_return_pct is not None else None
-            add_check("min_avg_return_pct", actual is not None and actual >= threshold, actual, threshold)
-        if gate.get("min_avg_strategy_score") is not None:
-            threshold = float(gate.get("min_avg_strategy_score") or 0.0)
-            actual = avg_strategy_score if avg_strategy_score is not None else None
-            add_check("min_avg_strategy_score", actual is not None and actual >= threshold, actual, threshold)
-        if gate.get("min_benchmark_pass_rate") is not None:
-            threshold = float(gate.get("min_benchmark_pass_rate") or 0.0)
-            add_check("min_benchmark_pass_rate", benchmark_pass_rate >= threshold, benchmark_pass_rate, threshold)
-        if gate.get("min_return_advantage_vs_baseline") is not None and baseline_avg_return is not None and avg_return_pct is not None:
-            threshold = float(gate.get("min_return_advantage_vs_baseline") or 0.0)
-            actual = round(avg_return_pct - baseline_avg_return, 4)
-            add_check("min_return_advantage_vs_baseline", actual >= threshold, actual, threshold)
-        if gate.get("min_strategy_score_advantage_vs_baseline") is not None and baseline_avg_score is not None and avg_strategy_score is not None:
-            threshold = float(gate.get("min_strategy_score_advantage_vs_baseline") or 0.0)
-            actual = round(avg_strategy_score - baseline_avg_score, 4)
-            add_check("min_strategy_score_advantage_vs_baseline", actual >= threshold, actual, threshold)
-        passed = all(item.get("passed", False) for item in checks) if checks else False
-        verdict = "promoted" if passed else "rejected"
-        if not ok_results:
-            verdict = "insufficient_data"
-        return {
-            "candidate": {"model_name": candidate_model, "config_name": candidate_config},
-            "baselines": {
-                "models": baseline_models,
-                "avg_return_pct": baseline_avg_return,
-                "avg_strategy_score": baseline_avg_score,
-                "sample_count": len(baseline_entries),
-            },
-            "gate": gate,
-            "checks": checks,
-            "verdict": verdict,
-            "passed": passed,
-            "protocol": {
-                "holdout": holdout,
-                "walk_forward": walk_forward,
-            },
-        }
+        return build_promotion_summary(
+            plan=plan,
+            ok_results=ok_results,
+            avg_return_pct=avg_return_pct,
+            avg_strategy_score=avg_strategy_score,
+            benchmark_pass_rate=benchmark_pass_rate,
+            baseline_entries=baseline_entries,
+        )
 
     def _build_training_evaluation_summary(self, payload: dict[str, Any], *, plan: dict[str, Any], run_id: str, error: str = "") -> dict[str, Any]:
         results = list(payload.get("results") or [])
         ok_results = [item for item in results if item.get("status") == "ok"]
-        no_data_results = [item for item in results if item.get("status") == "no_data"]
-        error_results = [item for item in results if item.get("status") == "error"]
         returns = [float(item.get("return_pct") or 0.0) for item in ok_results]
         strategy_scores = [float((item.get("strategy_scores") or {}).get("overall_score", 0.0) or 0.0) for item in ok_results]
         benchmark_passes = sum(1 for item in ok_results if bool(item.get("benchmark_passed", False)))
@@ -1328,89 +1242,38 @@ class CommanderRuntime:
             avg_strategy_score=avg_strategy_score,
             benchmark_pass_rate=benchmark_pass_rate,
         )
-        return {
-            "run_id": run_id,
-            "plan_id": plan["plan_id"],
-            "created_at": datetime.now().isoformat(),
-            "status": str(payload.get("status", "ok")),
-            "objective": dict(plan.get("objective") or {}),
-            "spec": dict(plan.get("spec") or {}),
-            "assessment": {
-                "total_results": len(results),
-                "success_count": len(ok_results),
-                "no_data_count": len(no_data_results),
-                "error_count": len(error_results),
-                "avg_return_pct": avg_return_pct,
-                "max_return_pct": round(max(returns), 4) if returns else None,
-                "min_return_pct": round(min(returns), 4) if returns else None,
-                "avg_strategy_score": avg_strategy_score,
-                "benchmark_pass_rate": benchmark_pass_rate,
-            },
-            "promotion": promotion,
-            "error": str(error or ""),
-            "artifacts": {
-                "run_path": str(self._training_run_path(run_id)),
-                "evaluation_path": str(self._training_eval_path(run_id)),
-            },
-        }
+        return build_training_evaluation_summary(
+            payload=payload,
+            plan=plan,
+            run_id=run_id,
+            error=error,
+            promotion=promotion,
+            run_path=str(self._training_run_path(run_id)),
+            evaluation_path=str(self._training_eval_path(run_id)),
+        )
 
     def _record_training_lab_artifacts(self, *, plan: dict[str, Any], payload: dict[str, Any], status: str, error: str = "") -> dict[str, Any]:
         run_id = self._new_training_run_id()
-        run_payload = {
-            "run_id": run_id,
-            "plan_id": plan["plan_id"],
-            "created_at": datetime.now().isoformat(),
-            "status": status,
-            "error": str(error or ""),
-            "plan": {
-                "plan_id": plan["plan_id"],
-                "source": plan.get("source"),
-                "auto_generated": plan.get("auto_generated", False),
-                "spec": dict(plan.get("spec") or {}),
-                "objective": dict(plan.get("objective") or {}),
-            },
-            "payload": _jsonable(payload),
-        }
         eval_payload = self._build_training_evaluation_summary(payload, plan=plan, run_id=run_id, error=error)
-        self._write_json_artifact(self._training_run_path(run_id), run_payload)
-        self._write_json_artifact(self._training_eval_path(run_id), eval_payload)
-        plan_update = dict(plan)
-        plan_update["status"] = "completed" if status in {"ok", "completed", "completed_with_skips", "insufficient_data"} else status
-        plan_update["last_run_id"] = run_id
-        plan_update["last_run_at"] = datetime.now().isoformat()
-        plan_update.setdefault("artifacts", {})["latest_run_path"] = str(self._training_run_path(run_id))
-        plan_update.setdefault("artifacts", {})["latest_evaluation_path"] = str(self._training_eval_path(run_id))
-        self._write_json_artifact(self._training_plan_path(plan["plan_id"]), plan_update)
-        return {"plan": plan_update, "run": run_payload, "evaluation": eval_payload}
+        return self.training_lab.record_training_lab_artifacts(
+            plan=plan,
+            payload=payload,
+            status=status,
+            eval_payload=eval_payload,
+            run_id=run_id,
+            error=error,
+        )
 
     def _append_training_memory(self, payload: dict[str, Any], *, rounds: int, mock: bool, status: str, error: str = "") -> None:
         results = list(payload.get("results") or [])
-        ok_results = [item for item in results if item.get("status") == "ok"]
-        skipped_results = [item for item in results if item.get("status") == "no_data"]
-        error_results = [item for item in results if item.get("status") == "error"]
-        cycle_ids = [item.get("cycle_id") for item in results if item.get("cycle_id") is not None]
-        avg_return = round(sum(float(item.get("return_pct") or 0.0) for item in ok_results) / len(ok_results), 2) if ok_results else None
-        summary = {
-            "status": status,
-            "rounds": int(rounds),
-            "mock": bool(mock),
-            "cycle_ids": cycle_ids,
-            "success_count": len(ok_results),
-            "skipped_count": len(skipped_results),
-            "error_count": len(error_results),
-            "avg_return_pct": avg_return,
-            "latest_cycle_id": cycle_ids[-1] if cycle_ids else None,
-            "timestamp": datetime.now().isoformat(),
-        }
-        if error:
-            summary["error"] = str(error)
-
+        summary = build_training_memory_summary(payload=payload, rounds=rounds, mock=mock, status=status, error=error)
         summary_line = (
             f"训练记录 | status={status} | rounds={rounds} | mock={'true' if mock else 'false'} | "
-            f"成功={len(ok_results)} | 跳过={len(skipped_results)} | 失败={len(error_results)}"
+            f"成功={summary['success_count']} | 跳过={summary['skipped_count']} | 失败={summary['error_count']}"
         )
-        if avg_return is not None:
-            summary_line += f" | 平均收益={avg_return:+.2f}%"
+        if summary.get("avg_return_pct") is not None:
+            summary_line += f" | 平均收益={summary['avg_return_pct']:+.2f}%"
+        cycle_ids = list(summary.get("cycle_ids") or [])
         if cycle_ids:
             summary_line += f" | 周期={','.join(str(x) for x in cycle_ids)}"
         if error:
@@ -1456,6 +1319,7 @@ class CommanderRuntime:
             "dataset": dict(plan.get("dataset") or {}),
             "model_scope": dict(plan.get("model_scope") or {}),
             "optimization": dict(plan.get("optimization") or {}),
+            "llm": dict(plan.get("llm") or {}),
         }
 
         plan["status"] = "running"
@@ -1626,9 +1490,7 @@ class CommanderRuntime:
         self.cfg.bridge_inbox.mkdir(parents=True, exist_ok=True)
         self.cfg.bridge_outbox.mkdir(parents=True, exist_ok=True)
         self.cfg.runtime_state_dir.mkdir(parents=True, exist_ok=True)
-        self.cfg.training_plan_dir.mkdir(parents=True, exist_ok=True)
-        self.cfg.training_run_dir.mkdir(parents=True, exist_ok=True)
-        self.cfg.training_eval_dir.mkdir(parents=True, exist_ok=True)
+        self.training_lab.ensure_storage()
         self.memory.ensure_storage()
 
     async def _on_bridge_message(self, msg: BridgeMessage) -> str:
@@ -1678,7 +1540,7 @@ class CommanderRuntime:
             3. Never fabricate strategy state, training results, config values, or file changes.
 
             Tool operating policy:
-            1. For runtime inspection, prefer `invest_status` first as the fast compatibility alias, or use `invest_quick_status` explicitly; use `invest_deep_status` only when deeper freshness is required.
+            1. For runtime inspection, prefer `invest_quick_status` by default; use `invest_deep_status` only when deeper freshness is required. `invest_status` is backward-compatible alias only.
             2. For strategy inventory, use `invest_list_strategies`.
             3. If strategy files changed, call `invest_reload_strategies` before analysis or training.
             4. For health checks, prefer `invest_quick_test` before heavier training.
@@ -1718,7 +1580,7 @@ class CommanderRuntime:
 
             Core rules:
             1. Every decision must serve investment evolution goals.
-            2. Prefer using `invest_quick_status`, `invest_training_plan_create`, `invest_training_plan_execute`, and `invest_list_strategies` tools.
+            2. Prefer using `invest_quick_status`, `invest_training_plan_create`, `invest_training_plan_execute`, and `invest_list_strategies` tools; avoid `invest_status` except for backward compatibility.
             3. If strategy files changed, call `invest_reload_strategies` before new cycle decisions.
             4. Keep risk under control and preserve reproducible logs.
 

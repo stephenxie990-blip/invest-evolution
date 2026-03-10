@@ -34,25 +34,13 @@ class BenchmarkEvaluator:
     """
     基准评估器
 
-    评估策略资金曲线，计算全套量化指标并判断是否达标
+    评估策略资金曲线，计算全套量化指标并根据调用方给定门槛判断是否达标。
+    Foundation 层不再内置策略合格线；若未提供 criteria，则仅计算指标。
     """
-
-    # 合格标准
-    CRITERIA = {
-        "excess_return":     0.0,   # 超额收益 > 0%
-        "sharpe_ratio":      1.0,   # Sharpe > 1.0
-        "max_drawdown":      15.0,  # 最大回撤 < 15%
-        "calmar_ratio":      1.5,   # Calmar > 1.5
-        "win_rate":          0.45,  # 胜率 > 45%
-        "profit_loss_ratio": 1.5,   # 盈亏比 > 1.5
-        "monthly_turnover":  3.0,   # 月换手 < 300%
-    }
 
     def __init__(self, risk_free_rate: float = 0.03, criteria: Optional[Dict[str, float]] = None):
         self.risk_free_rate = risk_free_rate  # 年化无风险利率
-        merged = dict(self.CRITERIA)
-        merged.update(criteria or {})
-        self.criteria = merged
+        self.criteria = dict(criteria or {})
 
     def evaluate(
         self,
@@ -141,22 +129,42 @@ class BenchmarkEvaluator:
         passed: bool = True
         failed: List[str] = []
 
-        checks = [
-            (excess_return <= self.criteria["excess_return"],
-             f"超额收益{excess_return:.1f}% ≤ {self.criteria['excess_return']}%"),
-            (sharpe_ratio <= self.criteria["sharpe_ratio"],
-             f"Sharpe{sharpe_ratio:.2f} ≤ {self.criteria['sharpe_ratio']}"),
-            (max_drawdown >= self.criteria["max_drawdown"],
-             f"回撤{max_drawdown:.1f}% ≥ {self.criteria['max_drawdown']}%"),
-            (calmar_ratio <= self.criteria["calmar_ratio"],
-             f"Calmar{calmar_ratio:.2f} ≤ {self.criteria['calmar_ratio']}"),
-            (win_rate <= self.criteria["win_rate"],
-             f"胜率{win_rate*100:.1f}% ≤ {self.criteria['win_rate']*100}%"),
-            (profit_loss_ratio <= self.criteria["profit_loss_ratio"],
-             f"盈亏比{profit_loss_ratio:.2f} ≤ {self.criteria['profit_loss_ratio']}"),
-            (monthly_turnover >= self.criteria["monthly_turnover"],
-             f"月换手{monthly_turnover*100:.0f}% ≥ {self.criteria['monthly_turnover']*100}%"),
-        ]
+        checks = []
+        if "excess_return" in self.criteria:
+            checks.append((
+                excess_return <= float(self.criteria["excess_return"]),
+                f"超额收益{excess_return:.1f}% ≤ {self.criteria['excess_return']}%",
+            ))
+        if "sharpe_ratio" in self.criteria:
+            checks.append((
+                sharpe_ratio <= float(self.criteria["sharpe_ratio"]),
+                f"Sharpe{sharpe_ratio:.2f} ≤ {self.criteria['sharpe_ratio']}",
+            ))
+        if "max_drawdown" in self.criteria:
+            checks.append((
+                max_drawdown >= float(self.criteria["max_drawdown"]),
+                f"回撤{max_drawdown:.1f}% ≥ {self.criteria['max_drawdown']}%",
+            ))
+        if "calmar_ratio" in self.criteria:
+            checks.append((
+                calmar_ratio <= float(self.criteria["calmar_ratio"]),
+                f"Calmar{calmar_ratio:.2f} ≤ {self.criteria['calmar_ratio']}",
+            ))
+        if "win_rate" in self.criteria:
+            checks.append((
+                win_rate <= float(self.criteria["win_rate"]),
+                f"胜率{win_rate*100:.1f}% ≤ {float(self.criteria['win_rate'])*100}%",
+            ))
+        if "profit_loss_ratio" in self.criteria:
+            checks.append((
+                profit_loss_ratio <= float(self.criteria["profit_loss_ratio"]),
+                f"盈亏比{profit_loss_ratio:.2f} ≤ {self.criteria['profit_loss_ratio']}",
+            ))
+        if "monthly_turnover" in self.criteria:
+            checks.append((
+                monthly_turnover >= float(self.criteria["monthly_turnover"]),
+                f"月换手{monthly_turnover*100:.0f}% ≥ {float(self.criteria['monthly_turnover'])*100}%",
+            ))
         for cond, msg in checks:
             if cond:
                 passed = False
@@ -202,8 +210,11 @@ def evaluate_benchmark(
     daily_values: List[float],
     benchmark_daily_values: Optional[List[float]] = None,
     trade_history: Optional[List[Dict]] = None,
+    *,
+    risk_free_rate: float = 0.03,
+    criteria: Optional[Dict[str, float]] = None,
 ):
-    return BenchmarkEvaluator().evaluate(
+    return BenchmarkEvaluator(risk_free_rate=risk_free_rate, criteria=criteria).evaluate(
         daily_values=daily_values,
         benchmark_daily_values=benchmark_daily_values,
         trade_history=trade_history,

@@ -164,7 +164,7 @@ async def test_commander_system_prompt_includes_tool_policy(tmp_path):
     runtime = CommanderRuntime(cfg)
 
     prompt = runtime._build_system_prompt()
-    assert "prefer `invest_status` first" in prompt
+    assert "prefer `invest_quick_status` by default" in prompt
     assert "invest_quick_test" in prompt
     assert "Read-only questions should stay read-only" in prompt
     assert "verified facts first, then risks" in prompt
@@ -444,3 +444,43 @@ def test_training_evaluation_summary_rejects_when_gate_not_met(tmp_path):
     )
     assert summary['promotion']['verdict'] == 'rejected'
     assert any(check['name'] == 'min_samples' and check['passed'] is False for check in summary['promotion']['checks'])
+
+
+def test_build_training_evaluation_summary_uses_helper_shape(tmp_path):
+    cfg = CommanderConfig(
+        workspace=tmp_path / "workspace",
+        strategy_dir=tmp_path / "strategies",
+        state_file=tmp_path / "state.json",
+        cron_store=tmp_path / "cron.json",
+        memory_store=tmp_path / "memory.jsonl",
+        plugin_dir=tmp_path / "plugins",
+        bridge_inbox=tmp_path / "inbox",
+        bridge_outbox=tmp_path / "outbox",
+        mock_mode=True,
+        autopilot_enabled=False,
+        heartbeat_enabled=False,
+        bridge_enabled=False,
+    )
+    runtime = CommanderRuntime(cfg)
+    plan = runtime.create_training_plan(rounds=2, mock=True)
+    payload = {
+        "status": "completed",
+        "results": [
+            {"status": "ok", "model_name": "momentum", "config_name": "momentum_v1", "return_pct": 1.2, "benchmark_passed": True, "strategy_scores": {"overall_score": 0.7}},
+            {"status": "no_data"},
+        ],
+    }
+    summary = runtime._build_training_evaluation_summary(payload, plan=plan, run_id='run_x')
+    assert summary['assessment']['success_count'] == 1
+    assert summary['assessment']['no_data_count'] == 1
+    assert summary['artifacts']['run_path'].endswith('run_x.json')
+
+
+
+def test_invest_status_tool_is_marked_as_compat_alias():
+    from brain.tools import InvestStatusTool
+
+    tool = InvestStatusTool(runtime=None)
+    assert tool.name == "invest_status"
+    assert "Deprecated compatibility alias" in tool.description
+    assert "invest_quick_status" in tool.description

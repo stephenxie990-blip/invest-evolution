@@ -51,6 +51,14 @@ from invest.foundation.compute import compute_market_stats
 from invest.leaderboard import write_leaderboard
 from invest.models import create_investment_model, resolve_model_config_path
 from invest.models.defaults import COMMON_EXECUTION_DEFAULTS, COMMON_PARAM_DEFAULTS, COMMON_BENCHMARK_DEFAULTS
+from app.training.optimization import trigger_loss_optimization
+from app.training.reporting import (
+    build_freeze_report,
+    build_self_assessment_snapshot,
+    generate_training_report,
+    rolling_self_assessment,
+    should_freeze as should_freeze_report,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -318,6 +326,8 @@ class SelfLearningController:
         self.cycle_history:   List[TrainingResult] = []
         self.cycle_records:   List[Dict] = []
         self.current_cycle_id = 0
+        self.total_cycle_attempts = 0
+        self.skipped_cycle_count = 0
         self.consecutive_losses = 0
         if getattr(self, "investment_model", None) is not None:
             self.investment_model.update_runtime_overrides(self.current_params)
@@ -332,6 +342,7 @@ class SelfLearningController:
         self.experiment_allowed_models: list[str] = []
         self.experiment_min_history_days: int | None = None
         self.experiment_simulation_days: int | None = None
+        self.experiment_llm: Dict[str, Any] = {}
 
         # 回调
         self.on_cycle_complete: Optional[Callable] = None
@@ -351,6 +362,7 @@ class SelfLearningController:
         protocol = dict(spec.get("protocol") or {})
         dataset = dict(spec.get("dataset") or {})
         model_scope = dict(spec.get("model_scope") or {})
+        llm = dict(spec.get("llm") or {})
 
         seed = protocol.get("seed")
         self.experiment_seed = int(seed) if seed is not None and str(seed).strip() else None
@@ -362,6 +374,8 @@ class SelfLearningController:
         self.experiment_simulation_days = int(dataset.get("simulation_days")) if dataset.get("simulation_days") is not None else None
         allowed_models = model_scope.get("allowed_models") or []
         self.experiment_allowed_models = [str(name) for name in allowed_models if str(name).strip()]
+        self.experiment_llm = llm
+        self._apply_experiment_llm_overrides(llm)
         if model_scope.get("allocator_enabled") is not None:
             self.allocator_enabled = bool(model_scope.get("allocator_enabled"))
         if self.experiment_allowed_models and self.model_name not in self.experiment_allowed_models:
@@ -370,6 +384,32 @@ class SelfLearningController:
             self.current_params = {}
             self._reload_investment_model(self.model_config_path)
 
+
+    def _apply_experiment_llm_overrides(self, llm_spec: Dict[str, Any] | None = None) -> None:
+        llm_spec = dict(llm_spec or {})
+        timeout = llm_spec.get("timeout")
+        max_retries = llm_spec.get("max_retries")
+        dry_run = llm_spec.get("dry_run")
+
+        targets = [self.llm_caller]
+        for agent in self.agents.values():
+            llm = getattr(agent, "llm", None)
+            if llm is not None:
+                targets.append(llm)
+        for component in (self.selection_meeting, self.review_meeting, self.llm_optimizer):
+            llm = getattr(component, "llm", None)
+            if llm is not None:
+                targets.append(llm)
+
+        seen = set()
+        for llm in targets:
+            if llm is None or id(llm) in seen:
+                continue
+            seen.add(id(llm))
+            if hasattr(llm, "apply_runtime_limits"):
+                llm.apply_runtime_limits(timeout=timeout, max_retries=max_retries)
+            if dry_run is not None and hasattr(llm, "dry_run"):
+                llm.dry_run = bool(dry_run)
 
     def set_mock_mode(self, enabled: bool = True) -> None:
         """统一切换 mock 训练相关的 LLM 调用模式。"""
@@ -413,9 +453,11 @@ class SelfLearningController:
         self.execution_policy = self.investment_model.config_section("execution", {}) or {}
         self.risk_policy = self.investment_model.config_section("risk_policy", {}) or {}
         self.evaluation_policy = self.investment_model.config_section("evaluation_policy", {}) or {}
+        self.review_policy = self.investment_model.config_section("review_policy", {}) or {}
         self.strategy_evaluator.set_policy(self.evaluation_policy)
+        self.review_meeting.set_policy(self.review_policy)
         benchmark_policy = self.investment_model.config_section("benchmark", {}) or {}
-        benchmark_criteria = dict((benchmark_policy.get("criteria") or {}))
+        benchmark_criteria = dict(benchmark_policy.get("criteria") or COMMON_BENCHMARK_DEFAULTS.get("criteria") or {})
         self.benchmark_evaluator = BenchmarkEvaluator(
             risk_free_rate=float(benchmark_policy.get("risk_free_rate", COMMON_BENCHMARK_DEFAULTS["risk_free_rate"]) or COMMON_BENCHMARK_DEFAULTS["risk_free_rate"]),
             criteria=benchmark_criteria,
@@ -426,6 +468,7 @@ class SelfLearningController:
         self.freeze_profit_required = int(self.train_policy.get("freeze_profit_required", self.freeze_profit_required) or self.freeze_profit_required)
         self.max_losses_before_optimize = int(self.train_policy.get("max_losses_before_optimize", self.max_losses_before_optimize) or self.max_losses_before_optimize)
         self.freeze_gate_policy = dict(self.train_policy.get("freeze_gate", {}) or {})
+        self.auto_apply_mutation = bool(self.train_policy.get("auto_apply_mutation", False))
 
         agent_weights = self.investment_model.config_section("agent_weights", {}) or {}
         if agent_weights:
@@ -441,7 +484,11 @@ class SelfLearningController:
         leaderboard_root = self.output_dir.parent
         write_leaderboard(leaderboard_root)
         leaderboard_path = leaderboard_root / "leaderboard.json"
-        market_stats = compute_market_stats(stock_data, cutoff_date)
+        market_stats = compute_market_stats(
+            stock_data,
+            cutoff_date,
+            regime_policy=self.investment_model.config_section("market_regime", {}) or None,
+        )
         regime = str(market_stats.get("regime_hint") or "unknown")
         allocation = build_allocation_plan(
             regime,
@@ -1346,222 +1393,8 @@ class SelfLearningController:
         )
         return cycle_result
 
-    def _derive_scoring_adjustments(self, analysis: Any, param_adjustments: Dict[str, Any]) -> Dict[str, Any]:
-        model_kind = str(getattr(self.investment_model, "model_name", "") or self.model_name or "")
-        cause = str(getattr(analysis, "cause", "") or "")
-        suggestions_text = " ".join(getattr(analysis, "suggestions", []) or [])
-        combined = f"{cause} {suggestions_text}"
-
-        if model_kind == "mean_reversion":
-            weights = {}
-            penalties = {}
-            if any(token in combined for token in ["亏损", "过热", "追高", "持续性存疑"]):
-                penalties["overheat_rsi"] = 0.18
-                penalties["high_volatility"] = 0.10
-            if any(token in combined for token in ["减少交易频率", "增加趋势确认", "普跌"]):
-                weights["volume_ratio_bonus"] = 0.10
-                penalties["insufficient_drop_5d"] = 0.08
-            return {k: v for k, v in {"weights": weights, "penalties": penalties}.items() if v}
-
-        if model_kind == "value_quality":
-            weights = {}
-            if any(token in combined for token in ["质量", "估值", "基本面"]):
-                weights["roe"] = 0.35
-                weights["pb"] = 0.22
-            if any(token in combined for token in ["波动", "风险"]):
-                weights["low_volatility"] = 0.08
-            return {"weights": weights} if weights else {}
-
-        if model_kind == "defensive_low_vol":
-            weights = {}
-            penalties = {}
-            if any(token in combined for token in ["波动", "回撤", "风险"]):
-                weights["low_volatility"] = 0.40
-                penalties["bearish_trend"] = 0.10
-            if any(token in combined for token in ["追高", "过热"]):
-                penalties["bad_rsi"] = 0.12
-            return {k: v for k, v in {"weights": weights, "penalties": penalties}.items() if v}
-
-        return {}
-
     def _trigger_optimization(self, cycle_dict: Dict, trade_dicts: List[Dict]) -> List[Dict[str, Any]]:
-        """
-        触发优化流程
-
-        1. LLM 亏损分析 + 参数调整
-        2. 遗传算法进化（用历史 return_pct 作适应度）
-        """
-        logger.info(f"⚠️ 连续 {self.consecutive_losses} 次亏损，触发自我优化...")
-        cycle_id = cycle_dict.get("cycle_id")
-        self._emit_agent_status(
-            "EvolutionOptimizer",
-            "running",
-            f"连续 {self.consecutive_losses} 次亏损，触发自我优化...",
-            cycle_id=cycle_id,
-            stage="optimization",
-            progress_pct=90,
-            step=5,
-            total_steps=6,
-            details={"consecutive_losses": self.consecutive_losses},
-        )
-        self._emit_module_log(
-            "optimization",
-            "触发自我优化",
-            f"连续 {self.consecutive_losses} 次亏损，开始诊断并调整参数",
-            cycle_id=cycle_id,
-            kind="optimization_start",
-            level="warn",
-        )
-        events: List[Dict[str, Any]] = []
-        config_adjustments: Dict[str, Any] = {}
-        scoring_adjustments: Dict[str, Any] = {}
-
-        try:
-            analysis = self.llm_optimizer.analyze_loss(cycle_dict, trade_dicts)
-            logger.info(f"LLM 分析: {analysis.cause}")
-            logger.info(f"建议: {analysis.suggestions}")
-            llm_event = OptimizationEvent(
-                trigger="consecutive_losses",
-                stage="llm_analysis",
-                decision={"cause": analysis.cause},
-                suggestions=list(getattr(analysis, "suggestions", []) or []),
-            )
-
-            adjustments = self.llm_optimizer.generate_strategy_fix(analysis)
-            if adjustments:
-                self.current_params.update(adjustments)
-                if getattr(self, "investment_model", None) is not None:
-                    self.investment_model.update_runtime_overrides(adjustments)
-                config_adjustments.update(adjustments)
-                scoring_adjustments.update(self._derive_scoring_adjustments(analysis, adjustments))
-                llm_event.applied_change = dict(adjustments)
-                logger.info(f"参数已更新: {self.current_params}")
-            events.append(llm_event.to_dict())
-            self._append_optimization_event(llm_event)
-            self._emit_meeting_speech(
-                "optimization",
-                "EvolutionOptimizer",
-                analysis.cause,
-                cycle_id=cycle_id,
-                role="optimizer",
-                suggestions=list(getattr(analysis, "suggestions", []) or []),
-                decision={"adjustments": adjustments or {}},
-            )
-            self._emit_module_log(
-                "optimization",
-                "LLM 亏损分析",
-                analysis.cause,
-                cycle_id=cycle_id,
-                kind="llm_analysis",
-                details=list(getattr(analysis, "suggestions", []) or []),
-                metrics={"adjustment_count": len(adjustments or {})},
-            )
-
-            if len(self.cycle_history) >= 3:
-                fitness_scores = [max(r.return_pct, -50) for r in self.cycle_history[-10:]]
-                if len(self.evolution_engine.population) == 0:
-                    self.evolution_engine.initialize_population(self.current_params)
-
-                pop_size = len(self.evolution_engine.population)
-                if len(fitness_scores) > pop_size:
-                    fitness_scores = fitness_scores[-pop_size:]
-                elif len(fitness_scores) < pop_size:
-                    fitness_scores = fitness_scores + [0.0] * (pop_size - len(fitness_scores))
-
-                self.evolution_engine.evolve(fitness_scores)
-                best_params = self.evolution_engine.get_best_params()
-                evo_event = OptimizationEvent(
-                    trigger="consecutive_losses",
-                    stage="evolution_engine",
-                    decision={"fitness_scores": fitness_scores[-5:]},
-                    applied_change=dict(best_params or {}),
-                    notes="population evolved",
-                )
-                if best_params:
-                    self.current_params.update(best_params)
-                    if getattr(self, "investment_model", None) is not None:
-                        self.investment_model.update_runtime_overrides(best_params)
-                    config_adjustments.update(best_params)
-                    logger.info(f"遗传算法优化参数: {best_params}")
-                events.append(evo_event.to_dict())
-                self._append_optimization_event(evo_event)
-                self._emit_module_log(
-                    "optimization",
-                    "进化引擎完成一轮迭代",
-                    "基于最近收益分布更新参数种群",
-                    cycle_id=cycle_id,
-                    kind="evolution_engine",
-                    details=best_params or {},
-                    metrics={"fitness_samples": fitness_scores[-5:]},
-                )
-
-            if config_adjustments:
-                mutation = self.model_mutator.mutate(
-                    self.model_config_path,
-                    param_adjustments=config_adjustments,
-                    scoring_adjustments=scoring_adjustments or None,
-                    narrative_adjustments={"last_trigger": "consecutive_losses"},
-                    generation_label=f"cycle_{int(cycle_id or 0):04d}",
-                    parent_meta={"cycle_id": cycle_id, "trigger": "consecutive_losses"},
-                )
-                self._reload_investment_model(mutation["config_path"])
-                mutation_event = OptimizationEvent(
-                    trigger="consecutive_losses",
-                    stage="yaml_mutation",
-                    decision={"config_path": mutation["config_path"]},
-                    applied_change={"params": dict(config_adjustments), "scoring": dict(scoring_adjustments)},
-                    notes="active model config mutated",
-                )
-                events.append(mutation_event.to_dict())
-                self._append_optimization_event(mutation_event)
-                self._emit_module_log(
-                    "optimization",
-                    "模型配置已变异",
-                    f"新的模型配置已生成：{mutation['config_path']}",
-                    cycle_id=cycle_id,
-                    kind="yaml_mutation",
-                    details=mutation["meta"],
-                    metrics={"adjustment_count": len(config_adjustments)},
-                )
-
-        except Exception as e:
-            err_event = OptimizationEvent(
-                trigger="consecutive_losses",
-                stage="optimization_error",
-                status="error",
-                notes=str(e),
-            )
-            events.append(err_event.to_dict())
-            self._append_optimization_event(err_event)
-            self._emit_agent_status(
-                "EvolutionOptimizer",
-                "error",
-                f"优化过程出错: {e}",
-                cycle_id=cycle_id,
-                stage="optimization",
-                progress_pct=92,
-                step=5,
-                total_steps=6,
-            )
-            logger.error(f"优化过程出错: {e}")
-
-        self.consecutive_losses = 0
-        logger.info("✅ 优化完成，继续训练...")
-        self._emit_agent_status(
-            "EvolutionOptimizer",
-            "completed",
-            "优化完成，继续训练...",
-            cycle_id=cycle_id,
-            stage="optimization",
-            progress_pct=94,
-            step=5,
-            total_steps=6,
-            details={"event_count": len(events)},
-        )
-
-        if self.on_optimize:
-            self.on_optimize(self.current_params)
-        return events
+        return trigger_loss_optimization(self, cycle_dict, trade_dicts, event_factory=OptimizationEvent)
 
     def _append_optimization_event(self, event: OptimizationEvent) -> None:
         self.optimization_events_history.append(event)
@@ -1591,8 +1424,10 @@ class SelfLearningController:
                     return self._freeze_model()
                 logger.info("配置为继续训练，不因固化条件提前停止")
 
+            self.total_cycle_attempts += 1
             result = self.run_training_cycle()
             if result is None:
+                self.skipped_cycle_count += 1
                 logger.warning(f"周期 {i+1} 执行失败，跳过")
                 continue
 
@@ -1607,42 +1442,12 @@ class SelfLearningController:
 
     def _record_self_assessment(self, cycle_result: TrainingResult, cycle_dict: Dict):
         """记录单周期自我评估快照"""
-        snapshot = SelfAssessmentSnapshot(
-            cycle_id=cycle_result.cycle_id,
-            cutoff_date=cycle_result.cutoff_date,
-            regime=cycle_dict.get("regime", "unknown"),
-            plan_source=cycle_dict.get("plan_source", "unknown"),
-            return_pct=cycle_result.return_pct,
-            is_profit=cycle_result.is_profit,
-            sharpe_ratio=float(cycle_dict.get("sharpe_ratio", 0.0) or 0.0),
-            max_drawdown=float(cycle_dict.get("max_drawdown", 0.0) or 0.0),
-            excess_return=float(cycle_dict.get("excess_return", 0.0) or 0.0),
-            benchmark_passed=bool(cycle_dict.get("benchmark_passed", False)),
-        )
+        snapshot = build_self_assessment_snapshot(SelfAssessmentSnapshot, cycle_result, cycle_dict)
         self.assessment_history.append(snapshot)
 
     def _rolling_self_assessment(self, window: Optional[int] = None) -> Dict:
         """滚动自我评估摘要（用于冻结门控）"""
-        if not self.assessment_history:
-            return {}
-
-        w = max(1, window or self.freeze_total_cycles)
-        recent = self.assessment_history[-w:]
-        n = len(recent)
-        profit_count = sum(1 for s in recent if s.is_profit)
-
-        return {
-            "window": n,
-            "profit_count": profit_count,
-            "win_rate": profit_count / n if n > 0 else 0.0,
-            "avg_return": float(np.mean([s.return_pct for s in recent])) if recent else 0.0,
-            "avg_sharpe": float(np.mean([s.sharpe_ratio for s in recent])) if recent else 0.0,
-            "avg_max_drawdown": float(np.mean([s.max_drawdown for s in recent])) if recent else 0.0,
-            "avg_excess_return": float(np.mean([s.excess_return for s in recent])) if recent else 0.0,
-            "benchmark_pass_rate": (
-                sum(1 for s in recent if s.benchmark_passed) / n if n > 0 else 0.0
-            ),
-        }
+        return rolling_self_assessment(self.assessment_history, self.freeze_total_cycles, window=window)
 
     def should_freeze(self) -> bool:
         """
@@ -1655,52 +1460,28 @@ class SelfLearningController:
         4. 近窗平均最大回撤 < 15%
         5. 基准评估通过率 >= 60%
         """
-        if len(self.cycle_history) < self.freeze_total_cycles:
-            return False
-
         rolling = self._rolling_self_assessment(self.freeze_total_cycles)
-        if not rolling:
-            return False
-
-        required_win_rate = self.freeze_profit_required / max(self.freeze_total_cycles, 1)
-        min_avg_return = float(self.freeze_gate_policy.get("avg_return_gt", 0.0) or 0.0)
-        min_avg_sharpe = float(self.freeze_gate_policy.get("avg_sharpe_gte", 0.8) or 0.8)
-        max_avg_drawdown = float(self.freeze_gate_policy.get("avg_max_drawdown_lt", 15.0) or 15.0)
-        min_benchmark_pass_rate = float(self.freeze_gate_policy.get("benchmark_pass_rate_gte", 0.60) or 0.60)
-        return (
-            rolling["win_rate"] >= required_win_rate
-            and rolling["avg_return"] > min_avg_return
-            and rolling["avg_sharpe"] >= min_avg_sharpe
-            and rolling["avg_max_drawdown"] < max_avg_drawdown
-            and rolling["benchmark_pass_rate"] >= min_benchmark_pass_rate
+        return should_freeze_report(
+            self.cycle_history,
+            self.freeze_total_cycles,
+            self.freeze_profit_required,
+            self.freeze_gate_policy,
+            rolling,
         )
 
     def _freeze_model(self) -> Dict:
         """固化模型并保存"""
         logger.info(f"\n{'='*50}\n🎉 模型固化！\n{'='*50}")
 
-        total  = len(self.cycle_history)
-        profits = sum(1 for r in self.cycle_history if r.is_profit)
         rolling = self._rolling_self_assessment(self.freeze_total_cycles)
-
-        report = {
-            "frozen":               True,
-            "total_cycles":         total,
-            "total_profit_count":   profits,
-            "profit_rate":          profits / total if total > 0 else 0,
-            "recent_10_profit_count": sum(1 for r in self.cycle_history[-10:] if r.is_profit),
-            "final_params":         self.current_params,
-            "frozen_time":          datetime.now().isoformat(),
-            "self_assessment":      rolling,
-            "freeze_gate": {
-                "window": self.freeze_total_cycles,
-                "required_win_rate": self.freeze_profit_required / max(self.freeze_total_cycles, 1),
-                "required_avg_return": float(self.freeze_gate_policy.get("avg_return_gt", 0.0) or 0.0),
-                "required_avg_sharpe": float(self.freeze_gate_policy.get("avg_sharpe_gte", 0.8) or 0.8),
-                "required_avg_max_drawdown": float(self.freeze_gate_policy.get("avg_max_drawdown_lt", 15.0) or 15.0),
-                "required_benchmark_pass_rate": float(self.freeze_gate_policy.get("benchmark_pass_rate_gte", 0.60) or 0.60),
-            },
-        }
+        report = build_freeze_report(
+            self.cycle_history,
+            self.current_params,
+            self.freeze_total_cycles,
+            self.freeze_profit_required,
+            self.freeze_gate_policy,
+            rolling,
+        )
 
         path = self.output_dir / "model_frozen.json"
         with open(path, "w", encoding="utf-8") as f:
@@ -1709,20 +1490,14 @@ class SelfLearningController:
         return report
 
     def _generate_report(self) -> Dict:
-        if not self.cycle_history:
-            return {"status": "no_data"}
-        total   = len(self.cycle_history)
-        profits = sum(1 for r in self.cycle_history if r.is_profit)
-        return {
-            "status":          "completed",
-            "total_cycles":    total,
-            "profit_cycles":   profits,
-            "loss_cycles":     total - profits,
-            "profit_rate":     profits / total if total > 0 else 0,
-            "current_params":  self.current_params,
-            "is_frozen":       self.should_freeze(),
-            "self_assessment": self._rolling_self_assessment(self.freeze_total_cycles),
-        }
+        return generate_training_report(
+            self.total_cycle_attempts,
+            self.skipped_cycle_count,
+            self.cycle_history,
+            self.current_params,
+            self.should_freeze(),
+            self._rolling_self_assessment(self.freeze_total_cycles),
+        )
 
     def _save_cycle_result(self, result: TrainingResult):
         """将周期结果写入 JSON"""

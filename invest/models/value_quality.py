@@ -20,9 +20,10 @@ class ValueQualityModel(InvestmentModel):
 
     def _risk_hints(self, market_stats: Dict[str, Any]) -> List[str]:
         hints: List[str] = []
-        if market_stats.get("avg_volatility", 0.0) > 0.03:
+        policy = self.config_section("market_hints", {}) or {}
+        if market_stats.get("avg_volatility", 0.0) > float(policy.get("avg_volatility_gt", 0.03) or 0.03):
             hints.append("估值修复类标的在高波动阶段需要更长持有周期")
-        if market_stats.get("market_breadth", 0.0) < 0.40:
+        if market_stats.get("market_breadth", 0.0) < float(policy.get("market_breadth_lt", 0.40) or 0.40):
             hints.append("市场风险偏好不足，价值修复可能偏慢")
         return hints
 
@@ -86,10 +87,10 @@ class ValueQualityModel(InvestmentModel):
 
     def build_signal_packet(self, stock_data: Dict[str, Any], cutoff_date: str) -> SignalPacket:
         params = self.effective_params()
-        market_stats = compute_market_stats(stock_data, cutoff_date)
+        market_stats = compute_market_stats(stock_data, cutoff_date, regime_policy=self.config_section("market_regime", {}) or None)
         regime = self._resolve_regime(market_stats)
         stock_codes = list(stock_data.keys())[: int(self.param("candidate_pool_size"))]
-        stock_summaries = summarize_stocks(stock_data, stock_codes, cutoff_date)
+        stock_summaries = summarize_stocks(stock_data, stock_codes, cutoff_date, summary_scoring=self.config_section("summary_scoring", {}) or None)
         min_score = float(self.param("min_value_quality_score", 0.25))
         enriched_summaries: List[Dict[str, Any]] = []
         for item in stock_summaries:

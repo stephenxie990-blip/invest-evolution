@@ -14,17 +14,19 @@ class DefensiveLowVolModel(InvestmentModel):
 
     def _resolve_regime(self, market_stats: Dict[str, Any]) -> str:
         regime_hint = str(market_stats.get("regime_hint") or "oscillation")
-        if regime_hint == "bull" and market_stats.get("avg_volatility", 0.0) < 0.02:
+        policy = self.config_section("market_hints", {}) or {}
+        if regime_hint == "bull" and market_stats.get("avg_volatility", 0.0) < float(policy.get("bull_low_vol_oscillation_lt", 0.02) or 0.02):
             return "oscillation"
         return regime_hint if regime_hint in {"bull", "bear", "oscillation"} else "oscillation"
 
     def _risk_hints(self, market_stats: Dict[str, Any]) -> List[str]:
         hints: List[str] = []
-        if market_stats.get("avg_volatility", 0.0) > 0.03:
+        policy = self.config_section("market_hints", {}) or {}
+        if market_stats.get("avg_volatility", 0.0) > float(policy.get("avg_volatility_gt", 0.03) or 0.03):
             hints.append("市场波动偏高，优先低波与防御性配置")
-        if market_stats.get("above_ma20_ratio", 0.0) < 0.45:
+        if market_stats.get("above_ma20_ratio", 0.0) < float(policy.get("above_ma20_ratio_lt", 0.45) or 0.45):
             hints.append("强势股占比不足，避免高弹性追涨")
-        if market_stats.get("market_breadth", 0.0) < 0.40:
+        if market_stats.get("market_breadth", 0.0) < float(policy.get("market_breadth_lt", 0.40) or 0.40):
             hints.append("市场广度偏弱，保留更高现金储备")
         return hints
 
@@ -81,10 +83,10 @@ class DefensiveLowVolModel(InvestmentModel):
 
     def build_signal_packet(self, stock_data: Dict[str, Any], cutoff_date: str) -> SignalPacket:
         params = self.effective_params()
-        market_stats = compute_market_stats(stock_data, cutoff_date)
+        market_stats = compute_market_stats(stock_data, cutoff_date, regime_policy=self.config_section("market_regime", {}) or None)
         regime = self._resolve_regime(market_stats)
         stock_codes = list(stock_data.keys())[: int(self.param("candidate_pool_size"))]
-        stock_summaries = summarize_stocks(stock_data, stock_codes, cutoff_date)
+        stock_summaries = summarize_stocks(stock_data, stock_codes, cutoff_date, summary_scoring=self.config_section("summary_scoring", {}) or None)
         min_score = float(self.param("min_defensive_score", 0.15))
         selected_pool: List[Dict[str, Any]] = []
         for item in stock_summaries:

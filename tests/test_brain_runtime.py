@@ -168,3 +168,51 @@ def test_default_system_prompt_mentions_grounding_and_json_args(tmp_path: Path):
     assert "Ground every factual statement" in prompt
     assert "valid JSON object" in prompt
     assert "Never invent tool results" in prompt
+
+
+def test_training_plan_create_tool_passes_full_lab_schema(tmp_path: Path):
+    import json
+    from brain.tools import InvestTrainingPlanCreateTool
+
+    observed = {}
+
+    class DummyRuntime:
+        def create_training_plan(self, **kwargs):
+            observed.update(kwargs)
+            return {"ok": True, **kwargs}
+
+    tool = InvestTrainingPlanCreateTool(DummyRuntime())
+    result = asyncio.run(tool.execute(
+        rounds=3,
+        mock=False,
+        goal="lab run",
+        notes="n",
+        tags=["x"],
+        detail_mode="slow",
+        protocol={"seed": 7},
+        dataset={"simulation_days": 15},
+        model_scope={"allowed_models": ["momentum"]},
+        optimization={"promotion_gate": {"min_samples": 2}},
+        llm={"timeout": 7, "max_retries": 1},
+    ))
+
+    payload = json.loads(result)
+    assert observed["protocol"]["seed"] == 7
+    assert observed["dataset"]["simulation_days"] == 15
+    assert observed["model_scope"]["allowed_models"] == ["momentum"]
+    assert observed["optimization"]["promotion_gate"]["min_samples"] == 2
+    assert observed["llm"]["timeout"] == 7
+    assert payload["llm"]["max_retries"] == 1
+    assert payload["protocol"]["seed"] == 7
+
+
+
+def test_brain_runtime_fallback_prompt_prefers_quick_status(tmp_path):
+    runtime = BrainRuntime(
+        workspace=tmp_path,
+        model="test-model",
+        api_key="",
+    )
+
+    result = asyncio.run(runtime.process_direct("hello"))
+    assert "invest_quick_status" in result

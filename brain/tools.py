@@ -18,7 +18,7 @@ class InvestStatusTool(BrainTool):
 
     @property
     def description(self) -> str:
-        return "Get quick commander status snapshot (fast path, snapshot-first)."
+        return "Deprecated compatibility alias for `invest_quick_status` (fast snapshot path). Prefer `invest_quick_status`."
 
     @property
     def parameters(self) -> dict[str, Any]:
@@ -171,6 +171,11 @@ class InvestTrainingPlanCreateTool(BrainTool):
                 "notes": {"type": "string", "default": ""},
                 "tags": {"type": "array", "items": {"type": "string"}},
                 "detail_mode": {"type": "string", "enum": ["fast", "slow"], "default": "fast"},
+                "protocol": {"type": "object", "default": {}},
+                "dataset": {"type": "object", "default": {}},
+                "model_scope": {"type": "object", "default": {}},
+                "optimization": {"type": "object", "default": {}},
+                "llm": {"type": "object", "default": {}},
             },
             "required": [],
         }
@@ -183,6 +188,11 @@ class InvestTrainingPlanCreateTool(BrainTool):
             notes=str(kwargs.get("notes", "")),
             tags=list(kwargs.get("tags", []) or []),
             detail_mode=str(kwargs.get("detail_mode", "fast")),
+            protocol=dict(kwargs.get("protocol") or {}),
+            dataset=dict(kwargs.get("dataset") or {}),
+            model_scope=dict(kwargs.get("model_scope") or {}),
+            optimization=dict(kwargs.get("optimization") or {}),
+            llm=dict(kwargs.get("llm") or {}),
         )
         return json.dumps(payload, ensure_ascii=False, indent=2)
 

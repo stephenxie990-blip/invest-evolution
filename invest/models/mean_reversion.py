@@ -20,11 +20,12 @@ class MeanReversionModel(InvestmentModel):
 
     def _risk_hints(self, market_stats: Dict[str, Any]) -> List[str]:
         hints: List[str] = []
-        if market_stats.get("avg_volatility", 0.0) > 0.035:
+        policy = self.config_section("market_hints", {}) or {}
+        if market_stats.get("avg_volatility", 0.0) > float(policy.get("avg_volatility_gt", 0.035) or 0.035):
             hints.append("波动较高，抄底需分批建仓")
-        if market_stats.get("market_breadth", 0.0) < 0.35:
+        if market_stats.get("market_breadth", 0.0) < float(policy.get("market_breadth_lt", 0.35) or 0.35):
             hints.append("市场普跌较广，反弹持续性存疑")
-        if market_stats.get("avg_change_20d", 0.0) > 6:
+        if market_stats.get("avg_change_20d", 0.0) > float(policy.get("avg_change_20d_gt", 6.0) or 6.0):
             hints.append("市场已偏热，均值回归胜率可能下降")
         return hints
 
@@ -72,10 +73,10 @@ class MeanReversionModel(InvestmentModel):
 
     def build_signal_packet(self, stock_data: Dict[str, Any], cutoff_date: str) -> SignalPacket:
         params = self.effective_params()
-        market_stats = compute_market_stats(stock_data, cutoff_date)
+        market_stats = compute_market_stats(stock_data, cutoff_date, regime_policy=self.config_section("market_regime", {}) or None)
         regime = self._resolve_regime(market_stats)
         stock_codes = list(stock_data.keys())[: int(self.param("candidate_pool_size"))]
-        stock_summaries = summarize_stocks(stock_data, stock_codes, cutoff_date)
+        stock_summaries = summarize_stocks(stock_data, stock_codes, cutoff_date, summary_scoring=self.config_section("summary_scoring", {}) or None)
         scored: List[Dict[str, Any]] = []
         min_reversion_score = float(self.param("min_reversion_score", 0.05))
         for item in stock_summaries:
