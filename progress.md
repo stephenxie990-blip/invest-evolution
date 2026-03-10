@@ -1,9 +1,11 @@
-# Progress
+# Progress（2026-03-10）
 
-- 初始化规划文件
-- 梳理现有数据层：确认当前是日频主链 + repository 直查扩展表
-- 新增高层服务分层：资金流 / 事件 / 60分钟线
-- 将扩展服务接入 `DataManager`
-- 为 `load_stock_data()` 增加资金流可选增强
-- 新增架构文档与测试
-- 运行 `py_compile` 与 `pytest tests/test_data_unification.py -q` 通过
+- 读取仓库结构、README、架构文档、Agent 交互文档。
+- 使用 `verification-loop` 做编译 / 测试型验证。
+- 审查了入口层：`app/commander.py`、`app/train.py`、`app/web_server.py`。
+- 审查了运行时：`brain/runtime.py`、`brain/tools.py`、`brain/bridge.py`、`brain/scheduler.py`、`brain/memory.py`。
+- 审查了数据层：`market_data/repository.py`、`datasets.py`、`manager.py`、`quality.py`。
+- 审查了 Agent 协同：`invest/meetings/selection.py`、`invest/meetings/review.py`、`invest/agents/*`。
+- 审查了模型编排与实验层：`invest/models/`、`invest/allocator/engine.py`、`invest/leaderboard/engine.py`、`invest/evolution/*`。
+- 跑完一轮测试并定位主要失败原因。
+- 输出完整审查报告到 `docs/PROJECT_AUDIT_20260310.md`。
