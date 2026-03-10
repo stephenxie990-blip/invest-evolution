@@ -746,7 +746,7 @@ tr:hover td { background: rgba(99, 102, 241, 0.04); }
           <div class="form-group">
             <label class="form-label">Mock 模式</label>
             <label class="toggle">
-              <input type="checkbox" id="train-mock" checked>
+              <input type="checkbox" id="train-mock">
               <div class="toggle-track"></div>
               <div class="toggle-thumb"></div>
             </label>
@@ -756,8 +756,62 @@ tr:hover td { background: rgba(99, 102, 241, 0.04); }
           </button>
         </div>
         <div style="font-size:12px;color:var(--text-muted)">
-          💡 Mock 模式使用模拟数据，无需真实行情接口。首次使用建议开启。
+          💡 正式训练默认走真实数据链路；Mock 仅用于演示、冒烟和无成本联调。
         </div>
+      </div>
+
+      <div class="card" id="train-routing-card">
+        <div class="card-title">模型路由</div>
+        <div id="train-routing-summary" style="font-size:13px;color:var(--text-secondary);margin-bottom:14px">等待路由决策...</div>
+        <div class="metric-grid" id="train-routing-metrics">
+          <div class="metric-card"><div class="metric-label">市场状态</div><div class="metric-value" id="train-routing-regime">--</div></div>
+          <div class="metric-card"><div class="metric-label">当前模型</div><div class="metric-value" id="train-routing-model" style="font-size:16px;margin-top:12px">--</div></div>
+          <div class="metric-card"><div class="metric-label">决策来源</div><div class="metric-value" id="train-routing-source" style="font-size:16px;margin-top:12px">--</div></div>
+          <div class="metric-card"><div class="metric-label">置信度</div><div class="metric-value" id="train-routing-confidence">--</div></div>
+        </div>
+      </div>
+
+      <div class="card" id="train-agent-overview-card">
+        <div class="card-title">Agent 总览</div>
+        <div class="metric-grid" id="train-agent-overview">
+          <div style="color:var(--text-muted)">等待 Agent 事件...</div>
+        </div>
+      </div>
+
+      <div class="card" id="train-timeline-card">
+        <div class="card-title">训练时间线</div>
+        <div class="train-controls">
+          <div class="form-group">
+            <label class="form-label">阶段筛选</label>
+            <select class="input" id="train-timeline-filter-stage" onchange="renderTrainTimeline()" style="width:180px">
+              <option value="all">全部阶段</option>
+              <option value="data_loading">数据加载</option>
+              <option value="model_routing">模型路由</option>
+              <option value="selection_meeting">选股会议</option>
+              <option value="simulation">模拟交易</option>
+              <option value="review_meeting">复盘会议</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Agent 筛选</label>
+            <select class="input" id="train-timeline-filter-agent" onchange="renderTrainTimeline()" style="width:180px">
+              <option value="all">全部 Agent</option>
+            </select>
+          </div>
+        </div>
+        <div class="train-result" id="train-timeline" style="max-height:260px;overflow-y:auto">等待训练事件...</div>
+      </div>
+
+      <div class="card" id="train-speech-card-panel">
+        <div class="card-title">会议发言卡</div>
+        <div id="train-speech-cards" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px">
+          <div style="color:var(--text-muted)">等待会议发言...</div>
+        </div>
+      </div>
+
+      <div class="card" id="train-strategy-diff-card">
+        <div class="card-title">策略差异</div>
+        <div class="train-result" id="train-strategy-diff">等待训练结果对比...</div>
       </div>
 
       <div class="card" id="train-result-card" style="display:none">
@@ -1027,9 +1081,200 @@ function escapeHtml(str) {
 
 // ---- Training ----
 let trainBusy = false;
+let trainEventSource = null;
+let trainTimelineEvents = [];
+let trainSpeechEvents = [];
+let trainLatestRouting = null;
+const trainAgentSnapshot = {};
+
+function pushTrainTimeline(entry) {
+  trainTimelineEvents.push(entry);
+  if (trainTimelineEvents.length > 120) {
+    trainTimelineEvents = trainTimelineEvents.slice(-120);
+  }
+  renderTrainTimeline();
+}
+
+function refreshTrainAgentFilter() {
+  const select = document.getElementById('train-timeline-filter-agent');
+  if (!select) return;
+  const selected = select.value || 'all';
+  const agents = Array.from(new Set(trainTimelineEvents.map(item => item.agent).filter(Boolean))).sort();
+  select.innerHTML = '<option value="all">全部 Agent</option>' + agents.map(agent => `<option value="${escapeHtml(agent)}">${escapeHtml(agent)}</option>`).join('');
+  select.value = agents.includes(selected) ? selected : 'all';
+}
+
+function renderTrainRoutingSummary() {
+  const decision = trainLatestRouting || {};
+  document.getElementById('train-routing-regime').textContent = decision.regime || '--';
+  document.getElementById('train-routing-model').textContent = decision.selected_model || decision.current_model || '--';
+  document.getElementById('train-routing-source').textContent = decision.decision_source || '--';
+  document.getElementById('train-routing-confidence').textContent = decision.decision_confidence !== undefined ? `${Math.round((decision.decision_confidence || 0) * 100)}%` : '--';
+  document.getElementById('train-routing-summary').textContent = decision.reasoning || '等待路由决策...';
+}
+
+function renderTrainAgentOverview() {
+  const container = document.getElementById('train-agent-overview');
+  const items = Object.values(trainAgentSnapshot);
+  if (!items.length) {
+    container.innerHTML = '<div style="color:var(--text-muted)">等待 Agent 事件...</div>';
+    return;
+  }
+  container.innerHTML = items.slice().sort((a, b) => String(a.agent || '').localeCompare(String(b.agent || ''))).map(item => `
+    <div class="metric-card">
+      <div class="metric-label">${escapeHtml(item.agent || '--')}</div>
+      <div class="metric-value" style="font-size:16px;margin-top:10px">${escapeHtml(item.status || '--')}</div>
+      <div class="metric-sub">${escapeHtml(item.stage || item.message || '--')}</div>
+    </div>
+  `).join('');
+}
+
+function renderTrainTimeline() {
+  const stageFilter = document.getElementById('train-timeline-filter-stage')?.value || 'all';
+  const agentFilter = document.getElementById('train-timeline-filter-agent')?.value || 'all';
+  refreshTrainAgentFilter();
+  const items = trainTimelineEvents.filter(item => {
+    if (stageFilter !== 'all' && item.stage !== stageFilter) return false;
+    if (agentFilter !== 'all' && item.agent !== agentFilter) return false;
+    return true;
+  }).slice(-40).reverse();
+  const container = document.getElementById('train-timeline');
+  if (!items.length) {
+    container.textContent = '等待训练事件...';
+    return;
+  }
+  container.innerHTML = items.map(item => {
+    const ts = item.timestamp ? new Date(item.timestamp).toLocaleTimeString('zh-CN') : '--';
+    return `<div style="padding:10px 0;border-bottom:1px solid rgba(255,255,255,0.06)"><div style="font-size:12px;color:var(--text-muted)">${escapeHtml(ts)} · ${escapeHtml(item.stage || item.kind || 'log')} · ${escapeHtml(item.agent || item.module || 'system')}</div><div style="font-size:13px;color:var(--text-primary);margin-top:4px">${escapeHtml(item.message || item.title || item.reasoning || '')}</div></div>`;
+  }).join('');
+}
+
+function renderTrainSpeechCards() {
+  const container = document.getElementById('train-speech-cards');
+  if (!trainSpeechEvents.length) {
+    container.innerHTML = '<div style="color:var(--text-muted)">等待会议发言...</div>';
+    return;
+  }
+  container.innerHTML = trainSpeechEvents.slice(0, 8).map(item => `
+    <div class="card" style="margin:0;padding:14px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <strong>${escapeHtml(item.speaker || item.agent || '--')}</strong>
+        <span class="badge badge-blue">${escapeHtml(item.meeting || item.role || '--')}</span>
+      </div>
+      <div style="font-size:13px;color:var(--text-secondary);line-height:1.5">${escapeHtml(item.speech || '')}</div>
+    </div>
+  `).join('');
+}
+
+function renderStrategyDiffFromResults(results) {
+  const container = document.getElementById('train-strategy-diff');
+  if (!results || results.length < 2) {
+    const latest = results && results.length ? results[results.length - 1] : null;
+    if (latest && latest.routing_decision) {
+      container.textContent = `当前运行仅生成一个可对比周期。主模型=${latest.model_name || '--'}，路由=${latest.routing_decision.selected_model || '--'}，regime=${latest.routing_decision.regime || '--'}`;
+    } else {
+      container.textContent = '等待至少两轮训练结果以生成策略差异。';
+    }
+    return;
+  }
+  const current = results[results.length - 1] || {};
+  const previous = results[results.length - 2] || {};
+  const currentParams = current.params || {};
+  const previousParams = previous.params || {};
+  const changedKeys = Array.from(new Set([...Object.keys(currentParams), ...Object.keys(previousParams)])).filter(key => currentParams[key] !== previousParams[key]);
+  const selectedCurrent = current.selected_stocks || [];
+  const selectedPrevious = previous.selected_stocks || [];
+  const added = selectedCurrent.filter(code => !selectedPrevious.includes(code));
+  const removed = selectedPrevious.filter(code => !selectedCurrent.includes(code));
+  container.textContent = [
+    `当前周期: ${current.cycle_id || '--'} | 上一周期: ${previous.cycle_id || '--'}`,
+    `模型: ${current.model_name || '--'} (上一轮 ${previous.model_name || '--'})`,
+    `收益率变化: ${(current.return_pct ?? '--')} vs ${(previous.return_pct ?? '--')}`,
+    `选股新增: ${added.join(', ') || '无'}`,
+    `选股移除: ${removed.join(', ') || '无'}`,
+    `参数变更键: ${changedKeys.join(', ') || '无'}`,
+  ].join('\n');
+}
+
+function attachTrainEventHandler(eventType, handler) {
+  if (!trainEventSource) return;
+  trainEventSource.addEventListener(eventType, (event) => {
+    try {
+      handler(JSON.parse(event.data || '{}'));
+    } catch (err) {
+      console.warn('train event parse failed', eventType, err);
+    }
+  });
+}
+
+function ensureTrainEventStream() {
+  if (trainEventSource || typeof EventSource === 'undefined') return;
+  trainEventSource = new EventSource('/api/events');
+  attachTrainEventHandler('agent_status', payload => {
+    trainAgentSnapshot[payload.agent || 'system'] = payload;
+    renderTrainAgentOverview();
+    pushTrainTimeline({
+      timestamp: payload.timestamp,
+      stage: payload.stage || 'agent_status',
+      agent: payload.agent || 'system',
+      message: payload.message || '',
+      kind: 'agent_status',
+    });
+  });
+  attachTrainEventHandler('module_log', payload => {
+    if (payload.kind === 'routing_decision' && payload.details) {
+      trainLatestRouting = payload.details;
+      renderTrainRoutingSummary();
+    }
+    pushTrainTimeline({
+      timestamp: payload.timestamp,
+      stage: payload.module || payload.kind || 'module_log',
+      agent: payload.module || 'system',
+      message: payload.message || payload.title || '',
+      kind: payload.kind || 'module_log',
+    });
+  });
+  attachTrainEventHandler('meeting_speech', payload => {
+    trainSpeechEvents.unshift(payload);
+    trainSpeechEvents = trainSpeechEvents.slice(0, 8);
+    renderTrainSpeechCards();
+    pushTrainTimeline({
+      timestamp: payload.timestamp,
+      stage: payload.meeting || 'meeting_speech',
+      agent: payload.speaker || payload.role || 'meeting',
+      message: payload.speech || '',
+      kind: 'meeting_speech',
+    });
+  });
+  attachTrainEventHandler('routing_decided', payload => {
+    trainLatestRouting = payload;
+    renderTrainRoutingSummary();
+    pushTrainTimeline({
+      timestamp: payload.timestamp,
+      stage: 'model_routing',
+      agent: 'ModelRouter',
+      message: payload.reasoning || '',
+      kind: 'routing_decided',
+    });
+  });
+  attachTrainEventHandler('cycle_complete', payload => {
+    if (payload.routing_decision) {
+      trainLatestRouting = payload.routing_decision;
+      renderTrainRoutingSummary();
+    }
+    pushTrainTimeline({
+      timestamp: payload.timestamp,
+      stage: 'cycle_complete',
+      agent: payload.model_name || 'cycle',
+      message: `收益 ${payload.return_pct ?? '--'}%，选股 ${payload.selected_count ?? '--'} 只`,
+      kind: 'cycle_complete',
+    });
+  });
+}
 
 async function startTraining() {
   if (trainBusy) return;
+  ensureTrainEventStream();
   const rounds = parseInt(document.getElementById('train-rounds').value) || 1;
   const mock = document.getElementById('train-mock').checked;
 
@@ -1040,6 +1285,7 @@ async function startTraining() {
 
   document.getElementById('train-result-card').style.display = 'block';
   document.getElementById('train-result').textContent = '⏳ 训练进行中，请耐心等待...\n\n参数: 轮次=' + rounds + ', Mock=' + mock;
+  document.getElementById('train-strategy-diff').textContent = '训练进行中，等待差异对比...';
 
   const data = await api('/api/train', {
     method: 'POST',
@@ -1062,6 +1308,10 @@ async function startTraining() {
         output += `收益率: ${r.return_pct > 0 ? '+' : ''}${r.return_pct.toFixed(2)}%\n`;
         output += `选股数: ${r.selected_count}\n`;
         output += `交易笔数: ${r.trade_count}\n`;
+        output += `主模型: ${r.model_name || '--'}\n`;
+        if (r.routing_decision) {
+          output += `路由: ${r.routing_decision.selected_model || '--'} | Regime: ${r.routing_decision.regime || '--'}\n`;
+        }
         output += `初始资金: ¥${r.initial_capital?.toLocaleString()}\n`;
         output += `最终价值: ¥${r.final_value?.toLocaleString()}\n`;
       }
@@ -1074,6 +1324,12 @@ async function startTraining() {
     output += `总轮次: ${summary.total_cycles ?? '--'}\n`;
     output += `成功: ${summary.success_cycles ?? '--'} | 失败: ${summary.failed_cycles ?? '--'}\n`;
     document.getElementById('train-result').textContent = output;
+    const latest = results.length ? results[results.length - 1] : null;
+    if (latest && latest.routing_decision) {
+      trainLatestRouting = latest.routing_decision;
+      renderTrainRoutingSummary();
+    }
+    renderStrategyDiffFromResults(results);
   }
 }
 
@@ -1261,6 +1517,11 @@ function startAutoRefresh() {
 // ---- Init ----
 document.addEventListener('DOMContentLoaded', () => {
   startAutoRefresh();
+  ensureTrainEventStream();
+  renderTrainRoutingSummary();
+  renderTrainAgentOverview();
+  renderTrainTimeline();
+  renderTrainSpeechCards();
 });
 </script>
 

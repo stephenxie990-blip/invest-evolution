@@ -63,6 +63,9 @@ export async function apiRequest<T>(path: string, options: ApiRequestOptions = {
       throw error
     }
     if (error instanceof DOMException && error.name === 'AbortError') {
+      if (options.signal?.aborted) {
+        throw new ApiError('请求已取消', 499, 'request_aborted')
+      }
       throw new ApiError('请求超时，请稍后重试', 408)
     }
     throw normalizeApiError(error)

@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 from dataclasses import asdict
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from config import EvolutionConfig, LOGS_DIR, OUTPUT_DIR, PROJECT_ROOT, RUNTIME_DIR, config, load_config
+from config import EvolutionConfig, LOGS_DIR, OUTPUT_DIR, PROJECT_ROOT, RUNTIME_DIR, config, get_config_layer_paths, load_config
 
 try:
     import yaml
@@ -40,7 +41,18 @@ class EvolutionConfigService:
         "investment_model_config",
         "allocator_enabled",
         "allocator_top_n",
+        "model_routing_enabled",
+        "model_routing_mode",
+        "model_routing_allowed_models",
+        "model_switch_cooldown_cycles",
+        "model_switch_min_confidence",
+        "model_switch_hysteresis_margin",
+        "model_routing_agent_override_enabled",
+        "model_routing_agent_override_max_gap",
+        "model_routing_policy",
         "stop_on_freeze",
+        "web_ui_shell_mode",
+        "frontend_canary_enabled",
     }
 
     def __init__(
@@ -68,6 +80,29 @@ class EvolutionConfigService:
     @property
     def snapshot_dir(self) -> Path:
         return self._snapshot_dir or (self.project_root / "runtime" / "state" / "config_snapshots")
+
+    @property
+    def local_override_path(self) -> Path:
+        return self.config_path.parent / "evolution.local.yaml"
+
+    def _read_yaml_dict(self, path: Path) -> dict[str, Any]:
+        if yaml is None or not path.exists():
+            return {}
+        payload = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+        return payload if isinstance(payload, dict) else {}
+
+    def _secret_source(self) -> str:
+        if str(os.environ.get("LLM_API_KEY", "")).strip():
+            return "env"
+        local_payload = self._read_yaml_dict(self.local_override_path)
+        if str(local_payload.get("llm_api_key", "")).strip():
+            return "local_yaml"
+        primary_payload = self._read_yaml_dict(self.config_path)
+        if str(primary_payload.get("llm_api_key", "")).strip():
+            return "yaml"
+        if str(getattr(self.live_config, "llm_api_key", "")).strip():
+            return "runtime"
+        return "unset"
 
     def get_masked_payload(self) -> dict[str, Any]:
         cfg = self.live_config
@@ -99,7 +134,22 @@ class EvolutionConfigService:
             "investment_model_config": cfg.investment_model_config,
             "allocator_enabled": cfg.allocator_enabled,
             "allocator_top_n": cfg.allocator_top_n,
+            "model_routing_enabled": cfg.model_routing_enabled,
+            "model_routing_mode": cfg.model_routing_mode,
+            "model_routing_allowed_models": list(cfg.model_routing_allowed_models or []),
+            "model_switch_cooldown_cycles": cfg.model_switch_cooldown_cycles,
+            "model_switch_min_confidence": cfg.model_switch_min_confidence,
+            "model_switch_hysteresis_margin": cfg.model_switch_hysteresis_margin,
+            "model_routing_agent_override_enabled": cfg.model_routing_agent_override_enabled,
+            "model_routing_agent_override_max_gap": cfg.model_routing_agent_override_max_gap,
+            "model_routing_policy": dict(cfg.model_routing_policy or {}),
             "stop_on_freeze": cfg.stop_on_freeze,
+            "web_ui_shell_mode": getattr(cfg, "web_ui_shell_mode", "legacy"),
+            "frontend_canary_enabled": bool(getattr(cfg, "frontend_canary_enabled", False)),
+            "frontend_canary_query_param": str(getattr(cfg, "frontend_canary_query_param", "__frontend") or "__frontend"),
+            "config_layers": [str(path) for path in get_config_layer_paths(self.config_path)],
+            "local_override_path": str(self.local_override_path),
+            "llm_api_key_source": self._secret_source(),
             "audit_log_path": str(self.audit_log_path),
             "snapshot_dir": str(self.snapshot_dir),
         }
@@ -146,6 +196,49 @@ class EvolutionConfigService:
                 raise ValueError("allocator_enabled must be a boolean")
         if "allocator_top_n" in out:
             out["allocator_top_n"] = int(out["allocator_top_n"])
+        if "model_routing_mode" in out:
+            out["model_routing_mode"] = str(out["model_routing_mode"] or "rule").strip().lower() or "rule"
+        if "model_switch_cooldown_cycles" in out:
+            out["model_switch_cooldown_cycles"] = int(out["model_switch_cooldown_cycles"])
+        if "model_switch_min_confidence" in out:
+            out["model_switch_min_confidence"] = float(out["model_switch_min_confidence"])
+        if "model_switch_hysteresis_margin" in out:
+            out["model_switch_hysteresis_margin"] = float(out["model_switch_hysteresis_margin"])
+        if "model_routing_agent_override_max_gap" in out:
+            out["model_routing_agent_override_max_gap"] = float(out["model_routing_agent_override_max_gap"])
+        if "web_ui_shell_mode" in out:
+            out["web_ui_shell_mode"] = str(out["web_ui_shell_mode"] or "legacy").strip().lower() or "legacy"
+        for bool_key in ("model_routing_enabled", "model_routing_agent_override_enabled", "frontend_canary_enabled"):
+            if bool_key not in out:
+                continue
+            val = out[bool_key]
+            if isinstance(val, bool):
+                continue
+            if isinstance(val, str):
+                low = val.strip().lower()
+                if low in {"1", "true", "yes", "y", "on"}:
+                    out[bool_key] = True
+                elif low in {"0", "false", "no", "n", "off"}:
+                    out[bool_key] = False
+                else:
+                    raise ValueError(f"{bool_key} must be a boolean")
+            else:
+                raise ValueError(f"{bool_key} must be a boolean")
+        if "model_routing_allowed_models" in out:
+            value = out["model_routing_allowed_models"]
+            if value is None:
+                out["model_routing_allowed_models"] = []
+            elif isinstance(value, str):
+                out["model_routing_allowed_models"] = [part.strip() for part in value.split(",") if part.strip()]
+            elif isinstance(value, list):
+                out["model_routing_allowed_models"] = [str(part).strip() for part in value if str(part).strip()]
+            else:
+                raise ValueError("model_routing_allowed_models must be a list or comma-separated string")
+        if "model_routing_policy" in out:
+            if out["model_routing_policy"] is None:
+                out["model_routing_policy"] = {}
+            if not isinstance(out["model_routing_policy"], dict):
+                raise ValueError("model_routing_policy must be an object")
         if "stop_on_freeze" in out:
             val = out["stop_on_freeze"]
             if isinstance(val, bool):
@@ -199,12 +292,26 @@ class EvolutionConfigService:
             raise ValueError("position_size_pct must be within (0, 1]")
         if "allocator_top_n" in patch and patch["allocator_top_n"] <= 0:
             raise ValueError("allocator_top_n must be > 0")
+        if "model_routing_mode" in patch and patch["model_routing_mode"] not in {"off", "rule", "hybrid", "agent"}:
+            raise ValueError("model_routing_mode must be one of: off, rule, hybrid, agent")
+        if "model_switch_cooldown_cycles" in patch and patch["model_switch_cooldown_cycles"] < 0:
+            raise ValueError("model_switch_cooldown_cycles must be >= 0")
+        if "model_switch_min_confidence" in patch and not (0.0 <= patch["model_switch_min_confidence"] <= 1.0):
+            raise ValueError("model_switch_min_confidence must be within [0, 1]")
+        if "model_switch_hysteresis_margin" in patch and patch["model_switch_hysteresis_margin"] < 0:
+            raise ValueError("model_switch_hysteresis_margin must be >= 0")
+        if "model_routing_agent_override_max_gap" in patch and patch["model_routing_agent_override_max_gap"] < 0:
+            raise ValueError("model_routing_agent_override_max_gap must be >= 0")
+        if "web_ui_shell_mode" in patch and patch["web_ui_shell_mode"] not in {"legacy", "app"}:
+            raise ValueError("web_ui_shell_mode must be one of: legacy, app")
 
     def apply_patch(self, patch: dict[str, Any], source: str = "unknown") -> dict[str, Any]:
         if yaml is None:
             raise RuntimeError("PyYAML 未安装，无法写入 YAML。请安装 pyyaml 后重试。")
 
         normalized = self.normalize_patch(patch)
+        explicit_secret_update = "llm_api_key" in normalized
+        secret_value = str(normalized.get("llm_api_key", "") or "").strip() if explicit_secret_update else ""
         before = self._current_editable_values()
         changed = {}
         for key, value in normalized.items():
@@ -218,25 +325,45 @@ class EvolutionConfigService:
                 setattr(self.live_config, key, value)
 
         persisted = self._current_editable_values()
-        if "llm_api_key" in persisted and not str(persisted.get("llm_api_key") or "").strip():
-            persisted.pop("llm_api_key", None)
+        persisted.pop("llm_api_key", None)
 
         self.config_path.parent.mkdir(parents=True, exist_ok=True)
         backup = None
+        local_backup = None
+        existing_local = self._read_yaml_dict(self.local_override_path)
+        updated_local = dict(existing_local)
+        if explicit_secret_update:
+            if secret_value:
+                updated_local["llm_api_key"] = secret_value
+            else:
+                updated_local.pop("llm_api_key", None)
+
         if self.config_path.exists():
             backup = self.config_path.with_suffix(".yaml.bak")
             shutil.copy2(self.config_path, backup)
+        if self.local_override_path.exists():
+            local_backup = self.local_override_path.with_suffix(".yaml.bak")
+            shutil.copy2(self.local_override_path, local_backup)
         try:
             self.config_path.write_text(yaml.safe_dump(persisted, allow_unicode=True, sort_keys=True), encoding="utf-8")
+            if explicit_secret_update:
+                if updated_local:
+                    self.local_override_path.write_text(yaml.safe_dump(updated_local, allow_unicode=True, sort_keys=True), encoding="utf-8")
+                else:
+                    self.local_override_path.unlink(missing_ok=True)
             self._write_snapshot(persisted)
             self._append_audit_log(source=source, changed=changed)
         except Exception:
             if backup and backup.exists():
                 shutil.copy2(backup, self.config_path)
+            if local_backup and local_backup.exists():
+                shutil.copy2(local_backup, self.local_override_path)
             raise
         finally:
             if backup and backup.exists():
                 backup.unlink(missing_ok=True)
+            if local_backup and local_backup.exists():
+                local_backup.unlink(missing_ok=True)
 
         return {
             "updated": sorted(changed.keys()),
@@ -277,13 +404,21 @@ class EvolutionConfigService:
     def _current_editable_values(self) -> dict[str, Any]:
         values = {}
         for key in self.EDITABLE_KEYS:
-            if hasattr(self.live_config, key):
-                value = getattr(self.live_config, key)
-                values[key] = list(value) if key == "index_codes" and value is not None else value
+            if not hasattr(self.live_config, key):
+                continue
+            value = getattr(self.live_config, key)
+            if key in {"index_codes", "model_routing_allowed_models"} and value is not None:
+                values[key] = list(value)
+            elif key == "model_routing_policy" and value is not None:
+                values[key] = dict(value)
+            else:
+                values[key] = value
         return values
 
     def _snapshot_payload(self, payload: dict[str, Any] | None = None) -> dict[str, Any]:
         raw = dict(payload or self._current_editable_values())
+        if "llm_api_key" not in raw and str(getattr(self.live_config, "llm_api_key", "") or "").strip():
+            raw["llm_api_key"] = getattr(self.live_config, "llm_api_key")
         return {key: self._redact(key, value) for key, value in raw.items()}
 
     @staticmethod

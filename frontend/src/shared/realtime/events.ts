@@ -28,6 +28,7 @@ export function useEventStream(enabled = true, limit = 100) {
         const schema = RuntimeEventPayloadSchemas[type]
         const parsed = schema.safeParse(payload)
         if (!parsed.success) {
+          console.debug('[event-stream] schema mismatch', { type, issues: parsed.error.issues, payload })
           setLastError(`事件契约不匹配: ${type}`)
           return
         }
@@ -41,7 +42,8 @@ export function useEventStream(enabled = true, limit = 100) {
           }, ...current]
           return next.slice(0, limit)
         })
-      } catch {
+      } catch (error) {
+        console.debug('[event-stream] parse failed', { type, error })
         setLastError('事件解析失败')
       }
     }

@@ -10,6 +10,7 @@ API Key 优先从环境变量读取：
 """
 
 import os
+import re
 import json
 import logging
 import sqlite3
@@ -82,6 +83,75 @@ def _env_int(name: str, default: int) -> int:
         return default
 
 
+_TRUE_VALUES = {"1", "true", "t", "yes", "y", "on"}
+_FALSE_VALUES = {"0", "false", "f", "no", "n", "off"}
+_ENV_PLACEHOLDER = re.compile(r"\$\{ENV:([A-Z0-9_]+)(?::-(.*?))?\}")
+
+
+def _env_bool(name: str, default: bool) -> bool:
+    raw = os.environ.get(name)
+    if raw is None or str(raw).strip() == "":
+        return default
+    normalized = str(raw).strip().lower()
+    if normalized in _TRUE_VALUES:
+        return True
+    if normalized in _FALSE_VALUES:
+        return False
+    logger.warning("Invalid %s=%r, fallback to %s", name, raw, default)
+    return default
+
+
+def _expand_env_placeholders(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {k: _expand_env_placeholders(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_expand_env_placeholders(item) for item in value]
+    if isinstance(value, str):
+        def _replace(match: re.Match[str]) -> str:
+            env_name = match.group(1)
+            fallback = match.group(2) if match.group(2) is not None else ""
+            return os.environ.get(env_name, fallback)
+
+        return _ENV_PLACEHOLDER.sub(_replace, value)
+    return value
+
+
+def _load_yaml_layer(path: Path) -> dict[str, Any]:
+    if not (_HAS_YAML and Path(path).exists()):
+        return {}
+    with open(path, encoding="utf-8") as f:
+        loaded = yaml.safe_load(f) or {}
+    known = {f.name for f in EvolutionConfig.__dataclass_fields__.values()}
+    data = {k: v for k, v in loaded.items() if k in known}
+    return _expand_env_placeholders(data)
+
+
+def get_config_layer_paths(config_path: str | Path | None = None) -> list[Path]:
+    primary = Path(config_path) if config_path else PROJECT_ROOT / "config" / "evolution.yaml"
+    config_dir = primary.parent
+    layers: list[Path] = []
+
+    if primary.exists():
+        layers.append(primary)
+
+    local_override = config_dir / "evolution.local.yaml"
+    if local_override.exists() and local_override.resolve() != primary.resolve():
+        layers.append(local_override)
+
+    extra_path = os.environ.get("INVEST_CONFIG_PATH")
+    if extra_path:
+        candidate = Path(extra_path)
+        if candidate.exists():
+            try:
+                resolved = candidate.resolve()
+            except OSError:
+                resolved = candidate
+            if all((p.resolve() if p.exists() else p) != resolved for p in layers):
+                layers.append(candidate)
+
+    return layers
+
+
 def _apply_env_overrides(data: dict[str, Any]) -> dict[str, Any]:
     env_map: dict[str, tuple[str, callable]] = {
         "llm_fast_model": ("LLM_MODEL", str),
@@ -90,6 +160,8 @@ def _apply_env_overrides(data: dict[str, Any]) -> dict[str, Any]:
         "llm_api_base": ("LLM_API_BASE", str),
         "llm_timeout": ("LLM_TIMEOUT", int),
         "llm_max_retries": ("LLM_MAX_RETRIES", int),
+        "web_ui_shell_mode": ("WEB_UI_SHELL_MODE", str),
+        "frontend_canary_enabled": ("FRONTEND_CANARY_ENABLED", lambda raw: str(raw).strip().lower() in _TRUE_VALUES),
     }
     merged = dict(data)
     for field, (env_name, caster) in env_map.items():
@@ -153,7 +225,30 @@ class EvolutionConfig:
     investment_model_config: str = "invest/models/configs/momentum_v1.yaml"
     allocator_enabled: bool = False
     allocator_top_n: int = 3
+    model_routing_enabled: bool = True
+    model_routing_mode: str = "rule"  # off / rule / hybrid / agent
+    model_routing_allowed_models: Optional[List[str]] = None
+    model_switch_cooldown_cycles: int = 2
+    model_switch_min_confidence: float = 0.60
+    model_switch_hysteresis_margin: float = 0.08
+    model_routing_agent_override_enabled: bool = False
+    model_routing_agent_override_max_gap: float = 0.18
+    model_routing_policy: dict = field(default_factory=lambda: {
+        "bull_avg_change_20d": 3.0,
+        "bull_above_ma20_ratio": 0.55,
+        "bear_avg_change_20d": -3.0,
+        "bear_above_ma20_ratio": 0.45,
+        "high_volatility_threshold": 0.028,
+        "weak_breadth_threshold": 0.42,
+        "strong_breadth_threshold": 0.58,
+        "index_bull_change_20d": 2.0,
+        "index_bear_change_20d": -2.0,
+        "default_regime": "oscillation",
+    })
     stop_on_freeze: bool = True
+    web_ui_shell_mode: str = field(default_factory=lambda: os.environ.get("WEB_UI_SHELL_MODE", "legacy"))
+    frontend_canary_enabled: bool = field(default_factory=lambda: _env_bool("FRONTEND_CANARY_ENABLED", False))
+    frontend_canary_query_param: str = field(default_factory=lambda: os.environ.get("FRONTEND_CANARY_QUERY_PARAM", "__frontend"))
     rsi_thresholds: dict = field(default_factory=lambda: {
         "oversold": 25,
         "overbought": 75,
@@ -194,6 +289,18 @@ class EvolutionConfig:
             self.logs_dir = LOGS_DIR
         if self.memory_dir is None:
             self.memory_dir = OUTPUT_DIR / "memory"
+        self.web_ui_shell_mode = str(self.web_ui_shell_mode or "legacy").strip().lower() or "legacy"
+        if self.web_ui_shell_mode not in {"legacy", "app"}:
+            logger.warning("Invalid web_ui_shell_mode=%r, fallback to legacy", self.web_ui_shell_mode)
+            self.web_ui_shell_mode = "legacy"
+        self.frontend_canary_query_param = str(self.frontend_canary_query_param or "__frontend").strip() or "__frontend"
+        if self.model_routing_allowed_models is None:
+            self.model_routing_allowed_models = [
+                "momentum",
+                "mean_reversion",
+                "value_quality",
+                "defensive_low_vol",
+            ]
         if self.index_codes is None:
             self.index_codes = [
                 "000001.SH",  # 上证指数
@@ -218,17 +325,13 @@ class EvolutionConfig:
 def load_config(config_path: str = None) -> EvolutionConfig:
     """从 YAML 或默认值加载配置。
 
-    优先级：环境变量 > YAML > dataclass 默认值。
+    优先级：环境变量 > INVEST_CONFIG_PATH > evolution.local.yaml > evolution.yaml > dataclass 默认值。
     """
-    if config_path is None:
-        config_path = PROJECT_ROOT / "config" / "evolution.yaml"
+    base_path = Path(config_path) if config_path else PROJECT_ROOT / "config" / "evolution.yaml"
 
     data: dict[str, Any] = {}
-    if _HAS_YAML and Path(config_path).exists():
-        with open(config_path, encoding="utf-8") as f:
-            loaded = yaml.safe_load(f) or {}
-        known = {f.name for f in EvolutionConfig.__dataclass_fields__.values()}
-        data = {k: v for k, v in loaded.items() if k in known}
+    for layer_path in get_config_layer_paths(base_path):
+        data.update(_load_yaml_layer(layer_path))
 
     data = _apply_env_overrides(data)
     return EvolutionConfig(**data)

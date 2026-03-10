@@ -183,6 +183,7 @@ _FRONTEND_API_CONTRACT_V1_PATH = _CONTRACTS_DIR / "frontend-api-contract.v1.json
 _FRONTEND_API_CONTRACT_V1_SCHEMA_PATH = _CONTRACTS_DIR / "frontend-api-contract.v1.schema.json"
 _FRONTEND_API_CONTRACT_V1_OPENAPI_PATH = _CONTRACTS_DIR / "frontend-api-contract.v1.openapi.json"
 _FRONTEND_DIST_DIR = Path(__file__).parent.parent / "frontend" / "dist"
+_FRONTEND_CANARY_HEADER = "X-Invest-Frontend-Canary"
 
 
 def _load_contract_document(path: Path) -> dict[str, Any]:
@@ -205,9 +206,45 @@ app = Flask(
 )
 
 
+def _legacy_index_response():
+    return send_from_directory(app.static_folder, "index.html")
+
+
+def _frontend_dist_available() -> bool:
+    return _FRONTEND_DIST_DIR.exists() and _FRONTEND_DIST_DIR.is_dir()
+
+
+def _ui_shell_mode() -> str:
+    import config as config_module
+
+    return str(getattr(config_module.config, "web_ui_shell_mode", "legacy") or "legacy").strip().lower() or "legacy"
+
+
+def _request_prefers_frontend_app() -> bool:
+    import config as config_module
+
+    if _ui_shell_mode() == "app":
+        return True
+    if not bool(getattr(config_module.config, "frontend_canary_enabled", False)):
+        return False
+    query_param = str(getattr(config_module.config, "frontend_canary_query_param", "__frontend") or "__frontend")
+    query_value = str(request.args.get(query_param, "") or "").strip().lower()
+    if query_value in (_TRUE_VALUES | {"app", "new", "frontend"}):
+        return True
+    header_value = str(request.headers.get(_FRONTEND_CANARY_HEADER, "") or "").strip().lower()
+    return header_value in (_TRUE_VALUES | {"app", "new", "frontend"})
+
+
+@app.route("/legacy")
+def legacy_index():
+    return _legacy_index_response()
+
+
 @app.route("/")
 def index():
-    return send_from_directory(app.static_folder, "index.html")
+    if _request_prefers_frontend_app() and _frontend_dist_available():
+        return frontend_app()
+    return _legacy_index_response()
 
 
 @app.route("/app")
@@ -562,6 +599,12 @@ def api_investment_models():
         "items": list_models(),
         "active_model": getattr(controller, "model_name", "momentum"),
         "active_config": getattr(controller, "model_config_path", ""),
+        "routing": {
+            "enabled": bool(getattr(controller, "model_routing_enabled", False)),
+            "mode": str(getattr(controller, "model_routing_mode", "off") or "off"),
+            "allowed_models": list(getattr(controller, "model_routing_allowed_models", []) or []),
+            "last_decision": dict(getattr(controller, "last_routing_decision", {}) or {}),
+        },
     })
 
 
@@ -593,6 +636,42 @@ def api_allocator():
         "leaderboard_generated_at": leaderboard.get("generated_at"),
         "allocation": plan.to_dict(),
     })
+
+
+@app.route("/api/model-routing/preview")
+def api_model_routing_preview():
+    runtime = _runtime
+    if runtime is None:
+        return _runtime_not_ready_response()
+    controller = runtime.body.controller
+    cutoff_date = str(request.args.get("cutoff_date", "") or "").strip() or None
+    try:
+        stock_count = int(request.args.get("stock_count", 0) or 0) or None
+    except (TypeError, ValueError):
+        return jsonify({"error": "stock_count must be an integer"}), 400
+    try:
+        min_history_days = int(request.args.get("min_history_days", 0) or 0) or None
+    except (TypeError, ValueError):
+        return jsonify({"error": "min_history_days must be an integer"}), 400
+    allowed_models = request.args.getlist("allowed_models")
+    if not allowed_models:
+        raw_allowed = str(request.args.get("allowed_models", "") or "").strip()
+        if raw_allowed:
+            allowed_models = [part.strip() for part in raw_allowed.split(",") if part.strip()]
+    try:
+        payload = controller.preview_model_routing(
+            cutoff_date=cutoff_date,
+            stock_count=stock_count,
+            min_history_days=min_history_days,
+            allowed_models=allowed_models or None,
+        )
+        return jsonify({"status": "ok", "routing": payload})
+    except DataSourceUnavailableError as exc:
+        logger.warning("Model routing preview data source unavailable: %s", exc)
+        return _data_source_unavailable_response(exc)
+    except Exception as exc:
+        logger.exception("Model routing preview error")
+        return jsonify({"error": str(exc)}), 500
 
 
 # ---- Strategies ----
@@ -1029,6 +1108,11 @@ def api_evolution_config_update():
     service = EvolutionConfigService(project_root=config_module.PROJECT_ROOT, live_config=config_module.config)
     try:
         payload = service.apply_patch(data, source="web_api")
+        runtime = _runtime
+        if runtime is not None:
+            controller = getattr(getattr(runtime, "body", None), "controller", None)
+            if controller is not None and hasattr(controller, "refresh_runtime_from_config"):
+                controller.refresh_runtime_from_config()
         return jsonify({"status": "ok", "updated": payload["updated"], "config": payload["config"]})
     except ValueError as exc:
         return jsonify({"status": "error", "error": str(exc)}), 400

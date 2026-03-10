@@ -3,11 +3,15 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { apiRequest } from '@/shared/api/client'
 import {
   ArtifactListSchema,
+  TrainingEvaluationSchema,
   TrainingExecutionSchema,
   TrainingPlanSchema,
+  TrainingRunSchema,
   type ArtifactList,
+  type TrainingEvaluation,
   type TrainingExecution,
   type TrainingPlan,
+  type TrainingRun,
 } from '@/shared/contracts/types'
 
 export const trainingLabQueryKeys = {
@@ -26,6 +30,11 @@ export type CreateTrainingPlanInput = {
   notes: string
   tags: string[]
   detail_mode?: 'fast' | 'slow'
+}
+
+export type ExecuteTrainingPlanInput = {
+  planId: string
+  signal?: AbortSignal
 }
 
 export function useTrainingPlans(limit = 10) {
@@ -61,8 +70,8 @@ export function useTrainingRuns(limit = 10) {
 export function useTrainingRunDetail(runId: string | null) {
   return useQuery({
     queryKey: runId ? trainingLabQueryKeys.runDetail(runId) : [...trainingLabQueryKeys.runs, 'empty'],
-    queryFn: () => apiRequest<TrainingPlan>(`/api/lab/training/runs/${runId}`, {
-      schema: TrainingPlanSchema,
+    queryFn: () => apiRequest<TrainingRun>(`/api/lab/training/runs/${runId}`, {
+      schema: TrainingRunSchema,
     }),
     enabled: Boolean(runId),
   })
@@ -81,8 +90,8 @@ export function useTrainingEvaluations(limit = 10) {
 export function useTrainingEvaluationDetail(runId: string | null) {
   return useQuery({
     queryKey: runId ? trainingLabQueryKeys.evaluationDetail(runId) : [...trainingLabQueryKeys.evaluations, 'empty'],
-    queryFn: () => apiRequest<TrainingPlan>(`/api/lab/training/evaluations/${runId}`, {
-      schema: TrainingPlanSchema,
+    queryFn: () => apiRequest<TrainingEvaluation>(`/api/lab/training/evaluations/${runId}`, {
+      schema: TrainingEvaluationSchema,
     }),
     enabled: Boolean(runId),
   })
@@ -108,10 +117,11 @@ export function useExecuteTrainingPlan() {
   const queryClient = useQueryClient()
 
   return useMutation({
-    mutationFn: (planId: string) => apiRequest<TrainingExecution>(`/api/lab/training/plans/${planId}/execute`, {
+    mutationFn: ({ planId, signal }: ExecuteTrainingPlanInput) => apiRequest<TrainingExecution>(`/api/lab/training/plans/${planId}/execute`, {
       method: 'POST',
       schema: TrainingExecutionSchema,
       timeoutMs: 300_000,
+      signal,
     }),
     onSuccess: async (payload) => {
       await Promise.all([

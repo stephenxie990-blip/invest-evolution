@@ -32,6 +32,8 @@ def test_frontend_contract_endpoint_returns_machine_readable_contract():
     assert payload['contract_id'] == 'frontend-v1'
     assert payload['frontend_shell_mount'] == '/app'
     assert any(endpoint['path'] == '/api/train' and endpoint['method'] == 'POST' for endpoint in payload['endpoints'])
+    assert any(endpoint['path'] == '/api/model-routing/preview' and endpoint['method'] == 'GET' for endpoint in payload['endpoints'])
+    assert '#/components/sse_schemas/routingDecision' in payload['sse']['event_refs']
     train_endpoint = next(endpoint for endpoint in payload['endpoints'] if endpoint['path'] == '/api/train' and endpoint['method'] == 'POST')
     assert train_endpoint['request_body']['properties']['mock']['default'] is False
     cycle_complete = payload['components']['sse_schemas']['cycleComplete']['data']['properties']
@@ -62,6 +64,7 @@ def test_frontend_contract_openapi_endpoint_returns_openapi_document():
     assert payload['openapi'] == '3.1.0'
     assert '/api/events' in payload['paths']
     assert '/api/lab/status/quick' in payload['paths']
+    assert '/api/model-routing/preview' in payload['paths']
 
 
 def test_generated_contract_derivatives_validate_against_main_contract():

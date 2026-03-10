@@ -1,5 +1,6 @@
 # 投资进化系统默认配置示例
 # 复制为 config/evolution.yaml 后按需修改
+# 敏感项不要写进此文件，统一放到环境变量或 config/evolution.local.yaml
 
 initial_capital: 100000.0
 max_positions: 5
@@ -11,8 +12,25 @@ min_history_days: 750
 
 data_source: baostock
 
-llm_model: minimax/MiniMax-M2.5-highspeed
-llm_api_key: ""
+llm_fast_model: minimax/MiniMax-M2.5-highspeed
+llm_deep_model: minimax/MiniMax-M2.5-highspeed
 llm_api_base: https://api.minimaxi.com/v1
 llm_timeout: 60
 llm_max_retries: 2
+
+model_routing_enabled: true
+model_routing_mode: rule
+model_switch_cooldown_cycles: 2
+model_switch_min_confidence: 0.6
+model_switch_hysteresis_margin: 0.08
+model_routing_agent_override_enabled: false
+model_routing_agent_override_max_gap: 0.18
+model_routing_allowed_models:
+  - momentum
+  - mean_reversion
+  - value_quality
+  - defensive_low_vol
+
+# Web 壳层发布策略
+web_ui_shell_mode: legacy   # legacy / app
+frontend_canary_enabled: false

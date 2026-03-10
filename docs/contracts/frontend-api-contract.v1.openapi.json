@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "投资进化系统 Frontend Contract",
-    "version": "1.0.0",
+    "version": "1.1.0",
     "description": "Derived OpenAPI document generated from docs/contracts/frontend-api-contract.v1.json"
   },
   "servers": [
@@ -221,7 +221,10 @@
           "#/components/sse_schemas/cycleSkipped",
           "#/components/sse_schemas/agentStatus",
           "#/components/sse_schemas/moduleLog",
-          "#/components/sse_schemas/meetingSpeech"
+          "#/components/sse_schemas/meetingSpeech",
+          "#/components/sse_schemas/routingDecision",
+          "#/components/sse_schemas/modelSwitchApplied",
+          "#/components/sse_schemas/modelSwitchBlocked"
         ],
         "x-sse-protocol": {
           "initial_event": "connected",
@@ -922,7 +925,7 @@
           "models"
         ],
         "summary": "List supported investment models and the currently active model.",
-        "description": "List supported investment models and the currently active model.",
+        "description": "Response now includes routing.enabled, routing.mode, routing.allowed_models, and routing.last_decision.",
         "responses": {
           "200": {
             "description": "List supported investment models and the currently active model.",
@@ -1652,7 +1655,7 @@
           "config"
         ],
         "summary": "Patch editable evolution/model/data configuration.",
-        "description": "Patch editable evolution/model/data configuration.",
+        "description": "Security: llm_api_key should be sourced from env or config/evolution.local.yaml; response remains masked.\nRollout: web_ui_shell_mode + frontend_canary_enabled are used for legacy/app switch and canary release.",
         "responses": {
           "200": {
             "description": "Patch editable evolution/model/data configuration.",
@@ -1766,6 +1769,18 @@
                   },
                   "stop_on_freeze": {
                     "type": "boolean"
+                  },
+                  "web_ui_shell_mode": {
+                    "type": "string",
+                    "enum": [
+                      "legacy",
+                      "app"
+                    ],
+                    "description": "Controls whether root path / serves the legacy shell or the standalone frontend."
+                  },
+                  "frontend_canary_enabled": {
+                    "type": "boolean",
+                    "description": "When true and web_ui_shell_mode=legacy, allows canary access to the new frontend via query/header opt-in."
                   }
                 }
               }
@@ -2087,6 +2102,101 @@
             }
           }
         }
+      }
+    },
+    "/api/model-routing/preview": {
+      "get": {
+        "operationId": "model_routing_preview",
+        "tags": [
+          "models"
+        ],
+        "summary": "Preview the current regime classification and model routing decision without starting a training cycle.",
+        "description": "Use before submit to explain which model the backend would choose for the requested date window.",
+        "responses": {
+          "200": {
+            "description": "Preview the current regime classification and model routing decision without starting a training cycle.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/routingPreview"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "stock_count must be an integer; min_history_days must be an integer",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/flatError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Commander runtime is not initialized or background loop is unavailable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/flatError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Unexpected routing preview error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/flatError"
+                }
+              }
+            }
+          }
+        },
+        "x-runtime-required": true,
+        "x-frontend-preferred": true,
+        "x-latency": "medium",
+        "x-realtime": false,
+        "x-pagination": "none",
+        "parameters": [
+          {
+            "name": "cutoff_date",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": ""
+          },
+          {
+            "name": "stock_count",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            },
+            "description": ""
+          },
+          {
+            "name": "min_history_days",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            },
+            "description": ""
+          },
+          {
+            "name": "allowed_models",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string[]"
+            },
+            "description": ""
+          }
+        ]
       }
     }
   },
@@ -2623,6 +2733,32 @@
           },
           "active_config": {
             "type": "string"
+          },
+          "routing": {
+            "type": "object",
+            "properties": {
+              "enabled": {
+                "type": "boolean"
+              },
+              "mode": {
+                "type": "string"
+              },
+              "allowed_models": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "last_decision": {
+                "$ref": "#/components/schemas/routingDecision"
+              }
+            },
+            "required": [
+              "enabled",
+              "mode",
+              "allowed_models"
+            ],
+            "additionalProperties": true
           }
         },
         "required": [
@@ -2943,6 +3079,116 @@
         "required": [
           "status",
           "message"
+        ],
+        "additionalProperties": false
+      },
+      "routingDecision": {
+        "type": "object",
+        "properties": {
+          "as_of_date": {
+            "type": "string"
+          },
+          "current_model": {
+            "type": "string"
+          },
+          "selected_model": {
+            "type": "string"
+          },
+          "selected_config": {
+            "type": "string"
+          },
+          "regime": {
+            "type": "string"
+          },
+          "regime_confidence": {
+            "type": "number"
+          },
+          "decision_confidence": {
+            "type": "number"
+          },
+          "candidate_models": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "candidate_weights": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "number"
+            }
+          },
+          "cash_reserve_hint": {
+            "type": "number"
+          },
+          "decision_source": {
+            "type": "string"
+          },
+          "regime_source": {
+            "type": "string"
+          },
+          "switch_applied": {
+            "type": "boolean"
+          },
+          "hold_current": {
+            "type": "boolean"
+          },
+          "hold_reason": {
+            "type": "string"
+          },
+          "reasoning": {
+            "type": "string"
+          },
+          "guardrail_checks": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          },
+          "allocation_plan": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "agent_advice": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "evidence": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "metadata": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        },
+        "required": [
+          "current_model",
+          "selected_model",
+          "regime",
+          "decision_source",
+          "switch_applied",
+          "hold_current"
+        ],
+        "additionalProperties": true
+      },
+      "routingPreview": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "ok"
+            ]
+          },
+          "routing": {
+            "$ref": "#/components/schemas/routingDecision"
+          }
+        },
+        "required": [
+          "status",
+          "routing"
         ],
         "additionalProperties": false
       },
@@ -3294,6 +3540,159 @@
           "meeting",
           "speaker",
           "speech"
+        ],
+        "additionalProperties": true
+      },
+      "SseRoutingDecisionData": {
+        "type": "object",
+        "properties": {
+          "as_of_date": {
+            "type": "string"
+          },
+          "current_model": {
+            "type": "string"
+          },
+          "selected_model": {
+            "type": "string"
+          },
+          "selected_config": {
+            "type": "string"
+          },
+          "regime": {
+            "type": "string"
+          },
+          "regime_confidence": {
+            "type": "number"
+          },
+          "decision_confidence": {
+            "type": "number"
+          },
+          "candidate_models": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "candidate_weights": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "number"
+            }
+          },
+          "cash_reserve_hint": {
+            "type": "number"
+          },
+          "decision_source": {
+            "type": "string"
+          },
+          "regime_source": {
+            "type": "string"
+          },
+          "switch_applied": {
+            "type": "boolean"
+          },
+          "hold_current": {
+            "type": "boolean"
+          },
+          "hold_reason": {
+            "type": "string"
+          },
+          "reasoning": {
+            "type": "string"
+          },
+          "guardrail_checks": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          },
+          "allocation_plan": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "agent_advice": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "evidence": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "metadata": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        },
+        "required": [
+          "current_model",
+          "selected_model",
+          "regime",
+          "decision_source",
+          "switch_applied",
+          "hold_current"
+        ],
+        "additionalProperties": true
+      },
+      "SseModelSwitchAppliedData": {
+        "type": "object",
+        "properties": {
+          "timestamp": {
+            "type": "string"
+          },
+          "cycle_id": {
+            "type": "integer"
+          },
+          "cutoff_date": {
+            "type": "string"
+          },
+          "from_model": {
+            "type": "string"
+          },
+          "to_model": {
+            "type": "string"
+          },
+          "reasoning": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "from_model",
+          "to_model"
+        ],
+        "additionalProperties": true
+      },
+      "SseModelSwitchBlockedData": {
+        "type": "object",
+        "properties": {
+          "timestamp": {
+            "type": "string"
+          },
+          "cycle_id": {
+            "type": "integer"
+          },
+          "cutoff_date": {
+            "type": "string"
+          },
+          "current_model": {
+            "type": "string"
+          },
+          "candidate_models": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "hold_reason": {
+            "type": "string"
+          },
+          "reasoning": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "current_model",
+          "hold_reason"
         ],
         "additionalProperties": true
       }

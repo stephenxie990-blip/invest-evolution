@@ -223,6 +223,12 @@ def test_train_center_shell_contract_present():
     assert 'id="train-rounds"' in html
     assert 'id="train-mock"' in html
     assert 'id="train-start-btn"' in html
+    assert 'id="train-routing-card"' in html
+    assert 'id="train-agent-overview-card"' in html
+    assert 'id="train-timeline-filter-stage"' in html
+    assert 'id="train-timeline-filter-agent"' in html
+    assert 'id="train-speech-card-panel"' in html
+    assert 'id="train-strategy-diff-card"' in html
     assert 'id="train-result-card"' in html
 
 

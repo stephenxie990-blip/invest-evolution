@@ -25,8 +25,12 @@ const FrontendContractSchema = z.object({
   sse: z.record(z.string(), z.unknown()).optional(),
 }).passthrough()
 
+const LooseJsonSchema = z.record(z.string(), z.unknown())
+
 export type ContractCatalog = z.infer<typeof ContractCatalogSchema>
 export type FrontendContract = z.infer<typeof FrontendContractSchema>
+export type FrontendContractSchemaDocument = z.infer<typeof LooseJsonSchema>
+export type FrontendContractOpenApiDocument = z.infer<typeof LooseJsonSchema>
 
 export function useContractCatalog() {
   return useQuery({
@@ -43,6 +47,26 @@ export function useFrontendContract() {
     queryKey: ['contracts', 'frontend-v1'],
     queryFn: () => apiRequest<FrontendContract>('/api/contracts/frontend-v1', {
       schema: FrontendContractSchema,
+    }),
+    staleTime: 300_000,
+  })
+}
+
+export function useFrontendContractSchema() {
+  return useQuery({
+    queryKey: ['contracts', 'frontend-v1', 'schema'],
+    queryFn: () => apiRequest<FrontendContractSchemaDocument>('/api/contracts/frontend-v1/schema', {
+      schema: LooseJsonSchema,
+    }),
+    staleTime: 300_000,
+  })
+}
+
+export function useFrontendContractOpenApi() {
+  return useQuery({
+    queryKey: ['contracts', 'frontend-v1', 'openapi'],
+    queryFn: () => apiRequest<FrontendContractOpenApiDocument>('/api/contracts/frontend-v1/openapi', {
+      schema: LooseJsonSchema,
     }),
     staleTime: 300_000,
   })

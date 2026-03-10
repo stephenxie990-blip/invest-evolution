@@ -18,7 +18,7 @@
 - 支持模型 YAML 配置、评分权重、风险策略、训练门控与 mutation space
 - 支持 mock 数据模式，便于本地验证训练链路
 - 支持训练计划 / 训练运行 / 训练评估三层实验工件
-- 支持 leaderboard 聚合与按市场状态分配模型权重
+- 支持 leaderboard 聚合、市场状态识别与训练前模型路由
 
 ### 2. Agent 与会议系统
 
@@ -118,7 +118,18 @@ invest-train --cycles 5
 invest-train --cycles 1 --mock
 ```
 
-### 5. 启动 Web 控制台
+### 5. 模型路由
+
+- 系统默认启用 `rule` 路由模式，会在每轮训练前先识别市场状态，再决定主模型。
+- 可通过 `config/evolution.yaml` 或 `POST /api/evolution_config` 调整：
+  - `model_routing_enabled`
+  - `model_routing_mode`
+  - `model_switch_cooldown_cycles`
+  - `model_switch_min_confidence`
+  - `model_switch_hysteresis_margin`
+- 可通过 `GET /api/model-routing/preview` 预览某个截断日的路由决策。
+
+### 6. 启动 Web 控制台
 
 ```bash
 # 默认 Web API 走真实数据模式（mock=false）
@@ -128,6 +139,11 @@ python3 web_server.py
 python3 web_server.py --mock
 # 默认地址: http://127.0.0.1:8080
 ```
+
+- 旧静态壳：`/legacy`
+- 新前端挂载点：`/app`
+- 默认 `web_ui_shell_mode=legacy`，即 `/` 仍指向旧壳；设置为 `app` 后 `/` 指向新前端。
+- 当 `frontend_canary_enabled=true` 时，可通过 `/?__frontend=app` 或请求头 `X-Invest-Frontend-Canary: app` 做灰度访问。
 
 > `mock` 现在是显式的 smoke / demo / health-check 模式，不再作为真实训练失败时的隐式兜底。
 
@@ -182,9 +198,27 @@ tests/               当前实现对应的回归测试
 
 ### 核心配置来源
 
-1. `config/evolution.yaml`
-2. 环境变量（优先级更高）
-3. `config/__init__.py` 中的默认值
+当前配置支持分层加载，优先级从低到高如下：
+
+1. `config/__init__.py` 中的默认值
+2. `config/evolution.yaml`
+3. `config/evolution.local.yaml`
+4. `INVEST_CONFIG_PATH` 指向的额外覆盖文件
+5. 环境变量
+
+建议约定：
+
+- `config/evolution.yaml`：共享、可审阅、非敏感配置
+- `config/evolution.local.yaml`：本地敏感项与个人覆盖项
+- 环境变量：线上密钥与部署平台注入项
+
+推荐从示例文件开始：
+
+```bash
+cp config/evolution.yaml.example config/evolution.yaml
+cp config/evolution.local.yaml.example config/evolution.local.yaml
+export LLM_API_KEY="<your-key>"
+```
 
 ### 常用环境变量
 
@@ -236,3 +270,10 @@ pytest -q
 3. 需要训练细节时看 `docs/TRAINING_FLOW.md`
 4. 需要数据层时看 `docs/DATA_ACCESS_ARCHITECTURE.md`
 5. 需要运行时/配置排障时看 `docs/RUNTIME_STATE_DESIGN.md` 与 `docs/CONFIG_GOVERNANCE.md`
+
+
+## 发布与安全手册
+
+- 前端 Jira 级任务单：`docs/frontend/frontend-implementation-task-sheet-v2.md`
+- 安全与发布前清理：`docs/runbooks/security-release-preflight.md`
+- 模型路由灰度 / 回滚：`docs/runbooks/router-rollout.md`

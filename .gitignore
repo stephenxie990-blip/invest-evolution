@@ -15,6 +15,9 @@ runtime/**
 
 # Local state and downloaded data
 config/evolution.yaml
+config/*.local.yaml
+.env
+.env.*
 data/*.db
 历史归档区/**
 !历史归档区/

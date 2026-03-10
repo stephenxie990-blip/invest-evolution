@@ -2,11 +2,13 @@ import { z } from 'zod'
 
 export const FlatErrorSchema = z.object({
   error: z.string(),
+  error_code: z.string().optional(),
 }).passthrough()
 
 export const StatusErrorSchema = z.object({
   status: z.literal('error'),
   error: z.string(),
+  error_code: z.string().optional(),
 }).passthrough()
 
 export const RuntimeStatusSchema = z.object({
@@ -44,9 +46,73 @@ export const ArtifactListSchema = z.object({
   items: z.array(ArtifactRowSchema),
 }).passthrough()
 
-export const TrainingPlanSchema = z.record(z.string(), z.unknown())
+export const TrainingPlanSchema = z.object({
+  plan_id: z.string(),
+  created_at: z.string(),
+  status: z.string(),
+  source: z.string(),
+  auto_generated: z.boolean().optional(),
+  spec: z.record(z.string(), z.unknown()),
+  protocol: z.record(z.string(), z.unknown()).optional(),
+  dataset: z.record(z.string(), z.unknown()).optional(),
+  model_scope: z.record(z.string(), z.unknown()).optional(),
+  optimization: z.record(z.string(), z.unknown()).optional(),
+  llm: z.record(z.string(), z.unknown()).optional(),
+  objective: z.record(z.string(), z.unknown()).optional(),
+  artifacts: z.record(z.string(), z.unknown()).optional(),
+  last_run_id: z.string().nullable().optional(),
+  last_run_at: z.string().nullable().optional(),
+  started_at: z.string().nullable().optional(),
+}).passthrough()
 
-export const TrainingExecutionSchema = z.record(z.string(), z.unknown())
+export const TrainingRunSchema = z.object({
+  run_id: z.string(),
+  plan_id: z.string(),
+  created_at: z.string(),
+  status: z.string(),
+  error: z.string().optional().default(''),
+  plan: z.record(z.string(), z.unknown()),
+  payload: z.record(z.string(), z.unknown()),
+}).passthrough()
+
+export const TrainingEvaluationSchema = z.object({
+  run_id: z.string(),
+  plan_id: z.string(),
+  created_at: z.string(),
+  status: z.string(),
+  objective: z.record(z.string(), z.unknown()).optional().default({}),
+  spec: z.record(z.string(), z.unknown()).optional().default({}),
+  assessment: z.record(z.string(), z.unknown()),
+  promotion: z.record(z.string(), z.unknown()),
+  error: z.string().optional().default(''),
+  artifacts: z.record(z.string(), z.unknown()).optional().default({}),
+}).passthrough()
+
+export const TrainingExecutionSchema = z.object({
+  status: z.string(),
+  rounds: z.number().int().optional(),
+  results: z.array(z.record(z.string(), z.unknown())).optional().default([]),
+  summary: z.record(z.string(), z.unknown()),
+  training_lab: z.record(z.string(), z.unknown()),
+}).passthrough()
+
+export const DataSourceUnavailableErrorSchema = z.object({
+  error: z.string(),
+  error_code: z.literal('data_source_unavailable'),
+  cutoff_date: z.string(),
+  stock_count: z.number().int(),
+  min_history_days: z.number().int(),
+  requested_data_mode: z.string(),
+  available_sources: z.object({
+    offline: z.boolean(),
+    online: z.boolean(),
+    mock: z.boolean(),
+  }).passthrough(),
+  offline_diagnostics: z.record(z.string(), z.unknown()),
+  online_error: z.string(),
+  suggestions: z.array(z.string()),
+  allow_mock_fallback: z.boolean(),
+}).passthrough()
 
 export const RuntimePathsSchema = z.object({
   status: z.string(),
@@ -145,7 +211,9 @@ export const DataDownloadSchema = z.object({
 }).passthrough()
 
 export const ConnectedEventSchema = z.object({
-  status: z.literal('connected'),
+  status: z.literal('connected').optional(),
+  ts: z.string().optional(),
+  message: z.string().optional(),
 }).passthrough()
 
 export const CycleStartEventSchema = z.object({
@@ -182,6 +250,11 @@ export const CycleSkippedEventSchema = z.object({
   cutoff_date: z.string(),
   stage: z.string(),
   reason: z.string(),
+  requested_data_mode: z.string().optional(),
+  effective_data_mode: z.string().optional(),
+  llm_mode: z.string().optional(),
+  degraded: z.boolean().optional(),
+  degrade_reason: z.string().optional(),
   timestamp: z.string(),
 }).passthrough()
 
@@ -219,7 +292,8 @@ export const MeetingSpeechEventSchema = z.object({
   cycle_id: z.number().int().optional(),
   cutoff_date: z.string().optional(),
   meeting: z.string(),
-  speaker: z.string(),
+  speaker: z.string().optional(),
+  agent: z.string().optional(),
   speech: z.string(),
   role: z.string().optional(),
   picks: z.array(z.union([z.record(z.string(), z.unknown()), z.string()])).optional(),
@@ -245,7 +319,10 @@ export type RuntimeStatus = z.infer<typeof RuntimeStatusSchema>
 export type LabStatusEnvelope = z.infer<typeof LabStatusEnvelopeSchema>
 export type ArtifactList = z.infer<typeof ArtifactListSchema>
 export type TrainingPlan = z.infer<typeof TrainingPlanSchema>
+export type TrainingRun = z.infer<typeof TrainingRunSchema>
+export type TrainingEvaluation = z.infer<typeof TrainingEvaluationSchema>
 export type TrainingExecution = z.infer<typeof TrainingExecutionSchema>
+export type DataSourceUnavailableError = z.infer<typeof DataSourceUnavailableErrorSchema>
 export type RuntimePathsResponse = z.infer<typeof RuntimePathsSchema>
 export type EvolutionConfigResponse = z.infer<typeof EvolutionConfigSchema>
 export type InvestmentModelsResponse = z.infer<typeof InvestmentModelsSchema>

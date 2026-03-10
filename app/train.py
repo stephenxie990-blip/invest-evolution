@@ -42,14 +42,13 @@ from market_data import DataManager, DataSourceUnavailableError, MockDataProvide
 from invest.evolution import LLMOptimizer, StrategyEvolutionOptimizer, EvolutionEngine, YamlConfigMutator
 from invest.foundation import BenchmarkEvaluator, SimulatedTrader, StrategyEvaluator
 from invest.agents import (
-    MarketRegimeAgent, TrendHunterAgent, ContrarianAgent, QualityAgent, DefensiveAgent,
+    MarketRegimeAgent, ModelSelectorAgent, TrendHunterAgent, ContrarianAgent, QualityAgent, DefensiveAgent,
     ReviewDecisionAgent, StrategistAgent, EvoJudgeAgent
 )
 from invest.meetings import SelectionMeeting, ReviewMeeting, MeetingRecorder
-from invest.contracts import EvalReport, ModelOutput
-from invest.allocator import build_allocation_plan
-from invest.foundation.compute import compute_market_stats
+from invest.contracts import EvalReport, ModelOutput, ModelRoutingDecision
 from invest.leaderboard import write_leaderboard
+from invest.router import ModelRoutingCoordinator
 from invest.models import create_investment_model, resolve_model_config_path
 from invest.models.defaults import COMMON_EXECUTION_DEFAULTS, COMMON_PARAM_DEFAULTS, COMMON_BENCHMARK_DEFAULTS
 from app.training.optimization import trigger_loss_optimization
@@ -236,6 +235,7 @@ class TrainingResult:
     audit_tags: Dict[str, Any] = field(default_factory=dict)
     model_name: str = "momentum"
     config_name: str = ""
+    routing_decision: Dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if (not self.effective_data_mode or self.effective_data_mode == "unknown") and self.data_mode:
@@ -339,6 +339,7 @@ class SelfLearningController:
         
         self.agents = {
             "market_regime": MarketRegimeAgent(),
+            "model_selector": ModelSelectorAgent(),
             "trend_hunter": TrendHunterAgent(),
             "contrarian": ContrarianAgent(),
             "quality_agent": QualityAgent(),
@@ -386,7 +387,19 @@ class SelfLearningController:
         self.model_config_path = str(getattr(config, "investment_model_config", "invest/models/configs/momentum_v1.yaml"))
         self.allocator_enabled = bool(getattr(config, "allocator_enabled", False))
         self.allocator_top_n = int(getattr(config, "allocator_top_n", 3) or 3)
+        self.model_routing_enabled = bool(getattr(config, "model_routing_enabled", True) or self.allocator_enabled)
+        self.model_routing_mode = str(getattr(config, "model_routing_mode", "rule") or "rule").strip().lower()
+        self.model_routing_allowed_models = [str(item).strip() for item in (getattr(config, "model_routing_allowed_models", []) or []) if str(item).strip()]
+        self.model_switch_cooldown_cycles = int(getattr(config, "model_switch_cooldown_cycles", 2) or 2)
+        self.model_switch_min_confidence = float(getattr(config, "model_switch_min_confidence", 0.60) or 0.60)
+        self.model_switch_hysteresis_margin = float(getattr(config, "model_switch_hysteresis_margin", 0.08) or 0.08)
+        self.model_routing_agent_override_enabled = bool(getattr(config, "model_routing_agent_override_enabled", False))
+        self.model_routing_agent_override_max_gap = float(getattr(config, "model_routing_agent_override_max_gap", 0.18) or 0.18)
+        self.model_routing_policy = dict(getattr(config, "model_routing_policy", {}) or {})
         self.last_allocation_plan: Dict[str, Any] = {}
+        self.last_routing_decision: Dict[str, Any] = {}
+        self.routing_history: List[Dict[str, Any]] = []
+        self.last_model_switch_cycle_id: int | None = None
         self.stop_on_freeze = bool(getattr(config, "stop_on_freeze", True))
         self.model_mutator = YamlConfigMutator()
         self.investment_model = create_investment_model(
@@ -395,6 +408,7 @@ class SelfLearningController:
             runtime_overrides=self.current_params,
         )
         self._sync_runtime_policy_from_model()
+        self._refresh_model_routing_coordinator()
 
         # 状态
         self.cycle_history:   List[TrainingResult] = []
@@ -451,7 +465,26 @@ class SelfLearningController:
         self.experiment_llm = llm
         self._apply_experiment_llm_overrides(llm)
         if model_scope.get("allocator_enabled") is not None:
-            self.allocator_enabled = bool(model_scope.get("allocator_enabled"))
+            enabled = bool(model_scope.get("allocator_enabled"))
+            self.allocator_enabled = enabled
+            self.model_routing_enabled = enabled
+        if model_scope.get("model_routing_enabled") is not None:
+            self.model_routing_enabled = bool(model_scope.get("model_routing_enabled"))
+        if model_scope.get("routing_mode") is not None:
+            self.model_routing_mode = str(model_scope.get("routing_mode") or "rule").strip().lower() or "rule"
+        if self.experiment_allowed_models:
+            self.model_routing_allowed_models = list(self.experiment_allowed_models)
+        if model_scope.get("switch_cooldown_cycles") is not None:
+            self.model_switch_cooldown_cycles = int(model_scope.get("switch_cooldown_cycles") or 0)
+        if model_scope.get("switch_min_confidence") is not None:
+            self.model_switch_min_confidence = float(model_scope.get("switch_min_confidence") or 0.0)
+        if model_scope.get("switch_hysteresis_margin") is not None:
+            self.model_switch_hysteresis_margin = float(model_scope.get("switch_hysteresis_margin") or 0.0)
+        if model_scope.get("agent_override_enabled") is not None:
+            self.model_routing_agent_override_enabled = bool(model_scope.get("agent_override_enabled"))
+        if model_scope.get("agent_override_max_gap") is not None:
+            self.model_routing_agent_override_max_gap = float(model_scope.get("agent_override_max_gap") or 0.0)
+        self._refresh_model_routing_coordinator()
         if self.experiment_allowed_models and self.model_name not in self.experiment_allowed_models:
             self.model_name = self.experiment_allowed_models[0]
             self.model_config_path = str(resolve_model_config_path(self.model_name))
@@ -503,6 +536,71 @@ class SelfLearningController:
     def set_mock_mode(self, enabled: bool = True) -> None:
         """兼容别名：mock mode 仅表示 LLM dry-run，不再代表数据源选择。"""
         self.set_llm_dry_run(enabled)
+
+    def _refresh_model_routing_coordinator(self) -> None:
+        self.routing_coordinator = ModelRoutingCoordinator(
+            routing_policy=self.model_routing_policy,
+            min_confidence=self.model_switch_min_confidence,
+            cooldown_cycles=self.model_switch_cooldown_cycles,
+            hysteresis_margin=self.model_switch_hysteresis_margin,
+            agent_override_max_gap=self.model_routing_agent_override_max_gap,
+        )
+
+    def refresh_runtime_from_config(self) -> None:
+        previous_model = self.model_name
+        previous_config_path = self.model_config_path
+        self.model_name = str(getattr(config, "investment_model", self.model_name) or self.model_name)
+        self.model_config_path = str(getattr(config, "investment_model_config", self.model_config_path) or self.model_config_path)
+        self.allocator_enabled = bool(getattr(config, "allocator_enabled", self.allocator_enabled))
+        self.allocator_top_n = int(getattr(config, "allocator_top_n", self.allocator_top_n) or self.allocator_top_n)
+        self.model_routing_enabled = bool(getattr(config, "model_routing_enabled", self.model_routing_enabled) or self.allocator_enabled)
+        self.model_routing_mode = str(getattr(config, "model_routing_mode", self.model_routing_mode) or self.model_routing_mode).strip().lower()
+        self.model_routing_allowed_models = [str(item).strip() for item in (getattr(config, "model_routing_allowed_models", self.model_routing_allowed_models) or []) if str(item).strip()]
+        self.model_switch_cooldown_cycles = int(getattr(config, "model_switch_cooldown_cycles", self.model_switch_cooldown_cycles) or self.model_switch_cooldown_cycles)
+        self.model_switch_min_confidence = float(getattr(config, "model_switch_min_confidence", self.model_switch_min_confidence) or self.model_switch_min_confidence)
+        self.model_switch_hysteresis_margin = float(getattr(config, "model_switch_hysteresis_margin", self.model_switch_hysteresis_margin) or self.model_switch_hysteresis_margin)
+        self.model_routing_agent_override_enabled = bool(getattr(config, "model_routing_agent_override_enabled", self.model_routing_agent_override_enabled))
+        self.model_routing_agent_override_max_gap = float(getattr(config, "model_routing_agent_override_max_gap", self.model_routing_agent_override_max_gap) or self.model_routing_agent_override_max_gap)
+        self.model_routing_policy = dict(getattr(config, "model_routing_policy", self.model_routing_policy) or {})
+        self._refresh_model_routing_coordinator()
+        if previous_model != self.model_name or previous_config_path != self.model_config_path:
+            self.current_params = {}
+            self._reload_investment_model(self.model_config_path)
+
+    def preview_model_routing(
+        self,
+        *,
+        cutoff_date: Optional[str] = None,
+        stock_count: Optional[int] = None,
+        min_history_days: Optional[int] = None,
+        allowed_models: Optional[List[str]] = None,
+    ) -> Dict[str, Any]:
+        preview_cutoff = normalize_date(cutoff_date or self.data_manager.random_cutoff_date())
+        preview_stock_count = max(1, int(stock_count or getattr(config, "max_stocks", 50) or 50))
+        preview_min_history = max(30, int(min_history_days or getattr(config, "min_history_days", 200) or 200))
+        stock_data = self.data_manager.load_stock_data(
+            cutoff_date=preview_cutoff,
+            stock_count=preview_stock_count,
+            min_history_days=preview_min_history,
+        )
+        leaderboard_root = self.output_dir.parent
+        write_leaderboard(leaderboard_root)
+        decision = self.routing_coordinator.route(
+            stock_data=stock_data,
+            cutoff_date=preview_cutoff,
+            current_model=self.model_name,
+            leaderboard_path=leaderboard_root / "leaderboard.json",
+            allocator_top_n=self.allocator_top_n,
+            allowed_models=allowed_models or self.model_routing_allowed_models or self.experiment_allowed_models,
+            routing_mode=self.model_routing_mode if self.model_routing_enabled else "off",
+            regime_agent=self.agents.get("market_regime"),
+            selector_agent=self.agents.get("model_selector") if self.model_routing_agent_override_enabled else None,
+            previous_decision=self.last_routing_decision,
+            current_cycle_id=self.current_cycle_id + 1,
+            last_switch_cycle_id=self.last_model_switch_cycle_id,
+            data_manager=self.data_manager,
+        )
+        return decision.to_dict()
 
     def _reload_investment_model(self, config_path: Optional[str] = None) -> None:
         if config_path:
@@ -558,54 +656,114 @@ class SelfLearningController:
 
 
     def _maybe_apply_allocator(self, stock_data: Dict[str, Any], cutoff_date: str, cycle_id: int) -> None:
-        if not self.allocator_enabled:
+        if not self.model_routing_enabled or self.model_routing_mode == "off":
             return
+        self._emit_agent_status(
+            "ModelRouter",
+            "running",
+            "正在评估市场状态并为本轮训练选择投资模型...",
+            cycle_id=cycle_id,
+            stage="model_routing",
+            progress_pct=22,
+            step=2,
+            total_steps=6,
+        )
+        emit_event("routing_started", {
+            **self._event_context(cycle_id),
+            "current_model": self.model_name,
+            "routing_mode": self.model_routing_mode,
+        })
         leaderboard_root = self.output_dir.parent
         write_leaderboard(leaderboard_root)
         leaderboard_path = leaderboard_root / "leaderboard.json"
-        market_stats = compute_market_stats(
-            stock_data,
-            cutoff_date,
-            regime_policy=self.investment_model.config_section("market_regime", {}) or None,
+        selector_agent = self.agents.get("model_selector") if self.model_routing_agent_override_enabled and self.model_routing_mode in {"hybrid", "agent"} else None
+        decision = self.routing_coordinator.route(
+            stock_data=stock_data,
+            cutoff_date=cutoff_date,
+            current_model=self.model_name,
+            leaderboard_path=leaderboard_path,
+            allocator_top_n=self.allocator_top_n,
+            allowed_models=self.experiment_allowed_models or self.model_routing_allowed_models,
+            routing_mode=self.model_routing_mode,
+            regime_agent=self.agents.get("market_regime") if self.model_routing_mode in {"hybrid", "agent"} else None,
+            selector_agent=selector_agent,
+            previous_decision=self.last_routing_decision,
+            current_cycle_id=cycle_id,
+            last_switch_cycle_id=self.last_model_switch_cycle_id,
+            data_manager=self.data_manager,
         )
-        regime = str(market_stats.get("regime_hint") or "unknown")
-        allocation = build_allocation_plan(
-            regime,
-            leaderboard_path,
-            as_of_date=cutoff_date,
-            top_n=max(1, self.allocator_top_n),
-        )
-        self.last_allocation_plan = allocation.to_dict()
-        active_models = list(allocation.active_models)
-        selected_model = active_models[0] if active_models else self.model_name
-        if selected_model != self.model_name:
+        self.last_routing_decision = decision.to_dict()
+        self.routing_history.append(dict(self.last_routing_decision))
+        self.last_allocation_plan = dict(decision.allocation_plan or {})
+        emit_event("regime_classified", {
+            **self._event_context(cycle_id),
+            "regime": decision.regime,
+            "confidence": decision.regime_confidence,
+            "source": decision.regime_source,
+            "reasoning": (decision.evidence.get("rule_result") or {}).get("reasoning") or decision.reasoning,
+        })
+        emit_event("routing_decided", {
+            **self._event_context(cycle_id),
+            "current_model": decision.current_model,
+            "selected_model": decision.selected_model,
+            "selected_config": decision.selected_config,
+            "candidate_models": decision.candidate_models,
+            "candidate_weights": decision.candidate_weights,
+            "regime": decision.regime,
+            "regime_confidence": decision.regime_confidence,
+            "decision_confidence": decision.decision_confidence,
+            "decision_source": decision.decision_source,
+            "switch_applied": decision.switch_applied,
+            "hold_current": decision.hold_current,
+            "hold_reason": decision.hold_reason,
+            "reasoning": decision.reasoning,
+            "guardrail_checks": decision.guardrail_checks,
+        })
+        previous_model = self.model_name
+        if decision.switch_applied and decision.selected_model != self.model_name:
             self.current_params = {}
-            self.model_name = selected_model
-            self.model_config_path = str(resolve_model_config_path(selected_model))
+            self.model_name = decision.selected_model
+            self.model_config_path = decision.selected_config
             self._reload_investment_model(self.model_config_path)
+            self.last_model_switch_cycle_id = cycle_id
+            emit_event("model_switch_applied", {
+                **self._event_context(cycle_id),
+                "from_model": previous_model,
+                "to_model": self.model_name,
+                "reasoning": decision.reasoning,
+            })
+        elif decision.hold_current and decision.selected_model == previous_model:
+            emit_event("model_switch_blocked", {
+                **self._event_context(cycle_id),
+                "current_model": previous_model,
+                "candidate_models": decision.candidate_models,
+                "hold_reason": decision.hold_reason,
+                "reasoning": decision.reasoning,
+            })
         self._emit_agent_status(
-            "ModelAllocator",
+            "ModelRouter",
             "completed",
-            f"allocator 已为 {regime} 市场选择主模型 {self.model_name}",
+            f"router 识别 {decision.regime} 市场，当前主模型 {self.model_name}",
             cycle_id=cycle_id,
-            stage="model_allocation",
+            stage="model_routing",
             progress_pct=24,
             step=2,
             total_steps=6,
-            details=self.last_allocation_plan,
-            thinking=self._thinking_excerpt(allocation.reasoning),
+            details=self.last_routing_decision,
+            thinking=self._thinking_excerpt(decision.reasoning),
         )
         self._emit_module_log(
-            "allocator",
-            "模型分配完成",
-            allocation.reasoning,
+            "model_routing",
+            "模型路由完成",
+            decision.reasoning,
             cycle_id=cycle_id,
-            kind="allocation_plan",
-            details=self.last_allocation_plan,
+            kind="routing_decision",
+            details=self.last_routing_decision,
             metrics={
-                "active_model_count": len(active_models),
-                "cash_reserve": allocation.cash_reserve,
-                "confidence": allocation.confidence,
+                "switch_applied": decision.switch_applied,
+                "hold_current": decision.hold_current,
+                "cash_reserve_hint": decision.cash_reserve_hint,
+                "decision_confidence": decision.decision_confidence,
             },
         )
 
@@ -1056,11 +1214,13 @@ class SelfLearningController:
         model_output = self.investment_model.process(stock_data, cutoff_date)
         signal_packet = model_output.signal_packet
         agent_context = model_output.agent_context
+        routing_snapshot = dict(self.last_routing_decision or {})
         regime_result = {
-            "regime": signal_packet.regime,
-            "confidence": float(agent_context.metadata.get("confidence", 0.72) or 0.72),
-            "reasoning": agent_context.summary,
+            "regime": routing_snapshot.get("regime") or signal_packet.regime,
+            "confidence": float(routing_snapshot.get("regime_confidence") or agent_context.metadata.get("confidence", 0.72) or 0.72),
+            "reasoning": routing_snapshot.get("reasoning") or agent_context.summary,
             "suggested_exposure": max(0.0, min(1.0, 1.0 - float(signal_packet.cash_reserve))),
+            "decision_source": routing_snapshot.get("decision_source", "model_output"),
             "params": {
                 **dict(signal_packet.params or {}),
                 "top_n": max(len(signal_packet.selected_codes), len(signal_packet.signals)),
@@ -1270,6 +1430,7 @@ class SelfLearningController:
             "selected_stocks": selected,
             "is_profit": is_profit,
             "regime": regime_result.get("regime", "unknown"),
+            "routing_decision": dict(self.last_routing_decision or {}),
             "plan_source": trading_plan.source,
             "data_mode": data_mode,
             "requested_data_mode": requested_data_mode,
@@ -1490,6 +1651,10 @@ class SelfLearningController:
             "mock_data_used": data_mode == "mock",
             "benchmark_passed": benchmark_passed,
             "review_applied": review_applied,
+            "routing_enabled": self.model_routing_enabled,
+            "routing_mode": self.model_routing_mode,
+            "routing_model": (self.last_routing_decision or {}).get("selected_model", self.model_name),
+            "routing_regime": (self.last_routing_decision or {}).get("regime", regime_result.get("regime", "unknown")),
         }
 
         cycle_result = TrainingResult(
@@ -1520,6 +1685,7 @@ class SelfLearningController:
             audit_tags=audit_tags,
             model_name=getattr(model_output, "model_name", self.model_name) if "model_output" in locals() and model_output is not None else self.model_name,
             config_name=getattr(model_output, "config_name", self.model_config_path) if "model_output" in locals() and model_output is not None else self.model_config_path,
+            routing_decision=dict(self.last_routing_decision or {}),
         )
         self.cycle_history.append(cycle_result)
         self.current_cycle_id += 1
@@ -1535,6 +1701,7 @@ class SelfLearningController:
             "llm_mode": llm_mode,
             "degraded": degraded,
             "degrade_reason": degrade_reason,
+            "routing_decision": dict(self.last_routing_decision or {}),
             "timestamp": datetime.now().isoformat(),
         }
         self._save_cycle_result(cycle_result)
@@ -1556,6 +1723,8 @@ class SelfLearningController:
             "llm_mode": llm_mode,
             "degraded": degraded,
             "degrade_reason": degrade_reason,
+            "model_name": self.model_name,
+            "routing_decision": dict(self.last_routing_decision or {}),
             "timestamp": datetime.now().isoformat()
         })
         self._emit_module_log(
@@ -1757,7 +1926,8 @@ class SelfLearningController:
             "audit_tags": _jsonable({k: _bool(v) if isinstance(v, (bool, np.bool_)) else v for k, v in result.audit_tags.items()}),
             "model_name": result.model_name,
             "config_name": result.config_name,
-            "allocation_plan": _jsonable(getattr(self, "last_allocation_plan", {}) or {}),
+            "routing_decision": _jsonable(dict(result.routing_decision or {})),
+            "allocation_plan": _jsonable((result.routing_decision or {}).get("allocation_plan") or getattr(self, "last_allocation_plan", {}) or {}),
             "scoring_mutation_count": scoring_mutation_count,
             "scoring_changed_keys": sorted(set(scoring_changed_keys)),
         }
@@ -1824,6 +1994,8 @@ def train_main():
     logger.info(f"训练参数: cycles={args.cycles}, mock={args.mock}")
     if args.use_allocator:
         config.allocator_enabled = True
+        config.model_routing_enabled = True
+        config.model_routing_mode = "rule"
     if args.allocator_top_n is not None:
         config.allocator_top_n = max(1, int(args.allocator_top_n))
     if args.force_full_cycles:
