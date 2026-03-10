@@ -1,42 +1,32 @@
-# 项目全量审查计划（2026-03-10）
+# P0 修复计划（2026-03-10）
 
 ## 目标
-- 从架构分层、功能实现、数据链路、Agent 协同四个维度完成一次系统审查。
-- 用代码与测试验证文档中的设计意图是否真实落地。
-- 输出可执行的优先级问题清单，而不是停留在泛泛评价。
-
-## 审查范围
-- 应用入口：`app/commander.py`、`app/train.py`、`app/web_server.py`
-- 运行时：`brain/`
-- 数据层：`market_data/`
-- 业务层：`invest/`
-- 配置治理：`config/`
-- 前端与接口：`static/index.html`、Web API
-- 验证：测试套件、编译检查、工作区状态
+- 修复兼容壳、训练契约和 Hunter 恢复签名漂移。
+- 将旧训练页正式降级为过渡壳层，并暴露新前端契约入口。
+- 跑完 P0 定向回归与全量回归。
 
 ## 阶段
-- [x] 盘点仓库结构、文档与规则
-- [x] 梳理架构分层与模块边界
-- [x] 审查训练 / Web / CLI 主链路实现
-- [x] 审查数据仓储、读取裁切与质量检查链路
-- [x] 审查 Agent 角色、会议编排、工具调用与桥接
-- [x] 运行验证并汇总风险
-- [x] 输出完整审查报告
+- [x] 建立实施控制板与验收口径
+- [x] 修复根模块兼容壳
+- [x] 收口训练数据契约回退
+- [x] 兼容 Hunter 恢复签名
+- [x] 调整旧页测试职责并补壳层入口
+- [x] 跑回归并复盘余项
 
-## 当前结论摘要
-- 总体架构方向是对的：应用入口、运行时、数据层、业务层已经基本分层。
-- 数据层的 canonical schema 收口较完整，配置治理与审计能力较成熟。
-- 当前主要问题不是“完全不可用”，而是“兼容层漂移、接口契约漂移、前端产品化回退、残留死代码”。
+## 验收
+- `import web_server` 支持 monkeypatch 私有状态。
+- 训练相关旧 monkeypatch 仍然可用。
+- 旧页只承担壳层职责，新前端入口与契约链接可见。
+- 全量 pytest 通过或余项已明确归档。
 
-## 高优先级关注
-1. 根目录兼容壳只兼容启动，不兼容模块级状态与测试注入。
-2. `SelfLearningController` 与 `DataManager` 的调用契约出现漂移。
-3. Hunter 恢复辅助函数签名与测试/旧契约不一致。
-4. 训练中心前端缺少项目自测要求的产品化控件。
-5. `invest/evolution/analyzers.py` 仍暴露未落地的 mock LLM 逻辑。
+## 最新验证
+- `./.venv/bin/python -m pytest tests/test_web_server_runtime_and_bool.py tests/test_train_cycle.py tests/test_train_event_stream.py tests/test_hunter_code_normalization.py tests/test_train_ui_semantics.py -q` 通过。
+- `./.venv/bin/python -m pytest -q` 全量通过。
+- `./.venv/bin/python -m compileall app brain invest market_data config web_server.py train.py commander.py` 通过。
 
-## 新增：修复路线图编制（2026-03-10）
-- [x] 制定分阶段修复路线图
-- [x] 制定 subagent 协作编排方案
-- [x] 制定评审与验收机制
-- [x] 定义每阶段技能调用矩阵
+## Wave 3
+- [x] 生成前端契约派生物（JSON Schema / OpenAPI）
+- [x] 暴露契约派生端点并纳入目录索引
+- [x] 将 Agent 观测语义迁移为 API 契约测试
+- [x] 在前端事件流层增加契约校验
+- [x] 跑全量回归与构建验证

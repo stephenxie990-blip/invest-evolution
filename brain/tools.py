@@ -108,7 +108,7 @@ class InvestQuickTestTool(BrainTool):
 
     @property
     def description(self) -> str:
-        return "Run one mock training cycle as a health check."
+        return "Run one smoke/demo training cycle (mock data + dry-run LLM) as a health check."
 
     @property
     def parameters(self) -> dict[str, Any]:

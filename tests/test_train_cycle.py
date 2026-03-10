@@ -42,3 +42,5 @@ def test_run_training_cycle_emits_cutoff_date_before_diagnostics(
     assert events[0][0] == "cycle_start"
     assert events[0][1]["cycle_id"] == 1
     assert events[0][1]["cutoff_date"] == "20240131"
+    assert events[0][1]["requested_data_mode"] == "mock"
+    assert events[0][1]["llm_mode"] in {"live", "dry_run"}

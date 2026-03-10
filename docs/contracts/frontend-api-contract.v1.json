@@ -76,6 +76,9 @@
           "error"
         ],
         "additionalProperties": false
+      },
+      "dataSourceUnavailableError": {
+        "$ref": "#/components/schemas/dataSourceUnavailableError"
       }
     },
     "schemas": {
@@ -822,6 +825,83 @@
           "message"
         ],
         "additionalProperties": false
+      },
+      "dataSourceUnavailableError": {
+        "type": "object",
+        "description": "Structured 503 payload returned when live training data could not be resolved and mock mode was not explicitly enabled.",
+        "properties": {
+          "error": {
+            "type": "string"
+          },
+          "error_code": {
+            "type": "string",
+            "enum": [
+              "data_source_unavailable"
+            ]
+          },
+          "cutoff_date": {
+            "type": "string"
+          },
+          "stock_count": {
+            "type": "integer"
+          },
+          "min_history_days": {
+            "type": "integer"
+          },
+          "requested_data_mode": {
+            "type": "string"
+          },
+          "available_sources": {
+            "type": "object",
+            "properties": {
+              "offline": {
+                "type": "boolean"
+              },
+              "online": {
+                "type": "boolean"
+              },
+              "mock": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "offline",
+              "online",
+              "mock"
+            ],
+            "additionalProperties": true
+          },
+          "offline_diagnostics": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "online_error": {
+            "type": "string"
+          },
+          "suggestions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "allow_mock_fallback": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "error",
+          "error_code",
+          "cutoff_date",
+          "stock_count",
+          "min_history_days",
+          "requested_data_mode",
+          "available_sources",
+          "offline_diagnostics",
+          "online_error",
+          "suggestions",
+          "allow_mock_fallback"
+        ],
+        "additionalProperties": true
       }
     },
     "sse_schemas": {
@@ -860,12 +940,20 @@
             "timestamp": {
               "type": "string",
               "format": "date-time"
+            },
+            "requested_data_mode": {
+              "type": "string"
+            },
+            "llm_mode": {
+              "type": "string"
             }
           },
           "required": [
             "cycle_id",
             "cutoff_date",
             "phase",
+            "requested_data_mode",
+            "llm_mode",
             "timestamp"
           ],
           "additionalProperties": true
@@ -912,6 +1000,21 @@
             "timestamp": {
               "type": "string",
               "format": "date-time"
+            },
+            "requested_data_mode": {
+              "type": "string"
+            },
+            "effective_data_mode": {
+              "type": "string"
+            },
+            "llm_mode": {
+              "type": "string"
+            },
+            "degraded": {
+              "type": "boolean"
+            },
+            "degrade_reason": {
+              "type": "string"
             }
           },
           "required": [
@@ -924,6 +1027,11 @@
             "final_value",
             "review_applied",
             "selection_mode",
+            "requested_data_mode",
+            "effective_data_mode",
+            "llm_mode",
+            "degraded",
+            "degrade_reason",
             "timestamp"
           ],
           "additionalProperties": true
@@ -955,6 +1063,21 @@
             "timestamp": {
               "type": "string",
               "format": "date-time"
+            },
+            "requested_data_mode": {
+              "type": "string"
+            },
+            "effective_data_mode": {
+              "type": "string"
+            },
+            "llm_mode": {
+              "type": "string"
+            },
+            "degraded": {
+              "type": "boolean"
+            },
+            "degrade_reason": {
+              "type": "string"
             }
           },
           "required": [
@@ -1429,7 +1552,7 @@
           },
           "mock": {
             "type": "boolean",
-            "default": true,
+            "default": false,
             "accepts_bool_like_strings": true
           }
         }
@@ -1445,6 +1568,13 @@
           "cases": [
             "rounds must be an integer",
             "mock must be a boolean"
+          ]
+        },
+        {
+          "http_status": 503,
+          "body_ref": "dataSourceUnavailableError",
+          "cases": [
+            "Offline and online data sources are unavailable, and mock mode was not explicitly requested."
           ]
         },
         {
@@ -1465,7 +1595,9 @@
       "latency": "long",
       "pagination": "none",
       "realtime": true,
-      "notes": []
+      "notes": [
+        "mock=false by default; mock is an explicit smoke/demo mode and no longer an implicit fallback."
+      ]
     },
     {
       "id": "trainingPlans.create",
@@ -1671,6 +1803,13 @@
         "body_ref": "trainingExecution"
       },
       "errors": [
+        {
+          "http_status": 503,
+          "body_ref": "dataSourceUnavailableError",
+          "cases": [
+            "Training plan execution failed before the first cycle because no live data source was available."
+          ]
+        },
         {
           "http_status": 503,
           "body_ref": "flatError",

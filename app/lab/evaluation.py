@@ -107,6 +107,10 @@ def build_training_memory_summary(*, payload: dict[str, Any], rounds: int, mock:
     error_results = [item for item in results if item.get("status") == "error"]
     cycle_ids = [item.get("cycle_id") for item in results if item.get("cycle_id") is not None]
     avg_return = round(sum(float(item.get("return_pct") or 0.0) for item in ok_results) / len(ok_results), 2) if ok_results else None
+    requested_modes = sorted({str(item.get("requested_data_mode")) for item in results if item.get("requested_data_mode")})
+    effective_modes = sorted({str(item.get("effective_data_mode") or item.get("data_mode")) for item in results if (item.get("effective_data_mode") or item.get("data_mode"))})
+    llm_modes = sorted({str(item.get("llm_mode")) for item in results if item.get("llm_mode")})
+    degraded_count = sum(1 for item in results if bool(item.get("degraded", False)))
     return {
         "status": status,
         "rounds": int(rounds),
@@ -116,5 +120,9 @@ def build_training_memory_summary(*, payload: dict[str, Any], rounds: int, mock:
         "skipped_count": len(skipped_results),
         "error_count": len(error_results),
         "avg_return_pct": avg_return,
+        "requested_data_modes": requested_modes,
+        "effective_data_modes": effective_modes,
+        "llm_modes": llm_modes,
+        "degraded_count": degraded_count,
         "error": str(error or ""),
     }

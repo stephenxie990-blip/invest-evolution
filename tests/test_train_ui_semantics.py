@@ -78,16 +78,21 @@ def test_build_mock_provider_respects_history_window():
     assert diag['eligible_stock_count'] > 0
 
 
-def test_set_mock_mode_updates_agent_llms(tmp_path):
+def test_set_llm_dry_run_updates_agent_llms_and_keeps_mock_alias(tmp_path):
     controller = SelfLearningController(
         output_dir=str(tmp_path / 'training'),
         meeting_log_dir=str(tmp_path / 'meetings'),
         config_audit_log_path=str(tmp_path / 'audit' / 'changes.jsonl'),
         config_snapshot_dir=str(tmp_path / 'snapshots'),
     )
-    controller.set_mock_mode(True)
+    controller.set_llm_dry_run(True)
     assert controller.llm_caller.dry_run is True
+    assert controller.llm_mode == 'dry_run'
     assert all(getattr(agent.llm, 'dry_run', False) is True for agent in controller.agents.values() if getattr(agent, 'llm', None) is not None)
+
+    controller.set_mock_mode(False)
+    assert controller.llm_caller.dry_run is False
+    assert controller.llm_mode == 'live'
 
 
 def test_controller_respects_debate_config(monkeypatch, tmp_path):
@@ -207,16 +212,18 @@ def test_selection_meeting_progress_callback_emits():
     assert events and events[0]['agent'] == 'TrendHunter'
 
 
-def test_train_center_productized_controls_present():
+def test_train_center_shell_contract_present():
     html = Path('static/index.html').read_text(encoding='utf-8')
-    assert 'id="agent-collapse-btn"' in html
-    assert 'id="timeline-filter-type"' in html
-    assert 'id="timeline-filter-keyword"' in html
-    assert 'id="agent-overview"' in html
-    assert '.agent-overview-grid' in html
-    assert '.agent-health-dot' in html
-    assert '.timeline-card.speech' in html
-    assert '策略差异对比' in html
+    assert 'id="panel-train"' in html
+    assert 'id="train-shell-contract-card"' in html
+    assert 'id="frontend-app-link"' in html
+    assert 'href="/app"' in html
+    assert 'id="frontend-contract-link"' in html
+    assert 'href="/api/contracts/frontend-v1"' in html
+    assert 'id="train-rounds"' in html
+    assert 'id="train-mock"' in html
+    assert 'id="train-start-btn"' in html
+    assert 'id="train-result-card"' in html
 
 
 

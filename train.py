@@ -1,4 +1,9 @@
-from app.train import *  # noqa: F401,F403
+from importlib import import_module
+import sys
+
+_impl = import_module("app.train")
 
 if __name__ == "__main__":
-    train_main()
+    _impl.train_main()
+else:
+    sys.modules[__name__] = _impl

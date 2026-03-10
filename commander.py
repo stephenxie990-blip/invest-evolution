@@ -1,4 +1,9 @@
-from app.commander import *  # noqa: F401,F403
+from importlib import import_module
+import sys
+
+_impl = import_module("app.commander")
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    raise SystemExit(_impl.main())
+else:
+    sys.modules[__name__] = _impl

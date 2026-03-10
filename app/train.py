@@ -22,6 +22,7 @@
 """
 
 import argparse
+import inspect
 import json
 import logging
 import os
@@ -37,7 +38,7 @@ import numpy as np
 from config import OUTPUT_DIR, PROJECT_ROOT, config, normalize_date
 from config.services import EvolutionConfigService, RuntimePathConfigService
 from invest.shared import AgentTracker, LLMCaller
-from market_data import DataManager, MockDataProvider
+from market_data import DataManager, DataSourceUnavailableError, MockDataProvider
 from invest.evolution import LLMOptimizer, StrategyEvolutionOptimizer, EvolutionEngine, YamlConfigMutator
 from invest.foundation import BenchmarkEvaluator, SimulatedTrader, StrategyEvaluator
 from invest.agents import (
@@ -94,6 +95,62 @@ def emit_event(event_type: str, data: dict):
             _event_callback(event_type, data)
         except Exception:
             pass
+
+
+def _call_with_compatible_signature(func: Callable[..., Any], *, preferred_kwargs: dict[str, Any], positional_args: tuple[Any, ...] = ()) -> Any:
+    try:
+        signature = inspect.signature(func)
+    except (TypeError, ValueError):
+        signature = None
+
+    if signature is None:
+        try:
+            return func(**preferred_kwargs)
+        except TypeError:
+            return func(*positional_args)
+
+    params = list(signature.parameters.values())
+    if any(param.kind == inspect.Parameter.VAR_KEYWORD for param in params):
+        return func(**preferred_kwargs)
+
+    accepted_kwargs = {
+        name: preferred_kwargs[name]
+        for name, param in signature.parameters.items()
+        if name in preferred_kwargs
+        and param.kind in (
+            inspect.Parameter.POSITIONAL_ONLY,
+            inspect.Parameter.POSITIONAL_OR_KEYWORD,
+            inspect.Parameter.KEYWORD_ONLY,
+        )
+    }
+    if accepted_kwargs:
+        return func(**accepted_kwargs)
+
+    if any(param.kind == inspect.Parameter.VAR_POSITIONAL for param in params):
+        return func(*positional_args)
+
+    positional_capacity = sum(
+        1 for param in params
+        if param.kind in (inspect.Parameter.POSITIONAL_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD)
+    )
+    if positional_capacity:
+        return func(*positional_args[:positional_capacity])
+
+    return func()
+
+
+def _default_training_diagnostics(cutoff_date: str, stock_count: int, min_history_days: int) -> dict[str, Any]:
+    return {
+        "cutoff_date": cutoff_date,
+        "target_stock_count": int(stock_count),
+        "min_history_days": int(min_history_days),
+        "eligible_stock_count": 0,
+        "ready": True,
+        "issues": [],
+        "suggestions": [],
+        "status": {},
+        "date_range": {},
+    }
 
 
 # ============================================================
@@ -163,6 +220,11 @@ class TrainingResult:
     params: Dict
     analysis: str = ""
     data_mode: str = "unknown"
+    requested_data_mode: str = "live"
+    effective_data_mode: str = "unknown"
+    llm_mode: str = "live"
+    degraded: bool = False
+    degrade_reason: str = ""
     selection_mode: str = "unknown"
     agent_used: bool = False
     llm_used: bool = False
@@ -174,6 +236,16 @@ class TrainingResult:
     audit_tags: Dict[str, Any] = field(default_factory=dict)
     model_name: str = "momentum"
     config_name: str = ""
+
+    def __post_init__(self) -> None:
+        if (not self.effective_data_mode or self.effective_data_mode == "unknown") and self.data_mode:
+            self.effective_data_mode = self.data_mode
+        if (not self.data_mode or self.data_mode == "unknown") and self.effective_data_mode:
+            self.data_mode = self.effective_data_mode
+        if self.requested_data_mode in {"", "unknown", "live"} and self.effective_data_mode == "mock":
+            self.requested_data_mode = "mock"
+        if not self.llm_mode:
+            self.llm_mode = "live"
 
 
 @dataclass
@@ -258,10 +330,12 @@ class SelfLearningController:
         self.risk_policy: Dict[str, Any] = {}
         self.evaluation_policy: Dict[str, Any] = {}
         self.data_manager      = DataManager(data_provider=data_provider)
+        self.requested_data_mode = getattr(self.data_manager, "requested_mode", "live")
         self.current_params: Dict[str, Any] = {}
 
         # Agent 团队 & 会议组件
         self.llm_caller = LLMCaller()
+        self.llm_mode = "dry_run" if bool(getattr(self.llm_caller, "dry_run", False)) else "live"
         
         self.agents = {
             "market_regime": MarketRegimeAgent(),
@@ -411,9 +485,10 @@ class SelfLearningController:
             if dry_run is not None and hasattr(llm, "dry_run"):
                 llm.dry_run = bool(dry_run)
 
-    def set_mock_mode(self, enabled: bool = True) -> None:
-        """统一切换 mock 训练相关的 LLM 调用模式。"""
+    def set_llm_dry_run(self, enabled: bool = True) -> None:
+        """统一切换 LLM 调用 dry-run 模式。"""
         dry_run = bool(enabled)
+        self.llm_mode = "dry_run" if dry_run else "live"
         if hasattr(self.llm_caller, "dry_run"):
             self.llm_caller.dry_run = dry_run
         for agent in self.agents.values():
@@ -424,6 +499,10 @@ class SelfLearningController:
             llm = getattr(component, "llm", None)
             if llm is not None and hasattr(llm, "dry_run"):
                 llm.dry_run = dry_run
+
+    def set_mock_mode(self, enabled: bool = True) -> None:
+        """兼容别名：mock mode 仅表示 LLM dry-run，不再代表数据源选择。"""
+        self.set_llm_dry_run(enabled)
 
     def _reload_investment_model(self, config_path: Optional[str] = None) -> None:
         if config_path:
@@ -775,18 +854,26 @@ class SelfLearningController:
             np.random.seed(seed_value % (2**32 - 1))
         cutoff_date = normalize_date(
             os.getenv("INVEST_FORCE_CUTOFF_DATE", "")
-            or self.data_manager.random_cutoff_date(
-                min_date=self.experiment_min_date or "20180101",
-                max_date=self.experiment_max_date,
+            or _call_with_compatible_signature(
+                self.data_manager.random_cutoff_date,
+                preferred_kwargs={
+                    "min_date": self.experiment_min_date or "20180101",
+                    "max_date": self.experiment_max_date,
+                },
             )
         )
         logger.info(f"截断日期: {cutoff_date}")
+
+        requested_data_mode = str(getattr(self, "requested_data_mode", getattr(self.data_manager, "requested_mode", "live")) or "live")
+        llm_mode = str(getattr(self, "llm_mode", "live") or "live")
 
         # 发射周期开始事件
         emit_event("cycle_start", {
             "cycle_id": cycle_id,
             "cutoff_date": cutoff_date,
             "phase": "cycle_start",
+            "requested_data_mode": requested_data_mode,
+            "llm_mode": llm_mode,
             "timestamp": datetime.now().isoformat()
         })
 
@@ -805,11 +892,30 @@ class SelfLearningController:
         self._emit_agent_status("DataLoader", "loading", f"正在加载 {cutoff_date} 的历史数据...", cycle_id=cycle_id, stage="data_loading", progress_pct=8, step=1, total_steps=6)
         self._emit_module_log("data_loading", "开始加载训练数据", f"截断日期 {cutoff_date}", cycle_id=cycle_id, kind="phase_start")
         min_history_days = max(30, int(self.experiment_min_history_days or getattr(config, "min_history_days", 200)))
-        diagnostics = self.data_manager.check_training_readiness(
-            cutoff_date=cutoff_date,
-            stock_count=config.max_stocks,
-            min_history_days=min_history_days,
-        )
+        diagnostic_kwargs = {
+            "cutoff_date": cutoff_date,
+            "stock_count": config.max_stocks,
+            "min_history_days": min_history_days,
+        }
+        diagnostic_order = ["check_training_readiness", "diagnose_training_data"]
+        if callable(getattr(self.data_manager, "__dict__", {}).get("diagnose_training_data")):
+            diagnostic_order = ["diagnose_training_data", "check_training_readiness"]
+
+        diagnostics: dict[str, Any] | None = None
+        for method_name in diagnostic_order:
+            method = getattr(self.data_manager, method_name, None)
+            if not callable(method):
+                continue
+            diagnostics = _call_with_compatible_signature(
+                method,
+                preferred_kwargs=diagnostic_kwargs,
+                positional_args=(cutoff_date, config.max_stocks, min_history_days),
+            )
+            if isinstance(diagnostics, dict):
+                break
+
+        if not isinstance(diagnostics, dict):
+            diagnostics = _default_training_diagnostics(cutoff_date, config.max_stocks, min_history_days)
         if not diagnostics.get("ready", False):
             logger.warning(
                 "训练前数据诊断: eligible=%s target=%s range=%s~%s issues=%s",
@@ -833,13 +939,49 @@ class SelfLearningController:
                 },
             )
 
-        stock_data = self.data_manager.load_stock_data(
-            cutoff_date,
-            stock_count=config.max_stocks,
-            min_history_days=min_history_days,
-            include_future_days=max(30, int(self.experiment_simulation_days or getattr(config, "simulation_days", 30))),
-        )
-        data_mode = getattr(self.data_manager, "last_source", "unknown")
+        try:
+            stock_data = self.data_manager.load_stock_data(
+                cutoff_date,
+                stock_count=config.max_stocks,
+                min_history_days=min_history_days,
+                include_future_days=max(30, int(self.experiment_simulation_days or getattr(config, "simulation_days", 30))),
+            )
+        except DataSourceUnavailableError as exc:
+            error_payload = exc.to_dict()
+            self.last_cycle_meta = {
+                "status": "error",
+                "cycle_id": cycle_id,
+                "cutoff_date": cutoff_date,
+                "stage": "data_loading",
+                "reason": error_payload["error"],
+                "error_code": error_payload["error_code"],
+                "requested_data_mode": requested_data_mode,
+                "effective_data_mode": "unavailable",
+                "llm_mode": llm_mode,
+                "degraded": True,
+                "degrade_reason": error_payload["error"],
+                "timestamp": datetime.now().isoformat(),
+            }
+            self._emit_module_log(
+                "data_loading",
+                "训练数据源不可用",
+                error_payload["error"],
+                cycle_id=cycle_id,
+                kind="data_source_unavailable",
+                level="error",
+                details=error_payload,
+                metrics={
+                    "requested_data_mode": requested_data_mode,
+                    "effective_data_mode": "unavailable",
+                },
+            )
+            raise
+
+        resolution = dict(getattr(self.data_manager, "last_resolution", {}) or {})
+        effective_data_mode = str(resolution.get("effective_data_mode") or getattr(self.data_manager, "last_source", "unknown") or "unknown")
+        degrade_reason = str(resolution.get("degrade_reason") or "")
+        degraded = bool(resolution.get("degraded", False))
+        data_mode = effective_data_mode
         self._emit_agent_status(
             "DataLoader",
             "completed",
@@ -849,15 +991,31 @@ class SelfLearningController:
             progress_pct=18,
             step=1,
             total_steps=6,
-            details={"data_mode": data_mode, "stock_count": len(stock_data)},
+            details={
+                "requested_data_mode": requested_data_mode,
+                "effective_data_mode": effective_data_mode,
+                "degraded": degraded,
+                "degrade_reason": degrade_reason,
+                "stock_count": len(stock_data),
+            },
         )
         self._emit_module_log(
             "data_loading",
             "数据加载完成",
-            f"数据源 {data_mode}，载入 {len(stock_data)} 只股票",
+            f"请求模式 {requested_data_mode}，实际数据源 {data_mode}，载入 {len(stock_data)} 只股票",
             cycle_id=cycle_id,
             kind="data_ready",
-            metrics={"stock_count": len(stock_data), "data_mode": data_mode},
+            details={
+                "requested_data_mode": requested_data_mode,
+                "effective_data_mode": effective_data_mode,
+                "degraded": degraded,
+                "degrade_reason": degrade_reason,
+            },
+            metrics={
+                "stock_count": len(stock_data),
+                "data_mode": data_mode,
+                "requested_data_mode": requested_data_mode,
+            },
         )
 
         if not stock_data:
@@ -871,6 +1029,11 @@ class SelfLearningController:
                 stage="data_loading",
                 reason="没有加载到可用训练数据",
                 suggestions=list(latest.get("suggestions", [])),
+                requested_data_mode=requested_data_mode,
+                effective_data_mode=effective_data_mode,
+                llm_mode=llm_mode,
+                degraded=degraded,
+                degrade_reason=degrade_reason,
             )
             return None
 
@@ -1109,6 +1272,11 @@ class SelfLearningController:
             "regime": regime_result.get("regime", "unknown"),
             "plan_source": trading_plan.source,
             "data_mode": data_mode,
+            "requested_data_mode": requested_data_mode,
+            "effective_data_mode": effective_data_mode,
+            "llm_mode": llm_mode,
+            "degraded": degraded,
+            "degrade_reason": degrade_reason,
             "selection_mode": selection_mode,
             "agent_used": agent_used,
             "llm_used": llm_used,
@@ -1238,6 +1406,11 @@ class SelfLearningController:
                 "model_name": getattr(model_output, "model_name", self.model_name) if 'model_output' in locals() else self.model_name,
                 "config_name": getattr(model_output, "config_name", self.model_name) if 'model_output' in locals() and model_output is not None else self.model_config_path,
                 "trade_count": len(trade_dicts),
+                "requested_data_mode": requested_data_mode,
+                "effective_data_mode": effective_data_mode,
+                "llm_mode": llm_mode,
+                "degraded": degraded,
+                "degrade_reason": degrade_reason,
             },
         )
         self.cycle_records.append(cycle_dict)
@@ -1305,6 +1478,11 @@ class SelfLearningController:
         config_snapshot_path = str(self.config_service.write_runtime_snapshot(cycle_id=cycle_id, output_dir=self.output_dir))
         audit_tags = {
             "data_mode": data_mode,
+            "requested_data_mode": requested_data_mode,
+            "effective_data_mode": effective_data_mode,
+            "llm_mode": llm_mode,
+            "degraded": degraded,
+            "degrade_reason": degrade_reason,
             "selection_mode": selection_mode,
             "meeting_fallback": False,
             "agent_used": agent_used,
@@ -1326,6 +1504,11 @@ class SelfLearningController:
             params=dict(self.current_params),
             analysis=review_decision.get("reasoning", ""),
             data_mode=data_mode,
+            requested_data_mode=requested_data_mode,
+            effective_data_mode=effective_data_mode,
+            llm_mode=llm_mode,
+            degraded=degraded,
+            degrade_reason=degrade_reason,
             selection_mode=selection_mode,
             agent_used=agent_used,
             llm_used=llm_used,
@@ -1347,6 +1530,11 @@ class SelfLearningController:
             "cycle_id": cycle_id,
             "cutoff_date": cutoff_date,
             "return_pct": sim_result.return_pct,
+            "requested_data_mode": requested_data_mode,
+            "effective_data_mode": effective_data_mode,
+            "llm_mode": llm_mode,
+            "degraded": degraded,
+            "degrade_reason": degrade_reason,
             "timestamp": datetime.now().isoformat(),
         }
         self._save_cycle_result(cycle_result)
@@ -1363,6 +1551,11 @@ class SelfLearningController:
             "final_value": sim_result.final_value,
             "review_applied": review_applied,
             "selection_mode": selection_mode,
+            "requested_data_mode": requested_data_mode,
+            "effective_data_mode": effective_data_mode,
+            "llm_mode": llm_mode,
+            "degraded": degraded,
+            "degrade_reason": degrade_reason,
             "timestamp": datetime.now().isoformat()
         })
         self._emit_module_log(
@@ -1375,6 +1568,11 @@ class SelfLearningController:
                 "selected_stocks": selected[:10],
                 "trade_count": len(trade_dicts),
                 "review_applied": review_applied,
+                "requested_data_mode": requested_data_mode,
+                "effective_data_mode": effective_data_mode,
+                "llm_mode": llm_mode,
+                "degraded": degraded,
+                "degrade_reason": degrade_reason,
             },
             metrics={
                 "return_pct": sim_result.return_pct,
@@ -1543,6 +1741,11 @@ class SelfLearningController:
             "trades": _jsonable(result.trade_history),
             "analysis": result.analysis,
             "data_mode": result.data_mode,
+            "requested_data_mode": result.requested_data_mode,
+            "effective_data_mode": result.effective_data_mode,
+            "llm_mode": result.llm_mode,
+            "degraded": _bool(result.degraded),
+            "degrade_reason": result.degrade_reason,
             "selection_mode": result.selection_mode,
             "agent_used": _bool(result.agent_used),
             "llm_used": _bool(result.llm_used),
@@ -1653,7 +1856,7 @@ def train_main():
             freeze_profit_required=args.freeze_m,
             data_provider=mock_provider,
         )
-        controller.set_mock_mode(True)
+        controller.set_llm_dry_run(True)
 
     report = controller.run_continuous(max_cycles=args.cycles)
     logger.info(f"\n训练完成: {report}")

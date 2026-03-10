@@ -1,0 +1,313 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.local/frontend-api-contract.v1.schema.json",
+  "title": "Frontend API Contract V1",
+  "type": "object",
+  "properties": {
+    "contract_id": {
+      "type": "string",
+      "const": "frontend-v1"
+    },
+    "version": {
+      "type": "string"
+    },
+    "published_at": {
+      "type": "string"
+    },
+    "api_base": {
+      "type": "string"
+    },
+    "frontend_shell_mount": {
+      "type": "string"
+    },
+    "legacy_shell_mount": {
+      "type": "string"
+    },
+    "contract_endpoint": {
+      "type": "string"
+    },
+    "goals": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "compatibility": {
+      "type": "object",
+      "additionalProperties": {
+        "type": [
+          "string",
+          "boolean",
+          "number",
+          "null"
+        ]
+      }
+    },
+    "frontend_preferred_flows": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      }
+    },
+    "components": {
+      "type": "object",
+      "properties": {
+        "error_schemas": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object"
+          }
+        },
+        "schemas": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object"
+          }
+        },
+        "sse_schemas": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object"
+          }
+        }
+      },
+      "required": [
+        "error_schemas",
+        "schemas",
+        "sse_schemas"
+      ],
+      "additionalProperties": false
+    },
+    "sse": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "content_type": {
+          "type": "string"
+        },
+        "protocol": {
+          "type": "object",
+          "additionalProperties": true
+        },
+        "event_refs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "path",
+        "content_type",
+        "protocol",
+        "event_refs"
+      ],
+      "additionalProperties": false
+    },
+    "endpoints": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "group": {
+            "type": "string"
+          },
+          "method": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "summary": {
+            "type": "string"
+          },
+          "runtime_required": {
+            "type": "boolean"
+          },
+          "frontend_preferred": {
+            "type": "boolean"
+          },
+          "replacement": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "query_params": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "type": {
+                  "type": "string"
+                },
+                "required": {
+                  "type": "boolean"
+                },
+                "default": {},
+                "enum": {
+                  "type": "array",
+                  "items": {}
+                },
+                "description": {
+                  "type": "string"
+                },
+                "items": {
+                  "type": "object"
+                }
+              },
+              "required": [
+                "name",
+                "type"
+              ],
+              "additionalProperties": true
+            }
+          },
+          "path_params": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "type": {
+                  "type": "string"
+                },
+                "required": {
+                  "type": "boolean"
+                },
+                "default": {},
+                "enum": {
+                  "type": "array",
+                  "items": {}
+                },
+                "description": {
+                  "type": "string"
+                },
+                "items": {
+                  "type": "object"
+                }
+              },
+              "required": [
+                "name",
+                "type"
+              ],
+              "additionalProperties": true
+            }
+          },
+          "request_body": {
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "success": {
+            "type": "object",
+            "properties": {
+              "http_status": {
+                "type": "integer"
+              },
+              "body_ref": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "http_status",
+              "body_ref"
+            ],
+            "additionalProperties": true
+          },
+          "errors": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "http_status": {
+                  "type": "integer"
+                },
+                "body_ref": {
+                  "type": "string"
+                },
+                "cases": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              },
+              "required": [
+                "http_status",
+                "body_ref",
+                "cases"
+              ],
+              "additionalProperties": true
+            }
+          },
+          "latency": {
+            "type": "string"
+          },
+          "pagination": {
+            "type": "string"
+          },
+          "realtime": {
+            "type": "boolean"
+          },
+          "notes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "id",
+          "group",
+          "method",
+          "path",
+          "summary",
+          "runtime_required",
+          "frontend_preferred",
+          "replacement",
+          "query_params",
+          "path_params",
+          "request_body",
+          "success",
+          "errors",
+          "latency",
+          "pagination",
+          "realtime",
+          "notes"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": [
+    "contract_id",
+    "version",
+    "published_at",
+    "api_base",
+    "frontend_shell_mount",
+    "legacy_shell_mount",
+    "contract_endpoint",
+    "goals",
+    "compatibility",
+    "frontend_preferred_flows",
+    "components",
+    "sse",
+    "endpoints"
+  ],
+  "additionalProperties": false
+}

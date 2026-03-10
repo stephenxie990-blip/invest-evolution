@@ -36,7 +36,7 @@ from brain.bridge import BridgeHub, BridgeMessage
 from brain.plugins import PluginLoader
 from config import PROJECT_ROOT, RUNTIME_DIR, OUTPUT_DIR, LOGS_DIR, MEMORY_DIR, SESSIONS_DIR, WORKSPACE_DIR, config
 from config.services import EvolutionConfigService, RuntimePathConfigService
-from market_data import DataManager, MockDataProvider
+from market_data import DataManager, DataSourceUnavailableError, MockDataProvider
 from app.train import SelfLearningController, TrainingResult
 from app.lab.artifacts import TrainingLabArtifactStore
 from app.lab.evaluation import (
@@ -554,9 +554,7 @@ class InvestmentBodyService:
     def __init__(self, cfg: CommanderConfig, on_runtime_event: Optional[callable] = None):
         self.cfg = cfg
         self._runtime_event_sink = on_runtime_event
-        self._mock_provider: Optional[MockDataProvider] = None
-        if cfg.mock_mode:
-            self._mock_provider = _build_mock_provider()
+        self._mock_provider: Optional[MockDataProvider] = _build_mock_provider() if cfg.mock_mode else None
         self.controller = SelfLearningController(
             data_provider=self._mock_provider,
             output_dir=str(self.cfg.training_output_dir),
@@ -564,6 +562,8 @@ class InvestmentBodyService:
             config_audit_log_path=str(self.cfg.config_audit_log_path),
             config_snapshot_dir=str(self.cfg.config_snapshot_dir),
         )
+        self._real_data_manager = self.controller.data_manager if not cfg.mock_mode else DataManager()
+        self._mock_data_manager: Optional[DataManager] = self.controller.data_manager if cfg.mock_mode else None
         self._lock = asyncio.Lock()
         self._stop_event = asyncio.Event()
 
@@ -609,6 +609,51 @@ class InvestmentBodyService:
             return "completed_with_skips"
         return "completed"
 
+    def _get_mock_data_manager(self) -> DataManager:
+        if self._mock_provider is None:
+            self._mock_provider = _build_mock_provider()
+        if self._mock_data_manager is None:
+            self._mock_data_manager = DataManager(data_provider=self._mock_provider)
+        return self._mock_data_manager
+
+    def _activate_run_mode(self, *, force_mock: bool) -> str:
+        active_mock = bool(force_mock or self.cfg.mock_mode)
+        if active_mock:
+            self.controller.data_manager = self._get_mock_data_manager()
+            self.controller.requested_data_mode = "mock"
+            self.controller.set_llm_dry_run(True)
+            return "mock"
+        self.controller.data_manager = self._real_data_manager
+        self.controller.requested_data_mode = getattr(self._real_data_manager, "requested_mode", "live")
+        self.controller.set_llm_dry_run(False)
+        return str(self.controller.requested_data_mode)
+
+    @staticmethod
+    def _extract_data_source_error(payload: dict[str, Any]) -> dict[str, Any] | None:
+        results = list(payload.get("results") or [])
+        if not results:
+            return None
+        errors = [item for item in results if item.get("status") == "error" and item.get("error_code") == DataSourceUnavailableError.error_code]
+        if len(errors) != len(results):
+            return None
+        first = dict(errors[0])
+        nested = first.get("error_payload")
+        if isinstance(nested, dict):
+            return dict(nested)
+        return {
+            "error": str(first.get("error") or "训练数据源不可用"),
+            "error_code": DataSourceUnavailableError.error_code,
+            "cutoff_date": first.get("cutoff_date"),
+            "stock_count": first.get("stock_count"),
+            "min_history_days": first.get("min_history_days"),
+            "requested_data_mode": first.get("requested_data_mode", "live"),
+            "available_sources": first.get("available_sources", {}),
+            "offline_diagnostics": first.get("offline_diagnostics", {}),
+            "online_error": first.get("online_error", ""),
+            "suggestions": first.get("suggestions", []),
+            "allow_mock_fallback": first.get("allow_mock_fallback", False),
+        }
+
     async def run_cycles(
         self,
         rounds: int = 1,
@@ -623,11 +668,7 @@ class InvestmentBodyService:
                 "summary": self.snapshot(),
             }
 
-        if force_mock and self._mock_provider is None:
-            self._mock_provider = _build_mock_provider()
-            self.controller.data_manager = DataManager(data_provider=self._mock_provider)
-            self.controller.set_mock_mode(True)
-
+        requested_data_mode = self._activate_run_mode(force_mock=force_mock)
         rounds = max(1, int(rounds))
         results: list[dict[str, Any]] = []
         task_started_at = datetime.now().isoformat()
@@ -637,6 +678,8 @@ class InvestmentBodyService:
             "source": task_source,
             "rounds": rounds,
             "force_mock": bool(force_mock),
+            "requested_data_mode": requested_data_mode,
+            "llm_mode": str(getattr(self.controller, "llm_mode", "live") or "live"),
             "started_at": task_started_at,
             "experiment_spec": _jsonable(dict(experiment_spec or {})),
         }
@@ -661,6 +704,12 @@ class InvestmentBodyService:
                                 "cutoff_date": meta.get("cutoff_date"),
                                 "stage": meta.get("stage"),
                                 "reason": meta.get("reason"),
+                                "requested_data_mode": meta.get("requested_data_mode", requested_data_mode),
+                                "effective_data_mode": meta.get("effective_data_mode"),
+                                "data_mode": meta.get("effective_data_mode") or meta.get("data_mode"),
+                                "llm_mode": meta.get("llm_mode", getattr(self.controller, "llm_mode", "live")),
+                                "degraded": bool(meta.get("degraded", False)),
+                                "degrade_reason": meta.get("degrade_reason", ""),
                                 "timestamp": meta.get("timestamp", self.last_run_at),
                                 "artifacts": self._artifact_paths_for_cycle(cycle_id),
                             }
@@ -671,18 +720,56 @@ class InvestmentBodyService:
                         results.append(item)
                     except Exception as exc:
                         self.failed_cycles += 1
-                        self.last_error = str(exc)
-                        cycle_id = self.controller.current_cycle_id + 1
-                        item = {
-                            "status": "error",
-                            "cycle_id": cycle_id,
-                            "error": str(exc),
-                            "timestamp": self.last_run_at,
-                            "artifacts": self._artifact_paths_for_cycle(cycle_id),
-                        }
+                        cycle_meta = dict(getattr(self.controller, "last_cycle_meta", {}) or {})
+                        cycle_id = cycle_meta.get("cycle_id", self.controller.current_cycle_id + 1)
+                        if isinstance(exc, DataSourceUnavailableError):
+                            error_payload = exc.to_dict()
+                            self.last_error = error_payload["error"]
+                            item = {
+                                "status": "error",
+                                "cycle_id": cycle_id,
+                                "cutoff_date": cycle_meta.get("cutoff_date") or error_payload.get("cutoff_date"),
+                                "stage": cycle_meta.get("stage", "data_loading"),
+                                "error": error_payload["error"],
+                                "error_code": error_payload["error_code"],
+                                "error_payload": error_payload,
+                                "requested_data_mode": error_payload.get("requested_data_mode", requested_data_mode),
+                                "effective_data_mode": "unavailable",
+                                "data_mode": "unavailable",
+                                "llm_mode": cycle_meta.get("llm_mode", getattr(self.controller, "llm_mode", "live")),
+                                "degraded": True,
+                                "degrade_reason": error_payload["error"],
+                                "stock_count": error_payload.get("stock_count"),
+                                "min_history_days": error_payload.get("min_history_days"),
+                                "available_sources": error_payload.get("available_sources"),
+                                "offline_diagnostics": error_payload.get("offline_diagnostics"),
+                                "online_error": error_payload.get("online_error"),
+                                "suggestions": error_payload.get("suggestions"),
+                                "allow_mock_fallback": error_payload.get("allow_mock_fallback"),
+                                "timestamp": self.last_run_at,
+                                "artifacts": self._artifact_paths_for_cycle(cycle_id),
+                            }
+                            logger.warning("Commander body cycle failed due to unavailable data source")
+                        else:
+                            self.last_error = str(exc)
+                            item = {
+                                "status": "error",
+                                "cycle_id": cycle_id,
+                                "cutoff_date": cycle_meta.get("cutoff_date"),
+                                "stage": cycle_meta.get("stage"),
+                                "error": str(exc),
+                                "requested_data_mode": cycle_meta.get("requested_data_mode", requested_data_mode),
+                                "effective_data_mode": cycle_meta.get("effective_data_mode"),
+                                "data_mode": cycle_meta.get("effective_data_mode") or cycle_meta.get("data_mode"),
+                                "llm_mode": cycle_meta.get("llm_mode", getattr(self.controller, "llm_mode", "live")),
+                                "degraded": bool(cycle_meta.get("degraded", False)),
+                                "degrade_reason": cycle_meta.get("degrade_reason", ""),
+                                "timestamp": self.last_run_at,
+                                "artifacts": self._artifact_paths_for_cycle(cycle_id),
+                            }
+                            logger.exception("Commander body cycle failed")
                         self.last_result = item
                         results.append(item)
-                        logger.exception("Commander body cycle failed")
         finally:
             run_status = self._derive_run_status(results)
             self.training_state = "idle"
@@ -776,6 +863,11 @@ class InvestmentBodyService:
             "analysis": (result.analysis or "")[:400],
             "params": result.params,
             "data_mode": result.data_mode,
+            "requested_data_mode": result.requested_data_mode,
+            "effective_data_mode": result.effective_data_mode,
+            "llm_mode": result.llm_mode,
+            "degraded": result.degraded,
+            "degrade_reason": result.degrade_reason,
             "selection_mode": result.selection_mode,
             "agent_used": result.agent_used,
             "llm_used": result.llm_used,
@@ -1271,11 +1363,22 @@ class CommanderRuntime:
             f"训练记录 | status={status} | rounds={rounds} | mock={'true' if mock else 'false'} | "
             f"成功={summary['success_count']} | 跳过={summary['skipped_count']} | 失败={summary['error_count']}"
         )
+        requested_modes = list(summary.get("requested_data_modes") or [])
+        effective_modes = list(summary.get("effective_data_modes") or [])
+        llm_modes = list(summary.get("llm_modes") or [])
         if summary.get("avg_return_pct") is not None:
             summary_line += f" | 平均收益={summary['avg_return_pct']:+.2f}%"
         cycle_ids = list(summary.get("cycle_ids") or [])
         if cycle_ids:
             summary_line += f" | 周期={','.join(str(x) for x in cycle_ids)}"
+        if requested_modes:
+            summary_line += f" | 请求模式={','.join(requested_modes)}"
+        if effective_modes:
+            summary_line += f" | 实际模式={','.join(effective_modes)}"
+        if llm_modes:
+            summary_line += f" | LLM={','.join(llm_modes)}"
+        if summary.get("degraded_count"):
+            summary_line += f" | degraded={summary['degraded_count']}"
         if error:
             summary_line += f" | error={error}"
 
@@ -1341,6 +1444,9 @@ class CommanderRuntime:
             except (TypeError, ValueError):
                 run_cycles_kwargs["experiment_spec"] = experiment_spec
             out = await self.body.run_cycles(**run_cycles_kwargs)
+            data_error = self.body._extract_data_source_error(out)
+            if data_error is not None:
+                raise DataSourceUnavailableError.from_payload(data_error)
             status = str(out.get("status", "ok"))
             lab = self._record_training_lab_artifacts(plan=plan, payload=out, status=status)
             out["training_lab"] = {

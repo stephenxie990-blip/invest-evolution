@@ -1,8 +1,6 @@
-import json
 import logging
-import re
 from dataclasses import dataclass, field
-from typing import Dict, List
+from typing import Callable, Dict, List
 
 import numpy as np
 
@@ -185,11 +183,15 @@ class LLMPromptBuilder:
 class LLMAnalyzer:
     """
     LLM分析器
+
+    仅负责把结构化回测结果交给外部注入的 LLM 调用器。
+    若未注入调用器，则安全降级为默认分析结果，不再返回仓库内置 mock 响应。
     """
 
-    def __init__(self, model: str = "gpt-4"):
+    def __init__(self, model: str = "gpt-4", llm_callable: Callable[[str], str] | None = None):
         self.model = model
         self.prompt_builder = LLMPromptBuilder()
+        self.llm_callable = llm_callable
 
     def analyze(
         self,
@@ -220,52 +222,27 @@ class LLMAnalyzer:
 
         logger.info("正在调用LLM分析...")
 
-        # 调用LLM（这里需要实际API调用）
-        response = self._call_llm(prompt)
+        try:
+            response = self._call_llm(prompt)
+        except Exception as exc:
+            logger.warning("LLMAnalyzer 未配置或调用失败，回退默认分析结果: %s", exc)
+            return self._default_result(
+                suggestions=[f"LLM 分析不可用，已回退默认建议: {exc}"],
+            )
 
-        # 解析结果
-        result = self._parse_response(response)
-
-        return result
+        return self._parse_response(response)
 
     def _call_llm(self, prompt: str) -> str:
-        """
-        调用LLM
+        """调用注入的 LLM 适配器。"""
+        logger.info("提示词长度: %s 字符", len(prompt))
 
-        这里应该调用实际的LLM API
-        暂时返回模拟响应
-        """
-        logger.info("提示词长度: {} 字符".format(len(prompt)))
+        if self.llm_callable is None:
+            raise RuntimeError("llm_callable is not configured")
 
-        # TODO: 实际调用LLM API
-        # 示例使用OpenAI:
-        # response = openai.ChatCompletion.create(
-        #     model=self.model,
-        #     messages=[{"role": "user", "content": prompt}]
-        # )
-        # return response.choices[0].message.content
-
-        return self._mock_response()
-
-    def _mock_response(self) -> str:
-        """模拟LLM响应"""
-        return json.dumps({
-            "factor_adjustments": {
-                "momentum_weight": 0.12,
-                "rsi_weight": 0.15,
-                "reversal_weight": 0.08
-            },
-            "stop_loss_suggestion": 0.06,
-            "take_profit_suggestion": 0.12,
-            "position_size_suggestion": 0.15,
-            "market_regime": "bear",
-            "confidence": 0.7,
-            "suggestions": [
-                "降低动量因子权重，增加RSI权重",
-                "将止损从5%调整到6%以减少频繁触发",
-                "在熊市环境下建议降低仓位到15%"
-            ]
-        }, ensure_ascii=False)
+        response = self.llm_callable(prompt)
+        if not isinstance(response, str) or not response.strip():
+            raise ValueError("llm_callable must return a non-empty string")
+        return response
 
     def _parse_response(self, response: str) -> LLMAnalysisResult:
         """解析LLM响应"""
@@ -285,7 +262,7 @@ class LLMAnalyzer:
             raw_response=response,
         )
 
-    def _default_result(self) -> LLMAnalysisResult:
+    def _default_result(self, suggestions: List[str] | None = None, raw_response: str = "") -> LLMAnalysisResult:
         """默认结果"""
         return LLMAnalysisResult(
             factor_adjustments={},
@@ -294,7 +271,8 @@ class LLMAnalyzer:
             position_size_suggestion=0.2,
             market_regime="neutral",
             confidence=0.5,
-            suggestions=[],
+            suggestions=list(suggestions or []),
+            raw_response=raw_response,
         )
 
 

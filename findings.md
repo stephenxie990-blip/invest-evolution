@@ -1,34 +1,34 @@
-# Findings（2026-03-10 全量审查）
+# Findings（实施阶段，2026-03-10）
 
-## 总体评价
-- 这是一个“已经完成一次较大重构收口”的项目，而不是早期原型。
-- 代码中能看到明确的 V2 分层思路、导入边界约束、配置审计、训练实验产物沉淀与较广覆盖的测试体系。
-- 当前最主要的风险来自“重构后兼容层和局部契约没有收尾干净”。
+## P0 根因
+- 根目录兼容壳是星号导入，不是模块别名；测试和 monkeypatch 无法命中私有状态。
+- 训练控制器默认走新签名，但旧测试仍通过实例级 monkeypatch 覆盖 `random_cutoff_date()` 和 `diagnose_training_data()`。
+- `_recover_hunter_result()` 收缩签名后，遗留测试和旧调用仍传默认止损/止盈参数。
+- 旧 `static/index.html` 已不再是产品化训练中心，测试职责应降级为壳层与迁移入口。
 
-## 主要优点
-- `app/` / `brain/` / `market_data/` / `invest/` 分层基本清晰。
-- `market_data/repository.py` 建立了统一 canonical SQLite schema，扩展表也已纳入同一仓储。
-- `config/services.py` 对配置变更提供审计日志和快照，审计性较强。
-- `brain/runtime.py` 与 `app/llm_gateway.py` 统一了 LLM 出口和 tool-calling 框架。
-- `SelectionMeeting` / `ReviewMeeting` 已形成“选股 → 复盘 → 反思”协同闭环。
-- 项目自带大量结构和契约测试，说明团队在主动约束架构演化。
+## P0 实施决策
+- 根壳统一改为真正的 `sys.modules` 别名导出。
+- 训练控制器引入兼容调用 helper，根据函数签名和实例级覆写自动选择调用方式。
+- Hunter 恢复函数接受旧参数但保持当前角色边界，不恢复 execution params 输出。
+- 旧页新增 `/app` 与 `/api/contracts/frontend-v1` 入口卡片，并把 DOM 测试改为壳层契约。
 
-## 关键问题
-- 根目录 `web_server.py` 只是 `from app.web_server import *`，不会导出 `_runtime`、`_event_buffer`、`_data_download_running` 等私有状态，导致兼容层不是“真实别名”。
-- `app/train.py` 中 `run_training_cycle()` 直接依赖 `random_cutoff_date(min_date=..., max_date=...)` 和 `check_training_readiness()`，与旧的 monkeypatch / 适配习惯发生漂移。
-- `invest/agents/hunters.py` 中 `_recover_hunter_result()` 签名收缩，但测试仍按旧签名调用，说明 refactor 没有完成契约收尾。
-- `static/index.html` 当前训练中心较简化，缺少项目测试要求的 Agent 总览、时间线过滤、策略差异对比等产品化元素。
-- `invest/evolution/analyzers.py` 暴露未接实网 LLM 的 mock 实现，且仓库内未见真实调用，属于残留死代码风险。
+## 前端升级阶段发现（Sprint 1 已启动）
+- 新前端可以在不依赖旧 `static/index.html` 的前提下独立组织页面与状态流。
+- `/app` 挂载约定已经足够支撑独立 SPA，不需要再向 Flask 模板层追加业务逻辑。
+- 契约驱动最适合先从 `status`、`training_lab`、`runtime_paths`、`evolution_config`、`events` 这几组接口切入。
+- 当前最合理的推进顺序仍然是：脚手架/SDK → 训练中心 → 仪表盘 → 配置/数据 → 模型/策略。
 
-## 验证结果
-- `./.venv/bin/python -m pytest -q`：失败 16 例，问题主要集中在兼容壳、接口漂移、前端语义回退。
-- `./.venv/bin/python -m compileall app brain invest market_data config`：通过。
-- `ruff`：虚拟环境未安装，未能执行 lint。
 
-## 工作区备注
-- 当前工作区存在一个与本次审查无关的未提交变更：`data/evolution/generations/momentum_v1_test_candidate.json` 仅时间戳变化。
+## Wave 2 实施结论
+- `invest/evolution/analyzers.py` 里的 mock LLM 路径已被移除，避免未来误把“示例返回”当生产逻辑。
+- 前端契约已经同时具备机器可读 JSON 和人类可读台账，便于后续按页面与 subagent 分工。
+- `frontend/` 已可独立 `npm run build`，说明 `/app` 路线具备继续产品化演进的工程基础。
 
-## 新增发现：组织与执行层
-- 当前项目最需要的是“工程收口作战编制”，不是继续做零散修补。
-- 修复任务天然适合拆为：兼容层 / 训练主链 / 前后端契约 / 数据与观测 / 清理与治理 五条并行泳道。
-- 最好的执行方式不是单 agent 线性修复，而是“一个主调度 + 多个窄职责 subagent + 统一评审门禁”。
+- 训练中心最适合先做 master-detail：列表层消费 artifactList，详情层按 id 单独拉取，能明显降低大 JSON 一次性渲染的耦合。
+- Playwright 冒烟最稳妥的方式是通过 `page.route()` 拦截 `/api/*`，避免被真实运行时和数据状态影响。
+
+
+## Wave 3 实施结论
+- 前端契约现在同时具备主合同、JSON Schema、OpenAPI 三种机器可读形态，适合前端、测试和工具链协作。
+- 原先依赖旧训练页 DOM 的“Agent 总览 / 时间线 / speech cards”语义，已转移到 SSE 事件与控制器发射行为的 API 契约测试。
+- `/app` 前端开始在运行时入口就校验 SSE 契约，后续产品化页面可以建立在稳定事件模型上。

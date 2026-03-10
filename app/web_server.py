@@ -31,6 +31,7 @@ from invest.models import list_models
 from app.train import set_event_callback
 from config.services import EvolutionConfigService, RuntimePathConfigService
 from invest.meetings import MeetingRecorder
+from market_data import DataSourceUnavailableError
 
 logger = logging.getLogger(__name__)
 
@@ -119,6 +120,10 @@ def _run_async(coro: Any) -> Any:
     return future.result(timeout=300)
 
 
+def _data_source_unavailable_response(exc: DataSourceUnavailableError):
+    return jsonify(exc.to_dict()), 503
+
+
 _TRUE_VALUES = {"1", "true", "t", "yes", "y", "on"}
 _FALSE_VALUES = {"0", "false", "f", "no", "n", "off"}
 
@@ -175,6 +180,8 @@ def _parse_limit_arg(default: int = 20, maximum: int = 200) -> int:
 
 _CONTRACTS_DIR = Path(__file__).parent.parent / "docs" / "contracts"
 _FRONTEND_API_CONTRACT_V1_PATH = _CONTRACTS_DIR / "frontend-api-contract.v1.json"
+_FRONTEND_API_CONTRACT_V1_SCHEMA_PATH = _CONTRACTS_DIR / "frontend-api-contract.v1.schema.json"
+_FRONTEND_API_CONTRACT_V1_OPENAPI_PATH = _CONTRACTS_DIR / "frontend-api-contract.v1.openapi.json"
 _FRONTEND_DIST_DIR = Path(__file__).parent.parent / "frontend" / "dist"
 
 
@@ -234,6 +241,24 @@ def api_contracts():
             "source_path": str(_FRONTEND_API_CONTRACT_V1_PATH),
             "shell_mount": "/app",
         })
+    if _FRONTEND_API_CONTRACT_V1_SCHEMA_PATH.exists():
+        items.append({
+            "id": "frontend-v1-schema",
+            "format": "json-schema",
+            "kind": "frontend-api-contract-derivative",
+            "path": "/api/contracts/frontend-v1/schema",
+            "source_path": str(_FRONTEND_API_CONTRACT_V1_SCHEMA_PATH),
+            "shell_mount": "/app",
+        })
+    if _FRONTEND_API_CONTRACT_V1_OPENAPI_PATH.exists():
+        items.append({
+            "id": "frontend-v1-openapi",
+            "format": "openapi+json",
+            "kind": "frontend-api-contract-derivative",
+            "path": "/api/contracts/frontend-v1/openapi",
+            "source_path": str(_FRONTEND_API_CONTRACT_V1_OPENAPI_PATH),
+            "shell_mount": "/app",
+        })
     return jsonify({"count": len(items), "items": items})
 
 
@@ -245,6 +270,28 @@ def api_contract_frontend_v1():
         return jsonify({"error": "frontend contract not found"}), 404
     except Exception as exc:
         logger.exception("Failed to load frontend API contract")
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.route("/api/contracts/frontend-v1/schema")
+def api_contract_frontend_v1_schema():
+    try:
+        return jsonify(_load_contract_document(_FRONTEND_API_CONTRACT_V1_SCHEMA_PATH))
+    except FileNotFoundError:
+        return jsonify({"error": "frontend contract schema not found"}), 404
+    except Exception as exc:
+        logger.exception("Failed to load frontend API contract schema")
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.route("/api/contracts/frontend-v1/openapi")
+def api_contract_frontend_v1_openapi():
+    try:
+        return jsonify(_load_contract_document(_FRONTEND_API_CONTRACT_V1_OPENAPI_PATH))
+    except FileNotFoundError:
+        return jsonify({"error": "frontend contract openapi not found"}), 404
+    except Exception as exc:
+        logger.exception("Failed to load frontend API contract openapi")
         return jsonify({"error": str(exc)}), 500
 
 
@@ -356,12 +403,15 @@ def api_train():
     except (TypeError, ValueError):
         return jsonify({"error": "rounds must be an integer"}), 400
     try:
-        mock = _parse_bool(data.get("mock", True), "mock")
+        mock = _parse_bool(data.get("mock", False), "mock")
     except ValueError as exc:
         return jsonify({"error": str(exc)}), 400
     try:
         result = _run_async(runtime.train_once(rounds=rounds, mock=mock))
         return jsonify(result)
+    except DataSourceUnavailableError as exc:
+        logger.warning("Train data source unavailable: %s", exc)
+        return _data_source_unavailable_response(exc)
     except Exception as exc:
         logger.exception("Train error")
         return jsonify({"error": str(exc)}), 500
@@ -446,6 +496,9 @@ def api_training_plan_execute(plan_id: str):
         return jsonify(payload)
     except FileNotFoundError as exc:
         return jsonify({"error": str(exc)}), 404
+    except DataSourceUnavailableError as exc:
+        logger.warning("Training plan execution data source unavailable: %s", exc)
+        return _data_source_unavailable_response(exc)
     except Exception as exc:
         logger.exception("Training plan execution error")
         return jsonify({"error": str(exc)}), 500

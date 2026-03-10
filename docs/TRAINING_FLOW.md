@@ -6,12 +6,13 @@
 
 ### 1.1 直接训练
 
-- `python3 train.py --cycles 20`
-- `python3 train.py --cycles 5 --mock`
+- `python3 train.py --cycles 20`（真实数据 / 离线库默认路径）
+- `python3 train.py --cycles 5 --mock`（显式 smoke/demo 模式）
 
 ### 1.2 通过 Commander 训练
 
-- `python3 commander.py train-once --rounds 1 --mock`
+- `python3 commander.py train-once --rounds 1`（真实数据默认路径）
+- `python3 commander.py train-once --rounds 1 --mock`（显式 smoke/demo 模式）
 - 或创建 plan 后执行 `/api/lab/training/plans/<plan_id>/execute`
 
 这两种入口最终都会汇到：

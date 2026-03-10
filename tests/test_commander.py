@@ -484,3 +484,60 @@ def test_invest_status_tool_is_marked_as_compat_alias():
     assert tool.name == "invest_status"
     assert "Deprecated compatibility alias" in tool.description
     assert "invest_quick_status" in tool.description
+
+
+
+def test_run_cycles_switches_back_to_real_data_manager_after_mock_run(tmp_path):
+    import asyncio
+
+    from app.commander import CommanderConfig, InvestmentBodyService
+    from app.train import TrainingResult
+
+    cfg = CommanderConfig(
+        workspace=tmp_path / 'workspace',
+        strategy_dir=tmp_path / 'strategies',
+        state_file=tmp_path / 'state' / 'state.json',
+        cron_store=tmp_path / 'state' / 'cron.json',
+        memory_store=tmp_path / 'memory' / 'memory.jsonl',
+        plugin_dir=tmp_path / 'plugins',
+        bridge_inbox=tmp_path / 'inbox',
+        bridge_outbox=tmp_path / 'outbox',
+        training_output_dir=tmp_path / 'training',
+        meeting_log_dir=tmp_path / 'meetings',
+        config_audit_log_path=tmp_path / 'audit' / 'changes.jsonl',
+        config_snapshot_dir=tmp_path / 'snapshots',
+        training_lock_file=tmp_path / 'state' / 'training.lock',
+        mock_mode=False,
+        autopilot_enabled=False,
+        heartbeat_enabled=False,
+        bridge_enabled=False,
+    )
+    body = InvestmentBodyService(cfg)
+    real_manager = body._real_data_manager
+
+    def _result(mode: str) -> TrainingResult:
+        return TrainingResult(
+            cycle_id=1,
+            cutoff_date='20240101',
+            selected_stocks=['sh.600000'],
+            initial_capital=100000,
+            final_value=101000,
+            return_pct=1.0,
+            is_profit=True,
+            trade_history=[],
+            params={},
+            data_mode=mode,
+            requested_data_mode='mock' if mode == 'mock' else 'live',
+            effective_data_mode=mode,
+            llm_mode='dry_run' if mode == 'mock' else 'live',
+        )
+
+    body.controller.run_training_cycle = lambda: _result('mock')
+    asyncio.run(body.run_cycles(rounds=1, force_mock=True))
+    assert body.controller.data_manager is body._mock_data_manager
+    assert body.controller.llm_mode == 'dry_run'
+
+    body.controller.run_training_cycle = lambda: _result('offline')
+    asyncio.run(body.run_cycles(rounds=1, force_mock=False))
+    assert body.controller.data_manager is real_manager
+    assert body.controller.llm_mode == 'live'

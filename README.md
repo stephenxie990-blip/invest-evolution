@@ -89,32 +89,47 @@ python3 -m market_data --source baostock --intraday-60m --start 20230101 --stock
 ### 3. 运行 Commander
 
 ```bash
-# 推荐用兼容脚本
+# 推荐先走真实数据 / 离线库路径
 python3 commander.py status --detail fast
 python3 commander.py strategies --reload
-python3 commander.py train-once --rounds 1 --mock
+python3 commander.py train-once --rounds 1
 python3 commander.py run --interactive
+
+# 显式 smoke / demo 模式（mock 数据 + dry-run LLM）
+python3 commander.py train-once --rounds 1 --mock
 
 # 等价 console script
 invest-commander status --detail fast
+invest-commander train-once --rounds 1
 invest-commander train-once --rounds 1 --mock
 ```
 
 ### 4. 直接跑训练
 
 ```bash
-python3 train.py --cycles 5 --mock
+# 正式训练默认使用真实数据链路
+python3 train.py --cycles 5
+
+# 显式 smoke / demo 模式
+python3 train.py --cycles 1 --mock
 
 # 等价 console script
-invest-train --cycles 5 --mock
+invest-train --cycles 5
+invest-train --cycles 1 --mock
 ```
 
 ### 5. 启动 Web 控制台
 
 ```bash
+# 默认 Web API 走真实数据模式（mock=false）
+python3 web_server.py
+
+# 仅用于演示 / 健康检查的 smoke 模式
 python3 web_server.py --mock
 # 默认地址: http://127.0.0.1:8080
 ```
+
+> `mock` 现在是显式的 smoke / demo / health-check 模式，不再作为真实训练失败时的隐式兜底。
 
 ## 当前正式入口
 

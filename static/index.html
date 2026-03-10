@@ -724,6 +724,18 @@ tr:hover td { background: rgba(99, 102, 241, 0.04); }
         <p>启动模拟交易训练周期，观察策略进化过程</p>
       </div>
 
+      <div class="card" id="train-shell-contract-card">
+        <div class="card-title">前后端分离迁移</div>
+        <div class="shell-note">
+          旧页面当前仅保留命令触发与结果回显壳层；训练实验室、Agent 时间线和策略对比等产品化能力已迁移到独立前端契约。
+          后端继续保持 CLI + API 双形态，新前端请基于冻结契约独立开发。
+        </div>
+        <div class="shell-links">
+          <a id="frontend-app-link" href="/app" target="_blank" rel="noreferrer">打开新版前端挂载点</a>
+          <a id="frontend-contract-link" href="/api/contracts/frontend-v1" target="_blank" rel="noreferrer">查看 Frontend V1 API 契约</a>
+        </div>
+      </div>
+
       <div class="card">
         <div class="card-title">训练配置</div>
         <div class="train-controls">

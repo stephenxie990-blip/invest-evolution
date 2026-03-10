@@ -143,9 +143,7 @@ market_data/*
 
 - `allocator.py`
 - `leaderboard.py`
-- `sync_data.py`
 
-其中 `sync_data.py` 更偏历史辅助脚本，不是主链入口。
 
 ## 6. 当前扩展点
 

@@ -7,7 +7,7 @@ import os
 import random
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Dict, Optional, Protocol
+from typing import Any, Dict, Optional, Protocol
 
 import sqlite3
 
@@ -130,6 +130,67 @@ class DataProvider(Protocol):
         include_capital_flow: bool = False,
     ) -> Dict[str, pd.DataFrame]:
         ...
+
+
+class DataSourceUnavailableError(RuntimeError):
+    """Raised when live training data cannot be resolved and mock is not explicitly enabled."""
+
+    error_code = "data_source_unavailable"
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        cutoff_date: str,
+        stock_count: int,
+        min_history_days: int,
+        requested_data_mode: str,
+        available_sources: dict[str, bool] | None = None,
+        offline_diagnostics: dict[str, object] | None = None,
+        online_error: str = "",
+        suggestions: list[str] | None = None,
+        allow_mock_fallback: bool = False,
+    ) -> None:
+        normalized_cutoff = normalize_date(cutoff_date)
+        offline_payload = dict(offline_diagnostics or {})
+        suggestion_items = [str(item) for item in (suggestions or offline_payload.get("suggestions") or []) if str(item).strip()]
+        payload = {
+            "error": str(message),
+            "error_code": self.error_code,
+            "cutoff_date": normalized_cutoff,
+            "stock_count": max(1, int(stock_count)),
+            "min_history_days": int(min_history_days),
+            "requested_data_mode": str(requested_data_mode or "live"),
+            "available_sources": {
+                "offline": bool((available_sources or {}).get("offline", False)),
+                "online": bool((available_sources or {}).get("online", False)),
+                "mock": bool((available_sources or {}).get("mock", False)),
+            },
+            "offline_diagnostics": offline_payload,
+            "online_error": str(online_error or ""),
+            "suggestions": suggestion_items,
+            "allow_mock_fallback": bool(allow_mock_fallback),
+        }
+        super().__init__(payload["error"])
+        self.payload = payload
+
+    def to_dict(self) -> dict[str, object]:
+        return dict(self.payload)
+
+    @classmethod
+    def from_payload(cls, payload: dict[str, object]) -> "DataSourceUnavailableError":
+        return cls(
+            str(payload.get("error") or "训练数据源不可用"),
+            cutoff_date=str(payload.get("cutoff_date") or "19700101"),
+            stock_count=int(payload.get("stock_count") or 1),
+            min_history_days=int(payload.get("min_history_days") or 1),
+            requested_data_mode=str(payload.get("requested_data_mode") or "live"),
+            available_sources=dict(payload.get("available_sources") or {}),
+            offline_diagnostics=dict(payload.get("offline_diagnostics") or {}),
+            online_error=str(payload.get("online_error") or ""),
+            suggestions=list(payload.get("suggestions") or []),
+            allow_mock_fallback=bool(payload.get("allow_mock_fallback", False)),
+        )
 
 
 class MockDataProvider:
@@ -312,13 +373,14 @@ class EvolutionDataLoader:
 
 
 class DataManager:
-    """统一数据入口：优先 canonical 离线库，其次在线兜底，最后 mock。"""
+    """统一数据入口：优先 canonical 离线库，其次在线兜底；仅显式允许时才可回退 mock。"""
 
     def __init__(
         self,
         db_path: str | None = None,
         prefer_offline: bool = True,
         data_provider: Optional[DataProvider] = None,
+        allow_mock_fallback: bool = False,
     ):
         self._provider = data_provider
         self._offline = TrainingDatasetBuilder(db_path=str(db_path) if db_path else str(_default_db_path()))
@@ -330,11 +392,79 @@ class DataManager:
         self._quality_audit_cache: dict[str, object] = {}
         self._online: Optional[EvolutionDataLoader] = None
         self._prefer_offline = prefer_offline
+        self.allow_mock_fallback = bool(allow_mock_fallback)
         self.last_source: str = "unknown"
         self.last_diagnostics: dict[str, object] = {}
+        self.last_resolution: dict[str, object] = {}
 
         if not self._offline.available:
-            logger.info("离线数据库不可用，将使用在线数据源或模拟数据")
+            logger.info("离线数据库不可用，将使用在线数据源；仅显式 mock 时才使用模拟数据")
+
+    @property
+    def requested_mode(self) -> str:
+        if isinstance(self._provider, MockDataProvider):
+            return "mock"
+        if self._provider is not None:
+            return "provider"
+        if self.allow_mock_fallback:
+            return "live_with_mock_fallback"
+        return "live"
+
+    def _record_resolution(
+        self,
+        *,
+        source: str,
+        offline_diagnostics: dict[str, object] | None = None,
+        online_error: str = "",
+        degraded: bool = False,
+        degrade_reason: str = "",
+    ) -> None:
+        diagnostics = dict(offline_diagnostics or self.last_diagnostics or {})
+        self.last_source = str(source)
+        self.last_diagnostics = diagnostics
+        self.last_resolution = {
+            "requested_data_mode": self.requested_mode,
+            "effective_data_mode": str(source),
+            "source": str(source),
+            "degraded": bool(degraded),
+            "degrade_reason": str(degrade_reason or ""),
+            "allow_mock_fallback": bool(self.allow_mock_fallback),
+            "online_error": str(online_error or ""),
+            "offline_diagnostics": diagnostics,
+        }
+
+    def _build_data_source_unavailable(
+        self,
+        *,
+        cutoff_date: str,
+        stock_count: int,
+        min_history_days: int,
+        offline_diagnostics: dict[str, object] | None = None,
+        online_error: str = "",
+    ) -> DataSourceUnavailableError:
+        diagnostics = dict(offline_diagnostics or self.last_diagnostics or {})
+        suggestions = [str(item) for item in diagnostics.get("suggestions", []) if str(item).strip()]
+        if not suggestions:
+            suggestions = [
+                "优先检查本地离线库覆盖范围，必要时先执行数据同步。",
+                "如果只是演示或健康检查，请显式启用 mock / smoke 模式。",
+            ]
+        return DataSourceUnavailableError(
+            "训练数据源不可用：离线库与在线兜底均未能返回可训练数据，且当前未显式启用 mock 模式。",
+            cutoff_date=cutoff_date,
+            stock_count=stock_count,
+            min_history_days=min_history_days,
+            requested_data_mode=self.requested_mode,
+            available_sources={
+                "offline": bool(self._offline.available),
+                "online": bool(self._online is not None),
+                "mock": bool(self.allow_mock_fallback or isinstance(self._provider, MockDataProvider)),
+            },
+            offline_diagnostics=diagnostics,
+            online_error=online_error,
+            suggestions=suggestions,
+            allow_mock_fallback=self.allow_mock_fallback,
+        )
 
     def _get_cached_quality_audit(self) -> dict[str, object]:
         now_ts = datetime.now().timestamp()
@@ -549,15 +679,20 @@ class DataManager:
         include_future_days: int = 0,
         include_capital_flow: bool = False,
     ) -> Dict[str, pd.DataFrame]:
+        offline_diagnostics: dict[str, object] = {}
+        online_error = ""
+
         if self._provider is not None:
-            self.last_source = "mock" if isinstance(self._provider, MockDataProvider) else "provider"
-            return self._provider.load_stock_data(
+            source = "mock" if isinstance(self._provider, MockDataProvider) else "provider"
+            data = self._provider.load_stock_data(
                 cutoff_date=cutoff_date,
                 stock_count=stock_count,
                 min_history_days=min_history_days,
                 include_future_days=include_future_days,
                 include_capital_flow=include_capital_flow,
             )
+            self._record_resolution(source=source)
+            return data
 
         if self._prefer_offline and self._offline.available:
             offline_diagnostics = self.check_training_readiness(
@@ -580,7 +715,7 @@ class DataManager:
                 include_capital_flow=include_capital_flow,
             )
             if stock_data:
-                self.last_source = "offline"
+                self._record_resolution(source="offline", offline_diagnostics=offline_diagnostics)
                 return stock_data
             logger.warning(
                 "离线数据未命中: cutoff=%s eligible=%s target=%s issues=%s",
@@ -589,31 +724,76 @@ class DataManager:
                 offline_diagnostics["target_stock_count"],
                 "; ".join(str(x) for x in offline_diagnostics["issues"]) or "none",
             )
+        else:
+            try:
+                offline_diagnostics = self.check_training_readiness(
+                    cutoff_date=cutoff_date,
+                    stock_count=stock_count,
+                    min_history_days=min_history_days,
+                )
+            except Exception:
+                logger.debug("离线训练就绪诊断失败", exc_info=True)
+                offline_diagnostics = {}
 
         if self._online is None:
             try:
                 self._online = EvolutionDataLoader()
             except Exception as exc:
+                online_error = str(exc)
                 logger.warning("在线加载器初始化失败: %s", exc)
-                self.last_source = "mock"
-                return generate_mock_stock_data(stock_count)
 
-        try:
-            effective_cutoff = normalize_date(cutoff_date)
-            if include_future_days > 0:
-                cutoff_dt = datetime.strptime(effective_cutoff, "%Y%m%d")
-                effective_cutoff = (cutoff_dt + timedelta(days=include_future_days * 2)).strftime("%Y%m%d")
-            data = self._online.load_all_data_before(effective_cutoff)
-            stocks = data.get("stocks", {})
-            if stocks:
-                self.last_source = "online"
-                return dict(list(stocks.items())[:stock_count])
-        except Exception as exc:
-            logger.warning("在线数据加载失败: %s", exc)
+        if self._online is not None:
+            try:
+                effective_cutoff = normalize_date(cutoff_date)
+                if include_future_days > 0:
+                    cutoff_dt = datetime.strptime(effective_cutoff, "%Y%m%d")
+                    effective_cutoff = (cutoff_dt + timedelta(days=include_future_days * 2)).strftime("%Y%m%d")
+                data = self._online.load_all_data_before(effective_cutoff)
+                stocks = data.get("stocks", {})
+                if stocks:
+                    self._record_resolution(
+                        source="online",
+                        offline_diagnostics=offline_diagnostics,
+                        degraded=True,
+                        degrade_reason="offline_unavailable_or_incomplete",
+                    )
+                    return dict(list(stocks.items())[:stock_count])
+            except Exception as exc:
+                online_error = str(exc)
+                logger.warning("在线数据加载失败: %s", exc)
 
-        logger.warning("所有数据源不可用，使用模拟数据")
-        self.last_source = "mock"
-        return generate_mock_stock_data(stock_count)
+        if self.allow_mock_fallback:
+            logger.warning("所有真实数据源不可用，显式 allow_mock_fallback 已开启，回退到模拟数据")
+            data = generate_mock_stock_data(stock_count)
+            self._record_resolution(
+                source="mock",
+                offline_diagnostics=offline_diagnostics,
+                online_error=online_error,
+                degraded=True,
+                degrade_reason="explicit_mock_fallback",
+            )
+            return data
+
+        error = self._build_data_source_unavailable(
+            cutoff_date=cutoff_date,
+            stock_count=stock_count,
+            min_history_days=min_history_days,
+            offline_diagnostics=offline_diagnostics,
+            online_error=online_error,
+        )
+        self.last_source = "unavailable"
+        self.last_diagnostics = dict(offline_diagnostics or {})
+        self.last_resolution = {
+            "requested_data_mode": self.requested_mode,
+            "effective_data_mode": "unavailable",
+            "source": "unavailable",
+            "degraded": True,
+            "degrade_reason": error.payload["error"],
+            "allow_mock_fallback": bool(self.allow_mock_fallback),
+            "online_error": online_error,
+            "offline_diagnostics": dict(offline_diagnostics or {}),
+        }
+        raise error
 
     def get_status_summary(self, *, refresh: bool = False) -> dict[str, object]:
         return self._web.get_status_summary(refresh=refresh)

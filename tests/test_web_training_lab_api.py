@@ -3,6 +3,7 @@ import json
 
 import web_server
 from commander import CommanderConfig, CommanderRuntime
+from market_data import DataSourceUnavailableError
 
 
 def _make_runtime(tmp_path):
@@ -204,3 +205,63 @@ def test_api_train_still_returns_training_lab_bundle(tmp_path, monkeypatch):
     assert len(list(runtime.cfg.training_plan_dir.glob('*.json'))) == 1
     assert len(list(runtime.cfg.training_run_dir.glob('*.json'))) == 1
     assert len(list(runtime.cfg.training_eval_dir.glob('*.json'))) == 1
+
+
+
+def test_api_train_defaults_to_live_mode_when_mock_omitted(tmp_path, monkeypatch):
+    runtime = _make_runtime(tmp_path)
+    _install_runtime(monkeypatch, runtime)
+
+    observed = {}
+
+    async def fake_train_once(rounds=1, mock=False):
+        observed['rounds'] = rounds
+        observed['mock'] = mock
+        return {'status': 'ok', 'results': [], 'summary': {}, 'training_lab': {}}
+
+    runtime.train_once = fake_train_once
+    client = web_server.app.test_client()
+
+    res = client.post(
+        '/api/train',
+        data=json.dumps({'rounds': 2}),
+        content_type='application/json',
+    )
+
+    assert res.status_code == 200
+    assert observed == {'rounds': 2, 'mock': False}
+
+
+
+def test_api_train_returns_structured_503_for_data_source_unavailable(tmp_path, monkeypatch):
+    runtime = _make_runtime(tmp_path)
+    _install_runtime(monkeypatch, runtime)
+
+    async def fake_train_once(rounds=1, mock=False):
+        raise DataSourceUnavailableError(
+            '训练数据源不可用：离线库与在线兜底均未能返回可训练数据，且当前未显式启用 mock 模式。',
+            cutoff_date='20260310',
+            stock_count=50,
+            min_history_days=200,
+            requested_data_mode='live',
+            available_sources={'offline': True, 'online': True, 'mock': False},
+            offline_diagnostics={'ready': False, 'issues': ['daily_bar 为空'], 'suggestions': ['先下载历史日线']},
+            online_error='network down',
+            suggestions=['先下载历史日线'],
+            allow_mock_fallback=False,
+        )
+
+    runtime.train_once = fake_train_once
+    client = web_server.app.test_client()
+
+    res = client.post(
+        '/api/train',
+        data=json.dumps({'rounds': 1}),
+        content_type='application/json',
+    )
+
+    assert res.status_code == 503
+    payload = res.get_json()
+    assert payload['error_code'] == 'data_source_unavailable'
+    assert payload['requested_data_mode'] == 'live'
+    assert payload['allow_mock_fallback'] is False

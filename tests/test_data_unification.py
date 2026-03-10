@@ -1,8 +1,9 @@
+import pytest
 import pandas as pd
 
 import web_server
 from config import IndustryRegistry
-from market_data import DataManager
+from market_data import DataManager, DataSourceUnavailableError
 from market_data.datasets import T0DatasetBuilder
 from market_data.ingestion import DataIngestionService
 from market_data.quality import DataQualityService
@@ -1079,3 +1080,41 @@ def test_load_stock_data_can_attach_capital_flow(tmp_path):
 
     assert "main_net_inflow" in frame.columns
     assert float(frame.loc[frame["trade_date"] == "20240108", "main_net_inflow"].iloc[0]) == 123.0
+
+
+
+def test_load_stock_data_raises_when_live_sources_unavailable_and_mock_not_explicit(tmp_path):
+    manager = DataManager(db_path=str(tmp_path / 'empty_live.db'))
+
+    class FakeOnlineLoader:
+        def load_all_data_before(self, cutoff_date):
+            raise RuntimeError('network down')
+
+    manager._online = FakeOnlineLoader()
+
+    with pytest.raises(DataSourceUnavailableError) as exc_info:
+        manager.load_stock_data('20240108', stock_count=2, min_history_days=20, include_future_days=0)
+
+    payload = exc_info.value.to_dict()
+    assert payload['error_code'] == 'data_source_unavailable'
+    assert payload['requested_data_mode'] == 'live'
+    assert payload['allow_mock_fallback'] is False
+    assert manager.last_source == 'unavailable'
+    assert manager.last_resolution['effective_data_mode'] == 'unavailable'
+
+
+
+def test_load_stock_data_uses_mock_only_when_allow_mock_fallback_enabled(tmp_path):
+    manager = DataManager(db_path=str(tmp_path / 'empty_fallback.db'), allow_mock_fallback=True)
+
+    class FakeOnlineLoader:
+        def load_all_data_before(self, cutoff_date):
+            raise RuntimeError('network down')
+
+    manager._online = FakeOnlineLoader()
+    stock_data = manager.load_stock_data('20240108', stock_count=2, min_history_days=20, include_future_days=0)
+
+    assert stock_data
+    assert manager.last_source == 'mock'
+    assert manager.last_resolution['effective_data_mode'] == 'mock'
+    assert manager.last_resolution['degrade_reason'] == 'explicit_mock_fallback'

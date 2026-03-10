@@ -1,0 +1,3302 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "投资进化系统 Frontend Contract",
+    "version": "1.0.0",
+    "description": "Derived OpenAPI document generated from docs/contracts/frontend-api-contract.v1.json"
+  },
+  "servers": [
+    {
+      "url": "/",
+      "description": "Project root; paths remain absolute and unversioned."
+    }
+  ],
+  "paths": {
+    "/api/contracts": {
+      "get": {
+        "operationId": "contracts_list",
+        "tags": [
+          "contracts"
+        ],
+        "summary": "List available machine-readable API contracts.",
+        "description": "Safe to call before runtime initialization.",
+        "responses": {
+          "200": {
+            "description": "List available machine-readable API contracts.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/contractCatalog"
+                }
+              }
+            }
+          }
+        },
+        "x-runtime-required": false,
+        "x-frontend-preferred": true,
+        "x-latency": "fast",
+        "x-realtime": false,
+        "x-pagination": "none"
+      }
+    },
+    "/api/contracts/frontend-v1": {
+      "get": {
+        "operationId": "contracts_frontendV1",
+        "tags": [
+          "contracts"
+        ],
+        "summary": "Fetch the frozen frontend API contract document.",
+        "description": "Primary handoff contract for the standalone frontend.",
+        "responses": {
+          "200": {
+            "description": "Fetch the frozen frontend API contract document.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          }
+        },
+        "x-runtime-required": false,
+        "x-frontend-preferred": true,
+        "x-latency": "fast",
+        "x-realtime": false,
+        "x-pagination": "none"
+      }
+    },
+    "/api/status": {
+      "get": {
+        "operationId": "status_full",
+        "tags": [
+          "status"
+        ],
+        "summary": "Get a runtime snapshot with configurable detail.",
+        "description": "For new frontend bootstrap, prefer /api/lab/status/quick and /api/lab/status/deep.",
+        "responses": {
+          "200": {
+            "description": "Get a runtime snapshot with configurable detail.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/runtimeStatus"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Commander runtime is not initialized or background loop is unavailable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/flatError"
+                }
+              }
+            }
+          }
+        },
+        "x-runtime-required": true,
+        "x-frontend-preferred": true,
+        "x-latency": "fast_or_slow",
+        "x-realtime": false,
+        "x-pagination": "none",
+        "parameters": [
+          {
+            "name": "detail",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "fast",
+                "slow"
+              ],
+              "default": "fast"
+            },
+            "description": ""
+          }
+        ]
+      }
+    },
+    "/api/lab/status/quick": {
+      "get": {
+        "operationId": "status_quick",
+        "tags": [
+          "status"
+        ],
+        "summary": "Get the preferred quick status payload for dashboard bootstrap.",
+        "description": "Get the preferred quick status payload for dashboard bootstrap.",
+        "responses": {
+          "200": {
+            "description": "Get the preferred quick status payload for dashboard bootstrap.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/labStatus"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Commander runtime is not initialized or background loop is unavailable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/flatError"
+                }
+              }
+            }
+          }
+        },
+        "x-runtime-required": true,
+        "x-frontend-preferred": true,
+        "x-latency": "fast",
+        "x-realtime": false,
+        "x-pagination": "none"
+      }
+    },
+    "/api/lab/status/deep": {
+      "get": {
+        "operationId": "status_deep",
+        "tags": [
+          "status"
+        ],
+        "summary": "Get the preferred deep status payload for diagnostics and drill-down.",
+        "description": "Get the preferred deep status payload for diagnostics and drill-down.",
+        "responses": {
+          "200": {
+            "description": "Get the preferred deep status payload for diagnostics and drill-down.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/labStatus"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Commander runtime is not initialized or background loop is unavailable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/flatError"
+                }
+              }
+            }
+          }
+        },
+        "x-runtime-required": true,
+        "x-frontend-preferred": true,
+        "x-latency": "slow",
+        "x-realtime": false,
+        "x-pagination": "none"
+      }
+    },
+    "/api/events": {
+      "get": {
+        "operationId": "events_stream",
+        "tags": [
+          "events"
+        ],
+        "summary": "Consume the runtime SSE stream for training and agent observability.",
+        "description": "Server-Sent Events endpoint used by the standalone frontend for cycle, agent, module log, and meeting speech updates.",
+        "responses": {
+          "200": {
+            "description": "SSE stream established.",
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "x-sse-event-refs": [
+          "#/components/sse_schemas/connected",
+          "#/components/sse_schemas/cycleStart",
+          "#/components/sse_schemas/cycleComplete",
+          "#/components/sse_schemas/cycleSkipped",
+          "#/components/sse_schemas/agentStatus",
+          "#/components/sse_schemas/moduleLog",
+          "#/components/sse_schemas/meetingSpeech"
+        ],
+        "x-sse-protocol": {
+          "initial_event": "connected",
+          "keepalive": "comment frame (: keepalive)",
+          "event_id": "monotonic in-process integer",
+          "resume_behavior": "best-effort only; client should reconnect and refresh status if history gaps occur"
+        },
+        "x-runtime-required": false,
+        "x-frontend-preferred": true,
+        "x-realtime": true
+      }
+    },
+    "/api/chat": {
+      "post": {
+        "operationId": "chat_ask",
+        "tags": [
+          "chat"
+        ],
+        "summary": "Send a natural-language message to Commander.",
+        "description": "Send a natural-language message to Commander.",
+        "responses": {
+          "200": {
+            "description": "Send a natural-language message to Commander.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/chatReply"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "message is required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/flatError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Commander runtime is not initialized or background loop is unavailable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/flatError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Unexpected command/runtime error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/flatError"
+                }
+              }
+            }
+          }
+        },
+        "x-runtime-required": true,
+        "x-frontend-preferred": true,
+        "x-latency": "medium",
+        "x-realtime": false,
+        "x-pagination": "none",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "message"
+                ],
+                "properties": {
+                  "message": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/train": {
+      "post": {
+        "operationId": "training_direct",
+        "tags": [
+          "training"
+        ],
+        "summary": "Convenience shortcut: auto-create a plan and execute it immediately.",
+        "description": "mock=false by default; mock is an explicit smoke/demo mode and no longer an implicit fallback.",
+        "responses": {
+          "200": {
+            "description": "Convenience shortcut: auto-create a plan and execute it immediately.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/trainingExecution"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "rounds must be an integer; mock must be a boolean",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/flatError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Commander runtime is not initialized or background loop is unavailable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/flatError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Unexpected training execution error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/flatError"
+                }
+              }
+            }
+          }
+        },
+        "x-runtime-required": true,
+        "x-frontend-preferred": false,
+        "x-latency": "long",
+        "x-realtime": true,
+        "x-pagination": "none",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "rounds": {
+                    "type": "integer",
+                    "default": 1,
+                    "minimum": 1,
+                    "maximum": 100
+                  },
+                  "mock": {
+                    "type": "boolean",
+                    "default": false,
+                    "accepts_bool_like_strings": true
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/lab/training/plans": {
+      "post": {
+        "operationId": "trainingPlans_create",
+        "tags": [
+          "training_lab"
+        ],
+        "summary": "Create a structured training plan artifact without executing it.",
+        "description": "Create a structured training plan artifact without executing it.",
+        "responses": {
+          "201": {
+            "description": "Create a structured training plan artifact without executing it.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/trainingPlan"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "rounds must be an integer; mock must be a boolean; detail_mode must be one of: fast, slow; tags must be a list of strings or a comma-separated string",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/flatError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Commander runtime is not initialized or background loop is unavailable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/flatError"
+                }
+              }
+            }
+          }
+        },
+        "x-runtime-required": true,
+        "x-frontend-preferred": true,
+        "x-latency": "fast",
+        "x-realtime": false,
+        "x-pagination": "none",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "rounds": {
+                    "type": "integer",
+                    "default": 1,
+                    "minimum": 1,
+                    "maximum": 100
+                  },
+                  "mock": {
+                    "type": "boolean",
+                    "default": false,
+                    "accepts_bool_like_strings": true
+                  },
+                  "goal": {
+                    "type": "string"
+                  },
+                  "notes": {
+                    "type": "string"
+                  },
+                  "tags": {
+                    "type": [
+                      "array",
+                      "string"
+                    ],
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "detail_mode": {
+                    "type": "string",
+                    "default": "fast",
+                    "enum": [
+                      "fast",
+                      "slow"
+                    ]
+                  },
+                  "protocol": {
+                    "type": "object"
+                  },
+                  "dataset": {
+                    "type": "object"
+                  },
+                  "model_scope": {
+                    "type": "object"
+                  },
+                  "optimization": {
+                    "type": "object"
+                  },
+                  "llm": {
+                    "type": "object"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "operationId": "trainingPlans_list",
+        "tags": [
+          "training_lab"
+        ],
+        "summary": "List latest training plan artifacts.",
+        "description": "List latest training plan artifacts.",
+        "responses": {
+          "200": {
+            "description": "List latest training plan artifacts.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/artifactList"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "limit must be an integer",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/flatError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Commander runtime is not initialized or background loop is unavailable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/flatError"
+                }
+              }
+            }
+          }
+        },
+        "x-runtime-required": true,
+        "x-frontend-preferred": true,
+        "x-latency": "fast",
+        "x-realtime": false,
+        "x-pagination": "limit-only",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 20
+            },
+            "description": ""
+          }
+        ]
+      }
+    },
+    "/api/lab/training/plans/{plan_id}": {
+      "get": {
+        "operationId": "trainingPlans_get",
+        "tags": [
+          "training_lab"
+        ],
+        "summary": "Fetch a single training plan artifact.",
+        "description": "Fetch a single training plan artifact.",
+        "responses": {
+          "200": {
+            "description": "Fetch a single training plan artifact.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/trainingPlan"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Commander runtime is not initialized or background loop is unavailable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/flatError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "training plan not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/flatError"
+                }
+              }
+            }
+          }
+        },
+        "x-runtime-required": true,
+        "x-frontend-preferred": true,
+        "x-latency": "fast",
+        "x-realtime": false,
+        "x-pagination": "none",
+        "parameters": [
+          {
+            "name": "plan_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": ""
+          }
+        ]
+      }
+    },
+    "/api/lab/training/plans/{plan_id}/execute": {
+      "post": {
+        "operationId": "trainingPlans_execute",
+        "tags": [
+          "training_lab"
+        ],
+        "summary": "Execute a persisted training plan.",
+        "description": "Execute a persisted training plan.",
+        "responses": {
+          "200": {
+            "description": "Execute a persisted training plan.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/trainingExecution"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Commander runtime is not initialized or background loop is unavailable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/flatError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "training plan not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/flatError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Unexpected training plan execution error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/flatError"
+                }
+              }
+            }
+          }
+        },
+        "x-runtime-required": true,
+        "x-frontend-preferred": true,
+        "x-latency": "long",
+        "x-realtime": true,
+        "x-pagination": "none",
+        "parameters": [
+          {
+            "name": "plan_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": ""
+          }
+        ]
+      }
+    },
+    "/api/lab/training/runs": {
+      "get": {
+        "operationId": "trainingRuns_list",
+        "tags": [
+          "training_lab"
+        ],
+        "summary": "List latest training run artifacts.",
+        "description": "List latest training run artifacts.",
+        "responses": {
+          "200": {
+            "description": "List latest training run artifacts.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/artifactList"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "limit must be an integer",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/flatError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Commander runtime is not initialized or background loop is unavailable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/flatError"
+                }
+              }
+            }
+          }
+        },
+        "x-runtime-required": true,
+        "x-frontend-preferred": true,
+        "x-latency": "fast",
+        "x-realtime": false,
+        "x-pagination": "limit-only",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 20
+            },
+            "description": ""
+          }
+        ]
+      }
+    },
+    "/api/lab/training/runs/{run_id}": {
+      "get": {
+        "operationId": "trainingRuns_get",
+        "tags": [
+          "training_lab"
+        ],
+        "summary": "Fetch a single training run artifact.",
+        "description": "Fetch a single training run artifact.",
+        "responses": {
+          "200": {
+            "description": "Fetch a single training run artifact.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/trainingRun"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Commander runtime is not initialized or background loop is unavailable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/flatError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "training run not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/flatError"
+                }
+              }
+            }
+          }
+        },
+        "x-runtime-required": true,
+        "x-frontend-preferred": true,
+        "x-latency": "fast",
+        "x-realtime": false,
+        "x-pagination": "none",
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": ""
+          }
+        ]
+      }
+    },
+    "/api/lab/training/evaluations": {
+      "get": {
+        "operationId": "trainingEvaluations_list",
+        "tags": [
+          "training_lab"
+        ],
+        "summary": "List latest training evaluation artifacts.",
+        "description": "List latest training evaluation artifacts.",
+        "responses": {
+          "200": {
+            "description": "List latest training evaluation artifacts.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/artifactList"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "limit must be an integer",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/flatError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Commander runtime is not initialized or background loop is unavailable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/flatError"
+                }
+              }
+            }
+          }
+        },
+        "x-runtime-required": true,
+        "x-frontend-preferred": true,
+        "x-latency": "fast",
+        "x-realtime": false,
+        "x-pagination": "limit-only",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 20
+            },
+            "description": ""
+          }
+        ]
+      }
+    },
+    "/api/lab/training/evaluations/{run_id}": {
+      "get": {
+        "operationId": "trainingEvaluations_get",
+        "tags": [
+          "training_lab"
+        ],
+        "summary": "Fetch a single training evaluation artifact.",
+        "description": "Fetch a single training evaluation artifact.",
+        "responses": {
+          "200": {
+            "description": "Fetch a single training evaluation artifact.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/trainingEvaluation"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Commander runtime is not initialized or background loop is unavailable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/flatError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "training evaluation not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/flatError"
+                }
+              }
+            }
+          }
+        },
+        "x-runtime-required": true,
+        "x-frontend-preferred": true,
+        "x-latency": "fast",
+        "x-realtime": false,
+        "x-pagination": "none",
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": ""
+          }
+        ]
+      }
+    },
+    "/api/investment-models": {
+      "get": {
+        "operationId": "models_list",
+        "tags": [
+          "models"
+        ],
+        "summary": "List supported investment models and the currently active model.",
+        "description": "List supported investment models and the currently active model.",
+        "responses": {
+          "200": {
+            "description": "List supported investment models and the currently active model.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/investmentModels"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Commander runtime is not initialized or background loop is unavailable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/flatError"
+                }
+              }
+            }
+          }
+        },
+        "x-runtime-required": true,
+        "x-frontend-preferred": true,
+        "x-latency": "fast",
+        "x-realtime": false,
+        "x-pagination": "none"
+      }
+    },
+    "/api/leaderboard": {
+      "get": {
+        "operationId": "leaderboard_get",
+        "tags": [
+          "models"
+        ],
+        "summary": "Rebuild and return the model leaderboard snapshot.",
+        "description": "Reads and aggregates training output artifacts.",
+        "responses": {
+          "200": {
+            "description": "Rebuild and return the model leaderboard snapshot.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/leaderboard"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Commander runtime is not initialized or background loop is unavailable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/flatError"
+                }
+              }
+            }
+          }
+        },
+        "x-runtime-required": true,
+        "x-frontend-preferred": true,
+        "x-latency": "medium",
+        "x-realtime": false,
+        "x-pagination": "none"
+      }
+    },
+    "/api/allocator": {
+      "get": {
+        "operationId": "allocator_get",
+        "tags": [
+          "models"
+        ],
+        "summary": "Compute current allocation recommendation from leaderboard + requested regime.",
+        "description": "Compute current allocation recommendation from leaderboard + requested regime.",
+        "responses": {
+          "200": {
+            "description": "Compute current allocation recommendation from leaderboard + requested regime.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/allocator"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Commander runtime is not initialized or background loop is unavailable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/flatError"
+                }
+              }
+            }
+          }
+        },
+        "x-runtime-required": true,
+        "x-frontend-preferred": true,
+        "x-latency": "medium",
+        "x-realtime": false,
+        "x-pagination": "none",
+        "parameters": [
+          {
+            "name": "regime",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "bull",
+                "bear",
+                "oscillation",
+                "unknown"
+              ],
+              "default": "oscillation"
+            },
+            "description": ""
+          },
+          {
+            "name": "top_n",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 3
+            },
+            "description": ""
+          }
+        ]
+      }
+    },
+    "/api/strategies": {
+      "get": {
+        "operationId": "strategies_list",
+        "tags": [
+          "strategies"
+        ],
+        "summary": "List loaded strategy gene files.",
+        "description": "List loaded strategy gene files.",
+        "responses": {
+          "200": {
+            "description": "List loaded strategy gene files.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/strategyGeneList"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Commander runtime is not initialized or background loop is unavailable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/flatError"
+                }
+              }
+            }
+          }
+        },
+        "x-runtime-required": true,
+        "x-frontend-preferred": true,
+        "x-latency": "fast",
+        "x-realtime": false,
+        "x-pagination": "none"
+      }
+    },
+    "/api/strategies/reload": {
+      "post": {
+        "operationId": "strategies_reload",
+        "tags": [
+          "strategies"
+        ],
+        "summary": "Reload strategy genes from disk.",
+        "description": "Reload strategy genes from disk.",
+        "responses": {
+          "200": {
+            "description": "Reload strategy genes from disk.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/strategyReload"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Commander runtime is not initialized or background loop is unavailable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/flatError"
+                }
+              }
+            }
+          }
+        },
+        "x-runtime-required": true,
+        "x-frontend-preferred": true,
+        "x-latency": "medium",
+        "x-realtime": false,
+        "x-pagination": "none",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/cron": {
+      "get": {
+        "operationId": "cron_list",
+        "tags": [
+          "cron"
+        ],
+        "summary": "List scheduled interval jobs.",
+        "description": "List scheduled interval jobs.",
+        "responses": {
+          "200": {
+            "description": "List scheduled interval jobs.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/cronList"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Commander runtime is not initialized or background loop is unavailable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/flatError"
+                }
+              }
+            }
+          }
+        },
+        "x-runtime-required": true,
+        "x-frontend-preferred": true,
+        "x-latency": "fast",
+        "x-realtime": false,
+        "x-pagination": "none"
+      },
+      "post": {
+        "operationId": "cron_create",
+        "tags": [
+          "cron"
+        ],
+        "summary": "Create a scheduled interval job.",
+        "description": "Create a scheduled interval job.",
+        "responses": {
+          "200": {
+            "description": "Create a scheduled interval job.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/cronMutation"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Commander runtime is not initialized or background loop is unavailable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/flatError"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "every_sec must be an integer; deliver must be a boolean; name and message are required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/flatError"
+                }
+              }
+            }
+          }
+        },
+        "x-runtime-required": true,
+        "x-frontend-preferred": true,
+        "x-latency": "fast",
+        "x-realtime": false,
+        "x-pagination": "none",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "name",
+                  "message"
+                ],
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "message": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "every_sec": {
+                    "type": "integer",
+                    "default": 3600
+                  },
+                  "deliver": {
+                    "type": "boolean",
+                    "default": false,
+                    "accepts_bool_like_strings": true
+                  },
+                  "channel": {
+                    "type": "string",
+                    "default": "web"
+                  },
+                  "to": {
+                    "type": "string",
+                    "default": "commander"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/cron/{job_id}": {
+      "delete": {
+        "operationId": "cron_delete",
+        "tags": [
+          "cron"
+        ],
+        "summary": "Delete a scheduled interval job.",
+        "description": "Delete a scheduled interval job.",
+        "responses": {
+          "200": {
+            "description": "Delete a scheduled interval job.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/cronMutation"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Commander runtime is not initialized or background loop is unavailable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/flatError"
+                }
+              }
+            }
+          }
+        },
+        "x-runtime-required": true,
+        "x-frontend-preferred": true,
+        "x-latency": "fast",
+        "x-realtime": false,
+        "x-pagination": "none",
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": ""
+          }
+        ]
+      }
+    },
+    "/api/memory": {
+      "get": {
+        "operationId": "memory_list",
+        "tags": [
+          "memory"
+        ],
+        "summary": "Search memory records or list recent entries.",
+        "description": "Search memory records or list recent entries.",
+        "responses": {
+          "200": {
+            "description": "Search memory records or list recent entries.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/memoryList"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Commander runtime is not initialized or background loop is unavailable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/flatError"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "limit must be an integer",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/flatError"
+                }
+              }
+            }
+          }
+        },
+        "x-runtime-required": true,
+        "x-frontend-preferred": true,
+        "x-latency": "fast",
+        "x-realtime": false,
+        "x-pagination": "limit-only",
+        "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": ""
+            },
+            "description": ""
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 20
+            },
+            "description": ""
+          }
+        ]
+      }
+    },
+    "/api/memory/{record_id}": {
+      "get": {
+        "operationId": "memory_get",
+        "tags": [
+          "memory"
+        ],
+        "summary": "Fetch a single memory record with expanded training artifacts.",
+        "description": "Fetch a single memory record with expanded training artifacts.",
+        "responses": {
+          "200": {
+            "description": "Fetch a single memory record with expanded training artifacts.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/memoryDetail"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Commander runtime is not initialized or background loop is unavailable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/flatError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "memory record not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/flatError"
+                }
+              }
+            }
+          }
+        },
+        "x-runtime-required": true,
+        "x-frontend-preferred": true,
+        "x-latency": "medium",
+        "x-realtime": false,
+        "x-pagination": "none",
+        "parameters": [
+          {
+            "name": "record_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": ""
+          }
+        ]
+      }
+    },
+    "/api/agent_configs": {
+      "get": {
+        "operationId": "agentConfigs_list",
+        "tags": [
+          "config"
+        ],
+        "summary": "List persisted agent configuration records.",
+        "description": "List persisted agent configuration records.",
+        "responses": {
+          "200": {
+            "description": "List persisted agent configuration records.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/agentConfigList"
+                }
+              }
+            }
+          }
+        },
+        "x-runtime-required": true,
+        "x-frontend-preferred": true,
+        "x-latency": "fast",
+        "x-realtime": false,
+        "x-pagination": "none"
+      },
+      "post": {
+        "operationId": "agentConfigs_update",
+        "tags": [
+          "config"
+        ],
+        "summary": "Persist llm_model/system_prompt changes for one agent.",
+        "description": "Persist llm_model/system_prompt changes for one agent.",
+        "responses": {
+          "200": {
+            "description": "Persist llm_model/system_prompt changes for one agent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/agentConfigMutation"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "name is required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/flatError"
+                }
+              }
+            }
+          }
+        },
+        "x-runtime-required": true,
+        "x-frontend-preferred": true,
+        "x-latency": "fast",
+        "x-realtime": false,
+        "x-pagination": "none",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "name"
+                ],
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "llm_model": {
+                    "type": "string"
+                  },
+                  "system_prompt": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/runtime_paths": {
+      "get": {
+        "operationId": "runtimePaths_get",
+        "tags": [
+          "config"
+        ],
+        "summary": "Read editable runtime artifact paths.",
+        "description": "Read editable runtime artifact paths.",
+        "responses": {
+          "200": {
+            "description": "Read editable runtime artifact paths.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/statusWrappedConfig"
+                }
+              }
+            }
+          }
+        },
+        "x-runtime-required": true,
+        "x-frontend-preferred": true,
+        "x-latency": "fast",
+        "x-realtime": false,
+        "x-pagination": "none"
+      },
+      "post": {
+        "operationId": "runtimePaths_update",
+        "tags": [
+          "config"
+        ],
+        "summary": "Update runtime artifact paths without changing CLI usage.",
+        "description": "Update runtime artifact paths without changing CLI usage.",
+        "responses": {
+          "200": {
+            "description": "Update runtime artifact paths without changing CLI usage.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/statusWrappedConfig"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Path fields must be non-empty.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/statusError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Unexpected runtime path mutation error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/statusError"
+                }
+              }
+            }
+          }
+        },
+        "x-runtime-required": true,
+        "x-frontend-preferred": true,
+        "x-latency": "fast",
+        "x-realtime": false,
+        "x-pagination": "none",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "training_output_dir": {
+                    "type": "string"
+                  },
+                  "meeting_log_dir": {
+                    "type": "string"
+                  },
+                  "config_audit_log_path": {
+                    "type": "string"
+                  },
+                  "config_snapshot_dir": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/evolution_config": {
+      "get": {
+        "operationId": "evolutionConfig_get",
+        "tags": [
+          "config"
+        ],
+        "summary": "Read masked evolution/model/data configuration.",
+        "description": "Read masked evolution/model/data configuration.",
+        "responses": {
+          "200": {
+            "description": "Read masked evolution/model/data configuration.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/statusWrappedConfig"
+                }
+              }
+            }
+          }
+        },
+        "x-runtime-required": true,
+        "x-frontend-preferred": true,
+        "x-latency": "fast",
+        "x-realtime": false,
+        "x-pagination": "none"
+      },
+      "post": {
+        "operationId": "evolutionConfig_update",
+        "tags": [
+          "config"
+        ],
+        "summary": "Patch editable evolution/model/data configuration.",
+        "description": "Patch editable evolution/model/data configuration.",
+        "responses": {
+          "200": {
+            "description": "Patch editable evolution/model/data configuration.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/statusWrappedConfig"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation error for editable config keys.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/statusError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Unexpected evolution config mutation error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/statusError"
+                }
+              }
+            }
+          }
+        },
+        "x-runtime-required": true,
+        "x-frontend-preferred": true,
+        "x-latency": "fast",
+        "x-realtime": false,
+        "x-pagination": "none",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "description": "Only editable keys are applied; extra keys are ignored.",
+                "properties": {
+                  "llm_fast_model": {
+                    "type": "string"
+                  },
+                  "llm_deep_model": {
+                    "type": "string"
+                  },
+                  "llm_api_base": {
+                    "type": "string"
+                  },
+                  "llm_api_key": {
+                    "type": "string"
+                  },
+                  "llm_timeout": {
+                    "type": "integer"
+                  },
+                  "llm_max_retries": {
+                    "type": "integer"
+                  },
+                  "enable_debate": {
+                    "type": "boolean"
+                  },
+                  "max_debate_rounds": {
+                    "type": "integer"
+                  },
+                  "max_risk_discuss_rounds": {
+                    "type": "integer"
+                  },
+                  "data_source": {
+                    "type": "string"
+                  },
+                  "max_stocks": {
+                    "type": "integer"
+                  },
+                  "simulation_days": {
+                    "type": "integer"
+                  },
+                  "min_history_days": {
+                    "type": "integer"
+                  },
+                  "initial_capital": {
+                    "type": "number"
+                  },
+                  "max_positions": {
+                    "type": "integer"
+                  },
+                  "position_size_pct": {
+                    "type": "number"
+                  },
+                  "index_codes": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "investment_model": {
+                    "type": "string"
+                  },
+                  "investment_model_config": {
+                    "type": "string"
+                  },
+                  "allocator_enabled": {
+                    "type": "boolean"
+                  },
+                  "allocator_top_n": {
+                    "type": "integer"
+                  },
+                  "stop_on_freeze": {
+                    "type": "boolean"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/data/status": {
+      "get": {
+        "operationId": "data_status",
+        "tags": [
+          "data"
+        ],
+        "summary": "Read canonical market-data repository summary and quality audit.",
+        "description": "Read canonical market-data repository summary and quality audit.",
+        "responses": {
+          "200": {
+            "description": "Read canonical market-data repository summary and quality audit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/dataStatus"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "refresh must be a boolean",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/flatError"
+                }
+              }
+            }
+          }
+        },
+        "x-runtime-required": true,
+        "x-frontend-preferred": true,
+        "x-latency": "fast_or_slow",
+        "x-realtime": false,
+        "x-pagination": "none",
+        "parameters": [
+          {
+            "name": "refresh",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false
+            },
+            "description": ""
+          }
+        ]
+      }
+    },
+    "/api/data/capital_flow": {
+      "get": {
+        "operationId": "data_capitalFlow",
+        "tags": [
+          "data"
+        ],
+        "summary": "Query capital flow enrichment rows.",
+        "description": "Query capital flow enrichment rows.",
+        "responses": {
+          "200": {
+            "description": "Query capital flow enrichment rows.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/countedItems"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "limit must be an integer",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/flatError"
+                }
+              }
+            }
+          }
+        },
+        "x-runtime-required": true,
+        "x-frontend-preferred": true,
+        "x-latency": "medium",
+        "x-realtime": false,
+        "x-pagination": "limit-only",
+        "parameters": [
+          {
+            "name": "codes",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": ""
+          },
+          {
+            "name": "start",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": ""
+          },
+          {
+            "name": "end",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": ""
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 200
+            },
+            "description": ""
+          }
+        ]
+      }
+    },
+    "/api/data/dragon_tiger": {
+      "get": {
+        "operationId": "data_dragonTiger",
+        "tags": [
+          "data"
+        ],
+        "summary": "Query dragon-tiger list events.",
+        "description": "Query dragon-tiger list events.",
+        "responses": {
+          "200": {
+            "description": "Query dragon-tiger list events.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/countedItems"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "limit must be an integer",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/flatError"
+                }
+              }
+            }
+          }
+        },
+        "x-runtime-required": true,
+        "x-frontend-preferred": true,
+        "x-latency": "medium",
+        "x-realtime": false,
+        "x-pagination": "limit-only",
+        "parameters": [
+          {
+            "name": "codes",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": ""
+          },
+          {
+            "name": "start",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": ""
+          },
+          {
+            "name": "end",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": ""
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 200
+            },
+            "description": ""
+          }
+        ]
+      }
+    },
+    "/api/data/intraday_60m": {
+      "get": {
+        "operationId": "data_intraday60m",
+        "tags": [
+          "data"
+        ],
+        "summary": "Query intraday 60m bars.",
+        "description": "Query intraday 60m bars.",
+        "responses": {
+          "200": {
+            "description": "Query intraday 60m bars.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/countedItems"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "limit must be an integer",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/flatError"
+                }
+              }
+            }
+          }
+        },
+        "x-runtime-required": true,
+        "x-frontend-preferred": true,
+        "x-latency": "slow",
+        "x-realtime": false,
+        "x-pagination": "limit-only",
+        "parameters": [
+          {
+            "name": "codes",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": ""
+          },
+          {
+            "name": "start",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": ""
+          },
+          {
+            "name": "end",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": ""
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 500
+            },
+            "description": ""
+          }
+        ]
+      }
+    },
+    "/api/data/download": {
+      "post": {
+        "operationId": "data_download",
+        "tags": [
+          "data"
+        ],
+        "summary": "Kick off background sync for security master, daily bars, and index bars.",
+        "description": "Returns immediately; progress must be inferred from logs or refreshed data status.",
+        "responses": {
+          "200": {
+            "description": "Kick off background sync for security master, daily bars, and index bars.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/dataDownload"
+                }
+              }
+            }
+          }
+        },
+        "x-runtime-required": true,
+        "x-frontend-preferred": true,
+        "x-latency": "async",
+        "x-realtime": false,
+        "x-pagination": "none",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "flatError": {
+        "type": "object",
+        "description": "Most current endpoints return a flat error body on non-2xx.",
+        "properties": {
+          "error": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "error"
+        ],
+        "additionalProperties": false
+      },
+      "statusError": {
+        "type": "object",
+        "description": "Config mutation endpoints may return a status-bearing error body.",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "error"
+            ]
+          },
+          "error": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "error"
+        ],
+        "additionalProperties": false
+      },
+      "dataSourceUnavailableError": {
+        "type": "object",
+        "description": "Structured 503 payload returned when live training data could not be resolved and mock mode was not explicitly enabled.",
+        "properties": {
+          "error": {
+            "type": "string"
+          },
+          "error_code": {
+            "type": "string",
+            "enum": [
+              "data_source_unavailable"
+            ]
+          },
+          "cutoff_date": {
+            "type": "string"
+          },
+          "stock_count": {
+            "type": "integer"
+          },
+          "min_history_days": {
+            "type": "integer"
+          },
+          "requested_data_mode": {
+            "type": "string"
+          },
+          "available_sources": {
+            "type": "object",
+            "properties": {
+              "offline": {
+                "type": "boolean"
+              },
+              "online": {
+                "type": "boolean"
+              },
+              "mock": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "offline",
+              "online",
+              "mock"
+            ],
+            "additionalProperties": true
+          },
+          "offline_diagnostics": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "online_error": {
+            "type": "string"
+          },
+          "suggestions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "allow_mock_fallback": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "error",
+          "error_code",
+          "cutoff_date",
+          "stock_count",
+          "min_history_days",
+          "requested_data_mode",
+          "available_sources",
+          "offline_diagnostics",
+          "online_error",
+          "suggestions",
+          "allow_mock_fallback"
+        ],
+        "additionalProperties": true
+      },
+      "contractCatalog": {
+        "type": "object",
+        "properties": {
+          "count": {
+            "type": "integer"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "format": {
+                  "type": "string"
+                },
+                "kind": {
+                  "type": "string"
+                },
+                "path": {
+                  "type": "string"
+                },
+                "source_path": {
+                  "type": "string"
+                },
+                "shell_mount": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "format",
+                "kind",
+                "path"
+              ],
+              "additionalProperties": true
+            }
+          }
+        },
+        "required": [
+          "count",
+          "items"
+        ],
+        "additionalProperties": false
+      },
+      "runtimeStatus": {
+        "type": "object",
+        "description": "Commander runtime snapshot. Frontend should rely on documented top-level sections and ignore unknown fields inside nested diagnostic objects.",
+        "properties": {
+          "ts": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "detail_mode": {
+            "type": "string",
+            "enum": [
+              "fast",
+              "slow"
+            ]
+          },
+          "instance_id": {
+            "type": "string"
+          },
+          "workspace": {
+            "type": "string"
+          },
+          "strategy_dir": {
+            "type": "string"
+          },
+          "model": {
+            "type": "string"
+          },
+          "autopilot_enabled": {
+            "type": "boolean"
+          },
+          "heartbeat_enabled": {
+            "type": "boolean"
+          },
+          "training_interval_sec": {
+            "type": "integer"
+          },
+          "heartbeat_interval_sec": {
+            "type": "integer"
+          },
+          "runtime": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "brain": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "body": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "memory": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "bridge": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "plugins": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "strategies": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "config": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "data": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "training_lab": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        },
+        "required": [
+          "ts",
+          "detail_mode",
+          "runtime",
+          "brain",
+          "body",
+          "memory",
+          "bridge",
+          "plugins",
+          "strategies",
+          "config",
+          "data",
+          "training_lab"
+        ],
+        "additionalProperties": true
+      },
+      "labStatus": {
+        "type": "object",
+        "properties": {
+          "mode": {
+            "type": "string",
+            "enum": [
+              "quick",
+              "deep"
+            ]
+          },
+          "snapshot": {
+            "$ref": "#/components/schemas/runtimeStatus"
+          }
+        },
+        "required": [
+          "mode",
+          "snapshot"
+        ],
+        "additionalProperties": false
+      },
+      "chatReply": {
+        "type": "object",
+        "properties": {
+          "reply": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "reply"
+        ],
+        "additionalProperties": false
+      },
+      "trainingPlan": {
+        "type": "object",
+        "properties": {
+          "plan_id": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "status": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          },
+          "auto_generated": {
+            "type": "boolean"
+          },
+          "spec": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "protocol": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "dataset": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "model_scope": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "optimization": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "llm": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "objective": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "artifacts": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "last_run_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "last_run_at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "started_at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "plan_id",
+          "created_at",
+          "status",
+          "source",
+          "spec",
+          "protocol",
+          "dataset",
+          "model_scope",
+          "optimization",
+          "llm",
+          "objective",
+          "artifacts"
+        ],
+        "additionalProperties": true
+      },
+      "artifactList": {
+        "type": "object",
+        "properties": {
+          "count": {
+            "type": "integer"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          }
+        },
+        "required": [
+          "count",
+          "items"
+        ],
+        "additionalProperties": false
+      },
+      "trainingExecution": {
+        "type": "object",
+        "description": "Result of executing a training plan or the convenience /api/train shortcut.",
+        "properties": {
+          "status": {
+            "type": "string"
+          },
+          "rounds": {
+            "type": "integer"
+          },
+          "results": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          },
+          "summary": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "training_lab": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        },
+        "required": [
+          "status",
+          "results",
+          "summary",
+          "training_lab"
+        ],
+        "additionalProperties": true
+      },
+      "trainingRun": {
+        "type": "object",
+        "properties": {
+          "run_id": {
+            "type": "string"
+          },
+          "plan_id": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "status": {
+            "type": "string"
+          },
+          "error": {
+            "type": "string"
+          },
+          "plan": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "payload": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        },
+        "required": [
+          "run_id",
+          "plan_id",
+          "created_at",
+          "status",
+          "error",
+          "plan",
+          "payload"
+        ],
+        "additionalProperties": true
+      },
+      "trainingEvaluation": {
+        "type": "object",
+        "properties": {
+          "run_id": {
+            "type": "string"
+          },
+          "plan_id": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "status": {
+            "type": "string"
+          },
+          "objective": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "spec": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "assessment": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "promotion": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "error": {
+            "type": "string"
+          },
+          "artifacts": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        },
+        "required": [
+          "run_id",
+          "plan_id",
+          "created_at",
+          "status",
+          "objective",
+          "spec",
+          "assessment",
+          "promotion",
+          "error",
+          "artifacts"
+        ],
+        "additionalProperties": true
+      },
+      "investmentModels": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "active_model": {
+            "type": "string"
+          },
+          "active_config": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "items",
+          "active_model",
+          "active_config"
+        ],
+        "additionalProperties": false
+      },
+      "leaderboard": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "allocator": {
+        "type": "object",
+        "properties": {
+          "leaderboard_generated_at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "allocation": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        },
+        "required": [
+          "leaderboard_generated_at",
+          "allocation"
+        ],
+        "additionalProperties": false
+      },
+      "strategyGeneList": {
+        "type": "object",
+        "properties": {
+          "count": {
+            "type": "integer"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          }
+        },
+        "required": [
+          "count",
+          "items"
+        ],
+        "additionalProperties": false
+      },
+      "strategyReload": {
+        "type": "object",
+        "properties": {
+          "count": {
+            "type": "integer"
+          },
+          "genes": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          }
+        },
+        "required": [
+          "count",
+          "genes"
+        ],
+        "additionalProperties": false
+      },
+      "cronList": {
+        "type": "object",
+        "properties": {
+          "count": {
+            "type": "integer"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          }
+        },
+        "required": [
+          "count",
+          "items"
+        ],
+        "additionalProperties": false
+      },
+      "cronMutation": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string"
+          },
+          "job": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "job_id": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": true
+      },
+      "memoryList": {
+        "type": "object",
+        "properties": {
+          "count": {
+            "type": "integer"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          }
+        },
+        "required": [
+          "count",
+          "items"
+        ],
+        "additionalProperties": false
+      },
+      "memoryDetail": {
+        "type": "object",
+        "properties": {
+          "item": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "details": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        },
+        "required": [
+          "item",
+          "details"
+        ],
+        "additionalProperties": false
+      },
+      "agentConfigList": {
+        "type": "object",
+        "properties": {
+          "configs": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          }
+        },
+        "required": [
+          "configs"
+        ],
+        "additionalProperties": false
+      },
+      "agentConfigMutation": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "ok",
+              "error"
+            ]
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "additionalProperties": false
+      },
+      "statusWrappedConfig": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "ok"
+            ]
+          },
+          "updated": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "config": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        },
+        "required": [
+          "status",
+          "config"
+        ],
+        "additionalProperties": true
+      },
+      "dataStatus": {
+        "type": "object",
+        "properties": {
+          "db_path": {
+            "type": "string"
+          },
+          "size_mb": {
+            "type": "number"
+          },
+          "stock_count": {
+            "type": "integer"
+          },
+          "kline_count": {
+            "type": "integer"
+          },
+          "financial_count": {
+            "type": "integer"
+          },
+          "calendar_count": {
+            "type": "integer"
+          },
+          "status_count": {
+            "type": "integer"
+          },
+          "factor_count": {
+            "type": "integer"
+          },
+          "capital_flow_count": {
+            "type": "integer"
+          },
+          "dragon_tiger_count": {
+            "type": "integer"
+          },
+          "intraday_60m_count": {
+            "type": "integer"
+          },
+          "latest_date": {
+            "type": "string"
+          },
+          "index_count": {
+            "type": "integer"
+          },
+          "index_kline_count": {
+            "type": "integer"
+          },
+          "index_latest_date": {
+            "type": "string"
+          },
+          "schema": {
+            "type": "string",
+            "enum": [
+              "canonical_v1"
+            ]
+          },
+          "quality": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "detail_mode": {
+            "type": "string",
+            "enum": [
+              "fast",
+              "slow"
+            ]
+          }
+        },
+        "required": [
+          "db_path",
+          "size_mb",
+          "stock_count",
+          "kline_count",
+          "latest_date",
+          "schema",
+          "quality",
+          "detail_mode"
+        ],
+        "additionalProperties": true
+      },
+      "countedItems": {
+        "type": "object",
+        "properties": {
+          "count": {
+            "type": "integer"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          }
+        },
+        "required": [
+          "count",
+          "items"
+        ],
+        "additionalProperties": false
+      },
+      "dataDownload": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "started",
+              "running"
+            ]
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "message"
+        ],
+        "additionalProperties": false
+      },
+      "SseConnectedData": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "connected"
+            ]
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "additionalProperties": false
+      },
+      "SseCycleStartData": {
+        "type": "object",
+        "properties": {
+          "cycle_id": {
+            "type": "integer"
+          },
+          "cutoff_date": {
+            "type": "string"
+          },
+          "phase": {
+            "type": "string"
+          },
+          "timestamp": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "requested_data_mode": {
+            "type": "string"
+          },
+          "llm_mode": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "cycle_id",
+          "cutoff_date",
+          "phase",
+          "requested_data_mode",
+          "llm_mode",
+          "timestamp"
+        ],
+        "additionalProperties": true
+      },
+      "SseCycleCompleteData": {
+        "type": "object",
+        "properties": {
+          "cycle_id": {
+            "type": "integer"
+          },
+          "cutoff_date": {
+            "type": "string"
+          },
+          "return_pct": {
+            "type": "number"
+          },
+          "is_profit": {
+            "type": "boolean"
+          },
+          "selected_count": {
+            "type": "integer"
+          },
+          "selected_stocks": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "trade_count": {
+            "type": "integer"
+          },
+          "final_value": {
+            "type": "number"
+          },
+          "review_applied": {
+            "type": "boolean"
+          },
+          "selection_mode": {
+            "type": "string"
+          },
+          "timestamp": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "requested_data_mode": {
+            "type": "string"
+          },
+          "effective_data_mode": {
+            "type": "string"
+          },
+          "llm_mode": {
+            "type": "string"
+          },
+          "degraded": {
+            "type": "boolean"
+          },
+          "degrade_reason": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "cycle_id",
+          "cutoff_date",
+          "return_pct",
+          "is_profit",
+          "selected_count",
+          "trade_count",
+          "final_value",
+          "review_applied",
+          "selection_mode",
+          "requested_data_mode",
+          "effective_data_mode",
+          "llm_mode",
+          "degraded",
+          "degrade_reason",
+          "timestamp"
+        ],
+        "additionalProperties": true
+      },
+      "SseCycleSkippedData": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "no_data"
+            ]
+          },
+          "cycle_id": {
+            "type": "integer"
+          },
+          "cutoff_date": {
+            "type": "string"
+          },
+          "stage": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "timestamp": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "requested_data_mode": {
+            "type": "string"
+          },
+          "effective_data_mode": {
+            "type": "string"
+          },
+          "llm_mode": {
+            "type": "string"
+          },
+          "degraded": {
+            "type": "boolean"
+          },
+          "degrade_reason": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "cycle_id",
+          "cutoff_date",
+          "stage",
+          "reason",
+          "timestamp"
+        ],
+        "additionalProperties": true
+      },
+      "SseAgentStatusData": {
+        "type": "object",
+        "properties": {
+          "timestamp": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "cycle_id": {
+            "type": "integer"
+          },
+          "cutoff_date": {
+            "type": "string"
+          },
+          "agent": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "stage": {
+            "type": "string"
+          },
+          "progress_pct": {
+            "type": "integer"
+          },
+          "step": {
+            "type": "integer"
+          },
+          "total_steps": {
+            "type": "integer"
+          },
+          "thinking": {
+            "type": "string"
+          },
+          "selected_stocks": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "details": {
+            "type": [
+              "object",
+              "array",
+              "string",
+              "number",
+              "boolean",
+              "null"
+            ],
+            "additionalProperties": true
+          }
+        },
+        "required": [
+          "timestamp",
+          "agent",
+          "status",
+          "message"
+        ],
+        "additionalProperties": true
+      },
+      "SseModuleLogData": {
+        "type": "object",
+        "properties": {
+          "timestamp": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "cycle_id": {
+            "type": "integer"
+          },
+          "cutoff_date": {
+            "type": "string"
+          },
+          "module": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "level": {
+            "type": "string"
+          },
+          "details": {
+            "type": [
+              "object",
+              "array",
+              "string",
+              "number",
+              "boolean",
+              "null"
+            ],
+            "additionalProperties": true
+          },
+          "metrics": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        },
+        "required": [
+          "timestamp",
+          "module",
+          "title",
+          "kind",
+          "level"
+        ],
+        "additionalProperties": true
+      },
+      "SseMeetingSpeechData": {
+        "type": "object",
+        "properties": {
+          "timestamp": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "cycle_id": {
+            "type": "integer"
+          },
+          "cutoff_date": {
+            "type": "string"
+          },
+          "meeting": {
+            "type": "string"
+          },
+          "speaker": {
+            "type": "string"
+          },
+          "speech": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string"
+          },
+          "picks": {
+            "type": "array",
+            "items": {
+              "type": [
+                "object",
+                "string"
+              ],
+              "additionalProperties": true
+            }
+          },
+          "suggestions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "decision": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "confidence": {
+            "type": [
+              "number",
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "timestamp",
+          "meeting",
+          "speaker",
+          "speech"
+        ],
+        "additionalProperties": true
+      }
+    }
+  }
+}

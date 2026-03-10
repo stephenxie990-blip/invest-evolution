@@ -61,6 +61,8 @@ def _extract_jsonish_float(raw: str, key: str, next_keys: List[str] | None = Non
 def _recover_hunter_result(
     raw: str,
     valid_codes: List[str],
+    default_stop_loss_pct: float | None = None,
+    default_take_profit_pct: float | None = None,
 ) -> dict:
     confidence = _extract_jsonish_float(raw, 'confidence')
     overall_view = _extract_jsonish_string(raw, 'overall_view', ['confidence'])

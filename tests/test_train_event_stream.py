@@ -60,3 +60,5 @@ def test_cycle_start_event_carries_cutoff_date(monkeypatch, tmp_path):
     assert events
     assert events[0][0] == "cycle_start"
     assert events[0][1]["cutoff_date"] == "20240229"
+    assert events[0][1]["requested_data_mode"] == "mock"
+    assert events[0][1]["llm_mode"] in {"live", "dry_run"}
