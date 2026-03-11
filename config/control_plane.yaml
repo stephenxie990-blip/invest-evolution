@@ -1,7 +1,24 @@
 llm:
-  providers: {}
-  models: {}
-  bindings: {}
+  providers:
+    legacy_default:
+      api_base: https://vpsairobot.com/v1
+  models:
+    legacy_fast:
+      provider: legacy_default
+      model: gpt-5.4
+    legacy_deep:
+      provider: legacy_default
+      model: gpt-5.4
+  bindings:
+    defaults.fast: legacy_fast
+    defaults.deep: legacy_deep
+    controller.main: legacy_fast
+    meeting.selection.fast: legacy_fast
+    meeting.selection.deep: legacy_deep
+    meeting.review.fast: legacy_fast
+    meeting.review.deep: legacy_deep
+    optimizer.loss_analysis: legacy_deep
+    commander.brain: legacy_fast
 data:
   runtime_policy:
     allow_online_fallback: false

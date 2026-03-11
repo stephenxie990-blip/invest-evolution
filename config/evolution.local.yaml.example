@@ -1,10 +1,6 @@
 # 本地敏感覆盖层示例（不要提交到版本库）
 # 优先级：环境变量 > INVEST_CONFIG_PATH > config/evolution.local.yaml > config/evolution.yaml > 默认值
-# 推荐优先使用环境变量；只有在本机调试时才把敏感项放到此文件。
-
-llm_api_key: ""
-# 或使用环境变量占位：
-# llm_api_key: ${ENV:LLM_API_KEY}
+# LLM 密钥与模型/provider 请配置到 control_plane，而不是 evolution.local.yaml。
 
 # 灰度开关（本地联调时可覆盖）
 frontend_canary_enabled: false

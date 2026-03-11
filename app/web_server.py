@@ -1329,8 +1329,6 @@ def api_evolution_config_get():
 
     service = EvolutionConfigService(project_root=config_module.PROJECT_ROOT, live_config=config_module.config)
     payload = dict(service.get_masked_payload())
-    for key in ("llm_fast_model", "llm_deep_model", "llm_api_base", "llm_api_key_masked", "llm_api_key_source"):
-        payload.pop(key, None)
     return jsonify({"status": "ok", "config": payload})
 
 
@@ -1357,8 +1355,6 @@ def api_evolution_config_update():
             if controller is not None and hasattr(controller, "refresh_runtime_from_config"):
                 controller.refresh_runtime_from_config()
         config_payload = dict(payload["config"])
-        for key in ("llm_fast_model", "llm_deep_model", "llm_api_base", "llm_api_key_masked", "llm_api_key_source"):
-            config_payload.pop(key, None)
         return jsonify({"status": "ok", "updated": payload["updated"], "config": config_payload, "restart_required": False})
     except ValueError as exc:
         return jsonify({"status": "error", "error": str(exc)}), 400

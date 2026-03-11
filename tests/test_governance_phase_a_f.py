@@ -30,21 +30,19 @@ def test_config_service_writes_audit_and_snapshot(tmp_path: Path):
     assert "max_stocks" in audit["changed"]
 
 
-def test_config_service_snapshots_redact_llm_api_key(tmp_path: Path):
+def test_config_service_snapshots_no_longer_include_llm_api_key(tmp_path: Path):
     live = config_module.EvolutionConfig(llm_api_key="sk-secret-12345678")
     service = EvolutionConfigService(project_root=tmp_path, live_config=live)
 
     service.apply_patch({"max_stocks": 12}, source="test")
     snapshot = json.loads(next(service.snapshot_dir.glob("config_*.json")).read_text(encoding="utf-8"))
-    assert snapshot["llm_api_key"].endswith("5678")
-    assert snapshot["llm_api_key"] != "sk-secret-12345678"
+    assert "llm_api_key" not in snapshot
 
     runtime_snapshot = service.write_runtime_snapshot(cycle_id=1, output_dir=tmp_path / "out")
     payload = json.loads(runtime_snapshot.read_text(encoding="utf-8"))
     payload_copy = json.loads((tmp_path / "out" / "cycle_0001_config_snapshot.json").read_text(encoding="utf-8"))
-    assert payload["llm_api_key"] == payload_copy["llm_api_key"]
-    assert payload["llm_api_key"].endswith("5678")
-    assert payload["llm_api_key"] != "sk-secret-12345678"
+    assert "llm_api_key" not in payload
+    assert payload == payload_copy
 
 
 @pytest.mark.asyncio

@@ -54,16 +54,6 @@ class AgentConfig:
             return config.llm_deep_model
         return self.llm_model_setting
 
-    @property
-    def llm_api_key(self) -> str:
-        cfg = self._raw_registry_config()
-        return cfg.get("llm_api_key", "")
-
-    @property
-    def llm_api_base(self) -> str:
-        cfg = self._raw_registry_config()
-        return cfg.get("llm_api_base", "")
-
 
 class RegimeResult(TypedDict, total=False):
     regime: str
@@ -104,13 +94,9 @@ class InvestAgent(ABC):
         if self.llm is None:
             model = self.config.llm_model
             model_setting = self.config.llm_model_setting
-            api_key = self.config.llm_api_key
-            api_base = self.config.llm_api_base
             self.llm = build_component_llm_caller(
                 f"agent.{self.config.name}",
                 fallback_model=model,
-                fallback_api_key=api_key,
-                fallback_api_base=api_base,
             )
             logger.info(
                 "[%s] 采用独立大模型配置: model_setting=%s, resolved_model=%s",

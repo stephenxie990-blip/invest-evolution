@@ -110,10 +110,6 @@ class EvolutionConfigService:
 
     def get_masked_payload(self) -> dict[str, Any]:
         cfg = self.live_config
-        llm_key_masked = ""
-        if getattr(cfg, "llm_api_key", ""):
-            v = str(getattr(cfg, "llm_api_key"))
-            llm_key_masked = ("*" * max(0, len(v) - 4)) + v[-4:]
         web_api_token_masked = ""
         if getattr(cfg, "web_api_token", ""):
             v = str(getattr(cfg, "web_api_token"))
@@ -328,15 +324,9 @@ class EvolutionConfigService:
             raise RuntimeError("PyYAML 未安装，无法写入 YAML。请安装 pyyaml 后重试。")
 
         normalized = self.normalize_patch(patch)
-        explicit_secret_update = "llm_api_key" in normalized
-        secret_value = str(normalized.get("llm_api_key", "") or "").strip() if explicit_secret_update else ""
         before = self._current_editable_values()
         changed = {}
         for key, value in normalized.items():
-            if key == "llm_api_key":
-                value = str(value).strip()
-                if not value:
-                    continue
             old = before.get(key)
             if old != value:
                 changed[key] = {"before": self._redact(key, old), "after": self._redact(key, value)}
@@ -347,13 +337,6 @@ class EvolutionConfigService:
         self.config_path.parent.mkdir(parents=True, exist_ok=True)
         backup = None
         local_backup = None
-        existing_local = self._read_yaml_dict(self.local_override_path)
-        updated_local = dict(existing_local)
-        if explicit_secret_update:
-            if secret_value:
-                updated_local["llm_api_key"] = secret_value
-            else:
-                updated_local.pop("llm_api_key", None)
 
         if self.config_path.exists():
             backup = self.config_path.with_suffix(".yaml.bak")
@@ -363,11 +346,6 @@ class EvolutionConfigService:
             shutil.copy2(self.local_override_path, local_backup)
         try:
             self.config_path.write_text(yaml.safe_dump(persisted, allow_unicode=True, sort_keys=True), encoding="utf-8")
-            if explicit_secret_update:
-                if updated_local:
-                    self.local_override_path.write_text(yaml.safe_dump(updated_local, allow_unicode=True, sort_keys=True), encoding="utf-8")
-                else:
-                    self.local_override_path.unlink(missing_ok=True)
             self._write_snapshot(persisted)
             self._append_audit_log(source=source, changed=changed)
         except Exception:
