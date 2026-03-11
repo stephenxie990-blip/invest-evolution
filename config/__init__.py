@@ -46,6 +46,18 @@ WORKSPACE_DIR = RUNTIME_DIR / "workspace"
 # LLM 默认配置（优先环境变量，其次 fallback）
 # ===========================================================
 
+def _load_codex_openai_api_key() -> str:
+    auth_path = Path.home() / ".codex" / "auth.json"
+    if not auth_path.exists():
+        return ""
+    try:
+        payload = json.loads(auth_path.read_text(encoding="utf-8"))
+    except Exception:
+        logger.debug("Failed to parse Codex auth file: %s", auth_path, exc_info=True)
+        return ""
+    return str(payload.get("OPENAI_API_KEY", "") or "").strip()
+
+
 # 快思考模型：用于数据汇总、预筛、摘要等轻量任务
 DEFAULT_LLM_MODEL = os.environ.get(
     "LLM_MODEL",
@@ -59,7 +71,7 @@ DEFAULT_LLM_DEEP_MODEL = os.environ.get(
 )
 DEFAULT_LLM_API_KEY = os.environ.get(
     "LLM_API_KEY",
-    "",  # 不再硬编码 — 必须通过环境变量或 YAML 配置
+    os.environ.get("OPENAI_API_KEY", _load_codex_openai_api_key()),
 )
 DEFAULT_LLM_API_BASE = os.environ.get(
     "LLM_API_BASE",
@@ -163,6 +175,11 @@ def _apply_env_overrides(data: dict[str, Any]) -> dict[str, Any]:
         "web_api_token": ("WEB_API_TOKEN", str),
         "web_api_require_auth": ("WEB_API_REQUIRE_AUTH", lambda raw: str(raw).strip().lower() in _TRUE_VALUES),
         "web_api_public_read_enabled": ("WEB_API_PUBLIC_READ_ENABLED", lambda raw: str(raw).strip().lower() in _TRUE_VALUES),
+        "web_rate_limit_enabled": ("WEB_RATE_LIMIT_ENABLED", lambda raw: str(raw).strip().lower() in _TRUE_VALUES),
+        "web_rate_limit_window_sec": ("WEB_RATE_LIMIT_WINDOW_SEC", int),
+        "web_rate_limit_read_max": ("WEB_RATE_LIMIT_READ_MAX", int),
+        "web_rate_limit_write_max": ("WEB_RATE_LIMIT_WRITE_MAX", int),
+        "web_rate_limit_heavy_max": ("WEB_RATE_LIMIT_HEAVY_MAX", int),
         "web_ui_shell_mode": ("WEB_UI_SHELL_MODE", str),
         "frontend_canary_enabled": ("FRONTEND_CANARY_ENABLED", lambda raw: str(raw).strip().lower() in _TRUE_VALUES),
     }
@@ -252,6 +269,11 @@ class EvolutionConfig:
     web_api_token: str = field(default_factory=lambda: os.environ.get("WEB_API_TOKEN", ""))
     web_api_require_auth: bool = field(default_factory=lambda: _env_bool("WEB_API_REQUIRE_AUTH", bool(os.environ.get("WEB_API_TOKEN", "").strip())))
     web_api_public_read_enabled: bool = field(default_factory=lambda: _env_bool("WEB_API_PUBLIC_READ_ENABLED", False))
+    web_rate_limit_enabled: bool = field(default_factory=lambda: _env_bool("WEB_RATE_LIMIT_ENABLED", True))
+    web_rate_limit_window_sec: int = field(default_factory=lambda: _env_int("WEB_RATE_LIMIT_WINDOW_SEC", 60))
+    web_rate_limit_read_max: int = field(default_factory=lambda: _env_int("WEB_RATE_LIMIT_READ_MAX", 120))
+    web_rate_limit_write_max: int = field(default_factory=lambda: _env_int("WEB_RATE_LIMIT_WRITE_MAX", 20))
+    web_rate_limit_heavy_max: int = field(default_factory=lambda: _env_int("WEB_RATE_LIMIT_HEAVY_MAX", 5))
     web_ui_shell_mode: str = field(default_factory=lambda: os.environ.get("WEB_UI_SHELL_MODE", "legacy"))
     frontend_canary_enabled: bool = field(default_factory=lambda: _env_bool("FRONTEND_CANARY_ENABLED", False))
     frontend_canary_query_param: str = field(default_factory=lambda: os.environ.get("FRONTEND_CANARY_QUERY_PARAM", "__frontend"))
@@ -301,6 +323,10 @@ class EvolutionConfig:
                 "WEB_API_REQUIRE_AUTH 已开启，但 WEB_API_TOKEN 未配置；"
                 "仅允许回环地址本地启动，非回环部署会被拒绝。"
             )
+        self.web_rate_limit_window_sec = max(1, int(self.web_rate_limit_window_sec or 60))
+        self.web_rate_limit_read_max = max(1, int(self.web_rate_limit_read_max or 120))
+        self.web_rate_limit_write_max = max(1, int(self.web_rate_limit_write_max or 20))
+        self.web_rate_limit_heavy_max = max(1, int(self.web_rate_limit_heavy_max or 5))
         self.web_ui_shell_mode = str(self.web_ui_shell_mode or "legacy").strip().lower() or "legacy"
         if self.web_ui_shell_mode not in {"legacy", "app"}:
             logger.warning("Invalid web_ui_shell_mode=%r, fallback to legacy", self.web_ui_shell_mode)
@@ -330,7 +356,7 @@ class EvolutionConfig:
             import logging
             logging.getLogger(__name__).warning(
                 "LLM_API_KEY 未设置！LLM 功能将不可用。"
-                "请设置环境变量: export LLM_API_KEY='sk-...'"
+                "请设置环境变量 `LLM_API_KEY`，或在 `~/.codex/auth.json` 中配置 `OPENAI_API_KEY`。"
             )
 
 
@@ -346,6 +372,8 @@ def load_config(config_path: str = None) -> EvolutionConfig:
         data.update(_load_yaml_layer(layer_path))
 
     data = _apply_env_overrides(data)
+    if not str(data.get("llm_api_key", "") or "").strip() and DEFAULT_LLM_API_KEY:
+        data["llm_api_key"] = DEFAULT_LLM_API_KEY
     return EvolutionConfig(**data)
 
 

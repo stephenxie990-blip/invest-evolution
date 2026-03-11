@@ -6,7 +6,7 @@
 
 - 所有 LLM 密钥默认不再写入 `config/evolution.yaml`。
 - 敏感项优先走环境变量，其次走 `config/evolution.local.yaml`。
-- Web/API 只返回 `llm_api_key_masked` 与 `llm_api_key_source`，不返回明文。
+- Web/API 不返回明文 LLM 密钥；密钥与模型配置统一通过 `/api/control_plane` 管理。
 
 ### 当前约定
 
@@ -20,6 +20,7 @@
 - 生产部署必须配置：`WEB_API_TOKEN`、`WEB_API_REQUIRE_AUTH=true`。
 - 可选：`WEB_API_PUBLIC_READ_ENABLED=true` 仅放开只读状态接口，其余接口仍需鉴权。
 - 支持请求头：`Authorization: Bearer <token>` 或 `X-Invest-Token: <token>`。
+- 应用内置简单限流，可通过 `WEB_RATE_LIMIT_ENABLED`、`WEB_RATE_LIMIT_WINDOW_SEC`、`WEB_RATE_LIMIT_READ_MAX`、`WEB_RATE_LIMIT_WRITE_MAX`、`WEB_RATE_LIMIT_HEAVY_MAX` 调整。
 - `GET /healthz` 为无鉴权健康检查接口，仅返回最小存活信息。
 
 ### 发布前检查（Web API）
@@ -28,6 +29,8 @@
 - [ ] 非回环部署时已设置 `WEB_API_REQUIRE_AUTH=true`。
 - [ ] 如需开放匿名读，仅确认 `WEB_API_PUBLIC_READ_ENABLED` 对应风险可接受。
 - [ ] Gunicorn / 反向代理启动命令已验证，不直接暴露 Flask 开发服务器。
+- [ ] `deploy/nginx/invest-evolution.conf` 与 `deploy/systemd/invest-evolution.service` 已按服务器路径调整。
+- [ ] `deploy/systemd/invest-evolution.env.example` 已复制到 `/etc/default/invest-evolution` 或同等环境文件。
 
 
 ### 发布前检查
@@ -35,7 +38,7 @@
 - [ ] `config/evolution.yaml` 中不包含真实密钥。
 - [ ] `config/evolution.local.yaml` 已加入 `.gitignore`，且不纳入提交。
 - [ ] `.env` / `.env.*` 已加入 `.gitignore`。
-- [ ] 通过 `GET /api/evolution_config` 确认 `llm_api_key_source` 为 `env` 或 `local_yaml`。
+- [ ] 通过 `GET /api/control_plane` 确认 provider `api_key` 为掩码值，且密钥未出现在 `/api/evolution_config`。
 - [ ] 如果密钥曾暴露在历史文件/截图/日志中，先轮换，再发布。
 
 ## 2. 配置分层

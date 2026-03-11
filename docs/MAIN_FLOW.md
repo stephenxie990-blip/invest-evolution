@@ -160,9 +160,9 @@ flowchart LR
    - `/api/cron`
    - `/api/memory`
 6. **配置治理**
-   - `/api/agent_configs`
+   - `/api/agent_prompts`
    - `/api/runtime_paths`
-   - `/api/evolution_config`
+   - `/api/evolution_config`（训练参数） / `/api/control_plane`（LLM）
 7. **数据管理**
    - `/api/data/status`
    - `/api/data/capital_flow`

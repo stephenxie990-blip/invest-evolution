@@ -24,7 +24,7 @@ def test_apply_patch_does_not_persist_runtime_secret_to_primary_or_local(tmp_pat
     assert not (project_root / 'config' / 'evolution.local.yaml').exists()
 
 
-def test_apply_patch_persists_explicit_secret_to_local_override(tmp_path):
+def test_apply_patch_ignores_llm_secret_after_control_plane_split(tmp_path):
     project_root = tmp_path
     (project_root / 'config').mkdir(parents=True, exist_ok=True)
 
@@ -33,13 +33,13 @@ def test_apply_patch_persists_explicit_secret_to_local_override(tmp_path):
         live_config=EvolutionConfig(),
     )
 
-    service.apply_patch({'llm_api_key': 'file-secret'}, source='test')
+    service.apply_patch({'llm_api_key': 'file-secret', 'max_stocks': 66}, source='test')
 
     primary_payload = yaml.safe_load((project_root / 'config' / 'evolution.yaml').read_text(encoding='utf-8')) or {}
-    local_payload = yaml.safe_load((project_root / 'config' / 'evolution.local.yaml').read_text(encoding='utf-8')) or {}
 
+    assert primary_payload['max_stocks'] == 66
     assert 'llm_api_key' not in primary_payload
-    assert local_payload['llm_api_key'] == 'file-secret'
+    assert not (project_root / 'config' / 'evolution.local.yaml').exists()
 
 
 def test_get_masked_payload_masks_web_api_token(tmp_path):

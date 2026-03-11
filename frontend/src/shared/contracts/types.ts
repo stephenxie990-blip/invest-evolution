@@ -122,8 +122,6 @@ const RuntimePathsConfigSchema = z.object({
 }).passthrough()
 
 const EvolutionConfigPayloadSchema = z.object({
-  llm_api_key_masked: z.string().optional(),
-  llm_api_key_source: z.string().optional(),
   config_layers: z.array(z.string()).optional(),
   local_override_path: z.string().optional(),
   audit_log_path: z.string().optional(),
@@ -132,6 +130,8 @@ const EvolutionConfigPayloadSchema = z.object({
   frontend_canary_enabled: z.boolean().optional(),
   frontend_canary_query_param: z.string().optional(),
 }).passthrough()
+
+const ControlPlanePayloadSchema = z.record(z.string(), z.unknown())
 
 export const RuntimePathsSchema = z.object({
   status: z.string(),
@@ -143,6 +143,17 @@ export const EvolutionConfigSchema = z.object({
   status: z.string(),
   updated: z.array(z.string()).optional(),
   config: EvolutionConfigPayloadSchema,
+}).passthrough()
+
+export const ControlPlaneSchema = z.object({
+  status: z.string(),
+  updated: z.array(z.string()).optional(),
+  restart_required: z.boolean().optional(),
+  config: ControlPlanePayloadSchema,
+  config_path: z.string().optional(),
+  local_override_path: z.string().optional(),
+  audit_log_path: z.string().optional(),
+  snapshot_dir: z.string().optional(),
 }).passthrough()
 
 export const InvestmentModelsSchema = z.object({
@@ -355,3 +366,5 @@ export type CountedItemsResponse = z.infer<typeof CountedItemsSchema>
 export type DataStatusResponse = z.infer<typeof DataStatusSchema>
 export type DataDownloadResponse = z.infer<typeof DataDownloadSchema>
 export type KnownRuntimeEventType = keyof typeof RuntimeEventPayloadSchemas
+
+export type ControlPlaneResponse = z.infer<typeof ControlPlaneSchema>

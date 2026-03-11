@@ -36,3 +36,71 @@
 - [x] 对比多个候选方案（跳过补数 / 窗口裁剪 / 按股切片 / 向量化增强）
 - [x] 落地最优方案并补回归测试
 - [x] 在真实数据库与单周期 dry-run 上复测确认
+
+
+## 统一控制面专项（2026-03-11）
+
+### 目标
+- 建立统一 LLM 控制面与运行时外部数据出口策略。
+- 确保修改配置后重启系统即可全局生效。
+- 收口训练与 commander 的 LLM 装配语义。
+
+### 阶段
+- [x] 建立实施板与兼容边界
+- [x] 新增控制面 loader / resolver
+- [x] 接入训练链路与 commander 启动装配
+- [x] 增加运行时数据出口策略
+- [x] 暴露统一控制面 API 并补回归
+
+### 验收
+- 统一控制面可表达 provider / model / binding。
+- 训练与 commander 启动时统一从控制面解析 LLM。
+- 运行时训练默认不再在线抓市场数据。
+- 配置变更 API 明确返回 `restart_required=true`。
+
+
+## 统一控制面专项（2026-03-11）
+
+### 第二阶段
+- [x] 将 `/api/evolution_config` 收口为兼容壳
+- [x] 将 `/api/agent_configs` 收口为兼容壳
+- [x] 新增 `market_data_gateway` 统一外部数据出站层
+- [x] 接入 CLI / Web 下载 / 运行时训练链路
+- [x] 完成真实训练回归验证
+
+
+- [x] 第一波：迁移旧前端 Agent 配置到 `/api/agent_prompts` + `/api/control_plane`
+- [x] 第一波：删除 `/api/agent_configs` 兼容壳
+
+
+- [x] 第二波：`/api/evolution_config` 下线 LLM 字段，仅保留训练参数
+- [x] 第三波：删除 evolution 兼容翻译层、旧说明与旧契约测试
+
+
+- [x] 底层瘦身：`EvolutionConfigService` 去除 LLM 输出/编辑职责
+- [x] 合约产物与设置页契约改为 control plane 安全面板
+
+## Commander 统一入口升级总方案（2026-03-11）
+
+### 目标
+- 将 Commander 升级为唯一人类入口与统一控制平面代理。
+- 停止前端继续承担关键控制职责，后续只保留可选展示壳。
+- 分阶段补齐 Commander 在配置域、数据域、分析查询域、观测域的覆盖能力。
+
+### 阶段
+- [x] 完成功能盘点与差距分析
+- [x] 输出总方案、技术路径图、subagent 拆分与验收标准
+- [ ] Phase 1：补齐 Commander 管理能力缺口
+- [ ] Phase 2：补统一观测面
+- [ ] Phase 3：构建自然语言任务层与风险门控
+- [ ] Phase 4：前端降级为可选视图
+- [ ] Phase 5：问股 / 策略 DSL 增强
+
+### 立即实施建议
+- 先做分析查询域 + 配置域 + Lab 列表能力接入 Commander。
+- 再做数据域与统一观测层。
+- 最后把高频操作提升为自然语言任务模板。
+
+
+
+- [x] 启动层瘦身：训练 / commander / LLMCaller 优先使用 control plane 默认绑定

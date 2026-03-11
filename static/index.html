@@ -1433,43 +1433,112 @@ async function searchMemory() {
 }
 
 // ------ Agents ------
+function sanitizeAgentProfileName(name) {
+  return String(name || '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'agent';
+}
+
+function resolveAgentModelValue(controlPlane, agentName) {
+  const llm = (controlPlane && controlPlane.llm) || {};
+  const bindings = llm.bindings || {};
+  const models = llm.models || {};
+  const binding = String(bindings[`agent.${agentName}`] || '').trim();
+  const fastBinding = String(bindings['defaults.fast'] || 'legacy_fast').trim();
+  const deepBinding = String(bindings['defaults.deep'] || 'legacy_deep').trim();
+  if (!binding || binding === fastBinding) return 'fast';
+  if (binding === deepBinding) return 'deep';
+  const profile = models[binding] || {};
+  return String(profile.model || '').trim();
+}
+
+function buildAgentControlPlanePatch(controlPlane, agentName, modelValue) {
+  const rawValue = String(modelValue || '').trim();
+  const llm = (controlPlane && controlPlane.llm) || {};
+  const bindings = llm.bindings || {};
+  const models = llm.models || {};
+  const fastBinding = String(bindings['defaults.fast'] || 'legacy_fast').trim() || 'legacy_fast';
+  const deepBinding = String(bindings['defaults.deep'] || 'legacy_deep').trim() || 'legacy_deep';
+  const fastProfile = models[fastBinding] || {};
+  const providerName = String(fastProfile.provider || 'legacy_default').trim() || 'legacy_default';
+  const bindingKey = `agent.${agentName}`;
+  const lowered = rawValue.toLowerCase();
+  if (!rawValue || lowered === 'fast') {
+    return { llm: { bindings: { [bindingKey]: fastBinding } } };
+  }
+  if (lowered === 'deep') {
+    return { llm: { bindings: { [bindingKey]: deepBinding } } };
+  }
+  const profileName = `agent_${sanitizeAgentProfileName(agentName)}`;
+  return {
+    llm: {
+      models: {
+        [profileName]: {
+          provider: providerName,
+          model: rawValue,
+        }
+      },
+      bindings: {
+        [bindingKey]: profileName,
+      }
+    }
+  };
+}
+
 async function loadAgents() {
-  const data = await api('/api/agent_configs');
+  const [promptData, controlPlaneData] = await Promise.all([
+    api('/api/agent_prompts'),
+    api('/api/control_plane')
+  ]);
+  const configs = promptData.configs || [];
+  const controlPlane = controlPlaneData.config || {};
   const grid = document.getElementById('agents-list');
-  if (!data.configs || data.configs.length === 0) {
+  if (!configs || configs.length === 0) {
     grid.innerHTML = '<div style="color:var(--text-muted)">暂无Agent配置</div>';
     return;
   }
-  grid.innerHTML = data.configs.map(c => `
-    <div class="strategy-card">
-      <div class="strategy-header">
-        <div class="strategy-name">${escapeHtml(c.name)}</div>
-        <span class="badge badge-blue">${escapeHtml(c.role)}</span>
+  grid.innerHTML = configs.map(c => {
+    const llmModel = resolveAgentModelValue(controlPlane, c.name);
+    return `
+      <div class="strategy-card">
+        <div class="strategy-header">
+          <div class="strategy-name">${escapeHtml(c.name)}</div>
+          <span class="badge badge-blue">${escapeHtml(c.role || c.name)}</span>
+        </div>
+        <div style="margin-bottom:12px">
+          <label class="form-label">LLM 模型</label>
+          <input type="text" class="input" style="width:100%" id="agent-model-${c.name}" value="${escapeHtml(llmModel || '')}">
+          <div style="color:var(--text-muted);font-size:12px;margin-top:4px">支持 `fast`、`deep` 或显式模型名；模型修改写入 Control Plane，需重启生效。</div>
+        </div>
+        <div style="margin-bottom:12px">
+          <label class="form-label">System Prompt</label>
+          <textarea class="textarea" id="agent-prompt-${c.name}" style="width:100%;height:140px;line-height:1.4">${escapeHtml(c.system_prompt || '')}</textarea>
+        </div>
+        <button class="btn btn-primary btn-sm" onclick="saveAgentConfig('${c.name}')">💾 保存修改</button>
       </div>
-      <div style="margin-bottom:12px">
-        <label class="form-label">LLM 模型</label>
-        <input type="text" class="input" style="width:100%" id="agent-model-${c.name}" value="${escapeHtml(c.llm_model || '')}">
-      </div>
-      <div style="margin-bottom:12px">
-        <label class="form-label">System Prompt</label>
-        <textarea class="textarea" style="width:100%;height:140px;line-height:1.4">${escapeHtml(c.system_prompt || '')}</textarea>
-      </div>
-      <button class="btn btn-primary btn-sm" onclick="saveAgentConfig('${c.name}')">💾 保存修改</button>
-    </div>
-  `).join('');
+    `;
+  }).join('');
 }
 
 async function saveAgentConfig(name) {
   const model = document.getElementById(`agent-model-${name}`).value.trim();
   const prompt = document.getElementById(`agent-prompt-${name}`).value.trim();
-  const res = await api('/api/agent_configs', {
-    method: 'POST',
-    body: JSON.stringify({ name: name, llm_model: model, system_prompt: prompt })
-  });
-  if (res.status === 'ok') {
-    alert('保存成功');
+  const currentControlPlane = await api('/api/control_plane');
+  const actions = [
+    api('/api/agent_prompts', {
+      method: 'POST',
+      body: JSON.stringify({ name, system_prompt: prompt })
+    })
+  ];
+  actions.push(
+    api('/api/control_plane', {
+      method: 'POST',
+      body: JSON.stringify(buildAgentControlPlanePatch(currentControlPlane.config || {}, name, model))
+    })
+  );
+  const [, controlPlaneRes] = await Promise.all(actions);
+  if (controlPlaneRes.status === 'ok') {
+    alert(controlPlaneRes.restart_required ? '保存成功，模型修改将在重启后生效' : '保存成功');
   } else {
-    alert('保存失败: ' + (res.error || 'Unknown Error'));
+    alert('保存失败: ' + (controlPlaneRes.error || 'Unknown Error'));
   }
 }
 

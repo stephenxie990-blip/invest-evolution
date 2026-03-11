@@ -35,6 +35,7 @@ from brain.memory import MemoryStore
 from brain.bridge import BridgeHub, BridgeMessage
 from brain.plugins import PluginLoader
 from config import PROJECT_ROOT, RUNTIME_DIR, OUTPUT_DIR, LOGS_DIR, MEMORY_DIR, SESSIONS_DIR, WORKSPACE_DIR, config
+from config.control_plane import resolve_component_llm, resolve_default_llm
 from config.services import EvolutionConfigService, RuntimePathConfigService
 from market_data import DataManager, DataSourceUnavailableError, MockDataProvider
 from app.train import SelfLearningController, TrainingResult
@@ -48,6 +49,21 @@ from app.lab.evaluation import (
 logger = logging.getLogger(__name__)
 
 _RUNTIME_FIELD_UNSET = object()
+
+
+def _commander_llm_default(field_name: str, fallback: str = "") -> str:
+    try:
+        default_fast = resolve_default_llm("fast")
+        resolved = resolve_component_llm(
+            "commander.brain",
+            fallback_model=default_fast.model,
+            fallback_api_key=default_fast.api_key,
+            fallback_api_base=default_fast.api_base,
+        )
+    except Exception:
+        return fallback
+    value = getattr(resolved, field_name, "") or fallback
+    return str(value or fallback)
 
 
 def _jsonable(value: Any) -> Any:
@@ -117,9 +133,9 @@ class CommanderConfig:
     training_run_dir: Path = RUNTIME_DIR / "state" / "training_runs"
     training_eval_dir: Path = RUNTIME_DIR / "state" / "training_evals"
 
-    model: str = field(default_factory=lambda: os.environ.get("COMMANDER_MODEL", config.llm_fast_model))
-    api_key: str = field(default_factory=lambda: os.environ.get("COMMANDER_API_KEY", config.llm_api_key))
-    api_base: str = field(default_factory=lambda: os.environ.get("COMMANDER_API_BASE", config.llm_api_base))
+    model: str = field(default_factory=lambda: os.environ.get("COMMANDER_MODEL", _commander_llm_default("model")))
+    api_key: str = field(default_factory=lambda: os.environ.get("COMMANDER_API_KEY", _commander_llm_default("api_key")))
+    api_base: str = field(default_factory=lambda: os.environ.get("COMMANDER_API_BASE", _commander_llm_default("api_base")))
     temperature: float = field(default_factory=lambda: float(os.environ.get("COMMANDER_TEMP", "0.2")))
     max_tokens: int = field(default_factory=lambda: int(os.environ.get("COMMANDER_MAX_TOKENS", "8192")))
     max_tool_iterations: int = field(default_factory=lambda: int(os.environ.get("COMMANDER_MAX_TOOL_ITER", "40")))

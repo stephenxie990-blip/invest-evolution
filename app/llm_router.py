@@ -62,7 +62,6 @@ class LLMRouter:
             max_retries=cfg.llm_max_retries,
             dry_run=dry_run,
         )
-        # 若 deep 模型与 fast 相同，直接复用同一 caller（节省资源）
         if cfg.llm_deep_model == cfg.llm_fast_model:
             deep_caller = fast_caller
         else:

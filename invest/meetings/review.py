@@ -14,6 +14,31 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 
+def _normalize_agent_weight_adjustments(raw: Any) -> dict[str, Any]:
+    if isinstance(raw, dict):
+        return dict(raw)
+    if not isinstance(raw, list):
+        return {}
+    normalized: dict[str, Any] = {}
+    for item in raw:
+        if isinstance(item, dict):
+            agent = str(item.get("agent") or item.get("name") or item.get("agent_name") or "").strip()
+            if not agent:
+                continue
+            weight = item.get("weight")
+            if weight is None:
+                weight = item.get("value")
+            if weight is None:
+                weight = item.get("adjustment")
+            normalized[agent] = weight
+            continue
+        if isinstance(item, (list, tuple)) and len(item) >= 2:
+            agent = str(item[0] or "").strip()
+            if agent:
+                normalized[agent] = item[1]
+    return normalized
+
+
 
 def _normalize_param_value(key: str, value: float) -> float:
     percent_like = {"stop_loss_pct", "take_profit_pct", "position_size", "cash_reserve", "trailing_pct"}
@@ -624,7 +649,7 @@ class ReviewMeeting:
         min_weight = float(self._policy_value('agent_weight.min', 0.3) or 0.3)
         max_weight = float(self._policy_value('agent_weight.max', 2.0) or 2.0)
         default_weight = float(self._policy_value('agent_weight.default', 1.0) or 1.0)
-        for agent, w in result.get("agent_weight_adjustments", {}).items():
+        for agent, w in _normalize_agent_weight_adjustments(result.get("agent_weight_adjustments")).items():
             if valid_agents and agent not in valid_agents:
                 continue
             try:

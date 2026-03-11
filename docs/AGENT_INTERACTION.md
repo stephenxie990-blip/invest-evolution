@@ -137,7 +137,7 @@ flowchart TD
 
 并可通过：
 
-- `/api/agent_configs`
+- `/api/agent_prompts`（Prompt 专用；模型绑定走 `/api/control_plane`）
 
 在线修改。
 

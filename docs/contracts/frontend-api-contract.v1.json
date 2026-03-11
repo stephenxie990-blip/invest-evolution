@@ -35,7 +35,7 @@
     "settings": [
       "GET/POST /api/runtime_paths",
       "GET/POST /api/evolution_config",
-      "GET/POST /api/agent_configs"
+      "GET/POST /api/agent_prompts"
     ],
     "data_console": [
       "GET /api/data/status",
@@ -2727,8 +2727,8 @@
       "id": "agentConfigs.list",
       "group": "config",
       "method": "GET",
-      "path": "/api/agent_configs",
-      "summary": "List persisted agent configuration records.",
+      "path": "/api/agent_prompts",
+      "summary": "List persisted agent prompt records.",
       "runtime_required": true,
       "frontend_preferred": true,
       "replacement": null,
@@ -2749,8 +2749,8 @@
       "id": "agentConfigs.update",
       "group": "config",
       "method": "POST",
-      "path": "/api/agent_configs",
-      "summary": "Persist llm_model/system_prompt changes for one agent.",
+      "path": "/api/agent_prompts",
+      "summary": "Persist system_prompt changes for one agent.",
       "runtime_required": true,
       "frontend_preferred": true,
       "replacement": null,
@@ -2872,7 +2872,7 @@
       "group": "config",
       "method": "GET",
       "path": "/api/evolution_config",
-      "summary": "Read masked evolution/model/data configuration.",
+      "summary": "Read evolution training/runtime configuration.",
       "runtime_required": true,
       "frontend_preferred": true,
       "replacement": null,
@@ -2894,7 +2894,7 @@
       "group": "config",
       "method": "POST",
       "path": "/api/evolution_config",
-      "summary": "Patch editable evolution/model/data configuration.",
+      "summary": "Patch editable evolution training/runtime configuration.",
       "runtime_required": true,
       "frontend_preferred": true,
       "replacement": null,
@@ -2902,20 +2902,8 @@
       "path_params": [],
       "request_body": {
         "type": "object",
-        "description": "Only editable keys are applied; extra keys are ignored.",
+        "description": "Only editable training/runtime keys are applied; LLM keys are rejected and must go through /api/control_plane.",
         "properties": {
-          "llm_fast_model": {
-            "type": "string"
-          },
-          "llm_deep_model": {
-            "type": "string"
-          },
-          "llm_api_base": {
-            "type": "string"
-          },
-          "llm_api_key": {
-            "type": "string"
-          },
           "llm_timeout": {
             "type": "integer"
           },

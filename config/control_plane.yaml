@@ -1,0 +1,8 @@
+llm:
+  providers: {}
+  models: {}
+  bindings: {}
+data:
+  runtime_policy:
+    allow_online_fallback: false
+    allow_capital_flow_sync: false

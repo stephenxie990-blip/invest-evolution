@@ -15,6 +15,7 @@ import argparse
 import asyncio
 from collections import deque
 from datetime import datetime
+import time
 import hmac
 import json
 import logging
@@ -56,6 +57,13 @@ _event_seq = 0
 
 _data_download_lock = threading.Lock()
 _data_download_running = False
+
+_rate_limit_lock = threading.Lock()
+_rate_limit_events: dict[tuple[str, str], deque[float]] = {}
+_HEAVY_RATE_LIMIT_PATHS = {
+    "/api/train",
+    "/api/data/download",
+}
 
 
 def _event_sink(event_type: str, data: dict):
@@ -242,6 +250,26 @@ def _web_api_public_read_enabled() -> bool:
     return bool(getattr(_current_web_config(), "web_api_public_read_enabled", False))
 
 
+def _web_rate_limit_enabled() -> bool:
+    return bool(getattr(_current_web_config(), "web_rate_limit_enabled", True))
+
+
+def _web_rate_limit_window_sec() -> int:
+    return max(1, int(getattr(_current_web_config(), "web_rate_limit_window_sec", 60) or 60))
+
+
+def _web_rate_limit_read_max() -> int:
+    return max(1, int(getattr(_current_web_config(), "web_rate_limit_read_max", 120) or 120))
+
+
+def _web_rate_limit_write_max() -> int:
+    return max(1, int(getattr(_current_web_config(), "web_rate_limit_write_max", 20) or 20))
+
+
+def _web_rate_limit_heavy_max() -> int:
+    return max(1, int(getattr(_current_web_config(), "web_rate_limit_heavy_max", 5) or 5))
+
+
 def _extract_request_token() -> str:
     auth_header = str(request.headers.get("Authorization", "") or "").strip()
     if auth_header.lower().startswith("bearer "):
@@ -311,6 +339,49 @@ def _resolve_runtime_artifact_path(path_str: str) -> Path | None:
     return None
 
 
+def _client_identifier() -> str:
+    forwarded_for = str(request.headers.get("X-Forwarded-For", "") or "").split(",")[0].strip()
+    if forwarded_for:
+        return forwarded_for
+    return str(request.remote_addr or "unknown")
+
+
+def _rate_limit_bucket() -> tuple[str, int] | None:
+    if not _web_rate_limit_enabled():
+        return None
+    path = str(request.path or "")
+    if path == "/healthz" or path == "/" or path == "/legacy":
+        return None
+    if path.startswith("/static/") or path == "/app" or path.startswith("/app/"):
+        return None
+    if not path.startswith("/api/"):
+        return None
+    if path in _HEAVY_RATE_LIMIT_PATHS:
+        return ("heavy", _web_rate_limit_heavy_max())
+    if request.method in {"POST", "PUT", "PATCH", "DELETE"}:
+        return ("write", _web_rate_limit_write_max())
+    return ("read", _web_rate_limit_read_max())
+
+
+def _consume_rate_limit() -> tuple[bool, int] | None:
+    bucket = _rate_limit_bucket()
+    if bucket is None:
+        return None
+    scope, max_requests = bucket
+    key = (_client_identifier(), scope, str(request.path or ""))
+    now = time.time()
+    window_start = now - _web_rate_limit_window_sec()
+    with _rate_limit_lock:
+        queue = _rate_limit_events.setdefault(key, deque())
+        while queue and queue[0] <= window_start:
+            queue.popleft()
+        if len(queue) >= max_requests:
+            retry_after = max(1, int(queue[0] + _web_rate_limit_window_sec() - now))
+            return False, retry_after
+        queue.append(now)
+    return True, 0
+
+
 @app.before_request
 def _enforce_api_auth():
     if not _request_requires_auth():
@@ -324,6 +395,24 @@ def _enforce_api_auth():
     if not hmac.compare_digest(provided_token, expected_token):
         return jsonify({"error": "invalid authentication token"}), 403
     return None
+
+
+@app.before_request
+def _enforce_rate_limit():
+    verdict = _consume_rate_limit()
+    if verdict is None:
+        return None
+    allowed, retry_after = verdict
+    if allowed:
+        return None
+    response = jsonify({
+        "error": "rate limit exceeded",
+        "retry_after_sec": retry_after,
+        "window_sec": _web_rate_limit_window_sec(),
+    })
+    response.status_code = 429
+    response.headers["Retry-After"] = str(retry_after)
+    return response
 
 
 def _legacy_index_response():
@@ -1142,29 +1231,46 @@ def api_memory_detail(record_id: str):
     return jsonify(_build_memory_detail(row))
 
 
-# ---- Agent Configs ----
+# ---- Agent Prompts ----
 
-@app.route("/api/agent_configs", methods=["GET"])
-def api_agent_configs_list():
+@app.route("/api/agent_prompts", methods=["GET"])
+def api_agent_prompts_list():
     from config import agent_config_registry
-    return jsonify({
-        "configs": agent_config_registry.list_configs()
-    })
 
-@app.route("/api/agent_configs", methods=["POST"])
-def api_agent_configs_update():
+    items = []
+    for cfg in agent_config_registry.list_configs():
+        name = str(cfg.get("name", "") or "").strip()
+        if not name:
+            continue
+        items.append({
+            "name": name,
+            "role": str(cfg.get("role", name) or name),
+            "system_prompt": str(cfg.get("system_prompt", "") or ""),
+        })
+    return jsonify({"status": "ok", "configs": items})
+
+
+@app.route("/api/agent_prompts", methods=["POST"])
+def api_agent_prompts_update():
     from config import agent_config_registry
+
     data = request.get_json(force=True) or {}
-    agent_name = data.get("name")
+    agent_name = str(data.get("name", "") or "").strip()
     if not agent_name:
         return jsonify({"error": "name is required"}), 400
-        
-    current_cfg = agent_config_registry.get_config(agent_name)
-    current_cfg["llm_model"] = data.get("llm_model", current_cfg.get("llm_model"))
-    current_cfg["system_prompt"] = data.get("system_prompt", current_cfg.get("system_prompt"))
-    
+    if "system_prompt" not in data:
+        return jsonify({"error": "system_prompt is required"}), 400
+
+    current_cfg = dict(agent_config_registry.get_config(agent_name) or {})
+    current_cfg["system_prompt"] = str(data.get("system_prompt", "") or "")
     ok = agent_config_registry.save_config(agent_name, current_cfg)
-    return jsonify({"status": "ok" if ok else "error"})
+    if not ok:
+        return jsonify({"status": "error"}), 500
+    return jsonify({
+        "status": "ok",
+        "updated": [f"agent_prompts.{agent_name}.system_prompt"],
+        "restart_required": False,
+    })
 
 
 # ---- Runtime Paths ----
@@ -1222,7 +1328,10 @@ def api_evolution_config_get():
     import config as config_module
 
     service = EvolutionConfigService(project_root=config_module.PROJECT_ROOT, live_config=config_module.config)
-    return jsonify({"status": "ok", "config": service.get_masked_payload()})
+    payload = dict(service.get_masked_payload())
+    for key in ("llm_fast_model", "llm_deep_model", "llm_api_base", "llm_api_key_masked", "llm_api_key_source"):
+        payload.pop(key, None)
+    return jsonify({"status": "ok", "config": payload})
 
 
 @app.route("/api/evolution_config", methods=["POST"])
@@ -1230,6 +1339,15 @@ def api_evolution_config_update():
     import config as config_module
 
     data = request.get_json(force=True) or {}
+    forbidden_keys = {"llm_fast_model", "llm_deep_model", "llm_api_base", "llm_api_key"}
+    touched = sorted(key for key in forbidden_keys if key in data)
+    if touched:
+        return jsonify({
+            "status": "error",
+            "error": "LLM 配置已迁移到 /api/control_plane；/api/evolution_config 仅保留训练参数",
+            "migrate_to": "/api/control_plane",
+            "invalid_keys": touched,
+        }), 400
     service = EvolutionConfigService(project_root=config_module.PROJECT_ROOT, live_config=config_module.config)
     try:
         payload = service.apply_patch(data, source="web_api")
@@ -1238,11 +1356,53 @@ def api_evolution_config_update():
             controller = getattr(getattr(runtime, "body", None), "controller", None)
             if controller is not None and hasattr(controller, "refresh_runtime_from_config"):
                 controller.refresh_runtime_from_config()
-        return jsonify({"status": "ok", "updated": payload["updated"], "config": payload["config"]})
+        config_payload = dict(payload["config"])
+        for key in ("llm_fast_model", "llm_deep_model", "llm_api_base", "llm_api_key_masked", "llm_api_key_source"):
+            config_payload.pop(key, None)
+        return jsonify({"status": "ok", "updated": payload["updated"], "config": config_payload, "restart_required": False})
     except ValueError as exc:
         return jsonify({"status": "error", "error": str(exc)}), 400
     except Exception as exc:
         logger.exception("Failed to update evolution config")
+        return jsonify({"status": "error", "error": str(exc)}), 500
+
+
+@app.route("/api/control_plane", methods=["GET"])
+def api_control_plane_get():
+    import config as config_module
+    from config.control_plane import ControlPlaneConfigService
+
+    service = ControlPlaneConfigService(project_root=config_module.PROJECT_ROOT)
+    return jsonify({
+        "status": "ok",
+        "config": service.get_masked_payload(),
+        "restart_required": False,
+        "config_path": str(service.config_path),
+        "local_override_path": str(service.local_override_path),
+        "audit_log_path": str(service.audit_log_path),
+        "snapshot_dir": str(service.snapshot_dir),
+    })
+
+
+@app.route("/api/control_plane", methods=["POST"])
+def api_control_plane_update():
+    import config as config_module
+    from config.control_plane import ControlPlaneConfigService
+
+    data = request.get_json(force=True) or {}
+    service = ControlPlaneConfigService(project_root=config_module.PROJECT_ROOT)
+    try:
+        payload = service.apply_patch(data, source="web_api")
+        return jsonify({
+            "status": "ok",
+            "updated": payload["updated"],
+            "config": payload["config"],
+            "restart_required": True,
+        })
+    except ValueError as exc:
+        return jsonify({"status": "error", "error": str(exc)}), 400
+    except Exception as exc:
+        logger.exception("Failed to update control plane config")
         return jsonify({"status": "error", "error": str(exc)}), 500
 
 
@@ -1310,17 +1470,10 @@ def api_data_download():
 
     def _do_download():
         global _data_download_running
-        from market_data.ingestion import DataIngestionService
+        from market_data.gateway import MarketDataGateway
 
         try:
-            service = DataIngestionService()
-            logger.info("开始后台同步股票主数据...")
-            service.sync_security_master()
-            logger.info("开始后台同步日线数据...")
-            service.sync_daily_bars()
-            logger.info("开始后台同步指数数据...")
-            service.sync_index_bars()
-            logger.info("后台数据同步完成")
+            MarketDataGateway().sync_background_full_refresh()
         except Exception as e:
             logger.exception(f"后台数据同步失败: {e}")
         finally:

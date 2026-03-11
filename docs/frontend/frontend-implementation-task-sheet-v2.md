@@ -53,12 +53,12 @@
 
 ### D. Settings 页面
 
-- [ ] `FEV2-SET-01` 接入 `GET /api/evolution_config` 展示当前参数、掩码后的密钥状态、配置层路径。
-- [ ] `FEV2-SET-02` 接入 `POST /api/evolution_config` 更新训练参数、模型路由参数、Web 壳发布开关。
+- [ ] `FEV2-SET-01` 接入 `GET /api/evolution_config` 展示训练参数；接入 `GET /api/control_plane` 展示 LLM 控制面与安全元数据。
+- [ ] `FEV2-SET-02` 接入 `POST /api/evolution_config` 更新训练参数与 Web 壳发布开关。
 - [ ] `FEV2-SET-03` 接入 `GET /api/runtime_paths` / `POST /api/runtime_paths` 管理输出目录、会议日志、配置快照目录。
 - [ ] `FEV2-SET-04` 设置页必须可编辑以下新增字段：`web_ui_shell_mode`、`frontend_canary_enabled`。
-- [ ] `FEV2-SET-05` 设置页必须只展示 `llm_api_key_masked` 和 `llm_api_key_source`，禁止显示明文密钥。
-- [ ] `FEV2-SET-06` 当 `llm_api_key_source=yaml` 时，给出“迁移到环境变量或 local override”的安全提示。
+- [ ] `FEV2-SET-05` 设置页必须从 control plane 展示掩码后的 provider 密钥与控制面路径，禁止显示明文密钥。
+- [ ] `FEV2-SET-06` 显示“LLM 已迁移到 `/api/control_plane`”的配置边界提示。
 - [ ] `FEV2-SET-07` 验收：提交布尔字段时兼容 `true/false`，提交后页面能重新拉取最新配置并刷新显示。
 
 ### E. Data 页面
@@ -86,7 +86,7 @@
 
 ### 配置接口
 
-- [ ] `FEV2-API-CONFIG-01` `GET /api/evolution_config` 消费 `config_layers`、`local_override_path`、`llm_api_key_source`。
+- [ ] `FEV2-API-CONFIG-01` `GET /api/evolution_config` 只消费训练参数；`GET /api/control_plane` 消费 LLM 控制面元数据。
 - [ ] `FEV2-API-CONFIG-02` `POST /api/evolution_config` 只提交发生变更的字段。
 - [ ] `FEV2-API-CONFIG-03` 若接口返回 `updated=[]`，前端显示“无变更”而不是“保存失败”。
 

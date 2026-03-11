@@ -151,7 +151,9 @@ gunicorn -c gunicorn.conf.py wsgi:app
 
 - 非回环地址部署时，若未开启 `WEB_API_REQUIRE_AUTH=true` 且未配置 `WEB_API_TOKEN`，服务会拒绝启动。
 - 鉴权支持 `Authorization: Bearer <token>` 或 `X-Invest-Token: <token>`。
+- 内置简单应用级限流，默认按窗口限制读 / 写 / 重型接口；可通过 `WEB_RATE_LIMIT_*` 环境变量调整。
 - 健康检查：`GET /healthz`。
+- 部署示例文件：`deploy/nginx/invest-evolution.conf`、`deploy/systemd/invest-evolution.service`、`deploy/systemd/invest-evolution.env.example`。
 - 旧静态壳：`/legacy`
 - 新前端挂载点：`/app`
 - 默认 `web_ui_shell_mode=legacy`，即 `/` 仍指向旧壳；设置为 `app` 后 `/` 指向新前端。

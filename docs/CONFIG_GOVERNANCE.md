@@ -65,15 +65,15 @@
 
 ### 3.1 Web API
 
-- `GET/POST /api/evolution_config`
+- `GET/POST /api/evolution_config`（仅训练参数与发布开关）
 - `GET/POST /api/runtime_paths`
-- `GET/POST /api/agent_configs`
+- `GET/POST /api/agent_prompts`（Prompt 专用）
 
 ### 3.2 运行时效果
 
 - `evolution_config` 修改后会更新 live config，并写审计/快照
 - `runtime_paths` 修改后，若 Commander 已启动，会同步更新 live runtime paths
-- `agent_configs` 修改后写回 JSON 文件，供 Agent 下一次读取使用
+- `agent_prompts` 修改后写回 JSON 文件，仅影响 Agent prompt；模型绑定统一走 `/api/control_plane`
 
 ## 4. 审计与快照
 
@@ -153,7 +153,7 @@ Web `evolution_config` 更偏运行层，而不是替代模型 YAML。
 
 ## 7. 当前建议的使用方式
 
-- 需要改训练阈值或主模型：走 `/api/evolution_config`
+- 需要改训练阈值或发布开关：走 `/api/evolution_config`；需要改模型/provider/key：走 `/api/control_plane`
 - 需要把训练输出切到其他目录：走 `/api/runtime_paths`
-- 需要改 Agent prompt：走 `/api/agent_configs`
+- 需要改 Agent prompt：走 `/api/agent_prompts`
 - 需要版本化关键模型策略：修改 `invest/models/configs/*.yaml` 并纳入 Git

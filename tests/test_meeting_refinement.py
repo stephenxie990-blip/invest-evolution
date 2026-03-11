@@ -166,3 +166,22 @@ def test_review_recorder_markdown_uses_aggregated_facts_and_applied_summary(tmp_
     assert "- 胜率: 40%" in markdown
     assert "- 平均收益: +3.25%" in markdown
     assert "**最终执行摘要**: 最终执行参数：position_size=30%" in markdown
+
+
+def test_review_meeting_validation_normalizes_list_weight_adjustments():
+    review = ReviewMeeting(llm_caller=None)
+
+    decision = review._validate_decision(
+        {
+            "strategy_suggestions": ["建议"],
+            "param_adjustments": {},
+            "agent_weight_adjustments": [
+                {"agent": "trend_hunter", "weight": 1.4},
+                {"agent": "ghost", "weight": 1.9},
+            ],
+            "reasoning": "ok",
+        },
+        {"agent_accuracy": {"trend_hunter": {}}},
+    )
+
+    assert decision["agent_weight_adjustments"] == {"trend_hunter": 1.4}

@@ -6,6 +6,7 @@ from .datasets import (
     TrainingDatasetBuilder,
     WebDatasetService,
 )
+from .gateway import MarketDataGateway
 from .ingestion import DataIngestionService
 from .manager import DataManager, DataProvider, DataSourceUnavailableError, EvolutionDataLoader, MockDataProvider, generate_mock_stock_data
 from .quality import DataQualityService
@@ -24,6 +25,7 @@ __all__ = [
     "CapitalFlowDatasetService",
     "EventDatasetService",
     "IntradayDatasetBuilder",
+    "MarketDataGateway",
     "DataIngestionService",
     "DataQualityService",
     "MarketDataRepository",

@@ -19,13 +19,9 @@ except Exception:  # pragma: no cover
 class EvolutionConfigService:
     """Unified service for reading, validating, persisting and auditing evolution config."""
 
-    SECRET_KEYS = {"llm_api_key", "web_api_token"}
+    SECRET_KEYS = {"web_api_token"}
 
     EDITABLE_KEYS = {
-        "llm_fast_model",
-        "llm_deep_model",
-        "llm_api_base",
-        "llm_api_key",
         "llm_timeout",
         "llm_max_retries",
         "enable_debate",
@@ -55,6 +51,11 @@ class EvolutionConfigService:
         "stop_on_freeze",
         "web_ui_shell_mode",
         "frontend_canary_enabled",
+        "web_rate_limit_enabled",
+        "web_rate_limit_window_sec",
+        "web_rate_limit_read_max",
+        "web_rate_limit_write_max",
+        "web_rate_limit_heavy_max",
     }
 
     def __init__(
@@ -93,18 +94,6 @@ class EvolutionConfigService:
         payload = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
         return payload if isinstance(payload, dict) else {}
 
-    def _secret_source(self) -> str:
-        if str(os.environ.get("LLM_API_KEY", "")).strip():
-            return "env"
-        local_payload = self._read_yaml_dict(self.local_override_path)
-        if str(local_payload.get("llm_api_key", "")).strip():
-            return "local_yaml"
-        primary_payload = self._read_yaml_dict(self.config_path)
-        if str(primary_payload.get("llm_api_key", "")).strip():
-            return "yaml"
-        if str(getattr(self.live_config, "llm_api_key", "")).strip():
-            return "runtime"
-        return "unset"
 
     def _web_auth_secret_source(self) -> str:
         if str(os.environ.get("WEB_API_TOKEN", "")).strip():
@@ -132,13 +121,14 @@ class EvolutionConfigService:
         return {
             "config_path": str(self.config_path),
             "config_file_exists": self.config_path.exists(),
-            "llm_fast_model": cfg.llm_fast_model,
-            "llm_deep_model": cfg.llm_deep_model,
-            "llm_api_base": cfg.llm_api_base,
-            "llm_api_key_masked": llm_key_masked,
             "web_api_token_masked": web_api_token_masked,
             "web_api_require_auth": bool(getattr(cfg, "web_api_require_auth", False)),
             "web_api_public_read_enabled": bool(getattr(cfg, "web_api_public_read_enabled", False)),
+            "web_rate_limit_enabled": bool(getattr(cfg, "web_rate_limit_enabled", True)),
+            "web_rate_limit_window_sec": int(getattr(cfg, "web_rate_limit_window_sec", 60)),
+            "web_rate_limit_read_max": int(getattr(cfg, "web_rate_limit_read_max", 120)),
+            "web_rate_limit_write_max": int(getattr(cfg, "web_rate_limit_write_max", 20)),
+            "web_rate_limit_heavy_max": int(getattr(cfg, "web_rate_limit_heavy_max", 5)),
             "llm_timeout": cfg.llm_timeout,
             "llm_max_retries": cfg.llm_max_retries,
             "enable_debate": cfg.enable_debate,
@@ -171,7 +161,6 @@ class EvolutionConfigService:
             "frontend_canary_query_param": str(getattr(cfg, "frontend_canary_query_param", "__frontend") or "__frontend"),
             "config_layers": [str(path) for path in get_config_layer_paths(self.config_path)],
             "local_override_path": str(self.local_override_path),
-            "llm_api_key_source": self._secret_source(),
             "web_api_token_source": self._web_auth_secret_source(),
             "audit_log_path": str(self.audit_log_path),
             "snapshot_dir": str(self.snapshot_dir),
@@ -231,7 +220,10 @@ class EvolutionConfigService:
             out["model_routing_agent_override_max_gap"] = float(out["model_routing_agent_override_max_gap"])
         if "web_ui_shell_mode" in out:
             out["web_ui_shell_mode"] = str(out["web_ui_shell_mode"] or "legacy").strip().lower() or "legacy"
-        for bool_key in ("model_routing_enabled", "model_routing_agent_override_enabled", "frontend_canary_enabled"):
+        for int_key in ("web_rate_limit_window_sec", "web_rate_limit_read_max", "web_rate_limit_write_max", "web_rate_limit_heavy_max"):
+            if int_key in out:
+                out[int_key] = int(out[int_key])
+        for bool_key in ("model_routing_enabled", "model_routing_agent_override_enabled", "frontend_canary_enabled", "web_rate_limit_enabled"):
             if bool_key not in out:
                 continue
             val = out[bool_key]
@@ -327,6 +319,9 @@ class EvolutionConfigService:
             raise ValueError("model_routing_agent_override_max_gap must be >= 0")
         if "web_ui_shell_mode" in patch and patch["web_ui_shell_mode"] not in {"legacy", "app"}:
             raise ValueError("web_ui_shell_mode must be one of: legacy, app")
+        for limit_key in ("web_rate_limit_window_sec", "web_rate_limit_read_max", "web_rate_limit_write_max", "web_rate_limit_heavy_max"):
+            if limit_key in patch and int(patch[limit_key]) <= 0:
+                raise ValueError(f"{limit_key} must be > 0")
 
     def apply_patch(self, patch: dict[str, Any], source: str = "unknown") -> dict[str, Any]:
         if yaml is None:
@@ -348,7 +343,6 @@ class EvolutionConfigService:
                 setattr(self.live_config, key, value)
 
         persisted = self._current_editable_values()
-        persisted.pop("llm_api_key", None)
 
         self.config_path.parent.mkdir(parents=True, exist_ok=True)
         backup = None
@@ -440,8 +434,6 @@ class EvolutionConfigService:
 
     def _snapshot_payload(self, payload: dict[str, Any] | None = None) -> dict[str, Any]:
         raw = dict(payload or self._current_editable_values())
-        if "llm_api_key" not in raw and str(getattr(self.live_config, "llm_api_key", "") or "").strip():
-            raw["llm_api_key"] = getattr(self.live_config, "llm_api_key")
         return {key: self._redact(key, value) for key, value in raw.items()}
 
     @staticmethod

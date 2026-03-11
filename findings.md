@@ -62,3 +62,58 @@
 - 因此，下一步若要继续压缩到更低时延，最有价值的方向是：
   - 让训练热路径默认跳过 `security_status_daily / factor_snapshot` 联表，完全以内联向量化补算为主；
   - 但该方案会改变“优先复用库内预计算值”的语义，需要先做一致性验收，避免回归到与历史快照不一致的特征值。
+
+
+## 统一控制面专项发现（2026-03-11）
+- 当前 LLM 使用点已经具备统一网关 `app/llm_gateway.py`，但装配层仍分散在 `config`、`agent_settings`、`commander` 三处。
+- 训练主链路中的 `SelectionMeeting` / `ReviewMeeting` / `LLMOptimizer` 仍在不同层次持有 caller，适合统一到启动装配阶段收口。
+- `InvestAgent` 当前已支持 `fast/deep/显式模型` 解析，是接入控制面的良好兼容桥。
+- 运行时市场数据的真正外网出口主要有两处：`EvolutionDataLoader` 在线兜底和 `include_capital_flow=True` 时的 akshare 资金流同步；而 `sync_trading_calendar` / `sync_security_status_daily` / `sync_factor_snapshots` 本身是本地派生，不是外网访问。
+- 因此本轮“内部运行环境干净”的关键不是重写全部数据服务，而是禁止训练运行时触发在线兜底，并把外部抓取限定到显式同步命令。
+
+- 已新增 `config/control_plane.py` 作为统一控制面 loader / resolver / service，采用“control_plane.yaml + control_plane.local.yaml + 兼容 legacy defaults”三层策略。
+- 已确认“重启生效”路径最适合本项目：控制面 API 不再尝试局部热刷新，而是明确返回 `restart_required=true`。
+- `SelfLearningController`、`LLMOptimizer`、`SelectionMeeting`、`ReviewMeeting` 与 `CommanderConfig` 默认值已接入统一控制面绑定。
+- 运行时市场数据策略已收口为控制面 `data.runtime_policy`，本轮先禁止两类外部访问：在线 baostock 兜底、运行时 akshare 资金流同步；本地派生补数逻辑继续保留。
+
+
+## 控制面第二阶段结论（2026-03-11）
+- 旧 `/api/evolution_config` 现已成为兼容壳：非 LLM 字段仍写入演化配置，LLM 字段自动转写到 `/api/control_plane`。
+- 旧 `/api/agent_configs` 现已成为兼容壳：prompt 仍保存在 `agent_settings/agents_config.json`，`llm_model` 改为转写 control plane binding。
+- 新增 `market_data/gateway.py` 后，Web 后台下载、CLI 同步、训练运行时在线兜底/资金流外部同步都经过统一网关。
+- 数据链路仍是“外部源 -> 清洗/规范化入库 -> 训练时从本地库加载到内存”；因此严格说不是运行中热更新，但数据库更新会在下一次训练/下一轮装载时自然生效。
+- 真实训练暴露的复盘阶段脆弱点为 `agent_weight_adjustments` 偶发返回 list；已在 review agent / review meeting 两层加入正规化容错。
+
+
+- 第一波清理已完成：旧前端 Agent 配置不再依赖 `/api/agent_configs`，改为 prompt 走 `/api/agent_prompts`、模型走 `/api/control_plane`。
+- `/api/agent_configs` 已可删除，因为仓内已无运行时引用；剩余旧接口重点只剩 `/api/evolution_config` 的训练参数壳层职责。
+
+## 全盘审计补充（2026-03-11 / 后端）
+- 后端是“单仓单进程、双运行面”架构：`SelfLearningController` 负责训练闭环，`CommanderRuntime` 负责常驻调度与对话，两者通过同一进程内对象组合而不是微服务 RPC 连接。
+- 统一控制面已经把 LLM 绑定与运行时外部数据策略收口到 `config/control_plane.py`，训练会议、review、optimizer、commander brain 都通过 component binding 解析模型。
+- 数据热路径是 `DataManager -> TrainingDatasetBuilder -> MarketDataRepository.query_training_bars()`：先挑股票池，再按每股窗口裁剪 SQL，最后在内存里做点时特征补齐，避免全历史扫描。
+- Agent 编排分为两层：训练内的投资 agent 会议（selection/review/model routing）和 commander 内的本地 brain tool-calling；两套 agent 不同职责、同仓运行、共享部分状态与产物目录。
+- Web 服务本质是控制面 + 可观测层，API 面比较厚：状态、训练、训练实验室、策略、cron、memory、配置、数据查询都在 `app/web_server.py` 单文件路由中。
+- 测试层比较完整，78 个测试文件覆盖架构边界、控制面、安全、训练事件流、数据策略、agent 合约与 Web API，说明当前系统偏“契约驱动 + 回归守护”。
+
+
+- 第二、三波清理已完成：`/api/evolution_config` 不再暴露/接受 `llm_fast_model` / `llm_deep_model` / `llm_api_base` / `llm_api_key`。
+- 设置页安全面板已切到 `/api/control_plane`；`/api/evolution_config` 只保留训练参数与发布开关。
+- 删除的是 API 兼容层，不是底层 `config` 中的 fallback 字段；底层字段仍保留给启动阶段 fallback 与环境变量兼容。
+
+
+- 底层瘦身已完成：`EvolutionConfigService` 不再输出 `llm_fast_model` / `llm_deep_model` / `llm_api_base` / `llm_api_key_masked` / `llm_api_key_source`，也不再持久化 `llm_api_key`。
+- LLM 的底层 fallback 字段仍保留在 `config` dataclass 和启动逻辑中，用于环境变量兼容与 control plane fallback；这属于启动层依赖，不再属于对外配置 API。
+- 设置页安全信息现在完全来自 `/api/control_plane`，而不是 `/api/evolution_config`。
+
+## Commander 统一入口升级规划结论（2026-03-11）
+- Commander 当前已覆盖核心训练执行面，但未覆盖完整的配置域、数据域、分析查询域和统一观测域。
+- 最合理的产品路径不是立刻删除 Web，而是先把 Commander 升级为唯一人类入口，再把 Web 降级为可选可视化与兼容壳。
+- 技术上最关键的改造不是继续堆 `app/commander.py`，而是从 `web_server.py` 抽共享 service，再让 Commander Tool 与 Web API 共用。
+- 升级顺序建议为：管理能力缺口 -> 数据能力缺口 -> 统一观测层 -> 自然语言任务层 -> 前端降级 -> 问股 DSL。
+- 真正的目标是让 Commander 变成“统一控制平面代理”，而不只是“训练控制台 + 对话壳”。
+
+
+
+- 启动层瘦身已完成：`SelfLearningController`、`CommanderConfig`、`LLMCaller()` 空参构造已优先从 control plane 的 `defaults.fast/deep` 解析默认模型与 provider。
+- 仍保留 `AgentConfig.llm_model` 与 `LLMRouter.from_config(cfg)` 对显式传入 config 的尊重，这样测试语义和局部调用语义更稳定。

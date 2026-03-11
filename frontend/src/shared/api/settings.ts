@@ -2,8 +2,10 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { apiRequest } from '@/shared/api/client'
 import {
+  ControlPlaneSchema,
   EvolutionConfigSchema,
   RuntimePathsSchema,
+  type ControlPlaneResponse,
   type EvolutionConfigResponse,
   type RuntimePathsResponse,
 } from '@/shared/contracts/types'
@@ -11,6 +13,7 @@ import {
 export const settingsQueryKeys = {
   runtimePaths: ['settings', 'runtime-paths'] as const,
   evolutionConfig: ['settings', 'evolution-config'] as const,
+  controlPlane: ['settings', 'control-plane'] as const,
 }
 
 export function useRuntimePaths() {
@@ -27,6 +30,16 @@ export function useEvolutionConfig() {
     queryKey: settingsQueryKeys.evolutionConfig,
     queryFn: () => apiRequest<EvolutionConfigResponse>('/api/evolution_config', {
       schema: EvolutionConfigSchema,
+    }),
+  })
+}
+
+
+export function useControlPlane() {
+  return useQuery({
+    queryKey: settingsQueryKeys.controlPlane,
+    queryFn: () => apiRequest<ControlPlaneResponse>('/api/control_plane', {
+      schema: ControlPlaneSchema,
     }),
   })
 }

@@ -7,6 +7,7 @@ import time
 
 from app.llm_gateway import LLMGateway, LLMGatewayError, LLMUnavailableError
 from config import config
+from config.control_plane import resolve_default_llm
 
 logger = logging.getLogger(__name__)
 
@@ -37,9 +38,10 @@ class LLMCaller:
         max_retries: int = None,
         dry_run: bool = False,
     ):
-        self.model = model or config.llm_fast_model
-        self.api_key = api_key or config.llm_api_key
-        self.api_base = api_base or config.llm_api_base
+        default_fast = resolve_default_llm("fast")
+        self.model = model or default_fast.model
+        self.api_key = api_key or default_fast.api_key
+        self.api_base = api_base or default_fast.api_base
         self.timeout = timeout or config.llm_timeout
         self.max_retries = max_retries or config.llm_max_retries
         self.dry_run = dry_run

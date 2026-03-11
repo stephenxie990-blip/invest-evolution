@@ -76,8 +76,8 @@
 - `/api/lab/training/runs`
 - `/api/lab/training/evaluations`
 - `/api/runtime_paths`
-- `/api/evolution_config`
-- `/api/agent_configs`
+- `/api/evolution_config`（训练参数）
+- `/api/agent_prompts`（Prompt 专用） + `/api/control_plane`（模型绑定）
 - `/api/data/status`
 
 ### 第二阶段：补模型与研究台

@@ -27,9 +27,9 @@ class LLMOptimizer:
     调用失败时自动降级到默认规则分析
     """
 
-    def __init__(self):
+    def __init__(self, llm_caller: LLMCaller | None = None):
         self.analysis_history: List[Dict] = []
-        self.llm = LLMCaller()
+        self.llm = llm_caller or LLMCaller()
 
     def analyze_loss(
         self,

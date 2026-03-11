@@ -11,8 +11,7 @@ export class SettingsPage {
   readonly refreshEvolutionConfig: Locator
   readonly successMessage: Locator
   readonly configSecurityPanel: Locator
-  readonly configLayerList: Locator
-  readonly securityWarning: Locator
+  readonly securityHint: Locator
   readonly webUiShellModeSelect: Locator
   readonly frontendCanaryEnabledCheckbox: Locator
   readonly frontendRolloutHint: Locator
@@ -28,8 +27,7 @@ export class SettingsPage {
     this.refreshEvolutionConfig = page.getByTestId('refresh-evolution-config')
     this.successMessage = page.getByTestId('settings-success-message')
     this.configSecurityPanel = page.getByTestId('config-security-panel')
-    this.configLayerList = page.getByTestId('config-layer-list')
-    this.securityWarning = page.getByTestId('settings-security-warning')
+    this.securityHint = page.getByTestId('settings-security-hint')
     this.webUiShellModeSelect = page.getByTestId('web-ui-shell-mode-select')
     this.frontendCanaryEnabledCheckbox = page.getByTestId('frontend-canary-enabled-checkbox')
     this.frontendRolloutHint = page.getByTestId('frontend-rollout-hint')

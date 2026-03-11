@@ -21,7 +21,7 @@
 | 训练实验室 | `/training-lab` | `useTrainingPlans`、`useTrainingRuns`、`useTrainingEvaluations`、`useCreateTrainingPlan`、`useExecuteTrainingPlan`、`useEventStream` | `GET/POST /api/lab/training/plans`、`POST /api/lab/training/plans/{plan_id}/execute`、`GET /api/lab/training/runs`、`GET /api/lab/training/evaluations`、`GET /api/events` | 计划创建、执行、结果流式观察 |
 | 模型策略 | `/models` | `shared/api/contracts` + 模型 API hooks | `GET /api/investment-models`、`GET /api/leaderboard`、`GET /api/allocator` | 模型列表、排行、分配建议 |
 | 数据控制台 | `/data` | 数据 API hooks | `GET /api/data/status`、`POST /api/data/download`、`GET /api/data/capital_flow`、`GET /api/data/dragon_tiger`、`GET /api/data/intraday_60m` | 数据状态、下载、深查 |
-| 配置中心 | `/settings` | 设置 API hooks | `GET/POST /api/runtime_paths`、`GET/POST /api/evolution_config`、`GET /api/contracts`、`GET /api/contracts/frontend-v1` | 运行时路径、进化参数、契约查看 |
+| 配置中心 | `/settings` | 设置 API hooks | `GET/POST /api/runtime_paths`、`GET/POST /api/evolution_config`、`GET /api/control_plane`、`GET /api/contracts`、`GET /api/contracts/frontend-v1` | 运行时路径、训练参数、LLM 控制面、契约查看 |
 
 ## 训练实验室接口
 | 方法 | 路径 | 请求字段 | 返回摘要 | 备注 |

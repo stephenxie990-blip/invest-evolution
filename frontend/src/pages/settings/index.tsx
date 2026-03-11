@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 
 import {
+  useControlPlane,
   useEvolutionConfig,
   usePatchEvolutionConfig,
   usePatchRuntimePaths,
@@ -17,9 +18,6 @@ type UnknownRecord = Record<string, unknown>
 type UiShellMode = 'legacy' | 'app'
 
 const NON_EDITABLE_EVOLUTION_CONFIG_KEYS = new Set([
-  'llm_api_key',
-  'llm_api_key_masked',
-  'llm_api_key_source',
   'config_layers',
   'local_override_path',
   'audit_log_path',
@@ -41,19 +39,6 @@ function readBoolean(value: unknown, fallback = false): boolean {
 
 function readShellMode(value: unknown): UiShellMode {
   return value === 'app' ? 'app' : 'legacy'
-}
-
-function toneFromSource(value: string): 'neutral' | 'good' | 'warn' | 'danger' {
-  if (value === 'env' || value === 'local_yaml') {
-    return 'good'
-  }
-  if (value === 'yaml') {
-    return 'warn'
-  }
-  if (value === 'unset') {
-    return 'danger'
-  }
-  return 'neutral'
 }
 
 function safeParseObject(value: string): UnknownRecord {
@@ -81,9 +66,28 @@ function withRolloutValues(config: UnknownRecord, shellMode: UiShellMode, fronte
   }
 }
 
+function firstMaskedProviderSummary(controlPlanePayload: UnknownRecord): { providerName: string; apiBase: string; maskedKey: string } {
+  const llm = asRecord(controlPlanePayload.llm) ?? {}
+  const providers = asRecord(llm.providers) ?? {}
+  for (const [providerName, rawProvider] of Object.entries(providers)) {
+    const provider = asRecord(rawProvider) ?? {}
+    return {
+      providerName,
+      apiBase: readString(provider.api_base, '未配置'),
+      maskedKey: readString(provider.api_key, '未配置'),
+    }
+  }
+  return {
+    providerName: '未配置',
+    apiBase: '未配置',
+    maskedKey: '未配置',
+  }
+}
+
 export function SettingsPage() {
   const runtimePaths = useRuntimePaths()
   const evolutionConfig = useEvolutionConfig()
+  const controlPlane = useControlPlane()
   const patchRuntimePaths = usePatchRuntimePaths()
   const patchEvolutionConfig = usePatchEvolutionConfig()
 
@@ -98,11 +102,9 @@ export function SettingsPage() {
 
   const runtimeConfig = asRecord(runtimePaths.data?.config) ?? {}
   const evolutionConfigPayload = asRecord(evolutionConfig.data?.config) ?? {}
-  const securitySource = readString(evolutionConfigPayload.llm_api_key_source, 'unset')
+  const controlPlanePayload = asRecord(controlPlane.data?.config) ?? {}
+  const controlPlaneSummary = firstMaskedProviderSummary(controlPlanePayload)
   const canaryQueryParam = readString(evolutionConfigPayload.frontend_canary_query_param, '__frontend')
-  const configLayers = Array.isArray(evolutionConfigPayload.config_layers)
-    ? evolutionConfigPayload.config_layers.map((item) => String(item))
-    : []
 
   useEffect(() => {
     if (runtimePaths.data && !runtimeDirty) {
@@ -159,7 +161,6 @@ export function SettingsPage() {
       const nextDraft = withRolloutValues(safeParseObject(evolutionDraft), nextMode, nextCanaryEnabled)
       setEvolutionDraft(stringifyConfig(nextDraft))
     } catch {
-      // 保留当前文本草稿，等待用户修正 JSON 后再保存；rollout 控件状态单独跟踪
     }
   }
 
@@ -176,40 +177,30 @@ export function SettingsPage() {
 
   return (
     <div className="page-grid" data-testid="settings-page">
-      <Panel title="配置安全与分层">
-        {evolutionConfig.isLoading ? <LoadingState label="正在读取 evolution config metadata..." /> : null}
-        {evolutionConfig.error ? <ErrorState error={evolutionConfig.error} /> : null}
-        {!evolutionConfig.isLoading && !evolutionConfig.error ? (
+      <Panel title="Control Plane 安全与分层">
+        {controlPlane.isLoading ? <LoadingState label="正在读取 control plane metadata..." /> : null}
+        {controlPlane.error ? <ErrorState error={controlPlane.error} /> : null}
+        {!controlPlane.isLoading && !controlPlane.error ? (
           <div className="content-stack" data-testid="config-security-panel">
             <div className="status-badge-row">
-              <StatusBadge tone={toneFromSource(securitySource)}>{`llm_api_key_source: ${securitySource}`}</StatusBadge>
+              <StatusBadge tone={controlPlaneSummary.maskedKey === '未配置' ? 'danger' : 'good'}>{`provider: ${controlPlaneSummary.providerName}`}</StatusBadge>
               <StatusBadge tone={shellMode === 'app' ? 'good' : 'neutral'}>{`web_ui_shell_mode: ${shellMode}`}</StatusBadge>
               <StatusBadge tone={frontendCanaryEnabled ? 'warn' : 'neutral'}>{`frontend_canary_enabled: ${frontendCanaryEnabled}`}</StatusBadge>
             </div>
             <KeyValueList
               entries={[
-                { label: 'LLM Key Masked', value: readString(evolutionConfigPayload.llm_api_key_masked, '未配置') },
-                { label: 'Key Source', value: securitySource },
-                { label: 'Local Override', value: readString(evolutionConfigPayload.local_override_path) },
-                { label: 'Audit Log', value: readString(evolutionConfigPayload.audit_log_path) },
-                { label: 'Snapshot Dir', value: readString(evolutionConfigPayload.snapshot_dir) },
+                { label: 'Provider', value: controlPlaneSummary.providerName },
+                { label: 'LLM API Base', value: controlPlaneSummary.apiBase },
+                { label: 'LLM Key Masked', value: controlPlaneSummary.maskedKey },
+                { label: 'Control Plane', value: readString(controlPlane.data?.config_path) },
+                { label: 'Local Override', value: readString(controlPlane.data?.local_override_path) },
+                { label: 'Audit Log', value: readString(controlPlane.data?.audit_log_path) },
+                { label: 'Snapshot Dir', value: readString(controlPlane.data?.snapshot_dir) },
               ]}
             />
-            <div className="detail-section">
-              <h4 className="detail-section__title">配置层路径</h4>
-              {configLayers.length > 0 ? (
-                <ul className="result-card__list" data-testid="config-layer-list">
-                  {configLayers.map((layer) => <li key={layer}>{layer}</li>)}
-                </ul>
-              ) : (
-                <div className="state-block state-block--muted">当前未返回 config_layers</div>
-              )}
+            <div className="state-block state-block--muted" data-testid="settings-security-hint">
+              LLM 模型与密钥已统一迁移到 `/api/control_plane`；`/api/evolution_config` 仅保留训练参数与发布开关。
             </div>
-            {securitySource === 'yaml' ? (
-              <div className="state-block state-block--warn" data-testid="settings-security-warning">
-                检测到 `llm_api_key_source=yaml`。建议迁移到环境变量或 `config/evolution.local.yaml`，避免把密钥保存在主配置中。
-              </div>
-            ) : null}
           </div>
         ) : null}
       </Panel>
@@ -246,14 +237,7 @@ export function SettingsPage() {
         </div>
       </Panel>
 
-      <Panel
-        title="运行路径配置"
-        actions={(
-          <button className="button button--secondary" data-testid="refresh-runtime-paths" onClick={() => void runtimePaths.refetch()} type="button">
-            刷新 Runtime Paths
-          </button>
-        )}
-      >
+      <Panel title="运行路径配置" actions={<button className="button button--secondary" data-testid="refresh-runtime-paths" onClick={() => void runtimePaths.refetch()} type="button">刷新 Runtime Paths</button>}>
         {runtimePaths.isLoading ? <LoadingState label="正在读取 runtime paths..." /> : null}
         {runtimePaths.error ? <ErrorState error={runtimePaths.error} /> : null}
         {!runtimePaths.isLoading && !runtimePaths.error ? (
@@ -266,12 +250,7 @@ export function SettingsPage() {
                 { label: 'Config Snapshot Dir', value: readString(runtimeConfig.config_snapshot_dir) },
               ]}
             />
-            <textarea
-              className="textarea textarea--lg"
-              data-testid="runtime-paths-textarea"
-              onChange={(event) => { setRuntimeDirty(true); setRuntimeDraft(event.target.value) }}
-              value={runtimeDraft}
-            />
+            <textarea className="textarea textarea--lg" data-testid="runtime-paths-textarea" onChange={(event) => { setRuntimeDirty(true); setRuntimeDraft(event.target.value) }} value={runtimeDraft} />
             <div className="button-row">
               <button className="button" data-testid="save-runtime-paths" disabled={patchRuntimePaths.isPending} onClick={saveRuntimePaths} type="button">
                 {patchRuntimePaths.isPending ? '提交中...' : '保存 Runtime Paths'}
@@ -281,27 +260,15 @@ export function SettingsPage() {
         ) : null}
       </Panel>
 
-      <Panel
-        title="进化配置"
-        actions={(
-          <button className="button button--secondary" data-testid="refresh-evolution-config" onClick={() => void evolutionConfig.refetch()} type="button">
-            刷新 Evolution Config
-          </button>
-        )}
-      >
+      <Panel title="进化配置" actions={<button className="button button--secondary" data-testid="refresh-evolution-config" onClick={() => void evolutionConfig.refetch()} type="button">刷新 Evolution Config</button>}>
         {evolutionConfig.isLoading ? <LoadingState label="正在读取 evolution config..." /> : null}
         {evolutionConfig.error ? <ErrorState error={evolutionConfig.error} /> : null}
         {!evolutionConfig.isLoading && !evolutionConfig.error ? (
           <div className="content-stack">
             <div className="state-block state-block--muted" data-testid="evolution-config-safety-note">
-              下方 JSON 草稿已自动过滤安全元数据与密钥字段；密钥状态请以上方“配置安全与分层”面板为准。
+              这里只保留训练参数与发布开关；LLM 模型、Provider、密钥请到 Control Plane 面板或 `/api/control_plane` 管理。
             </div>
-            <textarea
-              className="textarea textarea--lg"
-              data-testid="evolution-config-textarea"
-              onChange={(event) => { setEvolutionDirty(true); setEvolutionDraft(event.target.value) }}
-              value={evolutionDraft}
-            />
+            <textarea className="textarea textarea--lg" data-testid="evolution-config-textarea" onChange={(event) => { setEvolutionDirty(true); setEvolutionDraft(event.target.value) }} value={evolutionDraft} />
             <div className="button-row">
               <button className="button" data-testid="save-evolution-config" disabled={patchEvolutionConfig.isPending} onClick={saveEvolutionConfig} type="button">
                 {patchEvolutionConfig.isPending ? '提交中...' : '保存 Evolution Config'}

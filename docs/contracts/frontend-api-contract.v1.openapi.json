@@ -1440,17 +1440,17 @@
         ]
       }
     },
-    "/api/agent_configs": {
+    "/api/agent_prompts": {
       "get": {
         "operationId": "agentConfigs_list",
         "tags": [
           "config"
         ],
-        "summary": "List persisted agent configuration records.",
-        "description": "List persisted agent configuration records.",
+        "summary": "List persisted agent prompt records.",
+        "description": "List persisted agent prompt records.",
         "responses": {
           "200": {
-            "description": "List persisted agent configuration records.",
+            "description": "List persisted agent prompt records.",
             "content": {
               "application/json": {
                 "schema": {
@@ -1471,11 +1471,11 @@
         "tags": [
           "config"
         ],
-        "summary": "Persist llm_model/system_prompt changes for one agent.",
-        "description": "Persist llm_model/system_prompt changes for one agent.",
+        "summary": "Persist system_prompt changes for one agent.",
+        "description": "Persist system_prompt changes for one agent.",
         "responses": {
           "200": {
-            "description": "Persist llm_model/system_prompt changes for one agent.",
+            "description": "Persist system_prompt changes for one agent.",
             "content": {
               "application/json": {
                 "schema": {
@@ -1629,11 +1629,11 @@
         "tags": [
           "config"
         ],
-        "summary": "Read masked evolution/model/data configuration.",
-        "description": "Read masked evolution/model/data configuration.",
+        "summary": "Read evolution training/runtime configuration.",
+        "description": "Read evolution training/runtime configuration.",
         "responses": {
           "200": {
-            "description": "Read masked evolution/model/data configuration.",
+            "description": "Read evolution training/runtime configuration.",
             "content": {
               "application/json": {
                 "schema": {
@@ -1654,11 +1654,11 @@
         "tags": [
           "config"
         ],
-        "summary": "Patch editable evolution/model/data configuration.",
+        "summary": "Patch editable evolution training/runtime configuration.",
         "description": "Security: llm_api_key should be sourced from env or config/evolution.local.yaml; response remains masked.\nRollout: web_ui_shell_mode + frontend_canary_enabled are used for legacy/app switch and canary release.",
         "responses": {
           "200": {
-            "description": "Patch editable evolution/model/data configuration.",
+            "description": "Patch editable evolution training/runtime configuration.",
             "content": {
               "application/json": {
                 "schema": {
@@ -1699,20 +1699,8 @@
             "application/json": {
               "schema": {
                 "type": "object",
-                "description": "Only editable keys are applied; extra keys are ignored.",
+                "description": "Only editable training/runtime keys are applied; LLM keys are rejected and must go through /api/control_plane.",
                 "properties": {
-                  "llm_fast_model": {
-                    "type": "string"
-                  },
-                  "llm_deep_model": {
-                    "type": "string"
-                  },
-                  "llm_api_base": {
-                    "type": "string"
-                  },
-                  "llm_api_key": {
-                    "type": "string"
-                  },
                   "llm_timeout": {
                     "type": "integer"
                   },

@@ -160,7 +160,7 @@ market_data/*
 ### 6.2 可编辑 Agent Prompt
 
 - 存储：`agent_settings/agents_config.json`
-- 接口：`/api/agent_configs`
+- 接口：`/api/agent_prompts`（Prompt 专用）
 
 ### 6.3 可编辑运行路径
 
@@ -171,7 +171,7 @@ market_data/*
 
 - 主文件：`config/evolution.yaml`
 - 服务：`EvolutionConfigService`
-- 接口：`/api/evolution_config`
+- 接口：`/api/evolution_config`（训练参数） + `/api/control_plane`（LLM 控制面）
 
 ## 7. 当前架构上的约束与建议
 

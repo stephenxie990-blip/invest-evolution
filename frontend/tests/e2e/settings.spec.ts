@@ -23,11 +23,12 @@ const quickPayload = {
 }
 
 test.describe('Settings', () => {
-  test('loads config drafts, shows safe config metadata, preserves unsaved edits on refetch, and saves updates', async ({ page }) => {
+  test('loads config drafts, shows control plane metadata, preserves unsaved edits on refetch, and saves updates', async ({ page }) => {
     let runtimePatch: Record<string, unknown> | null = null
     let evolutionPatch: Record<string, unknown> | null = null
     let runtimeGetCount = 0
     let evolutionGetCount = 0
+    let controlPlaneGetCount = 0
 
     await page.route('**/api/lab/status/quick', async (route) => {
       await route.fulfill({ json: quickPayload })
@@ -36,12 +37,7 @@ test.describe('Settings', () => {
     await page.route('**/api/runtime_paths', async (route) => {
       if (route.request().method() === 'POST') {
         runtimePatch = route.request().postDataJSON() as Record<string, unknown>
-        await route.fulfill({
-          json: {
-            status: 'ok',
-            config: runtimePatch,
-          },
-        })
+        await route.fulfill({ json: { status: 'ok', config: runtimePatch } })
         return
       }
 
@@ -66,6 +62,30 @@ test.describe('Settings', () => {
       })
     })
 
+    await page.route('**/api/control_plane', async (route) => {
+      controlPlaneGetCount += 1
+      await route.fulfill({
+        json: {
+          status: 'ok',
+          restart_required: false,
+          config_path: '/Users/zhangsan/Desktop/投资进化系统v1.0/config/control_plane.yaml',
+          local_override_path: '/Users/zhangsan/Desktop/投资进化系统v1.0/config/control_plane.local.yaml',
+          audit_log_path: '/Users/zhangsan/Desktop/投资进化系统v1.0/runtime/state/control_plane_changes.jsonl',
+          snapshot_dir: '/Users/zhangsan/Desktop/投资进化系统v1.0/runtime/state/control_plane_snapshots',
+          config: {
+            llm: {
+              providers: {
+                legacy_default: {
+                  api_base: controlPlaneGetCount === 1 ? 'https://provider.example/v1' : 'https://provider.example/v2',
+                  api_key: controlPlaneGetCount === 1 ? '********1234' : '********9999',
+                },
+              },
+            },
+          },
+        },
+      })
+    })
+
     await page.route('**/api/evolution_config', async (route) => {
       if (route.request().method() === 'POST') {
         evolutionPatch = route.request().postDataJSON() as Record<string, unknown>
@@ -74,8 +94,6 @@ test.describe('Settings', () => {
             status: 'ok',
             config: {
               ...evolutionPatch,
-              llm_api_key_masked: '********4321',
-              llm_api_key_source: 'local_yaml',
               config_layers: [
                 '/Users/zhangsan/Desktop/投资进化系统v1.0/config/evolution.yaml',
                 '/Users/zhangsan/Desktop/投资进化系统v1.0/config/evolution.local.yaml',
@@ -101,8 +119,6 @@ test.describe('Settings', () => {
                 training_rounds: 3,
                 web_ui_shell_mode: 'legacy',
                 frontend_canary_enabled: false,
-                llm_api_key_masked: '********1234',
-                llm_api_key_source: 'yaml',
                 config_layers: [
                   '/Users/zhangsan/Desktop/投资进化系统v1.0/config/evolution.yaml',
                   '/Users/zhangsan/Desktop/投资进化系统v1.0/config/evolution.local.yaml',
@@ -118,8 +134,6 @@ test.describe('Settings', () => {
                 training_rounds: 66,
                 web_ui_shell_mode: 'legacy',
                 frontend_canary_enabled: false,
-                llm_api_key_masked: '********0000',
-                llm_api_key_source: 'yaml',
                 config_layers: ['/server/config/evolution.yaml'],
                 local_override_path: '/server/config/evolution.local.yaml',
                 frontend_canary_query_param: '__frontend',
@@ -138,14 +152,11 @@ test.describe('Settings', () => {
 
     await expect(settings.root).toBeVisible()
     await expect(settings.runtimePathsTextarea).toContainText('training_output_dir')
-    await expect(settings.runtimePathsTextarea).toContainText('runtime/logs/meetings')
     await expect(settings.evolutionConfigTextarea).toContainText('population_size')
-    await expect(settings.evolutionConfigTextarea).toContainText('max_generations')
+    await expect(settings.configSecurityPanel).toContainText('legacy_default')
+    await expect(settings.configSecurityPanel).toContainText('https://provider.example/v1')
     await expect(settings.configSecurityPanel).toContainText('********1234')
-    await expect(settings.configSecurityPanel).toContainText('llm_api_key_source: yaml')
-    await expect(settings.configLayerList).toContainText('evolution.yaml')
-    await expect(settings.configLayerList).toContainText('evolution.local.yaml')
-    await expect(settings.securityWarning).toBeVisible()
+    await expect(settings.securityHint).toContainText('/api/control_plane')
     await expect(settings.evolutionConfigTextarea).not.toContainText('llm_api_key_masked')
     await expect(settings.webUiShellModeSelect).toHaveValue('legacy')
     await expect(settings.frontendCanaryEnabledCheckbox).not.toBeChecked()
@@ -209,7 +220,7 @@ test.describe('Settings', () => {
 
     await expect(settings.successMessage).toContainText('Evolution Config 已提交更新')
     await expect(settings.evolutionConfigTextarea).toContainText('0.12')
-    await expect(settings.configSecurityPanel).toContainText('llm_api_key_source: local_yaml')
+    await expect(settings.configSecurityPanel).toContainText('https://provider.example/v1')
     expect(evolutionPatch).toEqual(evolutionDraft)
   })
 })

@@ -4,6 +4,10 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Dict, List, Optional, TypedDict
 
+_MODEL_ALIAS_FAST = {"", "fast"}
+_MODEL_ALIAS_DEEP = {"deep"}
+
+from config.control_plane import build_component_llm_caller
 from invest.shared import LLMCaller
 
 logger = logging.getLogger(__name__)
@@ -24,29 +28,40 @@ class AgentConfig:
     name: str
     role: str          # "commander" / "hunter" / "regime" / "judge" / "strategist"
 
+    def _raw_registry_config(self) -> dict[str, Any]:
+        from config import agent_config_registry
+        return agent_config_registry.get_config(self.name)
+
     @property
     def system_prompt(self) -> str:
-        from config import agent_config_registry
-        cfg = agent_config_registry.get_config(self.name)
+        cfg = self._raw_registry_config()
         base_prompt = cfg.get("system_prompt", f"You are {self.name}.")
         return base_prompt + _COMMON_PROMPT_CONTRACT
 
     @property
+    def llm_model_setting(self) -> str:
+        cfg = self._raw_registry_config()
+        return str(cfg.get("llm_model", "") or "").strip()
+
+    @property
     def llm_model(self) -> str:
-        from config import agent_config_registry
-        cfg = agent_config_registry.get_config(self.name)
-        return cfg.get("llm_model", "")
+        from config import config
+
+        model = self.llm_model_setting.lower()
+        if model in _MODEL_ALIAS_FAST:
+            return config.llm_fast_model
+        if model in _MODEL_ALIAS_DEEP:
+            return config.llm_deep_model
+        return self.llm_model_setting
 
     @property
     def llm_api_key(self) -> str:
-        from config import agent_config_registry
-        cfg = agent_config_registry.get_config(self.name)
+        cfg = self._raw_registry_config()
         return cfg.get("llm_api_key", "")
 
     @property
     def llm_api_base(self) -> str:
-        from config import agent_config_registry
-        cfg = agent_config_registry.get_config(self.name)
+        cfg = self._raw_registry_config()
         return cfg.get("llm_api_base", "")
 
 
@@ -88,17 +103,21 @@ class InvestAgent(ABC):
         # 独立实例孵化逻辑：若未传 llm_caller，且注册表里有独立配置，则自我独立孵化大模型能力
         if self.llm is None:
             model = self.config.llm_model
+            model_setting = self.config.llm_model_setting
             api_key = self.config.llm_api_key
             api_base = self.config.llm_api_base
-            # 即便是全量 fallback，我们也应当为每个 Agent 造出一个独立的实例以追踪 token 消耗
-            # 所以只要外部想剥离 (llm is None)，我们就主动孵化。无值则自动fallback全局设置
-            from invest.shared import LLMCaller
-            self.llm = LLMCaller(
-                model=model if model else None,
-                api_key=api_key if api_key else None,
-                api_base=api_base if api_base else None,
+            self.llm = build_component_llm_caller(
+                f"agent.{self.config.name}",
+                fallback_model=model,
+                fallback_api_key=api_key,
+                fallback_api_base=api_base,
             )
-            logger.info(f"[{self.config.name}] 采用独立大模型配置: Model={self.llm.model}")
+            logger.info(
+                "[%s] 采用独立大模型配置: model_setting=%s, resolved_model=%s",
+                self.config.name,
+                model_setting or "<inherit-fast>",
+                self.llm.model,
+            )
             
         self.belief = Belief()
         self.memory: List[Dict] = []                        # 内部日志记忆

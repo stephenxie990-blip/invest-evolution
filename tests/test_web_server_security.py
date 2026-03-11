@@ -1,3 +1,4 @@
+import asyncio
 import json
 from types import SimpleNamespace
 
@@ -131,3 +132,51 @@ def test_memory_detail_blocks_artifacts_outside_runtime_roots(tmp_path, monkeypa
     assert result['cycle_result'] is None
     assert result['config_snapshot'] is None
     assert result['selection_meeting_markdown'] == ''
+
+
+def test_read_rate_limit_returns_429(monkeypatch):
+    runtime = SimpleNamespace(status=lambda detail='fast': {'detail': detail, 'status': 'ok'})
+    monkeypatch.setattr(web_server, '_runtime', runtime)
+    monkeypatch.setattr(web_server, '_rate_limit_events', {})
+    monkeypatch.setattr(config_module.config, 'web_api_require_auth', False)
+    monkeypatch.setattr(config_module.config, 'web_rate_limit_enabled', True)
+    monkeypatch.setattr(config_module.config, 'web_rate_limit_window_sec', 60)
+    monkeypatch.setattr(config_module.config, 'web_rate_limit_read_max', 2)
+    monkeypatch.setattr(config_module.config, 'web_rate_limit_write_max', 20)
+    monkeypatch.setattr(config_module.config, 'web_rate_limit_heavy_max', 5)
+
+    client = web_server.app.test_client()
+
+    assert client.get('/api/status').status_code == 200
+    assert client.get('/api/status').status_code == 200
+    limited = client.get('/api/status')
+    assert limited.status_code == 429
+    assert limited.get_json()['error'] == 'rate limit exceeded'
+
+
+def test_heavy_rate_limit_returns_429_for_train(tmp_path, monkeypatch):
+    runtime = _make_runtime(tmp_path)
+    monkeypatch.setattr(web_server, '_runtime', runtime)
+    monkeypatch.setattr(web_server, '_loop', object())
+    monkeypatch.setattr(web_server, '_rate_limit_events', {})
+    monkeypatch.setattr(config_module.config, 'web_api_require_auth', False)
+    monkeypatch.setattr(config_module.config, 'web_rate_limit_enabled', True)
+    monkeypatch.setattr(config_module.config, 'web_rate_limit_window_sec', 60)
+    monkeypatch.setattr(config_module.config, 'web_rate_limit_read_max', 20)
+    monkeypatch.setattr(config_module.config, 'web_rate_limit_write_max', 10)
+    monkeypatch.setattr(config_module.config, 'web_rate_limit_heavy_max', 1)
+
+    async def fake_train_once(rounds=1, mock=False):
+        return {'status': 'ok', 'results': [], 'summary': {}, 'training_lab': {}}
+
+    monkeypatch.setattr(runtime, 'train_once', fake_train_once)
+    monkeypatch.setattr(web_server, '_run_async', lambda coro: asyncio.run(coro))
+
+    client = web_server.app.test_client()
+
+    first = client.post('/api/train', data=json.dumps({'rounds': 1, 'mock': True}), content_type='application/json')
+    assert first.status_code == 200
+
+    second = client.post('/api/train', data=json.dumps({'rounds': 1, 'mock': True}), content_type='application/json')
+    assert second.status_code == 429
+    assert second.headers['Retry-After']

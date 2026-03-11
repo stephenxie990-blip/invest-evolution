@@ -15,7 +15,9 @@ import numpy as np
 import pandas as pd
 
 from config import PROJECT_ROOT, config, normalize_date
+from config.control_plane import get_runtime_data_policy
 from .datasets import CapitalFlowDatasetService, EventDatasetService, IntradayDatasetBuilder, T0DatasetBuilder, TrainingDatasetBuilder, WebDatasetService
+from .gateway import MarketDataGateway
 from .ingestion import DataIngestionService
 from .quality import DataQualityService
 
@@ -251,25 +253,14 @@ class MockDataProvider:
         include_future_days: int,
         include_capital_flow: bool = False,
     ) -> None:
-        repository = self._offline.repository
-        service = DataIngestionService(repository=repository)
-        start_date = normalize_date(cutoff_date)
-        end_date = normalize_date(cutoff_date)
-        if include_future_days > 0:
-            cutoff_dt = datetime.strptime(start_date, "%Y%m%d")
-            end_date = (cutoff_dt + timedelta(days=include_future_days * 2)).strftime("%Y%m%d")
-        history_start = (datetime.strptime(start_date, "%Y%m%d") - timedelta(days=max(120, min_history_days * 2))).strftime("%Y%m%d")
-        codes = repository.select_codes_with_history(cutoff_date, min_history_days, stock_count)
-        if not codes:
-            return
-        service.sync_trading_calendar(start_date=history_start, end_date=end_date)
-        service.sync_security_status_daily(codes=codes, start_date=history_start, end_date=end_date)
-        service.sync_factor_snapshots(codes=codes, start_date=history_start, end_date=end_date)
-        if include_capital_flow:
-            try:
-                service.sync_capital_flow_daily_from_akshare(codes=codes)
-            except Exception as exc:
-                logger.warning("点时资金流增强同步失败: %s", exc)
+        self._gateway.ensure_runtime_derivatives(
+            repository=self._offline.repository,
+            cutoff_date=cutoff_date,
+            stock_count=stock_count,
+            min_history_days=min_history_days,
+            include_future_days=include_future_days,
+            include_capital_flow=include_capital_flow,
+        )
 
     def get_benchmark_daily_values(self, trading_dates: list[str], index_code: str = "sh.000300") -> list[float]:
         if not trading_dates:
@@ -392,13 +383,25 @@ class DataManager:
         self._quality_audit_cache: dict[str, object] = {}
         self._online: Optional[EvolutionDataLoader] = None
         self._prefer_offline = prefer_offline
+        self._runtime_data_policy = get_runtime_data_policy()
+        self._gateway = MarketDataGateway(
+            db_path=str(db_path) if db_path else str(_default_db_path()),
+            runtime_policy=self._runtime_data_policy,
+            ingestion_factory=DataIngestionService,
+            online_loader_factory=EvolutionDataLoader,
+        )
+        self._allow_online_fallback = self._gateway.allow_online_fallback
+        self._allow_capital_flow_sync = self._gateway.allow_capital_flow_sync
         self.allow_mock_fallback = bool(allow_mock_fallback)
         self.last_source: str = "unknown"
         self.last_diagnostics: dict[str, object] = {}
         self.last_resolution: dict[str, object] = {}
 
         if not self._offline.available:
-            logger.info("离线数据库不可用，将使用在线数据源；仅显式 mock 时才使用模拟数据")
+            if self._allow_online_fallback:
+                logger.info("离线数据库不可用，将使用在线数据源；仅显式 mock 时才使用模拟数据")
+            else:
+                logger.info("离线数据库不可用，且控制面已禁止运行时在线兜底；仅显式 mock 时才使用模拟数据")
 
     @property
     def requested_mode(self) -> str:
@@ -632,25 +635,14 @@ class DataManager:
         include_future_days: int,
         include_capital_flow: bool = False,
     ) -> None:
-        repository = self._offline.repository
-        service = DataIngestionService(repository=repository)
-        start_date = normalize_date(cutoff_date)
-        end_date = normalize_date(cutoff_date)
-        if include_future_days > 0:
-            cutoff_dt = datetime.strptime(start_date, "%Y%m%d")
-            end_date = (cutoff_dt + timedelta(days=include_future_days * 2)).strftime("%Y%m%d")
-        history_start = (datetime.strptime(start_date, "%Y%m%d") - timedelta(days=max(120, min_history_days * 2))).strftime("%Y%m%d")
-        codes = repository.select_codes_with_history(cutoff_date, min_history_days, stock_count)
-        if not codes:
-            return
-        service.sync_trading_calendar(start_date=history_start, end_date=end_date)
-        service.sync_security_status_daily(codes=codes, start_date=history_start, end_date=end_date)
-        service.sync_factor_snapshots(codes=codes, start_date=history_start, end_date=end_date)
-        if include_capital_flow:
-            try:
-                service.sync_capital_flow_daily_from_akshare(codes=codes)
-            except Exception as exc:
-                logger.warning("点时资金流增强同步失败: %s", exc)
+        self._gateway.ensure_runtime_derivatives(
+            repository=self._offline.repository,
+            cutoff_date=cutoff_date,
+            stock_count=stock_count,
+            min_history_days=min_history_days,
+            include_future_days=include_future_days,
+            include_capital_flow=include_capital_flow,
+        )
 
     def get_benchmark_daily_values(self, trading_dates: list[str], index_code: str = "sh.000300") -> list[float]:
         if not trading_dates:
@@ -701,12 +693,14 @@ class DataManager:
                 min_history_days=min_history_days,
             )
             if include_capital_flow:
+                if not self._allow_capital_flow_sync:
+                    logger.info("控制面已禁止运行时资金流外部同步；仅使用本地已有资金流数据")
                 self._ensure_point_in_time_derivatives(
                     cutoff_date=cutoff_date,
                     stock_count=stock_count,
                     min_history_days=min_history_days,
                     include_future_days=include_future_days,
-                    include_capital_flow=include_capital_flow,
+                    include_capital_flow=(include_capital_flow and self._allow_capital_flow_sync),
                 )
             stock_data = self._offline.get_stocks(
                 cutoff_date=cutoff_date,
@@ -736,14 +730,12 @@ class DataManager:
                 logger.debug("离线训练就绪诊断失败", exc_info=True)
                 offline_diagnostics = {}
 
-        if self._online is None:
-            try:
-                self._online = EvolutionDataLoader()
-            except Exception as exc:
-                online_error = str(exc)
-                logger.warning("在线加载器初始化失败: %s", exc)
+        if self._allow_online_fallback and self._online is None:
+            self._online, online_error = self._gateway.create_online_loader()
+        elif not self._allow_online_fallback:
+            online_error = "disabled_by_control_plane"
 
-        if self._online is not None:
+        if self._allow_online_fallback and self._online is not None:
             try:
                 effective_cutoff = normalize_date(cutoff_date)
                 if include_future_days > 0:
@@ -859,43 +851,33 @@ def _cli_main():
         print(json.dumps(payload, ensure_ascii=False, indent=2))
         return
 
-    service = DataIngestionService(tushare_token=args.token)
+    gateway = MarketDataGateway(tushare_token=args.token, ingestion_factory=DataIngestionService)
     payload: dict[str, object] = {}
 
     if args.calendar:
-        if args.source == "akshare":
-            payload["calendar"] = service.sync_trading_calendar_from_akshare(
-                start_date=args.start,
-                end_date=args.end,
-            )
-        elif args.source == "baostock":
-            payload["calendar"] = service.sync_trading_calendar(
-                start_date=args.start,
-                end_date=args.end,
-            )
-        else:
-            raise RuntimeError("交易日历同步当前仅支持 --source baostock 或 --source akshare")
+        payload["calendar"] = gateway.sync_calendar(
+            source=args.source,
+            start_date=args.start,
+            end_date=args.end,
+        )
 
     if args.capital_flow:
-        if args.source != "akshare":
-            raise RuntimeError("资金流同步当前仅支持 --source akshare")
-        payload["capital_flow"] = service.sync_capital_flow_daily_from_akshare(
+        payload["capital_flow"] = gateway.sync_capital_flow(
+            source=args.source,
             stock_limit=args.stocks,
             offset=args.offset,
         )
 
     if args.dragon_tiger:
-        if args.source != "akshare":
-            raise RuntimeError("龙虎榜同步当前仅支持 --source akshare")
-        payload["dragon_tiger"] = service.sync_dragon_tiger_list_from_akshare(
+        payload["dragon_tiger"] = gateway.sync_dragon_tiger(
+            source=args.source,
             start_date=args.start,
             end_date=args.end,
         )
 
     if getattr(args, "intraday_60m", False):
-        if args.source != "baostock":
-            raise RuntimeError("60分钟线同步当前仅支持 --source baostock")
-        payload["intraday_60m"] = service.sync_intraday_bars_60m(
+        payload["intraday_60m"] = gateway.sync_intraday_60m(
+            source=args.source,
             start_date=args.start,
             end_date=args.end,
             stock_limit=args.stocks,
@@ -903,44 +885,30 @@ def _cli_main():
         )
 
     if args.financials:
-        if args.source == "tushare":
-            payload["financial"] = service.sync_financial_snapshots_from_tushare(
-                stock_limit=args.stocks,
-                test_mode=args.test,
-            )
-        elif args.source == "akshare":
-            payload["financial"] = service.sync_financial_snapshots_from_akshare_bulk(
-                stock_limit=args.stocks,
-                offset=args.offset,
-                start_date=args.start,
-                end_date=args.end,
-            )
-        else:
-            raise RuntimeError("财务快照同步当前仅支持 --source tushare 或 --source akshare")
+        payload["financial"] = gateway.sync_financials(
+            source=args.source,
+            start_date=args.start,
+            end_date=args.end,
+            stock_limit=args.stocks,
+            offset=args.offset,
+            test_mode=args.test,
+        )
 
     if payload:
         print(json.dumps(payload, ensure_ascii=False, indent=2))
         return
 
-    if args.source == "baostock":
-        security = service.sync_security_master()
-        daily = service.sync_daily_bars(start_date=args.start, end_date=args.end)
-        index = service.sync_index_bars(start_date=args.start, end_date=args.end)
-        print(json.dumps({"security": security, "daily": daily, "index": index}, ensure_ascii=False, indent=2))
-    elif args.source == "tushare":
-        daily = service.sync_daily_bars_from_tushare(
+    print(json.dumps(
+        gateway.sync_default_source(
+            source=args.source,
             start_date=args.start,
             end_date=args.end,
             stock_limit=args.stocks,
             test_mode=args.test,
-        )
-        print(json.dumps({"daily": daily}, ensure_ascii=False, indent=2))
-    else:
-        calendar = service.sync_trading_calendar_from_akshare(
-            start_date=args.start,
-            end_date=args.end,
-        )
-        print(json.dumps({"calendar": calendar}, ensure_ascii=False, indent=2))
+        ),
+        ensure_ascii=False,
+        indent=2,
+    ))
 
 
 if __name__ == "__main__":

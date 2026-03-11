@@ -13,3 +13,8 @@ frontend_canary_enabled: false
 # web_api_token: ${ENV:WEB_API_TOKEN}
 # web_api_require_auth: true
 # web_api_public_read_enabled: false
+# web_rate_limit_enabled: true
+# web_rate_limit_window_sec: 60
+# web_rate_limit_read_max: 120
+# web_rate_limit_write_max: 20
+# web_rate_limit_heavy_max: 5

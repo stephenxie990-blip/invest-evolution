@@ -37,7 +37,8 @@ import numpy as np
 
 from config import OUTPUT_DIR, PROJECT_ROOT, config, normalize_date
 from config.services import EvolutionConfigService, RuntimePathConfigService
-from invest.shared import AgentTracker, LLMCaller
+from config.control_plane import build_component_llm_caller, resolve_default_llm
+from invest.shared import AgentTracker
 from market_data import DataManager, DataSourceUnavailableError, MockDataProvider
 from invest.evolution import LLMOptimizer, StrategyEvolutionOptimizer, EvolutionEngine, YamlConfigMutator
 from invest.foundation import BenchmarkEvaluator, SimulatedTrader, StrategyEvaluator
@@ -319,7 +320,6 @@ class SelfLearningController:
         data_provider=None,
     ):
         # 组件
-        self.llm_optimizer     = LLMOptimizer()
         self.evo_optimizer     = StrategyEvolutionOptimizer()
         self.evolution_engine  = EvolutionEngine(population_size=10)
         self.strategy_evaluator = StrategyEvaluator()
@@ -333,24 +333,42 @@ class SelfLearningController:
         self.requested_data_mode = getattr(self.data_manager, "requested_mode", "live")
         self.current_params: Dict[str, Any] = {}
 
-        # Agent 团队 & 会议组件
-        self.llm_caller = LLMCaller()
+        # Agent 团队 & 会议组件（统一从控制面启动装配）
+        default_fast_llm = resolve_default_llm("fast")
+        default_deep_llm = resolve_default_llm("deep")
+
+        def _build_llm(component_key: str, fallback_model: str, *, fallback_kind: str):
+            resolved_default = default_fast_llm if fallback_kind == "fast" else default_deep_llm
+            return build_component_llm_caller(
+                component_key,
+                fallback_model=fallback_model or resolved_default.model,
+                fallback_api_key=resolved_default.api_key,
+                fallback_api_base=resolved_default.api_base,
+                timeout=config.llm_timeout,
+                max_retries=config.llm_max_retries,
+            )
+
+        self.llm_caller = _build_llm("controller.main", default_fast_llm.model, fallback_kind="fast")
+        self.llm_optimizer = LLMOptimizer(llm_caller=_build_llm("optimizer.loss_analysis", default_deep_llm.model, fallback_kind="deep"))
         self.llm_mode = "dry_run" if bool(getattr(self.llm_caller, "dry_run", False)) else "live"
-        
+
         self.agents = {
-            "market_regime": MarketRegimeAgent(),
-            "model_selector": ModelSelectorAgent(),
-            "trend_hunter": TrendHunterAgent(),
-            "contrarian": ContrarianAgent(),
-            "quality_agent": QualityAgent(),
-            "defensive_agent": DefensiveAgent(),
-            "strategist": StrategistAgent(),
-            "review_decision": ReviewDecisionAgent(),
-            "evo_judge": EvoJudgeAgent(),
+            "market_regime": MarketRegimeAgent(llm_caller=_build_llm("agent.MarketRegime", default_deep_llm.model, fallback_kind="deep")),
+            "model_selector": ModelSelectorAgent(llm_caller=_build_llm("agent.ModelSelector", default_fast_llm.model, fallback_kind="fast")),
+            "trend_hunter": TrendHunterAgent(llm_caller=_build_llm("agent.TrendHunter", default_fast_llm.model, fallback_kind="fast")),
+            "contrarian": ContrarianAgent(llm_caller=_build_llm("agent.Contrarian", default_fast_llm.model, fallback_kind="fast")),
+            "quality_agent": QualityAgent(llm_caller=_build_llm("agent.QualityAgent", default_fast_llm.model, fallback_kind="fast")),
+            "defensive_agent": DefensiveAgent(llm_caller=_build_llm("agent.DefensiveAgent", default_fast_llm.model, fallback_kind="fast")),
+            "strategist": StrategistAgent(llm_caller=_build_llm("agent.Strategist", default_deep_llm.model, fallback_kind="deep")),
+            "review_decision": ReviewDecisionAgent(llm_caller=_build_llm("agent.ReviewDecision", default_deep_llm.model, fallback_kind="deep")),
+            "evo_judge": EvoJudgeAgent(llm_caller=_build_llm("agent.EvoJudge", default_deep_llm.model, fallback_kind="deep")),
         }
-        
+
+        selection_fast_llm = _build_llm("meeting.selection.fast", default_fast_llm.model, fallback_kind="fast")
+        selection_deep_llm = _build_llm("meeting.selection.deep", default_deep_llm.model, fallback_kind="deep")
         self.selection_meeting = SelectionMeeting(
-            llm_caller=self.llm_caller,
+            llm_caller=selection_fast_llm,
+            deep_llm_caller=selection_deep_llm,
             trend_hunter=self.agents["trend_hunter"],
             contrarian=self.agents["contrarian"],
             quality_agent=self.agents["quality_agent"],
@@ -360,8 +378,11 @@ class SelfLearningController:
             progress_callback=self._handle_selection_progress,
         )
         self.agent_tracker = AgentTracker()
+        review_fast_llm = _build_llm("meeting.review.fast", default_fast_llm.model, fallback_kind="fast")
+        review_deep_llm = _build_llm("meeting.review.deep", default_deep_llm.model, fallback_kind="deep")
         self.review_meeting = ReviewMeeting(
-            llm_caller=self.llm_caller,
+            llm_caller=review_fast_llm,
+            deep_llm_caller=review_deep_llm,
             agent_tracker=self.agent_tracker,
             strategist=self.agents["strategist"],
             evo_judge=self.agents["evo_judge"],

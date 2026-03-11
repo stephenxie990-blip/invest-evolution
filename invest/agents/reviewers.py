@@ -8,6 +8,31 @@ from .base import AgentConfig, InvestAgent
 logger = logging.getLogger(__name__)
 
 
+def _normalize_agent_weight_adjustments(raw: Any) -> dict[str, Any]:
+    if isinstance(raw, dict):
+        return dict(raw)
+    if not isinstance(raw, list):
+        return {}
+    normalized: dict[str, Any] = {}
+    for item in raw:
+        if isinstance(item, dict):
+            agent = str(item.get("agent") or item.get("name") or item.get("agent_name") or "").strip()
+            if not agent:
+                continue
+            weight = item.get("weight")
+            if weight is None:
+                weight = item.get("value")
+            if weight is None:
+                weight = item.get("adjustment")
+            normalized[agent] = weight
+            continue
+        if isinstance(item, (list, tuple)) and len(item) >= 2:
+            agent = str(item[0] or "").strip()
+            if agent:
+                normalized[agent] = item[1]
+    return normalized
+
+
 _STRATEGIST_SYSTEM_PROMPT = """你是资深策略分析师，负责审查投资组合并提供风险评估。
 
 你的职责：
@@ -225,7 +250,7 @@ class ReviewDecisionAgent(InvestAgent):
         max_weight = float(self._policy_value('agent_weight.max', 2.0) or 2.0)
         default_weight = float(self._policy_value('agent_weight.default', 1.0) or 1.0)
         clean_weights: dict[str, float] = {}
-        for agent, weight in (result.get("agent_weight_adjustments") or {}).items():
+        for agent, weight in _normalize_agent_weight_adjustments(result.get("agent_weight_adjustments")).items():
             if valid_agents and agent not in valid_agents:
                 continue
             try:
