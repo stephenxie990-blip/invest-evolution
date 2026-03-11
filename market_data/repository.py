@@ -1104,6 +1104,140 @@ class MarketDataRepository:
         with self.connect() as conn:
             return pd.read_sql_query(query, conn, params=params)
 
+    def query_training_bars(
+        self,
+        *,
+        codes: Sequence[str],
+        cutoff_date: str,
+        history_limit: int,
+        end_date: str | None = None,
+        adj_flag: str = "hfq",
+        include_capital_flow: bool = False,
+    ) -> pd.DataFrame:
+        self.initialize_schema()
+        if not codes:
+            columns = [
+                "code",
+                "trade_date",
+                "open",
+                "high",
+                "low",
+                "close",
+                "volume",
+                "amount",
+                "pct_chg",
+                "turnover",
+                "is_st",
+                "is_new_stock_window",
+                "is_limit_up",
+                "is_limit_down",
+                "ma5",
+                "ma10",
+                "ma20",
+                "ma60",
+                "momentum20",
+                "momentum60",
+                "volatility20",
+                "volume_ratio",
+                "turnover_mean20",
+                "drawdown60",
+                "relative_strength_hs300",
+                "breakout20",
+            ]
+            if include_capital_flow:
+                columns.extend([
+                    "main_net_inflow",
+                    "main_net_inflow_ratio",
+                    "super_large_net_inflow",
+                    "super_large_net_inflow_ratio",
+                    "large_net_inflow",
+                    "large_net_inflow_ratio",
+                    "medium_net_inflow",
+                    "medium_net_inflow_ratio",
+                    "small_net_inflow",
+                    "small_net_inflow_ratio",
+                ])
+            return pd.DataFrame(columns=columns)
+
+        normalized_cutoff = normalize_date(cutoff_date)
+        normalized_end = normalize_date(end_date or normalized_cutoff)
+        keep_history = max(1, int(history_limit))
+        placeholders = ",".join(["?"] * len(codes))
+        capital_flow_join = ""
+        capital_flow_select = ""
+        if include_capital_flow:
+            capital_flow_join = """
+            LEFT JOIN capital_flow_daily cfd
+              ON cfd.code = td.code
+             AND cfd.trade_date = td.trade_date
+            """
+            capital_flow_select = """
+            , cfd.main_net_inflow
+            , cfd.main_net_inflow_ratio
+            , cfd.super_large_net_inflow
+            , cfd.super_large_net_inflow_ratio
+            , cfd.large_net_inflow
+            , cfd.large_net_inflow_ratio
+            , cfd.medium_net_inflow
+            , cfd.medium_net_inflow_ratio
+            , cfd.small_net_inflow
+            , cfd.small_net_inflow_ratio
+            """
+
+        query = f"""
+            WITH training_daily AS (
+                WITH history AS (
+                    SELECT code, trade_date, open, high, low, close, volume, amount, pct_chg, turnover,
+                           ROW_NUMBER() OVER (PARTITION BY code ORDER BY trade_date DESC) AS rn
+                    FROM daily_bar
+                    WHERE adj_flag = ?
+                      AND code IN ({placeholders})
+                      AND trade_date <= ?
+                ),
+                future AS (
+                    SELECT code, trade_date, open, high, low, close, volume, amount, pct_chg, turnover, NULL AS rn
+                    FROM daily_bar
+                    WHERE adj_flag = ?
+                      AND code IN ({placeholders})
+                      AND trade_date > ?
+                      AND trade_date <= ?
+                )
+                SELECT code, trade_date, open, high, low, close, volume, amount, pct_chg, turnover
+                FROM history
+                WHERE rn <= ?
+                UNION ALL
+                SELECT code, trade_date, open, high, low, close, volume, amount, pct_chg, turnover
+                FROM future
+            )
+            SELECT td.code, td.trade_date, td.open, td.high, td.low, td.close, td.volume, td.amount, td.pct_chg, td.turnover,
+                   ssd.is_st, ssd.is_new_stock_window, ssd.is_limit_up, ssd.is_limit_down,
+                   fs.ma5, fs.ma10, fs.ma20, fs.ma60, fs.momentum20, fs.momentum60,
+                   fs.volatility20, fs.volume_ratio, fs.turnover_mean20, fs.drawdown60,
+                   fs.relative_strength_hs300, fs.breakout20
+                   {capital_flow_select}
+            FROM training_daily td
+            LEFT JOIN security_status_daily ssd
+              ON ssd.code = td.code
+             AND ssd.trade_date = td.trade_date
+            LEFT JOIN factor_snapshot fs
+              ON fs.code = td.code
+             AND fs.trade_date = td.trade_date
+            {capital_flow_join}
+            ORDER BY td.code, td.trade_date
+        """
+        params: list[Any] = [
+            adj_flag,
+            *codes,
+            normalized_cutoff,
+            adj_flag,
+            *codes,
+            normalized_cutoff,
+            normalized_end,
+            keep_history,
+        ]
+        with self.connect() as conn:
+            return pd.read_sql_query(query, conn, params=params)
+
     def query_intraday_bars_60m(
         self,
         codes: Sequence[str] | None = None,

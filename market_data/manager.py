@@ -700,13 +700,14 @@ class DataManager:
                 stock_count=stock_count,
                 min_history_days=min_history_days,
             )
-            self._ensure_point_in_time_derivatives(
-                cutoff_date=cutoff_date,
-                stock_count=stock_count,
-                min_history_days=min_history_days,
-                include_future_days=include_future_days,
-                include_capital_flow=include_capital_flow,
-            )
+            if include_capital_flow:
+                self._ensure_point_in_time_derivatives(
+                    cutoff_date=cutoff_date,
+                    stock_count=stock_count,
+                    min_history_days=min_history_days,
+                    include_future_days=include_future_days,
+                    include_capital_flow=include_capital_flow,
+                )
             stock_data = self._offline.get_stocks(
                 cutoff_date=cutoff_date,
                 stock_count=stock_count,

@@ -35,3 +35,17 @@
 - 新增 `tests/test_agent_observability_contract.py`，将 selection/review 时间线、speech、module log 改为契约测试。
 - `frontend/src/shared/realtime/events.ts` 已在接收 SSE 时做 Zod 契约校验。
 - 验证 `./.venv/bin/python -m pytest -q`、`./.venv/bin/python -m compileall ...`、`cd frontend && npm run build` 全部通过。
+
+- 启动训练数据加载性能专项，建立固定 `cutoff=20210830` 的真实库对比基准。
+- 新增 `market_data.repository.MarketDataRepository.query_training_bars()`，按“每股最近 N 个交易日 + 未来窗口”裁剪训练切片。
+- `market_data.datasets.TrainingDatasetBuilder.get_stocks()` 改为受限切片查询 + 向量化内存增强，避免全历史拉取与逐股重算。
+- `market_data.manager.DataManager.load_stock_data()` 默认热路径跳过重型 `_ensure_point_in_time_derivatives()`；仅在显式资金流增强时保留。
+- 新增回归：`test_repository_query_training_bars_limits_pre_cutoff_history_per_code`、`test_load_stock_data_skips_derivative_sync_on_default_hot_path`。
+- 定向验证通过：`tests/test_data_unification.py`、`tests/test_train_cycle.py`、`tests/test_train_event_stream.py`、`tests/test_allocator_training_integration.py`。
+- 真实库压测结果：固定 `cutoff=20210830` 时，`load_stock_data()` 从基线 115.6s～118.1s 降到 18.6s～23.8s（4188 只股票不丢失）。
+- 真实单周期 dry-run 实测：`run_training_cycle()` 在 `cutoff=20250613` 下，数据加载阶段约 32s，全周期约 47.8s，可控运行。
+
+- 第二轮真实压测完成：跨 `20190411 / 20210830 / 20250613` 三个截断日复测，新路径相对旧热路径模拟的中位提速约 `2.24x`。
+- 三轮 `run_training_cycle()` dry-run 阶段剖析完成：`data_loading` 平均约 `17.96s`，`model_process` 平均约 `2.65s`，其余阶段耗时较小。
+- 对 `20250613` 的微基准确认剩余热点位于 `query_training_bars()` 联表阶段：当前联表方案约 `27.90s`，纯日线切片 + 内联补算约 `21.77s`。
+- 暂未继续下切到“纯内联补算”方案，因为它会改变优先复用库内快照特征的语义，需要额外一致性验收后再落地。

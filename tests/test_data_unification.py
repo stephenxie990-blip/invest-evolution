@@ -791,6 +791,48 @@ def test_repository_initializes_adj_code_date_index(tmp_path):
     assert "idx_daily_bar_adj_code_date" in index_names
 
 
+def test_repository_query_training_bars_limits_pre_cutoff_history_per_code(tmp_path):
+    db_path = tmp_path / "training_slice.db"
+    repo = MarketDataRepository(db_path)
+    repo.initialize_schema()
+    repo.upsert_security_master([
+        {"code": "sh.600001", "name": "Foo", "list_date": "20200101", "source": "test"},
+        {"code": "sh.600002", "name": "Bar", "list_date": "20200101", "source": "test"},
+    ])
+    bars = []
+    dates = pd.date_range("2024-01-02", periods=10, freq="B")
+    for code, base in [("sh.600001", 10.0), ("sh.600002", 20.0)]:
+        for idx, trade_date in enumerate(dates, start=1):
+            bars.append(
+                {
+                    "code": code,
+                    "trade_date": trade_date.strftime("%Y%m%d"),
+                    "open": base + idx - 0.2,
+                    "high": base + idx + 0.2,
+                    "low": base + idx - 0.4,
+                    "close": base + idx,
+                    "volume": 1000 + idx,
+                    "amount": 5000 + idx,
+                    "pct_chg": 0.5,
+                    "turnover": 1.2,
+                    "source": "test",
+                }
+            )
+    repo.upsert_daily_bars(bars)
+
+    frame = repo.query_training_bars(
+        codes=["sh.600001", "sh.600002"],
+        cutoff_date="20240109",
+        history_limit=3,
+        end_date="20240111",
+    )
+
+    counts = frame.groupby("code").size().to_dict()
+    assert counts == {"sh.600001": 5, "sh.600002": 5}
+    assert frame["trade_date"].min() == "20240105"
+    assert frame["trade_date"].max() == "20240111"
+
+
 def test_data_manager_caches_quality_audit(tmp_path, monkeypatch):
     db_path = tmp_path / "quality_cache.db"
     repo = MarketDataRepository(db_path)
@@ -896,6 +938,39 @@ def test_load_stock_data_uses_lightweight_training_readiness(tmp_path, monkeypat
         raise AssertionError("full diagnostics should not run inside load_stock_data hot path")
 
     monkeypatch.setattr(manager, "diagnose_training_data", _boom)
+    stock_data = manager.load_stock_data("20240108", stock_count=1, min_history_days=20, include_future_days=0)
+
+    assert list(stock_data.keys()) == ["sh.600001"]
+
+
+def test_load_stock_data_skips_derivative_sync_on_default_hot_path(tmp_path, monkeypatch):
+    db_path = tmp_path / "load_skip_derivatives.db"
+    repo = MarketDataRepository(db_path)
+    repo.initialize_schema()
+    repo.upsert_security_master([{"code": "sh.600001", "name": "Foo", "list_date": "20200101", "source": "test"}])
+    bars = []
+    for trade_date in pd.date_range("2023-09-01", periods=80, freq="B"):
+        bars.append({
+            "code": "sh.600001",
+            "trade_date": trade_date.strftime("%Y%m%d"),
+            "open": 10,
+            "high": 11,
+            "low": 9,
+            "close": 10.5,
+            "volume": 1000,
+            "amount": 5000,
+            "pct_chg": 0.5,
+            "turnover": 1.2,
+            "source": "test",
+        })
+    repo.upsert_daily_bars(bars)
+
+    manager = DataManager(db_path=str(db_path))
+
+    def _boom(**kwargs):
+        raise AssertionError("default load path should not trigger derivative sync")
+
+    monkeypatch.setattr(manager, "_ensure_point_in_time_derivatives", _boom)
     stock_data = manager.load_stock_data("20240108", stock_count=1, min_history_days=20, include_future_days=0)
 
     assert list(stock_data.keys()) == ["sh.600001"]
