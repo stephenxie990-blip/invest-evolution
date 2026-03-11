@@ -117,3 +117,78 @@
 
 - 启动层瘦身已完成：`SelfLearningController`、`CommanderConfig`、`LLMCaller()` 空参构造已优先从 control plane 的 `defaults.fast/deep` 解析默认模型与 provider。
 - 仍保留 `AgentConfig.llm_model` 与 `LLMRouter.from_config(cfg)` 对显式传入 config 的尊重，这样测试语义和局部调用语义更稳定。
+
+## Commander 统一入口升级实施结论（2026-03-11）
+- 已新增共享服务层 `app/commander_services.py`，将配置域、数据域、实验室域、记忆域、观测域能力抽离为 Commander / Web 共用 payload 逻辑。
+- 已新增 `app/commander_observability.py`，统一事件 tail、聚合摘要、运行诊断等观测接口，支持 Commander 成为运维与训练观察主入口。
+- 已在 `brain/tools.py` 中补齐投资域工具集，包括训练实验室、控制面、运行路径、evolution config、agent prompts、数据状态、memory、事件、问股和策略列表。
+- `brain/runtime.py` 已增加显式 `/tool ...` 执行与 no-LLM 内建 intent fallback，使 Commander 在无 API Key 时仍可承担基础自然语言入口。
+- `app/web_server.py` 已改为优先复用 Commander/runtime/service 能力；Web 更接近兼容壳而不是独立控制层。
+- 已补充 `app/stock_analysis.py` 与 `stock_strategies/`，让 Commander 具备本地 YAML 策略目录 + 问股分析能力，可对标另一项目中的“策略 + 工具调用”模式，但当前实现以本地数据分析与工具封装为主，不是完全等价的自由 ReAct 股票 agent。
+- `agent_settings/agents_config.json` 已恢复为多 agent 完整配置，保证 prompt 合约、角色边界与运行时行为一致。
+- 回归中唯一新增缺陷是 `list_agent_prompts_payload()` 签名与 Web 调用不一致，已修复并验证。
+- 实际入口验证结果：
+  - Commander mock ask 训练：成功，`data_mode=mock`，`llm_mode=dry_run`，产出 plan/run/eval 工件。
+  - Commander 真实 ask 训练：成功，`requested_data_mode=live`、`effective_data_mode=offline`、`llm_mode=live`，说明入口已能驱动真实本地数据 + 实时 LLM 推理的完整闭环。
+- 真实训练结果显示：单轮收益为正，但 `benchmark_passed=false`，说明“入口升级成功”不等于“策略已经达成生产级超额收益”；系统升级目标已完成，策略优化仍是后续课题。
+
+## Commander 自然语言入口稳定性审计（2026-03-11）
+- 审计结论：Commander 与系统功能已基本适配，但不能宣称“形式化完美适配”。原因在于：
+  - 自然语言入口仍然分为两条路径：高置信度 builtin intent（确定性）与通用 LLM tool-calling（概率性）。
+  - 因此对开放式、复合式、超出模板的新问题，仍存在少量语义漂移的理论可能性；只是高频操作已通过规则收紧和测试显著降低风险。
+- 发现并修复的关键入口问题：
+  - `请帮我刷新数据状态` 之前会被错误路由到通用状态；现已优先命中 `invest_data_status`。
+  - `我想看看配置有没有问题` 之前会被错误路由到 `invest_ask_stock`；现已改为 `invest_runtime_diagnostics`。
+  - `分析一下系统状态和最近训练` 之前只返回单一 quick status；现已返回组合响应 `status_and_recent_training`，同时包含 quick status 与 training lab 概览。
+  - 新增 `看看控制面配置` 等配置类自然语言入口，返回 `config_overview` 组合载荷。
+- 当前 builtin 路由策略已从“宽泛关键词包含”收紧为“高置信度优先 + 领域冲突排除 + 复合请求组合返回”，明显减少了指令含糊和误翻译风险。
+- 保留风险：
+  - 复杂多目标对话若不在 builtin 高置信度规则内，仍由 LLM 自主决策工具链；这是可接受的第二层弹性，不是完全形式化编排。
+  - `ask_stock` 仍是本地分析服务，不是 YAML + ReAct 多工具自治股票 agent；这是第二阶段要继续升级的内容。
+
+## Commander 全功能用户仿真补充（2026-03-11）
+- 本轮新增覆盖面：不仅验证自然语言高频入口，还验证了显式工具路径、训练实验室、模型路由、allocator、memory、cron、配置读接口、风险门控接口。
+- 在临时 workspace + 临时 DB 的端到端仿真矩阵中，共验证 41 项调用：
+  - 自然语言入口：状态、深度状态、事件、诊断、训练实验室、排行榜、策略列表、快速测试、数据状态、组合请求、配置风险、控制面配置、运行路径、agent prompts、问股、多轮真实训练确认门控。
+  - 显式工具入口：investment models、allocator、routing preview、training plan create/list、runs/evals list、events tail/summary、memory list/search/get、control plane get、runtime paths get、evolution config get、stock strategies、data download status/trigger gate、control plane/runtime paths/evolution config update gate、cron add/list/remove。
+- 结论：
+  - 40/41 项在首轮通过；剩余 1 项是 `memory_get` 返回结构与测试判定口径不一致，并非功能缺陷。
+  - 修正判定后，功能层面可视为 41/41 通过。
+- 本轮发现并修复的唯一真实逻辑问题：
+  - `请帮我真实训练2轮` 之前会因把“真实/实盘”当作 confirm 而直接越过高风险确认门控；现已改为只有明确出现“确认/confirm”才算授权执行多轮真实训练。
+- 当前仍建议保留的优化项：
+  - `evolution_config_update` 只有影响主训练链路的 patch 才要求确认，轻量参数 patch 会即时写入；这属于当前设计，并非 bug，但后续如果要极致安全，可以把所有写配置都统一升级为双确认模式。
+  - 自然语言 builtin 已大幅收紧，但仍主要覆盖高频模板；开放式复合表达仍会进入 LLM tool-calling 路径，因此第二阶段的 ask-stock ReAct 化仍需单独做 eval。
+
+## 第二阶段：Ask Stock YAML + ReAct 化（2026-03-11）
+- `app/stock_analysis.py` 已从“单函数直出分析”升级为“策略加载器 + 工具计划器 + 执行器 + 评分器”的 stock workflow。
+- 当前 `ask_stock` 执行路径：
+  - 读取 YAML 策略；
+  - 根据问题推断策略（或使用显式策略）；
+  - 根据 `tool_call_plan` 构建工具计划；
+  - 顺序执行 `get_daily_history` / `analyze_trend` / `get_realtime_quote`；
+  - 生成可审计的 `orchestration.tool_calls` 轨迹；
+  - 基于策略 scoring 与衍生信号生成 `dashboard`。
+- 虽然这还不是“LLM 自治 ReAct 股票 agent”，但已经接近你给出的另一项目模式：
+  - 有 YAML 策略文件；
+  - 有声明式 required_tools / tool_call_plan；
+  - 有 Thought / Action / Observation 风格的执行轨迹；
+  - 有最终 dashboard 输出；
+  - 且比完全依赖 LLM 更稳定、可测、可回归。
+- 两个现有 stock 策略文件 `stock_strategies/chan_theory.yaml` 与 `stock_strategies/trend_following.yaml` 已升级为显式携带 `aliases` 与 `tool_call_plan`。
+- CLI 实测表明：
+  - `用缠论分析 600031` 会推断到 `chan_theory`，并输出 3 步工具轨迹。
+  - `用趋势跟随分析 600031` 会推断到 `trend_following`，并输出对应中期趋势计划。
+- 下一步若继续逼近“完整 LLM ReAct”，可以在这个基础上把 `tool_call_plan` 变为 `planner_prompt + allowed_tools + max_steps`，再引入专用 stock-agent loop；但当前阶段先确保稳定比先放大自治更合适。
+
+## 第三阶段增强：Stock LLM ReAct Loop（2026-03-11）
+- `ask_stock` 已从“确定性 YAML tool_call_plan 执行器”升级为“混合式 stock agent”:
+  - 有 LLM 且非 mock 模式时，走 `llm_react`：LLM 根据策略说明和工具定义决定下一步 stock tool 调用，形成真正的循环式 Thought / Action / Observation 轨迹。
+  - 无 LLM、mock 模式、或 LLM planner 失败时，自动回退到 `yaml_react_like` 的确定性计划执行，保证入口稳定。
+- 这次升级实现了 agent harness 的关键要素：
+  - 窄而明确的 stock tool action space；
+  - 带 `status/summary/next_actions/artifacts` 的 observation；
+  - planner 失败自动回退；
+  - 可在同一个输出中同时看到 recommended plan 与 actual executed plan。
+- Commander 在非 mock CLI 实测中，`用缠论分析 600031` 已返回 `orchestration.mode=llm_react`，说明真实入口已经跑到 LLM 规划环节。
+- Commander 在 mock / 测试环境中仍默认禁用 stock LLM planner，避免回归测试受真实外部模型波动影响。

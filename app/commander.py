@@ -45,6 +45,35 @@ from app.lab.evaluation import (
     build_training_evaluation_summary,
     build_training_memory_summary,
 )
+from app.commander_services import (
+    get_allocator_payload,
+    get_capital_flow_payload,
+    get_control_plane_payload,
+    get_data_download_status_payload,
+    get_data_status_payload,
+    get_dragon_tiger_payload,
+    get_evolution_config_payload,
+    get_investment_models_payload,
+    get_intraday_60m_payload,
+    get_leaderboard_payload,
+    get_model_routing_preview_payload,
+    get_runtime_paths_payload,
+    list_agent_prompts_payload,
+    trigger_data_download,
+    update_agent_prompt_payload,
+    update_control_plane_payload,
+    update_evolution_config_payload,
+    update_runtime_paths_payload,
+)
+from app.commander_observability import (
+    append_event_row,
+    build_memory_detail,
+    build_runtime_diagnostics,
+    memory_brief_row,
+    read_event_rows,
+    summarize_event_rows,
+)
+from app.stock_analysis import StockAnalysisService
 
 logger = logging.getLogger(__name__)
 
@@ -132,6 +161,8 @@ class CommanderConfig:
     training_plan_dir: Path = RUNTIME_DIR / "state" / "training_plans"
     training_run_dir: Path = RUNTIME_DIR / "state" / "training_runs"
     training_eval_dir: Path = RUNTIME_DIR / "state" / "training_evals"
+    runtime_events_path: Path = RUNTIME_DIR / "state" / "commander_events.jsonl"
+    stock_strategy_dir: Path = PROJECT_ROOT / "stock_strategies"
 
     model: str = field(default_factory=lambda: os.environ.get("COMMANDER_MODEL", _commander_llm_default("model")))
     api_key: str = field(default_factory=lambda: os.environ.get("COMMANDER_API_KEY", _commander_llm_default("api_key")))
@@ -181,6 +212,8 @@ class CommanderConfig:
             self.training_run_dir = self.runtime_state_dir / "training_runs"
         if self.training_eval_dir == default_state_dir / "training_evals":
             self.training_eval_dir = self.runtime_state_dir / "training_evals"
+        if self.runtime_events_path == default_state_dir / "commander_events.jsonl":
+            self.runtime_events_path = self.runtime_state_dir / "commander_events.jsonl"
 
     @classmethod
     def from_args(cls, args: argparse.Namespace) -> "CommanderConfig":
@@ -954,6 +987,7 @@ class CommanderRuntime:
         self._notifications: asyncio.Queue[str] = asyncio.Queue()
         self.memory = MemoryStore(self.cfg.memory_store, create=False)
         self.plugin_loader = PluginLoader(self.cfg.plugin_dir, create_dir=False)
+        self.stock_analysis = StockAnalysisService(strategy_dir=self.cfg.stock_strategy_dir, model=self.cfg.model, api_key=self.cfg.api_key, api_base=self.cfg.api_base, enable_llm_react=not self.cfg.mock_mode)
         self._plugin_tool_names: set[str] = set()
         self.bridge = BridgeHub(
             inbox_dir=self.cfg.bridge_inbox,
@@ -971,11 +1005,15 @@ class CommanderRuntime:
         self._autopilot_task: Optional[asyncio.Task] = None
 
     def _on_body_event(self, event: str, payload: dict[str, Any]) -> None:
+        self._append_runtime_event(event, payload, source="body")
         if event == "training_started":
             self._update_runtime_fields(state="training", current_task=payload)
         elif event == "training_finished":
             self._update_runtime_fields(state="idle", current_task=None, last_task=payload)
         self._persist_state()
+
+    def _append_runtime_event(self, event: str, payload: dict[str, Any], *, source: str = "runtime") -> dict[str, Any]:
+        return append_event_row(self.cfg.runtime_events_path, event, payload, source=source)
 
     def _set_runtime_state(self, state: str) -> None:
         self._update_runtime_fields(state=state)
@@ -1010,14 +1048,14 @@ class CommanderRuntime:
             )
 
     def _begin_task(self, task_type: str, source: str, **metadata: Any) -> None:
-        self._update_runtime_fields(
-            current_task={
-                "type": task_type,
-                "source": source,
-                "started_at": datetime.now().isoformat(),
-                **metadata,
-            }
-        )
+        task = {
+            "type": task_type,
+            "source": source,
+            "started_at": datetime.now().isoformat(),
+            **metadata,
+        }
+        self._update_runtime_fields(current_task=task)
+        self._append_runtime_event("task_started", task, source="runtime")
 
     def _end_task(self, status: str = "ok", **metadata: Any) -> None:
         with self._task_lock:
@@ -1029,6 +1067,7 @@ class CommanderRuntime:
                 "status": status,
                 **metadata,
             }
+            self._append_runtime_event("task_finished", self.last_task, source="runtime")
             self.current_task = None
 
     def _read_runtime_lock_payload(self) -> dict[str, Any]:
@@ -1179,6 +1218,7 @@ class CommanderRuntime:
             metadata={"channel": channel, "chat_id": chat_id},
         )
         self.memory.append_audit("ask_started", session_key, {"channel": channel, "chat_id": chat_id})
+        self._append_runtime_event("ask_started", {"session_key": session_key, "channel": channel, "chat_id": chat_id}, source="brain")
         try:
             response = await self.brain.process_direct(message, session_key=session_key)
             self.memory.append(
@@ -1188,6 +1228,7 @@ class CommanderRuntime:
                 metadata={"channel": channel, "chat_id": chat_id},
             )
             self.memory.append_audit("ask_finished", session_key, {"channel": channel, "chat_id": chat_id})
+            self._append_runtime_event("ask_finished", {"session_key": session_key, "channel": channel, "chat_id": chat_id}, source="brain")
             self._end_task("ok")
             self._persist_state()
             return response
@@ -1306,6 +1347,153 @@ class CommanderRuntime:
 
     def list_training_evaluations(self, *, limit: int = 20) -> dict[str, Any]:
         return self.training_lab.list_json_artifacts(self.cfg.training_eval_dir, limit=limit)
+
+    def get_investment_models(self) -> dict[str, Any]:
+        return get_investment_models_payload(self)
+
+    def get_leaderboard(self) -> dict[str, Any]:
+        return get_leaderboard_payload(self)
+
+    def get_allocator_preview(self, *, regime: str = "oscillation", top_n: int = 3, as_of_date: str | None = None) -> dict[str, Any]:
+        return get_allocator_payload(self, regime=regime, top_n=top_n, as_of_date=as_of_date)
+
+    def get_model_routing_preview(
+        self,
+        *,
+        cutoff_date: str | None = None,
+        stock_count: int | None = None,
+        min_history_days: int | None = None,
+        allowed_models: list[str] | None = None,
+    ) -> dict[str, Any]:
+        return get_model_routing_preview_payload(
+            self,
+            cutoff_date=cutoff_date,
+            stock_count=stock_count,
+            min_history_days=min_history_days,
+            allowed_models=allowed_models,
+        )
+
+    def list_agent_prompts(self) -> dict[str, Any]:
+        return list_agent_prompts_payload()
+
+    def update_agent_prompt(self, *, agent_name: str, system_prompt: str) -> dict[str, Any]:
+        payload = update_agent_prompt_payload(agent_name=agent_name, system_prompt=system_prompt)
+        self._append_runtime_event("agent_prompt_updated", {"agent_name": agent_name}, source="config")
+        return payload
+
+    def get_runtime_paths(self) -> dict[str, Any]:
+        return get_runtime_paths_payload(self, project_root=PROJECT_ROOT)
+
+    def update_runtime_paths(self, patch: dict[str, Any], *, confirm: bool = False) -> dict[str, Any]:
+        if not confirm:
+            return {
+                "status": "confirmation_required",
+                "message": "runtime paths 更新会立即改变运行期产物目录，请用 confirm=true 再执行。",
+                "pending_patch": patch,
+            }
+        payload = update_runtime_paths_payload(
+            patch=patch,
+            runtime=self,
+            project_root=PROJECT_ROOT,
+            sync_runtime=_sync_runtime_path_config,
+        )
+        self._append_runtime_event("runtime_paths_updated", {"updated": payload.get("updated", [])}, source="config")
+        return payload
+
+    def get_evolution_config(self) -> dict[str, Any]:
+        return get_evolution_config_payload(project_root=PROJECT_ROOT, live_config=config)
+
+    def update_evolution_config(self, patch: dict[str, Any], *, confirm: bool = False) -> dict[str, Any]:
+        if not confirm and any(key in patch for key in ("investment_model", "investment_model_config", "data_source", "model_routing_enabled", "model_routing_mode")):
+            return {
+                "status": "confirmation_required",
+                "message": "当前 patch 会影响训练主链路，请用 confirm=true 再执行。",
+                "pending_patch": patch,
+            }
+        payload = update_evolution_config_payload(patch=patch, project_root=PROJECT_ROOT, live_config=config, source="commander")
+        controller = getattr(getattr(self, "body", None), "controller", None)
+        if controller is not None and hasattr(controller, "refresh_runtime_from_config"):
+            controller.refresh_runtime_from_config()
+        self._append_runtime_event("evolution_config_updated", {"updated": payload.get("updated", [])}, source="config")
+        return payload
+
+    def get_control_plane(self) -> dict[str, Any]:
+        return get_control_plane_payload(project_root=PROJECT_ROOT)
+
+    def update_control_plane(self, patch: dict[str, Any], *, confirm: bool = False) -> dict[str, Any]:
+        if not confirm:
+            return {
+                "status": "confirmation_required",
+                "message": "control plane 更新需要重启才能全局生效，请用 confirm=true 再执行。",
+                "pending_patch": patch,
+                "restart_required": True,
+            }
+        payload = update_control_plane_payload(patch=patch, project_root=PROJECT_ROOT, source="commander")
+        self._append_runtime_event("control_plane_updated", {"updated": payload.get("updated", [])}, source="config")
+        return payload
+
+    def get_data_status(self, *, refresh: bool = False) -> dict[str, Any]:
+        return get_data_status_payload(refresh=refresh)
+
+    def get_capital_flow(self, *, codes: list[str] | None = None, start_date: str | None = None, end_date: str | None = None, limit: int = 200) -> dict[str, Any]:
+        return get_capital_flow_payload(codes=codes, start_date=start_date, end_date=end_date, limit=limit)
+
+    def get_dragon_tiger(self, *, codes: list[str] | None = None, start_date: str | None = None, end_date: str | None = None, limit: int = 200) -> dict[str, Any]:
+        return get_dragon_tiger_payload(codes=codes, start_date=start_date, end_date=end_date, limit=limit)
+
+    def get_intraday_60m(self, *, codes: list[str] | None = None, start_date: str | None = None, end_date: str | None = None, limit: int = 500) -> dict[str, Any]:
+        return get_intraday_60m_payload(codes=codes, start_date=start_date, end_date=end_date, limit=limit)
+
+    def get_data_download_status(self) -> dict[str, Any]:
+        return get_data_download_status_payload()
+
+    def trigger_data_download(self, *, confirm: bool = False) -> dict[str, Any]:
+        if not confirm:
+            return {
+                "status": "confirmation_required",
+                "message": "后台数据同步会访问外部数据源，请用 confirm=true 再执行。",
+                "job": get_data_download_status_payload(),
+            }
+        payload = trigger_data_download()
+        self._append_runtime_event("data_download_triggered", payload, source="data")
+        return payload
+
+    def list_memory(self, *, query: str = "", limit: int = 20) -> dict[str, Any]:
+        rows = self.memory.search(query=query, limit=limit)
+        items = [memory_brief_row(row) for row in rows]
+        return {"count": len(items), "items": items}
+
+    def get_memory_detail(self, record_id: str) -> dict[str, Any]:
+        row = self.memory.get(record_id)
+        if row is None:
+            raise FileNotFoundError("memory record not found")
+        return build_memory_detail(self, row)
+
+    def get_events_tail(self, *, limit: int = 50) -> dict[str, Any]:
+        rows = read_event_rows(self.cfg.runtime_events_path, limit=limit)
+        return {"count": len(rows), "items": rows}
+
+    def get_events_summary(self, *, limit: int = 100) -> dict[str, Any]:
+        rows = read_event_rows(self.cfg.runtime_events_path, limit=limit)
+        return {"status": "ok", "summary": summarize_event_rows(rows), "items": rows}
+
+    def get_runtime_diagnostics(self, *, event_limit: int = 50, memory_limit: int = 20) -> dict[str, Any]:
+        return build_runtime_diagnostics(self, event_limit=event_limit, memory_limit=memory_limit)
+
+    def get_training_lab_summary(self, *, limit: int = 5) -> dict[str, Any]:
+        return {
+            "status": "ok",
+            **self._lab_counts(),
+            "latest_plans": self.list_training_plans(limit=limit).get("items", []),
+            "latest_runs": self.list_training_runs(limit=limit).get("items", []),
+            "latest_evaluations": self.list_training_evaluations(limit=limit).get("items", []),
+        }
+
+    def ask_stock(self, *, question: str, query: str, strategy: str = "chan_theory", days: int = 60) -> dict[str, Any]:
+        return self.stock_analysis.ask_stock(question=question, query=query, strategy=strategy, days=days)
+
+    def list_stock_strategies(self) -> dict[str, Any]:
+        return {"status": "ok", "items": self.stock_analysis.list_strategies()}
 
     def _load_leaderboard_snapshot(self) -> dict[str, Any]:
         path = Path(self.cfg.training_output_dir).parent / "leaderboard.json"
@@ -1519,6 +1707,7 @@ class CommanderRuntime:
             data_status = WebDatasetService().get_status_summary(refresh=(detail_mode == "slow"))
         except Exception as exc:
             data_status = {"status": "error", "error": str(exc), "detail_mode": detail_mode}
+        event_rows = read_event_rows(self.cfg.runtime_events_path, limit=20)
         return _jsonable({
             "ts": datetime.now().isoformat(),
             "detail_mode": detail_mode,
@@ -1556,6 +1745,7 @@ class CommanderRuntime:
             },
             "config": self.config_service.get_masked_payload(),
             "data": data_status,
+            "events": summarize_event_rows(event_rows),
             "training_lab": {
                 **self._lab_counts(),
                 "latest_plans": self.list_training_plans(limit=3).get("items", []),
@@ -1610,12 +1800,14 @@ class CommanderRuntime:
     def _ensure_runtime_storage(self) -> None:
         self.cfg.workspace.mkdir(parents=True, exist_ok=True)
         self.cfg.strategy_dir.mkdir(parents=True, exist_ok=True)
+        self.cfg.stock_strategy_dir.mkdir(parents=True, exist_ok=True)
         self.cfg.state_file.parent.mkdir(parents=True, exist_ok=True)
         self.cfg.memory_store.parent.mkdir(parents=True, exist_ok=True)
         self.cfg.plugin_dir.mkdir(parents=True, exist_ok=True)
         self.cfg.bridge_inbox.mkdir(parents=True, exist_ok=True)
         self.cfg.bridge_outbox.mkdir(parents=True, exist_ok=True)
         self.cfg.runtime_state_dir.mkdir(parents=True, exist_ok=True)
+        self.cfg.runtime_events_path.parent.mkdir(parents=True, exist_ok=True)
         self.training_lab.ensure_storage()
         self.memory.ensure_storage()
 
@@ -1667,20 +1859,27 @@ class CommanderRuntime:
 
             Tool operating policy:
             1. For runtime inspection, prefer `invest_quick_status` by default; use `invest_deep_status` only when deeper freshness is required. `invest_status` is backward-compatible alias only.
-            2. For strategy inventory, use `invest_list_strategies`.
-            3. If strategy files changed, call `invest_reload_strategies` before analysis or training.
+            2. For observability and recent activity, use `invest_events_summary`, `invest_events_tail`, and `invest_runtime_diagnostics`.
+            3. For strategy inventory, use `invest_list_strategies`; if strategy files changed, call `invest_reload_strategies` before analysis or training.
             4. For health checks, prefer `invest_quick_test` before heavier training.
             5. For training execution, use `invest_train` with explicit `rounds` and `mock` args.
-            6. For memory lookup, use `invest_memory_search`.
-            7. For scheduling changes, use `invest_cron_list`, `invest_cron_add`, `invest_cron_remove`.
-            8. For plugin tool refresh, use `invest_plugins_reload`.
+            6. For lab artifacts, use the `invest_training_plan_*`, `invest_training_runs_list`, and `invest_training_evaluations_list` tools.
+            7. For model analytics, use `invest_investment_models`, `invest_leaderboard`, `invest_allocator`, and `invest_model_routing_preview`.
+            8. For config management, use the dedicated `invest_*_get` / `invest_*_update` tools and respect confirmation requirements on risky writes.
+            9. For data queries, use `invest_data_status`, `invest_data_capital_flow`, `invest_data_dragon_tiger`, `invest_data_intraday_60m`, and `invest_data_download`.
+            10. For memory lookup, use `invest_memory_search`, `invest_memory_list`, and `invest_memory_get`.
+            11. For scheduling changes, use `invest_cron_list`, `invest_cron_add`, `invest_cron_remove`.
+            12. For plugin tool refresh, use `invest_plugins_reload`.
+            13. For natural-language stock analysis, use `invest_ask_stock` and `invest_stock_strategies`.
 
             Execution discipline:
             1. Read-only questions should stay read-only unless the user explicitly requests execution.
             2. Do not trigger training, cron mutation, or plugin reload unless the user asked, or the prior task clearly requires it.
-            3. If a tool fails or arguments are invalid, explain the issue and retry with corrected arguments when possible.
-            4. After using tools, summarize verified facts first, then risks, then recommended next action.
-            5. Keep replies concise; do not output fake tool syntax or unverifiable promises.
+            3. For risky writes that require confirmation, ask the user to confirm rather than guessing.
+            4. If a tool fails or arguments are invalid, explain the issue and retry with corrected arguments when possible.
+            5. After using tools, summarize verified facts first, then risks, then recommended next action.
+            6. Keep replies concise; do not output fake tool syntax or unverifiable promises.
+            7. Treat this Commander window as the primary human entrypoint; prefer tools over telling the user to open the web UI.
 
             Active strategy genes:
             {self.strategy_registry.to_summary()}
@@ -1706,9 +1905,10 @@ class CommanderRuntime:
 
             Core rules:
             1. Every decision must serve investment evolution goals.
-            2. Prefer using `invest_quick_status`, `invest_training_plan_create`, `invest_training_plan_execute`, and `invest_list_strategies` tools; avoid `invest_status` except for backward compatibility.
-            3. If strategy files changed, call `invest_reload_strategies` before new cycle decisions.
-            4. Keep risk under control and preserve reproducible logs.
+            2. Treat this Commander workspace as the primary human entrypoint for training, diagnostics, config management, data inspection, and stock-analysis workflows.
+            3. Prefer using `invest_quick_status`, `invest_runtime_diagnostics`, `invest_training_plan_create`, `invest_training_plan_execute`, `invest_leaderboard`, and `invest_list_strategies`; avoid `invest_status` except for backward compatibility.
+            4. If strategy files changed, call `invest_reload_strategies` before new cycle decisions.
+            5. Keep risk under control, respect confirmation-required writes, and preserve reproducible logs.
 
             Active genes:
             {self.strategy_registry.to_summary()}
@@ -1723,8 +1923,9 @@ class CommanderRuntime:
 
                     If strategy files changed or no training cycle has run recently:
                     1) call invest_quick_status
-                    2) call invest_list_strategies
-                    3) run invest_train(rounds=1) when needed
+                    2) call invest_runtime_diagnostics
+                    3) call invest_list_strategies
+                    4) run invest_train(rounds=1) when needed
                     """
                 ),
                 encoding="utf-8",

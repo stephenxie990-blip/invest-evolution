@@ -1,0 +1,66 @@
+name: chan_theory
+display_name: 缠论
+aliases:
+  - 缠论
+  - chan
+  - chan theory
+planner_prompt: 先确认结构，再确认指标与关键价位，最后看资金和最新价格是否共振。
+react_enabled: true
+max_steps: 5
+description: 基于结构、趋势、背离、支撑阻力与资金确认的离线问股模板。
+required_tools:
+  - get_daily_history
+  - get_indicator_snapshot
+  - analyze_support_resistance
+  - get_capital_flow
+  - get_realtime_quote
+tool_call_plan:
+  - tool: get_daily_history
+    thought: 先看近60日结构，确认价格区间和走势背景。
+    args:
+      query: "{{query}}"
+      days: 60
+  - tool: get_indicator_snapshot
+    thought: 把均线、MACD、RSI、ATR、布林带先跑全。
+    args:
+      query: "{{query}}"
+      days: 120
+  - tool: analyze_support_resistance
+    thought: 确认关键支撑阻力与当前价格所处位置。
+    args:
+      query: "{{query}}"
+      days: 120
+  - tool: get_capital_flow
+    thought: 看看资金是否支持当前结构。
+    args:
+      query: "{{query}}"
+      days: 20
+  - tool: get_realtime_quote
+    thought: 最后确认最新价格，用于入场位和止损位参考。
+    args:
+      query: "{{query}}"
+core_rules:
+  - 结构优先
+  - 趋势级别
+  - 背离/动能
+  - 关键价位
+  - 风险控制
+analysis_steps:
+  - 获取近60日日线
+  - 识别指标状态
+  - 判断支撑阻力
+  - 观察资金确认
+  - 结合最新价格输出结论
+entry_conditions:
+  - 结构未破坏
+  - MACD/均线改善
+  - 靠近支撑或突破有效
+scoring:
+  多头排列: 10
+  MACD金叉: 8
+  RSI超卖: 5
+  资金净流入: 6
+  接近支撑: 4
+  MACD死叉: -8
+  空头排列: -10
+  逼近阻力: -4

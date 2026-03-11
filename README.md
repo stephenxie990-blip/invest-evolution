@@ -86,7 +86,9 @@ python3 -m market_data --source akshare --dragon-tiger --start 20240101
 python3 -m market_data --source baostock --intraday-60m --start 20230101 --stocks 200
 ```
 
-### 3. 运行 Commander
+### 3. 运行 Commander（推荐主入口）
+
+> 当前推荐把 `Commander` 作为**唯一人类入口**使用：状态查询、训练执行、训练实验室、配置管理、数据查询、运行诊断都优先通过 `Commander` 对话/CLI 完成。Web 控制台更适合作为可选可视化与兼容壳。
 
 ```bash
 # 推荐先走真实数据 / 离线库路径
@@ -130,6 +132,8 @@ invest-train --cycles 1 --mock
 - 可通过 `GET /api/model-routing/preview` 预览某个截断日的路由决策。
 
 ### 6. 启动 Web 控制台
+
+> Web 控制台当前定位为**可选观测/展示层**，不是推荐主入口。若你更偏向自然语言交互与低前端维护成本，可仅保留 `Commander` 入口，Web 只在需要图表、SSE 回放和只读可视化时启用。
 
 ```bash
 # 本地调试：默认绑定回环地址，未配置鉴权也可启动

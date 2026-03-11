@@ -1,0 +1,65 @@
+name: trend_following
+display_name: 趋势跟随
+aliases:
+  - 趋势跟随
+  - trend following
+  - 趋势策略
+planner_prompt: 优先确认中期趋势，再验证量价与资金是否共振，最后检查当前价格位置。
+react_enabled: true
+max_steps: 5
+description: 基于均线、量价、资金和关键价位的趋势问股模板。
+required_tools:
+  - get_daily_history
+  - get_indicator_snapshot
+  - analyze_trend
+  - get_capital_flow
+  - get_realtime_quote
+tool_call_plan:
+  - tool: get_daily_history
+    thought: 先拉长窗口确认中期趋势。
+    args:
+      query: "{{query}}"
+      days: 120
+  - tool: get_indicator_snapshot
+    thought: 用统一指标快照确认 MA 栈、MACD、RSI 和 ATR。
+    args:
+      query: "{{query}}"
+      days: 180
+  - tool: analyze_trend
+    thought: 进一步判断趋势方向与结构是否完整。
+    args:
+      query: "{{query}}"
+      days: 180
+  - tool: get_capital_flow
+    thought: 观察资金是否顺着趋势流入。
+    args:
+      query: "{{query}}"
+      days: 20
+  - tool: get_realtime_quote
+    thought: 确认最新价格是否仍站在关键均线之上。
+    args:
+      query: "{{query}}"
+core_rules:
+  - 均线顺势
+  - 量能确认
+  - 资金确认
+  - 止损先行
+analysis_steps:
+  - 获取近120日日线
+  - 计算指标快照
+  - 验证趋势结构
+  - 观察资金确认
+  - 输出趋势建议
+entry_conditions:
+  - 价格站上MA20
+  - 多头排列
+  - 资金净流入
+scoring:
+  价格站上MA20: 10
+  量比放大: 6
+  趋势向上: 8
+  资金净流入: 5
+  接近支撑: 3
+  跌破MA20: -12
+  趋势向下: -8
+  空头排列: -10

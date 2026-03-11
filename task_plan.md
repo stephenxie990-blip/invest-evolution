@@ -104,3 +104,20 @@
 
 
 - [x] 启动层瘦身：训练 / commander / LLMCaller 优先使用 control plane 默认绑定
+
+## Commander 统一入口升级实施收官（2026-03-11）
+
+### Phase 0~5 完成情况
+- [x] Phase 0：完成现状审计、能力矩阵与升级蓝图
+- [x] Phase 1：补齐 Commander 对配置域、训练实验室、模型路由、数据状态的管理能力
+- [x] Phase 2：补齐统一观测面（events / diagnostics / memory / runtime summary）
+- [x] Phase 3：补齐自然语言入口与风险门控（tool routing / confirm gate / no-LLM fallback）
+- [x] Phase 4：Web 降级为兼容壳并复用共享 service，Commander 成为推荐主入口
+- [x] Phase 5：补齐问股能力、策略目录与本地 stock analysis 工作流
+
+### 最终验收
+- [x] Commander 可覆盖核心训练、配置、观测、数据查询、实验室查询、问股能力
+- [x] Web/API 与 Commander 复用共享 service，避免能力分叉
+- [x] 全量 pytest 通过
+- [x] 通过 Commander `ask` 入口完成 mock 训练
+- [x] 通过 Commander `ask` 入口完成真实训练

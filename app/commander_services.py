@@ -7,7 +7,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from config import PROJECT_ROOT, agent_config_registry, config
+from config import PROJECT_ROOT, AgentConfigRegistry, agent_config_registry, config
 from config.control_plane import ControlPlaneConfigService
 from config.services import EvolutionConfigService, RuntimePathConfigService
 from invest.allocator import build_allocation_plan
@@ -83,9 +83,10 @@ def get_model_routing_preview_payload(
     return {"status": "ok", "routing": payload}
 
 
-def list_agent_prompts_payload() -> dict[str, Any]:
+def list_agent_prompts_payload(*, project_root: Path | None = None) -> dict[str, Any]:
+    registry = _resolve_agent_registry(project_root or PROJECT_ROOT)
     items = []
-    for cfg in agent_config_registry.list_configs():
+    for cfg in registry.list_configs():
         name = str(cfg.get("name", "") or "").strip()
         if not name:
             continue
@@ -97,12 +98,24 @@ def list_agent_prompts_payload() -> dict[str, Any]:
     return {"status": "ok", "configs": items}
 
 
-def update_agent_prompt_payload(*, agent_name: str, system_prompt: str) -> dict[str, Any]:
-    current_cfg = dict(agent_config_registry.get_config(agent_name) or {})
+def _resolve_agent_registry(project_root: Path | None = None):
+    root = Path(project_root or PROJECT_ROOT)
+    target = (root / "agent_settings" / "agents_config.json").resolve()
+    current = Path(agent_config_registry.json_path).resolve()
+    if current == target:
+        return agent_config_registry
+    return AgentConfigRegistry(target)
+
+
+def update_agent_prompt_payload(*, agent_name: str, system_prompt: str, project_root: Path | None = None) -> dict[str, Any]:
+    registry = _resolve_agent_registry(project_root)
+    current_cfg = dict(registry.get_config(agent_name) or {})
     current_cfg["system_prompt"] = str(system_prompt or "")
-    ok = agent_config_registry.save_config(agent_name, current_cfg)
+    ok = registry.save_config(agent_name, current_cfg)
     if not ok:
         raise RuntimeError("failed to persist agent config")
+    if registry is not agent_config_registry:
+        agent_config_registry.reload()
     return {
         "status": "ok",
         "updated": [f"agent_prompts.{agent_name}.system_prompt"],

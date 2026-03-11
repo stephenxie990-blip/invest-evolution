@@ -808,18 +808,7 @@ def api_investment_models():
     runtime = _runtime
     if runtime is None:
         return _runtime_not_ready_response()
-    controller = runtime.body.controller
-    return jsonify({
-        "items": list_models(),
-        "active_model": getattr(controller, "model_name", "momentum"),
-        "active_config": getattr(controller, "model_config_path", ""),
-        "routing": {
-            "enabled": bool(getattr(controller, "model_routing_enabled", False)),
-            "mode": str(getattr(controller, "model_routing_mode", "off") or "off"),
-            "allowed_models": list(getattr(controller, "model_routing_allowed_models", []) or []),
-            "last_decision": dict(getattr(controller, "last_routing_decision", {}) or {}),
-        },
-    })
+    return jsonify(runtime.get_investment_models())
 
 
 @app.route("/api/leaderboard")
@@ -827,8 +816,7 @@ def api_leaderboard():
     runtime = _runtime
     if runtime is None:
         return _runtime_not_ready_response()
-    root_dir = Path(runtime.cfg.training_output_dir).parent
-    return jsonify(write_leaderboard(root_dir))
+    return jsonify(runtime.get_leaderboard())
 
 
 @app.route("/api/allocator")
@@ -837,19 +825,11 @@ def api_allocator():
     if runtime is None:
         return _runtime_not_ready_response()
     regime = str(request.args.get("regime", "oscillation") or "oscillation").strip().lower()
-    root_dir = Path(runtime.cfg.training_output_dir).parent
-    leaderboard = write_leaderboard(root_dir)
-    leaderboard_path = root_dir / "leaderboard.json"
-    plan = build_allocation_plan(
-        regime,
-        leaderboard_path,
-        as_of_date=datetime.now().strftime("%Y%m%d"),
+    return jsonify(runtime.get_allocator_preview(
+        regime=regime,
         top_n=max(1, min(4, int(request.args.get("top_n", 3) or 3))),
-    )
-    return jsonify({
-        "leaderboard_generated_at": leaderboard.get("generated_at"),
-        "allocation": plan.to_dict(),
-    })
+        as_of_date=datetime.now().strftime("%Y%m%d"),
+    ))
 
 
 @app.route("/api/model-routing/preview")
@@ -873,13 +853,13 @@ def api_model_routing_preview():
         if raw_allowed:
             allowed_models = [part.strip() for part in raw_allowed.split(",") if part.strip()]
     try:
-        payload = controller.preview_model_routing(
+        payload = runtime.get_model_routing_preview(
             cutoff_date=cutoff_date,
             stock_count=stock_count,
             min_history_days=min_history_days,
             allowed_models=allowed_models or None,
         )
-        return jsonify({"status": "ok", "routing": payload})
+        return jsonify(payload)
     except DataSourceUnavailableError as exc:
         logger.warning("Model routing preview data source unavailable: %s", exc)
         return _data_source_unavailable_response(exc)
@@ -1235,85 +1215,56 @@ def api_memory_detail(record_id: str):
 
 @app.route("/api/agent_prompts", methods=["GET"])
 def api_agent_prompts_list():
-    from config import agent_config_registry
-
-    items = []
-    for cfg in agent_config_registry.list_configs():
-        name = str(cfg.get("name", "") or "").strip()
-        if not name:
-            continue
-        items.append({
-            "name": name,
-            "role": str(cfg.get("role", name) or name),
-            "system_prompt": str(cfg.get("system_prompt", "") or ""),
-        })
-    return jsonify({"status": "ok", "configs": items})
+    runtime = _runtime
+    if runtime is not None:
+        return jsonify(runtime.list_agent_prompts())
+    import config as config_module
+    from app.commander_services import list_agent_prompts_payload
+    return jsonify(list_agent_prompts_payload(project_root=config_module.PROJECT_ROOT))
 
 
 @app.route("/api/agent_prompts", methods=["POST"])
 def api_agent_prompts_update():
-    from config import agent_config_registry
-
     data = request.get_json(force=True) or {}
     agent_name = str(data.get("name", "") or "").strip()
     if not agent_name:
         return jsonify({"error": "name is required"}), 400
     if "system_prompt" not in data:
         return jsonify({"error": "system_prompt is required"}), 400
-
-    current_cfg = dict(agent_config_registry.get_config(agent_name) or {})
-    current_cfg["system_prompt"] = str(data.get("system_prompt", "") or "")
-    ok = agent_config_registry.save_config(agent_name, current_cfg)
-    if not ok:
-        return jsonify({"status": "error"}), 500
-    return jsonify({
-        "status": "ok",
-        "updated": [f"agent_prompts.{agent_name}.system_prompt"],
-        "restart_required": False,
-    })
+    try:
+        runtime = _runtime
+        if runtime is not None:
+            return jsonify(runtime.update_agent_prompt(agent_name=agent_name, system_prompt=str(data.get("system_prompt", "") or "")))
+        import config as config_module
+        from app.commander_services import update_agent_prompt_payload
+        return jsonify(update_agent_prompt_payload(agent_name=agent_name, system_prompt=str(data.get("system_prompt", "") or ""), project_root=config_module.PROJECT_ROOT))
+    except Exception as exc:
+        logger.exception("Failed to update agent prompt")
+        return jsonify({"status": "error", "error": str(exc)}), 500
 
 
 # ---- Runtime Paths ----
 
 @app.route("/api/runtime_paths", methods=["GET"])
 def api_runtime_paths_get():
+    runtime = _runtime
+    if runtime is not None:
+        return jsonify(runtime.get_runtime_paths())
     import config as config_module
-
-    service = RuntimePathConfigService(project_root=config_module.PROJECT_ROOT)
-    payload = service.get_payload()
-    if _runtime is not None:
-        payload.update({
-            "training_output_dir": str(_runtime.cfg.training_output_dir),
-            "meeting_log_dir": str(_runtime.cfg.meeting_log_dir),
-            "config_audit_log_path": str(_runtime.cfg.config_audit_log_path),
-            "config_snapshot_dir": str(_runtime.cfg.config_snapshot_dir),
-            "runtime_loaded": True,
-        })
-    else:
-        payload["runtime_loaded"] = False
-    return jsonify({"status": "ok", "config": payload})
+    from app.commander_services import get_runtime_paths_payload
+    return jsonify(get_runtime_paths_payload(None, project_root=config_module.PROJECT_ROOT))
 
 
 @app.route("/api/runtime_paths", methods=["POST"])
 def api_runtime_paths_update():
-    import config as config_module
-
     data = request.get_json(force=True) or {}
-    service = RuntimePathConfigService(project_root=config_module.PROJECT_ROOT)
     try:
-        payload = service.apply_patch(data)
-        if _runtime is not None:
-            _sync_runtime_path_config(_runtime, payload["config"])
-            payload["config"].update({
-                "training_output_dir": str(_runtime.cfg.training_output_dir),
-                "meeting_log_dir": str(_runtime.cfg.meeting_log_dir),
-                "config_audit_log_path": str(_runtime.cfg.config_audit_log_path),
-                "config_snapshot_dir": str(_runtime.cfg.config_snapshot_dir),
-                "runtime_loaded": True,
-            })
-        else:
-            payload["config"]["runtime_loaded"] = False
-        return jsonify({"status": "ok", "updated": payload["updated"], "config": payload["config"]})
+        runtime = _runtime
+        if runtime is not None:
+            return jsonify(runtime.update_runtime_paths(data, confirm=True))
+        import config as config_module
+        from app.commander_services import update_runtime_paths_payload
+        return jsonify(update_runtime_paths_payload(patch=data, runtime=None, project_root=config_module.PROJECT_ROOT, sync_runtime=None))
     except ValueError as exc:
         return jsonify({"status": "error", "error": str(exc)}), 400
     except Exception as exc:
@@ -1325,17 +1276,16 @@ def api_runtime_paths_update():
 
 @app.route("/api/evolution_config", methods=["GET"])
 def api_evolution_config_get():
+    runtime = _runtime
+    if runtime is not None:
+        return jsonify(runtime.get_evolution_config())
     import config as config_module
-
-    service = EvolutionConfigService(project_root=config_module.PROJECT_ROOT, live_config=config_module.config)
-    payload = dict(service.get_masked_payload())
-    return jsonify({"status": "ok", "config": payload})
+    from app.commander_services import get_evolution_config_payload
+    return jsonify(get_evolution_config_payload(project_root=config_module.PROJECT_ROOT, live_config=config_module.config))
 
 
 @app.route("/api/evolution_config", methods=["POST"])
 def api_evolution_config_update():
-    import config as config_module
-
     data = request.get_json(force=True) or {}
     forbidden_keys = {"llm_fast_model", "llm_deep_model", "llm_api_base", "llm_api_key"}
     touched = sorted(key for key in forbidden_keys if key in data)
@@ -1346,16 +1296,13 @@ def api_evolution_config_update():
             "migrate_to": "/api/control_plane",
             "invalid_keys": touched,
         }), 400
-    service = EvolutionConfigService(project_root=config_module.PROJECT_ROOT, live_config=config_module.config)
     try:
-        payload = service.apply_patch(data, source="web_api")
         runtime = _runtime
         if runtime is not None:
-            controller = getattr(getattr(runtime, "body", None), "controller", None)
-            if controller is not None and hasattr(controller, "refresh_runtime_from_config"):
-                controller.refresh_runtime_from_config()
-        config_payload = dict(payload["config"])
-        return jsonify({"status": "ok", "updated": payload["updated"], "config": config_payload, "restart_required": False})
+            return jsonify(runtime.update_evolution_config(data, confirm=True))
+        import config as config_module
+        from app.commander_services import update_evolution_config_payload
+        return jsonify(update_evolution_config_payload(patch=data, project_root=config_module.PROJECT_ROOT, live_config=config_module.config, source="web_api"))
     except ValueError as exc:
         return jsonify({"status": "error", "error": str(exc)}), 400
     except Exception as exc:
@@ -1365,36 +1312,24 @@ def api_evolution_config_update():
 
 @app.route("/api/control_plane", methods=["GET"])
 def api_control_plane_get():
+    runtime = _runtime
+    if runtime is not None:
+        return jsonify(runtime.get_control_plane())
     import config as config_module
-    from config.control_plane import ControlPlaneConfigService
-
-    service = ControlPlaneConfigService(project_root=config_module.PROJECT_ROOT)
-    return jsonify({
-        "status": "ok",
-        "config": service.get_masked_payload(),
-        "restart_required": False,
-        "config_path": str(service.config_path),
-        "local_override_path": str(service.local_override_path),
-        "audit_log_path": str(service.audit_log_path),
-        "snapshot_dir": str(service.snapshot_dir),
-    })
+    from app.commander_services import get_control_plane_payload
+    return jsonify(get_control_plane_payload(project_root=config_module.PROJECT_ROOT))
 
 
 @app.route("/api/control_plane", methods=["POST"])
 def api_control_plane_update():
-    import config as config_module
-    from config.control_plane import ControlPlaneConfigService
-
     data = request.get_json(force=True) or {}
-    service = ControlPlaneConfigService(project_root=config_module.PROJECT_ROOT)
     try:
-        payload = service.apply_patch(data, source="web_api")
-        return jsonify({
-            "status": "ok",
-            "updated": payload["updated"],
-            "config": payload["config"],
-            "restart_required": True,
-        })
+        runtime = _runtime
+        if runtime is not None:
+            return jsonify(runtime.update_control_plane(data, confirm=True))
+        import config as config_module
+        from app.commander_services import update_control_plane_payload
+        return jsonify(update_control_plane_payload(patch=data, project_root=config_module.PROJECT_ROOT, source="web_api"))
     except ValueError as exc:
         return jsonify({"status": "error", "error": str(exc)}), 400
     except Exception as exc:
@@ -1406,58 +1341,53 @@ def api_control_plane_update():
 
 @app.route("/api/data/status", methods=["GET"])
 def api_data_status():
-    from market_data.datasets import WebDatasetService
-
     refresh = _parse_bool(request.args.get("refresh", False), "refresh")
-    status = WebDatasetService().get_status_summary(refresh=refresh)
-    return jsonify(status)
+    runtime = _runtime
+    if runtime is not None:
+        return jsonify(runtime.get_data_status(refresh=refresh))
+    from app.commander_services import get_data_status_payload
+    return jsonify(get_data_status_payload(refresh=refresh))
 
 @app.route("/api/data/capital_flow", methods=["GET"])
 def api_data_capital_flow():
-    from market_data.datasets import WebDatasetService
-
     codes_param = str(request.args.get("codes", "") or "").strip()
     codes = [item.strip() for item in codes_param.split(",") if item.strip()] or None
     start_date = request.args.get("start")
     end_date = request.args.get("end")
     limit = _parse_limit_arg(default=200, maximum=5000)
-
-    frame = WebDatasetService().get_capital_flow(codes=codes, start_date=start_date, end_date=end_date)
-    if not frame.empty:
-        frame = frame.head(limit)
-    return jsonify({"count": int(len(frame)), "items": frame.to_dict(orient="records")})
+    runtime = _runtime
+    if runtime is not None:
+        return jsonify(runtime.get_capital_flow(codes=codes, start_date=start_date, end_date=end_date, limit=limit))
+    from app.commander_services import get_capital_flow_payload
+    return jsonify(get_capital_flow_payload(codes=codes, start_date=start_date, end_date=end_date, limit=limit))
 
 
 @app.route("/api/data/dragon_tiger", methods=["GET"])
 def api_data_dragon_tiger():
-    from market_data.datasets import WebDatasetService
-
     codes_param = str(request.args.get("codes", "") or "").strip()
     codes = [item.strip() for item in codes_param.split(",") if item.strip()] or None
     start_date = request.args.get("start")
     end_date = request.args.get("end")
     limit = _parse_limit_arg(default=200, maximum=5000)
-
-    frame = WebDatasetService().get_dragon_tiger_events(codes=codes, start_date=start_date, end_date=end_date)
-    if not frame.empty:
-        frame = frame.head(limit)
-    return jsonify({"count": int(len(frame)), "items": frame.to_dict(orient="records")})
+    runtime = _runtime
+    if runtime is not None:
+        return jsonify(runtime.get_dragon_tiger(codes=codes, start_date=start_date, end_date=end_date, limit=limit))
+    from app.commander_services import get_dragon_tiger_payload
+    return jsonify(get_dragon_tiger_payload(codes=codes, start_date=start_date, end_date=end_date, limit=limit))
 
 
 @app.route("/api/data/intraday_60m", methods=["GET"])
 def api_data_intraday_60m():
-    from market_data.datasets import WebDatasetService
-
     codes_param = str(request.args.get("codes", "") or "").strip()
     codes = [item.strip() for item in codes_param.split(",") if item.strip()] or None
     start_date = request.args.get("start")
     end_date = request.args.get("end")
     limit = _parse_limit_arg(default=500, maximum=10000)
-
-    frame = WebDatasetService().get_intraday_60m_bars(codes=codes, start_date=start_date, end_date=end_date)
-    if not frame.empty:
-        frame = frame.head(limit)
-    return jsonify({"count": int(len(frame)), "items": frame.to_dict(orient="records")})
+    runtime = _runtime
+    if runtime is not None:
+        return jsonify(runtime.get_intraday_60m(codes=codes, start_date=start_date, end_date=end_date, limit=limit))
+    from app.commander_services import get_intraday_60m_payload
+    return jsonify(get_intraday_60m_payload(codes=codes, start_date=start_date, end_date=end_date, limit=limit))
 
 
 @app.route("/api/data/download", methods=["POST"])
@@ -1470,8 +1400,8 @@ def api_data_download():
 
         try:
             MarketDataGateway().sync_background_full_refresh()
-        except Exception as e:
-            logger.exception(f"后台数据同步失败: {e}")
+        except Exception as exc:
+            logger.exception("后台数据同步失败: %s", exc)
         finally:
             with _data_download_lock:
                 _data_download_running = False

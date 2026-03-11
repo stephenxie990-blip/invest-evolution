@@ -216,3 +216,148 @@ def test_brain_runtime_fallback_prompt_prefers_quick_status(tmp_path):
 
     result = asyncio.run(runtime.process_direct("hello"))
     assert "invest_quick_status" in result
+
+
+class InvestEchoTool(BrainTool):
+    @property
+    def name(self) -> str:
+        return "invest_echo"
+
+    @property
+    def description(self) -> str:
+        return "Return a JSON payload for runtime wrapping tests."
+
+    @property
+    def parameters(self):
+        return {
+            "type": "object",
+            "properties": {"text": {"type": "string"}},
+            "required": ["text"],
+        }
+
+    async def execute(self, **kwargs):
+        import json
+        return json.dumps({"status": "ok", "echo": kwargs.get("text", "")}, ensure_ascii=False)
+
+
+def test_llm_tool_loop_wraps_invest_tools_with_task_bus(tmp_path: Path):
+    import json
+
+    runtime = BrainRuntime(
+        workspace=tmp_path,
+        model="test-model",
+        api_key="token",
+    )
+    runtime.tools.register(InvestEchoTool())
+
+    first = SimpleNamespace(
+        choices=[SimpleNamespace(message=SimpleNamespace(
+            content="先调用工具。",
+            tool_calls=[SimpleNamespace(id="tc1", function=SimpleNamespace(name="invest_echo", arguments='{"text":"hello"}'))],
+        ))]
+    )
+    second = SimpleNamespace(
+        choices=[SimpleNamespace(message=SimpleNamespace(content="工具调用完成", tool_calls=[]))]
+    )
+
+    class DummyGateway:
+        available = True
+
+        def __init__(self):
+            self._responses = [first, second]
+
+        async def acompletion_raw(self, **kwargs):
+            return self._responses.pop(0)
+
+    runtime.gateway = DummyGateway()
+    result = asyncio.run(runtime.process_direct("请帮我执行 invest echo"))
+    payload = json.loads(result)
+    assert payload["status"] == "ok"
+    assert payload["reply"] == "工具调用完成"
+    assert payload["task_bus"]["planner"]["mode"] == "llm_tool_loop"
+    assert payload["task_bus"]["audit"]["used_tools"] == ["invest_echo"]
+    assert payload["entrypoint"]["mode"] == "llm_tool_loop"
+    assert payload["entrypoint"]["intent"] == "runtime_tooling"
+    assert payload["task_bus"]["planner"]["recommended_plan"][0]["tool"] == "invest_echo"
+
+
+def test_explicit_tool_keeps_non_invest_tools_raw(tmp_path: Path):
+    runtime = BrainRuntime(
+        workspace=tmp_path,
+        model="test-model",
+        api_key="",
+    )
+    runtime.tools.register(EchoTool())
+
+    result = asyncio.run(runtime.process_direct('/tool echo {"text":"hello"}'))
+    assert result == "hello"
+
+
+def test_recommended_plan_training_infers_rounds_and_real_mode(tmp_path: Path):
+    runtime = BrainRuntime(
+        workspace=tmp_path,
+        model="test-model",
+        api_key="",
+    )
+
+    plan = runtime._recommended_plan_for_intent(
+        intent="training_execution",
+        tool_names=["invest_train"],
+        writes_state=True,
+        user_goal="请帮我真实训练2轮",
+    )
+    assert plan[1]["tool"] == "invest_training_plan_create"
+    assert plan[1]["args"]["rounds"] == 2
+    assert plan[1]["args"]["mock"] is False
+
+
+def test_recommended_plan_data_focus_uses_capital_flow(tmp_path: Path):
+    runtime = BrainRuntime(
+        workspace=tmp_path,
+        model="test-model",
+        api_key="",
+    )
+
+    plan = runtime._recommended_plan_for_intent(
+        intent="data_status",
+        tool_names=["invest_data_status"],
+        writes_state=False,
+        user_goal="帮我看下资金流数据",
+    )
+    assert plan[0]["tool"] == "invest_data_status"
+    assert plan[1]["tool"] == "invest_data_capital_flow"
+
+
+def test_recommended_plan_config_overview_keeps_control_plane_and_evolution(tmp_path: Path):
+    runtime = BrainRuntime(
+        workspace=tmp_path,
+        model="test-model",
+        api_key="",
+    )
+
+    plan = runtime._recommended_plan_for_intent(
+        intent="config_overview",
+        tool_names=["invest_control_plane_get", "invest_evolution_config_get"],
+        writes_state=False,
+        user_goal="看看控制面配置",
+    )
+    assert plan[0]["tool"] == "invest_control_plane_get"
+    assert plan[1]["tool"] == "invest_evolution_config_get"
+
+
+def test_recommended_plan_stock_analysis_infers_strategy_and_days(tmp_path: Path):
+    runtime = BrainRuntime(
+        workspace=tmp_path,
+        model="test-model",
+        api_key="",
+    )
+
+    plan = runtime._recommended_plan_for_intent(
+        intent="stock_analysis",
+        tool_names=["invest_ask_stock"],
+        writes_state=False,
+        user_goal="用趋势跟随分析 FooBank 120天",
+    )
+    assert plan[1]["tool"] == "invest_ask_stock"
+    assert plan[1]["args"]["strategy"] == "trend_following"
+    assert plan[1]["args"]["days"] == 120
