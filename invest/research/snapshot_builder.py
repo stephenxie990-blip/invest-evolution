@@ -108,13 +108,27 @@ def build_research_snapshot(
         "universe_size": universe_size,
         "top_selected_codes": list(signal_packet.selected_codes or []),
     }
+    factor_values = dict(selected_signal.get("factor_values") or {})
+    signal_metadata = dict(selected_signal.get("metadata") or {})
+    legacy_payload = dict(legacy_signals or {})
+    legacy_flags = dict(legacy_payload.get("flags") or {})
+    if legacy_flags and "flags" not in signal_metadata:
+        signal_metadata["flags"] = legacy_flags
+    if legacy_payload.get("matched_signals") and "matched_signals" not in signal_metadata:
+        signal_metadata["matched_signals"] = list(legacy_payload.get("matched_signals") or [])
+    if legacy_payload.get("latest_close") is not None and "latest_close" not in signal_metadata:
+        signal_metadata["latest_close"] = legacy_payload.get("latest_close")
+    if legacy_payload.get("ma20") is not None and factor_values.get("ma20") is None:
+        factor_values["ma20"] = legacy_payload.get("ma20")
+    if legacy_payload.get("rsi") is not None and factor_values.get("rsi") is None:
+        factor_values["rsi"] = legacy_payload.get("rsi")
     feature_snapshot = {
         "summary": dict(summary or {}),
         "signal": selected_signal,
-        "legacy_signals": dict(legacy_signals or {}),
+        "legacy_signals": legacy_payload,
         "evidence": list(selected_signal.get("evidence") or []),
-        "factor_values": dict(selected_signal.get("factor_values") or {}),
-        "metadata": dict(selected_signal.get("metadata") or {}),
+        "factor_values": factor_values,
+        "metadata": signal_metadata,
     }
     universe = {
         "size": universe_size,

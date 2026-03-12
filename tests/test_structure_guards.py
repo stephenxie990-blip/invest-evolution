@@ -9,6 +9,7 @@ EXCLUDED_PARTS = {
     ".venv",
     "__pycache__",
     ".pytest_cache",
+    "external",
     "logs",
     "outputs",
     "runtime",
@@ -25,6 +26,10 @@ def _py_files(root: Path) -> list[Path]:
     )
 
 
+def _read_python_source(path: Path) -> str:
+    return path.read_text(encoding="utf-8-sig")
+
+
 def test_project_code_does_not_import_src_package_internally():
     allowed_files = {
         PROJECT_ROOT / "tests" / "test_structure_guards.py",
@@ -36,7 +41,7 @@ def test_project_code_does_not_import_src_package_internally():
         if path.is_relative_to(SRC_DIR):
             continue
 
-        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        tree = ast.parse(_read_python_source(path), filename=str(path))
         for node in ast.walk(tree):
             if isinstance(node, ast.Import):
                 for alias in node.names:
@@ -66,3 +71,19 @@ def test_legacy_invest_packages_are_removed():
     assert not (PROJECT_ROOT / "invest" / "evaluation").exists()
     assert not (PROJECT_ROOT / "invest" / "optimization.py").exists()
     assert not (PROJECT_ROOT / "invest" / "core.py").exists()
+
+
+def test_root_python_surface_is_intentional():
+    allowed = {
+        'allocator.py',
+        'commander.py',
+        'gunicorn.conf.py',
+        'leaderboard.py',
+        'llm_gateway.py',
+        'llm_router.py',
+        'train.py',
+        'web_server.py',
+        'wsgi.py',
+    }
+    root_python = {path.name for path in PROJECT_ROOT.glob('*.py')}
+    assert root_python == allowed

@@ -17,8 +17,15 @@ def build_research_hypothesis(
     features = dict(snapshot.feature_snapshot or {})
     legacy = dict(features.get("legacy_signals") or {})
     signal = dict(features.get("signal") or {})
-    factor_values = dict(signal.get("factor_values") or {})
-    latest_close = legacy.get("latest_close") or dict(features.get("summary") or {}).get("close")
+    summary = dict(features.get("summary") or {})
+    feature_metadata = dict(features.get("metadata") or {})
+    factor_values = dict(features.get("factor_values") or signal.get("factor_values") or {})
+    latest_close = (
+        summary.get("close")
+        or feature_metadata.get("latest_close")
+        or factor_values.get("latest_close")
+        or legacy.get("latest_close")
+    )
     latest_close = float(latest_close or 0.0) if latest_close not in (None, "") else 0.0
     percentile = cross.get("percentile")
     percentile_f = float(percentile or 0.0) if percentile is not None else 0.0
@@ -41,12 +48,17 @@ def build_research_hypothesis(
     take_profit = round(latest_close * (1.0 + take_profit_pct), 2) if latest_close and stance in {"候选买入", "偏强关注"} else None
     supporting_factors = []
     contradicting_factors = []
-    for label in list((legacy.get("flags") or {}).keys()):
-        if legacy.get("flags", {}).get(label):
+    canonical_flags = dict(feature_metadata.get("flags") or signal.get("flags") or legacy.get("flags") or {})
+    canonical_matched = list(feature_metadata.get("matched_signals") or signal.get("matched_signals") or [])
+    for label in canonical_matched:
+        if str(label).strip():
+            supporting_factors.append(str(label))
+    for label, matched in canonical_flags.items():
+        if matched:
             supporting_factors.append(str(label))
         else:
             contradicting_factors.append(str(label))
-    supporting_factors.extend(str(item) for item in list(signal.get("evidence") or [])[:3])
+    supporting_factors.extend(str(item) for item in list(features.get("evidence") or signal.get("evidence") or [])[:3])
     if factor_values.get("rsi") is not None and float(factor_values.get("rsi") or 0.0) > 75.0:
         contradicting_factors.append("RSI过热")
     if cross.get("threshold_gap") is not None and float(cross.get("threshold_gap") or 0.0) < 0:

@@ -106,6 +106,33 @@ invest-commander train-once --rounds 1
 invest-commander train-once --rounds 1 --mock
 ```
 
+### 3.1 刷新 / 校验前端 API 契约
+
+```bash
+# 重建主契约 + JSON Schema + OpenAPI + transcript snapshots
+python3 scripts/generate_frontend_contract_derivatives.py
+
+# 或使用统一 console script
+invest-refresh-contracts
+
+# 只校验当前文档是否与生成结果一致（适合 CI / release gate）
+python3 scripts/generate_frontend_contract_derivatives.py --check
+invest-refresh-contracts --check
+```
+
+### 3.2 执行 Freeze Gate
+
+```bash
+# 契约漂移 + focused protocol/golden 回归
+invest-freeze-gate --mode quick
+
+# 完整发布门（推荐 release 前执行）
+invest-freeze-gate --mode full
+
+# 只列出将执行的命令
+invest-freeze-gate --mode full --list
+```
+
 ### 4. 直接跑训练
 
 ```bash
@@ -272,14 +299,15 @@ pytest -q
 
 ## 相关文档
 
+- `docs/README.md`：文档索引与分层导航
 - `docs/MAIN_FLOW.md`：系统主链路
 - `docs/TRAINING_FLOW.md`：训练周期细节
 - `docs/AGENT_INTERACTION.md`：Agent 与会议协作
-- `docs/ARCHITECTURE_DIAGRAM.md`：当前架构图
+- `docs/blueprints/ARCHITECTURE_DIAGRAM.md`：当前架构图
 - `docs/DATA_ACCESS_ARCHITECTURE.md`：数据层架构
 - `docs/CONFIG_GOVERNANCE.md`：配置治理与审计
 - `docs/RUNTIME_STATE_DESIGN.md`：运行态文件设计
-- `docs/PROJECT_AUDIT_20260310.md`：当前实现审计摘要
+- `docs/audits/PROJECT_AUDIT_20260310.md`：当前实现审计摘要
 
 ## 现阶段建议的阅读顺序
 
