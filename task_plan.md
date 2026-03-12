@@ -131,3 +131,12 @@ Phase 9
 - [x] 让 `SelfLearningController` 改为服务委派，保留原有接口兼容
 - [x] 补充 service delegation 回归测试并验证训练/契约关键链路
 - **Status:** complete
+
+
+### Phase 16: Project Audit, File-System Consolidation & Cleanup
+- [x] 建立清理前真实运行/测试基线
+- [ ] 梳理仓库架构、功能模块与数据链路
+- [ ] 盘点文件体系混乱点与兼容/遗留代码
+- [ ] 输出最小破坏式清理方案
+- [ ] 执行清理并复跑关键验证
+- **Status:** in_progress

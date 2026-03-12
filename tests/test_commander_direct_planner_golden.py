@@ -1,6 +1,7 @@
 import pytest
 
 from brain.schema_contract import BOUNDED_WORKFLOW_SCHEMA_VERSION, TASK_BUS_SCHEMA_VERSION
+from brain.transcript_snapshot import build_transcript_snapshot
 from commander import CommanderConfig, CommanderRuntime
 
 
@@ -26,35 +27,21 @@ def runtime_with_direct_plans(tmp_path):
 
 
 def _normalize(payload):
-    plan = payload.get('task_bus', {}).get('planner', {}).get('recommended_plan', [])
-    return {
-        'entrypoint': {
-            'agent_kind': payload.get('entrypoint', {}).get('agent_kind'),
-            'domain': payload.get('entrypoint', {}).get('domain'),
-            'runtime_tool': payload.get('entrypoint', {}).get('runtime_tool'),
-        },
-        'protocol': payload.get('protocol'),
-        'task_bus': {
-            'schema_version': payload.get('task_bus', {}).get('schema_version'),
-            'intent': payload.get('task_bus', {}).get('planner', {}).get('intent'),
-            'operation': payload.get('task_bus', {}).get('planner', {}).get('operation'),
-            'mode': payload.get('task_bus', {}).get('planner', {}).get('mode'),
-            'recommended_tools': payload.get('task_bus', {}).get('planner', {}).get('plan_summary', {}).get('recommended_tools'),
-            'recommended_args': [step.get('args') for step in plan],
-            'used_tools': payload.get('task_bus', {}).get('audit', {}).get('used_tools'),
-            'tool_count': payload.get('task_bus', {}).get('audit', {}).get('tool_count'),
-            'planned_step_coverage': payload.get('task_bus', {}).get('audit', {}).get('coverage', {}).get('planned_step_coverage'),
-            'parameterized_step_count': payload.get('task_bus', {}).get('audit', {}).get('coverage', {}).get('parameterized_step_count'),
-            'covered_parameterized_step_ids': payload.get('task_bus', {}).get('audit', {}).get('coverage', {}).get('covered_parameterized_step_ids'),
-            'missing_parameterized_step_ids': payload.get('task_bus', {}).get('audit', {}).get('coverage', {}).get('missing_parameterized_step_ids'),
-            'parameter_coverage': payload.get('task_bus', {}).get('audit', {}).get('coverage', {}).get('parameter_coverage'),
-            'decision': payload.get('task_bus', {}).get('gate', {}).get('decision'),
-            'risk_level': payload.get('task_bus', {}).get('gate', {}).get('risk_level'),
-            'writes_state': payload.get('task_bus', {}).get('gate', {}).get('writes_state'),
-            'requires_confirmation': payload.get('task_bus', {}).get('gate', {}).get('requires_confirmation'),
-            'confirmation_state': payload.get('task_bus', {}).get('gate', {}).get('confirmation', {}).get('state'),
-        },
-    }
+    snapshot = build_transcript_snapshot(
+        payload,
+        top_level_keys=(),
+        include_feedback=False,
+        include_next_action=False,
+        include_recommended_args=True,
+        include_task_bus_coverage=True,
+        include_gate_decision=True,
+        include_tool_count=True,
+        include_orchestration_step_count=False,
+        include_orchestration_phase_stats=False,
+        include_entrypoint_service=False,
+    )
+    snapshot.pop("orchestration", None)
+    return snapshot
 
 
 @pytest.mark.parametrize(

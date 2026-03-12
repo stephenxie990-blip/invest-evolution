@@ -9,6 +9,7 @@ from brain.schema_contract import (
     task_bus_contract,
 )
 from brain.task_bus import build_bounded_entrypoint, build_bounded_orchestration, build_bounded_policy, build_bounded_workflow_protocol, build_mutating_task_bus, build_protocol_response
+from brain.transcript_snapshot import build_transcript_snapshot
 from commander import CommanderConfig, CommanderRuntime
 from app.stock_analysis import StockAnalysisService
 from market_data.repository import MarketDataRepository
@@ -233,6 +234,79 @@ def test_bounded_orchestration_helper_normalizes_core_fields():
         "step_count": 2,
     }
 
+
+
+def test_transcript_snapshot_builder_normalizes_cross_domain_shape():
+    payload = {
+        "status": "ok",
+        "detail_mode": "fast",
+        "entrypoint": {
+            "agent_kind": "bounded_runtime_agent",
+            "domain": "runtime",
+            "runtime_tool": "invest_quick_status",
+            "service": None,
+        },
+        "orchestration": {
+            "workflow": ["runtime_scope_resolve", "status_read", "finalize"],
+            "mode": "bounded_readonly_workflow",
+            "step_count": 1,
+            "phase_stats": {"event_count": 10},
+            "policy": {
+                "fixed_boundary": True,
+                "fixed_workflow": True,
+                "writes_state": False,
+                "confirmation_gate": None,
+                "tool_catalog_scope": "runtime_domain",
+                "workflow_mode": None,
+            },
+        },
+        "task_bus": {
+            "schema_version": "task_bus.v2",
+            "planner": {
+                "intent": "runtime_status",
+                "operation": "status",
+                "mode": "commander_runtime_method",
+                "recommended_plan": [{"args": {"detail": "fast"}}],
+                "plan_summary": {"recommended_tools": ["invest_quick_status"]},
+            },
+            "gate": {
+                "requires_confirmation": False,
+                "decision": "allow",
+                "risk_level": "low",
+                "writes_state": False,
+                "confirmation": {"state": "not_applicable"},
+            },
+            "audit": {
+                "used_tools": ["invest_quick_status"],
+                "tool_count": 1,
+                "coverage": {
+                    "planned_step_coverage": 1.0,
+                    "parameterized_step_count": 1,
+                    "covered_parameterized_step_ids": ["step_01"],
+                    "missing_parameterized_step_ids": [],
+                    "parameter_coverage": 1.0,
+                },
+            },
+        },
+        "protocol": {"domain": "runtime", "operation": "status"},
+        "feedback": {"summary": "当前任务已完成，计划与参数覆盖满足预期。"},
+        "next_action": {"kind": "continue", "requires_confirmation": False},
+    }
+
+    snapshot = build_transcript_snapshot(
+        payload,
+        include_recommended_args=True,
+        include_task_bus_coverage=True,
+        include_gate_decision=True,
+        include_tool_count=True,
+    )
+
+    assert snapshot["entrypoint"]["domain"] == "runtime"
+    assert snapshot["orchestration"]["policy"]["tool_catalog_scope"] == "runtime_domain"
+    assert snapshot["task_bus"]["recommended_args"] == [{"detail": "fast"}]
+    assert snapshot["task_bus"]["planned_step_coverage"] == 1.0
+    assert snapshot["feedback"]["summary"] == "当前任务已完成，计划与参数覆盖满足预期。"
+    assert snapshot["next_action"]["kind"] == "continue"
 
 
 def test_build_protocol_response_merges_shared_context():

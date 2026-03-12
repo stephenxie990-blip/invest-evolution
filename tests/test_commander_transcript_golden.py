@@ -3,6 +3,7 @@ import json
 import pytest
 
 from brain.schema_contract import BOUNDED_WORKFLOW_SCHEMA_VERSION, TASK_BUS_SCHEMA_VERSION
+from brain.transcript_snapshot import build_transcript_snapshot
 from commander import CommanderConfig, CommanderRuntime
 from market_data.repository import MarketDataRepository
 
@@ -53,61 +54,11 @@ def runtime_with_db(tmp_path, monkeypatch):
 
 
 def _normalize_payload(payload):
-    normalized = {
-        'entrypoint': {
-            'agent_kind': payload.get('entrypoint', {}).get('agent_kind'),
-            'domain': payload.get('entrypoint', {}).get('domain'),
-            'runtime_tool': payload.get('entrypoint', {}).get('runtime_tool'),
-            'service': payload.get('entrypoint', {}).get('service'),
-        },
-        'orchestration': {
-            'workflow': payload.get('orchestration', {}).get('workflow'),
-            'mode': payload.get('orchestration', {}).get('mode'),
-            'step_count': payload.get('orchestration', {}).get('step_count'),
-            'policy': {
-                'fixed_boundary': payload.get('orchestration', {}).get('policy', {}).get('fixed_boundary'),
-                'fixed_workflow': payload.get('orchestration', {}).get('policy', {}).get('fixed_workflow'),
-                'writes_state': payload.get('orchestration', {}).get('policy', {}).get('writes_state'),
-                'confirmation_gate': payload.get('orchestration', {}).get('policy', {}).get('confirmation_gate'),
-                'tool_catalog_scope': payload.get('orchestration', {}).get('policy', {}).get('tool_catalog_scope'),
-                'workflow_mode': payload.get('orchestration', {}).get('policy', {}).get('workflow_mode'),
-            },
-            'phase_stats': payload.get('orchestration', {}).get('phase_stats'),
-        },
-        'task_bus': {
-            'schema_version': payload.get('task_bus', {}).get('schema_version'),
-            'intent': payload.get('task_bus', {}).get('planner', {}).get('intent'),
-            'operation': payload.get('task_bus', {}).get('planner', {}).get('operation'),
-            'mode': payload.get('task_bus', {}).get('planner', {}).get('mode'),
-            'recommended_tools': payload.get('task_bus', {}).get('planner', {}).get('plan_summary', {}).get('recommended_tools'),
-            'used_tools': payload.get('task_bus', {}).get('audit', {}).get('used_tools'),
-            'requires_confirmation': payload.get('task_bus', {}).get('gate', {}).get('requires_confirmation'),
-            'confirmation_state': payload.get('task_bus', {}).get('gate', {}).get('confirmation', {}).get('state'),
-        },
-        'protocol': payload.get('protocol'),
-        'feedback': {
-            'summary': payload.get('feedback', {}).get('summary'),
-        },
-        'next_action': {
-            'kind': payload.get('next_action', {}).get('kind'),
-            'requires_confirmation': payload.get('next_action', {}).get('requires_confirmation'),
-        },
-    }
-    for key in ('status', 'detail_mode', 'intent', 'pending'):
-        if key in payload:
-            normalized[key] = payload.get(key)
-    if 'strategy' in payload:
-        normalized['strategy'] = {
-            'name': payload.get('strategy', {}).get('name'),
-            'required_tools': payload.get('strategy', {}).get('required_tools'),
-            'analysis_steps': payload.get('strategy', {}).get('analysis_steps'),
-        }
-    if 'resolved' in payload:
-        normalized['resolved'] = {
-            'code': payload.get('resolved', {}).get('code'),
-            'name': payload.get('resolved', {}).get('name'),
-        }
-    return normalized
+    return build_transcript_snapshot(
+        payload,
+        include_strategy=True,
+        include_resolved=True,
+    )
 
 
 @pytest.mark.asyncio

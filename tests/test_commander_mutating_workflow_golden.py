@@ -1,6 +1,7 @@
 import pytest
 
 from brain.schema_contract import BOUNDED_WORKFLOW_SCHEMA_VERSION, TASK_BUS_SCHEMA_VERSION
+from brain.transcript_snapshot import build_transcript_snapshot
 from commander import CommanderConfig, CommanderRuntime
 import app.commander as commander_module
 
@@ -33,50 +34,19 @@ def runtime_with_mutation_stubs(tmp_path, monkeypatch):
 
 
 def _normalize(payload):
-    plan = payload.get('task_bus', {}).get('planner', {}).get('recommended_plan', [])
-    normalized = {
-        'status': payload.get('status'),
-        'entrypoint': {
-            'agent_kind': payload.get('entrypoint', {}).get('agent_kind'),
-            'domain': payload.get('entrypoint', {}).get('domain'),
-            'runtime_tool': payload.get('entrypoint', {}).get('runtime_tool'),
-        },
-        'orchestration': {
-            'workflow': payload.get('orchestration', {}).get('workflow'),
-            'mode': payload.get('orchestration', {}).get('mode'),
-            'phase_stats': payload.get('orchestration', {}).get('phase_stats'),
-            'policy': {
-                'writes_state': payload.get('orchestration', {}).get('policy', {}).get('writes_state'),
-                'confirmation_gate': payload.get('orchestration', {}).get('policy', {}).get('confirmation_gate'),
-                'fixed_boundary': payload.get('orchestration', {}).get('policy', {}).get('fixed_boundary'),
-                'fixed_workflow': payload.get('orchestration', {}).get('policy', {}).get('fixed_workflow'),
-            },
-        },
-        'protocol': payload.get('protocol'),
-        'task_bus': {
-            'schema_version': payload.get('task_bus', {}).get('schema_version'),
-            'intent': payload.get('task_bus', {}).get('planner', {}).get('intent'),
-            'operation': payload.get('task_bus', {}).get('planner', {}).get('operation'),
-            'mode': payload.get('task_bus', {}).get('planner', {}).get('mode'),
-            'recommended_tools': payload.get('task_bus', {}).get('planner', {}).get('plan_summary', {}).get('recommended_tools'),
-            'recommended_args': [step.get('args') for step in plan],
-            'used_tools': payload.get('task_bus', {}).get('audit', {}).get('used_tools'),
-            'decision': payload.get('task_bus', {}).get('gate', {}).get('decision'),
-            'risk_level': payload.get('task_bus', {}).get('gate', {}).get('risk_level'),
-            'writes_state': payload.get('task_bus', {}).get('gate', {}).get('writes_state'),
-            'requires_confirmation': payload.get('task_bus', {}).get('gate', {}).get('requires_confirmation'),
-            'confirmation_state': payload.get('task_bus', {}).get('gate', {}).get('confirmation', {}).get('state'),
-            'tool_count': payload.get('task_bus', {}).get('audit', {}).get('tool_count'),
-            'planned_step_coverage': payload.get('task_bus', {}).get('audit', {}).get('coverage', {}).get('planned_step_coverage'),
-            'parameterized_step_count': payload.get('task_bus', {}).get('audit', {}).get('coverage', {}).get('parameterized_step_count'),
-            'covered_parameterized_step_ids': payload.get('task_bus', {}).get('audit', {}).get('coverage', {}).get('covered_parameterized_step_ids'),
-            'missing_parameterized_step_ids': payload.get('task_bus', {}).get('audit', {}).get('coverage', {}).get('missing_parameterized_step_ids'),
-            'parameter_coverage': payload.get('task_bus', {}).get('audit', {}).get('coverage', {}).get('parameter_coverage'),
-        },
-    }
-    if 'pending' in payload:
-        normalized['pending'] = payload.get('pending')
-    return normalized
+    return build_transcript_snapshot(
+        payload,
+        top_level_keys=("status", "pending"),
+        include_feedback=False,
+        include_next_action=False,
+        include_recommended_args=True,
+        include_task_bus_coverage=True,
+        include_gate_decision=True,
+        include_tool_count=True,
+        include_orchestration_step_count=False,
+        include_entrypoint_service=False,
+        orchestration_policy_keys=("writes_state", "confirmation_gate", "fixed_boundary", "fixed_workflow"),
+    )
 
 
 @pytest.mark.parametrize(

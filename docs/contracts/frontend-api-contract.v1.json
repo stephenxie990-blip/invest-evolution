@@ -3529,5 +3529,294 @@
         "Use before submit to explain which model the backend would choose for the requested date window."
       ]
     }
-  ]
+  ],
+  "transcript_snapshots": {
+    "schema_version": "transcript_snapshots.v1",
+    "examples": {
+      "runtime_status": {
+        "entrypoint": {
+          "agent_kind": "bounded_runtime_agent",
+          "domain": "runtime",
+          "runtime_tool": "invest_quick_status",
+          "service": null
+        },
+        "orchestration": {
+          "workflow": [
+            "runtime_scope_resolve",
+            "status_read",
+            "finalize"
+          ],
+          "mode": "bounded_readonly_workflow",
+          "policy": {
+            "fixed_boundary": true,
+            "fixed_workflow": true,
+            "writes_state": false,
+            "confirmation_gate": null,
+            "tool_catalog_scope": "runtime_domain",
+            "workflow_mode": null
+          },
+          "step_count": null,
+          "phase_stats": {
+            "detail_mode": "fast",
+            "event_count": 12
+          }
+        },
+        "task_bus": {
+          "schema_version": "task_bus.v2",
+          "intent": "runtime_status",
+          "operation": "status",
+          "mode": "commander_runtime_method",
+          "recommended_tools": [
+            "invest_quick_status",
+            "invest_events_summary",
+            "invest_runtime_diagnostics"
+          ],
+          "used_tools": [
+            "invest_quick_status"
+          ],
+          "requires_confirmation": false,
+          "confirmation_state": "not_applicable"
+        },
+        "protocol": {
+          "schema_version": "bounded_workflow.v2",
+          "task_bus_schema_version": "task_bus.v2",
+          "plan_schema_version": "task_plan.v2",
+          "coverage_schema_version": "task_coverage.v2",
+          "artifact_taxonomy_schema_version": "artifact_taxonomy.v2",
+          "domain": "runtime",
+          "operation": "status"
+        },
+        "feedback": {
+          "summary": "当前任务已完成，计划与参数覆盖满足预期。"
+        },
+        "next_action": {
+          "kind": "continue",
+          "requires_confirmation": false
+        },
+        "status": "ok",
+        "detail_mode": "fast"
+      },
+      "ask_stock": {
+        "entrypoint": {
+          "agent_kind": "bounded_stock_agent",
+          "domain": "stock",
+          "runtime_tool": "invest_ask_stock",
+          "service": "StockAnalysisService"
+        },
+        "orchestration": {
+          "workflow": [
+            "yaml_strategy_loaded",
+            "yaml_plan_execute",
+            "finalize"
+          ],
+          "mode": "yaml_react_like",
+          "policy": {
+            "fixed_boundary": true,
+            "fixed_workflow": true,
+            "writes_state": null,
+            "confirmation_gate": null,
+            "tool_catalog_scope": "strategy_restricted",
+            "workflow_mode": "llm_react_with_yaml_gap_fill"
+          },
+          "step_count": 5,
+          "phase_stats": {
+            "llm_react_steps": 0,
+            "yaml_planned_steps": 5,
+            "total_steps": 5
+          }
+        },
+        "task_bus": {
+          "schema_version": "task_bus.v2",
+          "intent": "stock_analysis",
+          "operation": "ask_stock",
+          "mode": "yaml_react_like",
+          "recommended_tools": [
+            "get_daily_history",
+            "get_indicator_snapshot",
+            "analyze_support_resistance",
+            "get_capital_flow",
+            "get_realtime_quote"
+          ],
+          "used_tools": [
+            "get_daily_history",
+            "get_indicator_snapshot",
+            "analyze_support_resistance",
+            "get_capital_flow",
+            "get_realtime_quote"
+          ],
+          "requires_confirmation": false,
+          "confirmation_state": "not_applicable"
+        },
+        "protocol": {
+          "schema_version": "bounded_workflow.v2",
+          "task_bus_schema_version": "task_bus.v2",
+          "plan_schema_version": "task_plan.v2",
+          "coverage_schema_version": "task_coverage.v2",
+          "artifact_taxonomy_schema_version": "artifact_taxonomy.v2",
+          "domain": "stock",
+          "operation": "ask_stock"
+        },
+        "feedback": {
+          "summary": "当前任务已完成，计划与参数覆盖满足预期。"
+        },
+        "next_action": {
+          "kind": "continue",
+          "requires_confirmation": false
+        },
+        "status": "ok",
+        "strategy": {
+          "name": "chan_theory",
+          "required_tools": [
+            "get_daily_history",
+            "get_indicator_snapshot",
+            "analyze_support_resistance",
+            "get_capital_flow",
+            "get_realtime_quote"
+          ],
+          "analysis_steps": [
+            "获取近60日日线",
+            "识别指标状态",
+            "判断支撑阻力",
+            "观察资金确认",
+            "结合最新价格输出结论"
+          ]
+        },
+        "resolved": {
+          "code": "sh.600001",
+          "name": "FooBank"
+        }
+      },
+      "mutating_confirmation": {
+        "entrypoint": {
+          "agent_kind": "bounded_config_agent",
+          "domain": "config",
+          "runtime_tool": "invest_runtime_paths_update"
+        },
+        "orchestration": {
+          "workflow": [
+            "config_scope_resolve",
+            "gate_confirmation",
+            "finalize"
+          ],
+          "mode": "bounded_mutating_workflow",
+          "policy": {
+            "writes_state": true,
+            "confirmation_gate": true,
+            "fixed_boundary": true,
+            "fixed_workflow": true
+          },
+          "phase_stats": {
+            "pending_key_count": 1,
+            "requires_confirmation": true
+          }
+        },
+        "task_bus": {
+          "schema_version": "task_bus.v2",
+          "intent": "config_runtime_paths_update",
+          "operation": "update_runtime_paths",
+          "mode": "commander_runtime_method",
+          "recommended_tools": [
+            "invest_runtime_paths_get",
+            "invest_runtime_paths_update"
+          ],
+          "used_tools": [],
+          "requires_confirmation": true,
+          "confirmation_state": "pending_confirmation",
+          "recommended_args": [
+            {},
+            {
+              "confirm": false
+            }
+          ],
+          "tool_count": 0,
+          "planned_step_coverage": 0.0,
+          "parameterized_step_count": 1,
+          "covered_parameterized_step_ids": [],
+          "missing_parameterized_step_ids": [
+            "step_02"
+          ],
+          "parameter_coverage": 0.0,
+          "decision": "confirm",
+          "risk_level": "high",
+          "writes_state": true
+        },
+        "protocol": {
+          "schema_version": "bounded_workflow.v2",
+          "task_bus_schema_version": "task_bus.v2",
+          "plan_schema_version": "task_plan.v2",
+          "coverage_schema_version": "task_coverage.v2",
+          "artifact_taxonomy_schema_version": "artifact_taxonomy.v2",
+          "domain": "config",
+          "operation": "update_runtime_paths"
+        },
+        "feedback": {
+          "summary": "当前任务仍需人工确认后才能视为审计闭环完成。"
+        },
+        "next_action": {
+          "kind": "confirm",
+          "requires_confirmation": true
+        },
+        "status": "confirmation_required",
+        "pending": {
+          "patch": {
+            "training_output_dir": "/tmp/train"
+          }
+        }
+      },
+      "runtime_builtin_combo": {
+        "entrypoint": {
+          "agent_kind": "bounded_runtime_agent",
+          "domain": null,
+          "runtime_tool": null,
+          "service": null
+        },
+        "orchestration": {
+          "workflow": [
+            "runtime_scope_resolve",
+            "quick_status_read",
+            "training_lab_read",
+            "finalize"
+          ],
+          "mode": "builtin_bounded_readonly_workflow",
+          "policy": {
+            "fixed_boundary": true,
+            "fixed_workflow": true,
+            "writes_state": false,
+            "confirmation_gate": null,
+            "tool_catalog_scope": "runtime_training_combo",
+            "workflow_mode": null
+          },
+          "step_count": null,
+          "phase_stats": {
+            "section_count": 2
+          }
+        },
+        "task_bus": {
+          "schema_version": "task_bus.v2",
+          "intent": "runtime_status_and_training",
+          "operation": "status_and_recent_training",
+          "mode": "builtin_intent",
+          "recommended_tools": [
+            "invest_quick_status",
+            "invest_training_lab_summary"
+          ],
+          "used_tools": [
+            "invest_quick_status",
+            "invest_training_lab_summary"
+          ],
+          "requires_confirmation": false,
+          "confirmation_state": "not_applicable"
+        },
+        "protocol": null,
+        "feedback": {
+          "summary": "当前任务已完成，计划与参数覆盖满足预期。"
+        },
+        "next_action": {
+          "kind": "continue",
+          "requires_confirmation": false
+        },
+        "status": "ok"
+      }
+    }
+  }
 }

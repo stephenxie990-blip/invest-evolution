@@ -67,17 +67,6 @@
           "type": "object",
           "additionalProperties": {
             "type": "object"
-          },
-          "properties": {
-            "responseFeedback": {
-              "type": "object"
-            },
-            "responseNextAction": {
-              "type": "object"
-            },
-            "responseEnvelope": {
-              "type": "object"
-            }
           }
         },
         "sse_schemas": {
@@ -305,6 +294,25 @@
         ],
         "additionalProperties": false
       }
+    },
+    "transcript_snapshots": {
+      "type": "object",
+      "properties": {
+        "schema_version": {
+          "type": "string"
+        },
+        "examples": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object"
+          }
+        }
+      },
+      "required": [
+        "schema_version",
+        "examples"
+      ],
+      "additionalProperties": false
     }
   },
   "required": [
@@ -320,7 +328,8 @@
     "frontend_preferred_flows",
     "components",
     "sse",
-    "endpoints"
+    "endpoints",
+    "transcript_snapshots"
   ],
   "additionalProperties": false
 }

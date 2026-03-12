@@ -130,3 +130,41 @@
 - `SelfLearningController` 已完成第一轮 service 化：`TrainingFeedbackService`、`FreezeGateService`、`TrainingPersistenceService` 把 calibration feedback、freeze gate、cycle artifact 持久化从控制器本体抽离出来。
 - `CommanderRuntime` 现可直接查询 `research cases / attributions / calibration`，意味着 research asset 不再只是 ask/train 内部文件，而是可审计、可检索、可重放的一等运行时资产。
 - 新增 research asset tool 后，P1 的“research 中间层升格”开始具备真实运维入口，而不仅仅是 ask_stock 返回体里的附属字段。
+
+## 2026-03-12 项目总体审核（架构/文件体系/清理前基线）
+
+### 运行与验证基线
+- 仓库为 Python 主后端 + React/Vite 前端混合单仓。
+- 真实训练前提已满足：
+  - 离线数据仓可用（`offline_available=True`）
+  - 训练就绪诊断通过（抽样 cutoff=`20250205`，`eligible_stock_count=5262`，`ready=True`）
+  - 运行时数据策略当前禁止在线兜底和资金流运行时同步（`allow_online_fallback=false`，`allow_capital_flow_sync=false`）
+  - 默认 LLM 已配置（`model=gpt-5.4`，存在 API key）
+- 已完成清理前验证：
+  - targeted pytest：训练 / 调度 / Commander / Web API 主链路通过
+  - 前端 `npm run build` 通过
+  - `python train.py --cycles 1` 非 mock 真跑成功，真实数据 + Live LLM 闭环可执行
+  - `python commander.py status --detail fast` 统一入口可正常装配
+  - 独立 smoke 验证 `CronService` 与 `HeartbeatService` 能真实触发
+
+### 当前发现的结构问题（初步）
+- 根目录存在大量兼容壳与真实实现并存：`train.py` / `commander.py` / `web_server.py` / `llm_gateway.py` / `llm_router.py` 与 `app/*` 重叠。
+- 根目录混合了“源码 / 文档 / 运行态产物 / 历史归档 / 外部三方代码 / 前端构建产物 / Python 缓存 / 虚拟环境”，可读性偏差。
+- `external/lean` 是大型 vendored 代码树，已进入项目扫描范围，正在影响结构守卫测试。
+- 仓库当前存在未提交改动：
+  - `tests/test_commander_direct_planner_golden.py`
+  - `tests/test_commander_mutating_workflow_golden.py`
+  - `tests/test_commander_transcript_golden.py`
+  - `tests/test_schema_contracts.py`
+  - `brain/transcript_snapshot.py`（untracked）
+  清理时必须避免误覆盖。
+
+### 当前发现的历史遗留/边界异味（初步）
+- 调度模块接口存在“文档/直觉签名”和真实实现不完全一致的问题：`CronService.__init__` 不接收 `on_job`，而是实例化后赋值，说明 API 易误用。
+- 项目内已有多份架构/重构/清理文档，说明多轮升级与治理已发生，但文件层面尚未彻底收口。
+
+### 全量测试异常（清理前基线）
+- `./.venv/bin/python -m pytest -q` 失败 1 项：
+  - `tests/test_structure_guards.py::test_project_code_does_not_import_src_package_internally`
+  - 失败根因：扫描到 `external/lean/Tests/Python/Indicators/IndicatorExtensionsTests.py`，其文件开头包含 BOM（U+FEFF），`ast.parse` 直接解析失败。
+- 该失败看起来是“结构守卫未排除 vendored external tree / BOM 文件”的仓库遗留问题，不是本次验证命令引入的新故障。

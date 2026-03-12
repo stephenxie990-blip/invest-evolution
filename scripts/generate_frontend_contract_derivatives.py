@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 from copy import deepcopy
 from pathlib import Path
+import sys
 from typing import Any
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -11,6 +12,10 @@ CONTRACTS_DIR = PROJECT_ROOT / 'docs' / 'contracts'
 CONTRACT_PATH = CONTRACTS_DIR / 'frontend-api-contract.v1.json'
 SCHEMA_PATH = CONTRACTS_DIR / 'frontend-api-contract.v1.schema.json'
 OPENAPI_PATH = CONTRACTS_DIR / 'frontend-api-contract.v1.openapi.json'
+
+sys.path.insert(0, str(PROJECT_ROOT))
+
+from brain.transcript_snapshot import build_contract_transcript_snapshots
 
 
 def _load_contract() -> dict[str, Any]:
@@ -151,6 +156,7 @@ def build_openapi(contract: dict[str, Any]) -> dict[str, Any]:
         'components': {
             'schemas': components,
         },
+        'x-transcript-snapshots': deepcopy(contract.get('transcript_snapshots', {})),
     }
 
 
@@ -232,7 +238,7 @@ def build_contract_schema() -> dict[str, Any]:
             'legacy_shell_mount': {'type': 'string'},
             'contract_endpoint': {'type': 'string'},
             'goals': {'type': 'array', 'items': {'type': 'string'}},
-            'compatibility': {'type': 'object', 'additionalProperties': {'type': ['string', 'boolean', 'number', 'null']}} ,
+            'compatibility': {'type': 'object', 'additionalProperties': {'type': ['string', 'boolean', 'number', 'null', 'object', 'array']}} ,
             'frontend_preferred_flows': {'type': 'object', 'additionalProperties': {'type': 'array', 'items': {'type': 'string'}}},
             'components': {
                 'type': 'object',
@@ -256,10 +262,19 @@ def build_contract_schema() -> dict[str, Any]:
                 'additionalProperties': False,
             },
             'endpoints': {'type': 'array', 'items': endpoint_schema},
+            'transcript_snapshots': {
+                'type': 'object',
+                'properties': {
+                    'schema_version': {'type': 'string'},
+                    'examples': {'type': 'object', 'additionalProperties': {'type': 'object'}},
+                },
+                'required': ['schema_version', 'examples'],
+                'additionalProperties': False,
+            },
         },
         'required': [
             'contract_id', 'version', 'published_at', 'api_base', 'frontend_shell_mount', 'legacy_shell_mount',
-            'contract_endpoint', 'goals', 'compatibility', 'frontend_preferred_flows', 'components', 'sse', 'endpoints',
+            'contract_endpoint', 'goals', 'compatibility', 'frontend_preferred_flows', 'components', 'sse', 'endpoints', 'transcript_snapshots',
         ],
         'additionalProperties': False,
     }
@@ -271,6 +286,8 @@ def write_json(path: Path, payload: dict[str, Any]) -> None:
 
 def main() -> int:
     contract = _load_contract()
+    contract['transcript_snapshots'] = build_contract_transcript_snapshots()
+    write_json(CONTRACT_PATH, contract)
     write_json(SCHEMA_PATH, build_contract_schema())
     write_json(OPENAPI_PATH, build_openapi(contract))
     return 0

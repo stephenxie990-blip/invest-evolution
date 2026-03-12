@@ -252,3 +252,23 @@
 - Commands run:
   - `./.venv/bin/python -m py_compile app/train.py app/training/controller_services.py app/research_services.py app/commander.py app/stock_analysis.py brain/runtime.py brain/schema_contract.py brain/task_bus.py brain/tools.py tests/test_training_controller_services.py tests/test_research_runtime_assets.py tests/test_research_training_feedback.py tests/test_research_case_store.py tests/test_stock_analysis_react.py tests/test_ask_stock_model_bridge.py tests/test_schema_contracts.py tests/test_frontend_api_contract.py tests/test_commander.py tests/test_commander_transcript_golden.py tests/test_web_server_contract_headers.py tests/test_train_ui_semantics.py` → pass
   - `./.venv/bin/python -m pytest -q tests/test_training_controller_services.py tests/test_research_runtime_assets.py tests/test_research_training_feedback.py tests/test_research_case_store.py tests/test_stock_analysis_react.py tests/test_ask_stock_model_bridge.py tests/test_schema_contracts.py tests/test_frontend_api_contract.py tests/test_commander.py tests/test_commander_transcript_golden.py tests/test_web_server_contract_headers.py tests/test_train_ui_semantics.py` → pass
+
+## 2026-03-12 清理前验证与总体审核启动
+- 状态：in_progress
+- 已完成：
+  - 扫描仓库顶层结构、入口文件、README、pyproject 与现有文档索引
+  - 确认项目主入口：`app/train.py`、`app/commander.py`、`app/web_server.py`、`market_data/__main__.py`
+  - 确认真实训练环境可用：离线 DB 可用、训练 readiness=ready、Live LLM 已配置
+  - 跑通 targeted pytest：`tests/test_train_cycle.py` `tests/test_training_controller_services.py` `tests/test_brain_scheduler.py` `tests/test_commander_unified_entry.py` `tests/test_web_training_lab_api.py` `tests/test_web_server_data_api.py`
+  - 跑通前端构建：`frontend/npm run build`
+  - 跑通真实训练：`./.venv/bin/python train.py --cycles 1`
+  - 跑通 Commander 实机入口：`./.venv/bin/python commander.py status --detail fast`
+  - 跑通调度 smoke：`CronService` / `HeartbeatService`
+- 待完成：
+  - 梳理当前架构、模块边界、数据链路
+  - 盘点冗余文件/兼容壳/历史残留
+  - 提出并执行清理方案
+  - 清理后回归验证
+- 风险记录：
+  - 全量 pytest 当前有 1 个基线失败，来自 `external/lean` vendored 树被结构守卫扫描并触发 BOM 解析异常
+  - 工作区已有用户未提交改动，后续不得覆盖

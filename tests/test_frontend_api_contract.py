@@ -36,6 +36,9 @@ def test_frontend_contract_endpoint_returns_machine_readable_contract():
     assert payload['components']['schemas']['responseEnvelope']['properties']['feedback']['$ref'] == '#/components/schemas/responseFeedback'
     assert payload['components']['schemas']['statusWrappedConfig']['properties']['feedback']['$ref'] == '#/components/schemas/responseFeedback'
     assert payload['components']['schemas']['chatReply']['properties']['next_action']['$ref'] == '#/components/schemas/responseNextAction'
+    assert payload['transcript_snapshots']['schema_version'] == 'transcript_snapshots.v1'
+    assert 'ask_stock' in payload['transcript_snapshots']['examples']
+    assert payload['transcript_snapshots']['examples']['ask_stock']['entrypoint']['domain'] == 'stock'
     assert any(endpoint['path'] == '/api/train' and endpoint['method'] == 'POST' for endpoint in payload['endpoints'])
     assert any(endpoint['path'] == '/api/model-routing/preview' and endpoint['method'] == 'GET' for endpoint in payload['endpoints'])
     assert '#/components/sse_schemas/routingDecision' in payload['sse']['event_refs']
@@ -70,6 +73,8 @@ def test_frontend_contract_openapi_endpoint_returns_openapi_document():
     assert '/api/events' in payload['paths']
     assert '/api/lab/status/quick' in payload['paths']
     assert '/api/model-routing/preview' in payload['paths']
+    assert payload['x-transcript-snapshots']['schema_version'] == 'transcript_snapshots.v1'
+    assert 'runtime_status' in payload['x-transcript-snapshots']['examples']
 
 
 def test_generated_contract_derivatives_validate_against_main_contract():
