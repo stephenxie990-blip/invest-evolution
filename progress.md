@@ -3,39 +3,189 @@
 ## Session: 2026-03-12
 
 ### Phase 1: Requirements & Discovery
-- **Status:** in_progress
+- **Status:** complete
 - **Started:** 2026-03-12
 - Actions taken:
   - 阅读项目级技能与约束
   - 读取 `agentic-engineering` 与 `pi-planning-with-files` 说明
   - 初始化 `task_plan.md`、`findings.md`、`progress.md`
+  - 读取 `eval-harness`、`verification-loop`、`python-patterns`、`python-testing`、`search-first` 以支撑执行蓝图
 - Files created/modified:
-  - `task_plan.md` (created)
-  - `findings.md` (created)
-  - `progress.md` (created)
+  - `task_plan.md` (updated)
+  - `findings.md` (updated)
+  - `progress.md` (updated)
 
 ### Phase 2: Current Architecture Analysis
-- **Status:** pending
+- **Status:** complete
 - Actions taken:
-  -
+  - 定位训练链 `SelfLearningController`
+  - 定位问股链 `StockAnalysisService`
+  - 梳理训练侧 contracts、meeting 输出、评估路径与 policy 同步逻辑
+  - 梳理问股侧 tool plan、derived signals 与 dashboard 逻辑
 - Files created/modified:
-  -
+  - `findings.md` (updated)
+
+### Phase 3: Unified Engine Design
+- **Status:** complete
+- Actions taken:
+  - 输出统一研究引擎方案文档
+  - 定义四层闭环对象：`ResearchSnapshot`、`PolicySnapshot`、`ResearchHypothesis`、`OutcomeAttribution`
+  - 给出阶段性迁移路径与概率推演方案
+- Files created/modified:
+  - `docs/RESEARCH_ENGINE_UNIFICATION_PROPOSAL_20260312.md` (created)
+
+### Phase 4: Execution Blueprint
+- **Status:** complete
+- Actions taken:
+  - 结合用户反馈补强 `PolicySnapshot.version_hash` 与 multi-horizon scoring
+  - 输出可执行蓝图：阶段规划、验收门、subagent 调度、skills 矩阵、测试与验证路线
+- Files created/modified:
+  - `docs/RESEARCH_ENGINE_UNIFICATION_EXECUTION_BLUEPRINT_20260312.md` (created)
+  - `findings.md` (updated)
+  - `progress.md` (updated)
+
+
+### Phase 5: Phase 0-4 Implementation
+- **Status:** complete
+- Actions taken:
+  - 新增 `invest/research/` 统一研究对象与引擎：snapshot / policy / hypothesis / case / attribution / scenario / renderer
+  - 为 `StockAnalysisService.ask_stock()` 增加 `as_of_date`、回放边界、active/routed model bridge 与 fallback 语义
+  - 为 `CommanderRuntime.ask_stock()` 与 `InvestAskStockTool` 透传 `as_of_date`
+  - 为 `ResearchCaseStore` 增加 case 检索与 calibration report 落盘
+  - 新增 `docs/research/phase0_contract_mapping.md` 与 `.Codex/evals/research-unification-phase{0..4}.md`
+  - 新增 research tests 并通过 targeted pytest
+- Files created/modified:
+  - `app/stock_analysis.py` (updated)
+  - `app/commander.py` (updated)
+  - `brain/tools.py` (updated)
+  - `invest/research/case_store.py` (updated)
+  - `tests/test_research_contracts.py` (created)
+  - `tests/test_research_case_store.py` (created)
+  - `tests/test_research_attribution_engine.py` (created)
+  - `tests/test_ask_stock_model_bridge.py` (created)
+  - `docs/research/phase0_contract_mapping.md` (created)
+  - `.Codex/evals/research-unification-phase0.md` (created)
+  - `.Codex/evals/research-unification-phase1.md` (created)
+  - `.Codex/evals/research-unification-phase2.md` (created)
+  - `.Codex/evals/research-unification-phase3.md` (created)
+  - `.Codex/evals/research-unification-phase4.md` (created)
 
 ## Test Results
+| Promotion gate pytest | `tests/test_commander.py -k 'promotion or evaluation_summary or result_dict_serializes_numpy_bool'` | All pass | Success | ✓ |
+| Commander feedback regression | `tests/test_commander.py tests/test_train_ui_semantics.py tests/test_research_training_feedback.py tests/test_review_meeting_v2.py tests/test_research_case_store.py` | All pass | Success | ✓ |
+| Feedback gate pytest | `tests/test_research_training_feedback.py tests/test_train_ui_semantics.py tests/test_train_cycle.py tests/test_review_meeting_v2.py tests/test_research_case_store.py` | All pass | Success | ✓ |
+| Feedback broader pytest | research + ask bridge + review + train suites | All pass | Success | ✓ |
+| Training feedback pytest | `tests/test_research_case_store.py tests/test_review_meeting_v2.py tests/test_train_ui_semantics.py tests/test_train_cycle.py` | All pass | Success | ✓ |
+| Research broader pytest | unified research + review + training UI suites | All pass | Success | ✓ |
 | Test | Input | Expected | Actual | Status |
 |------|-------|----------|--------|--------|
 | Planning bootstrap | Create planning files | Files created successfully | Success | ✓ |
+| Research proposal doc | Write proposal markdown | File created successfully | Success | ✓ |
+| Execution blueprint doc | Write blueprint markdown | File created successfully | Success | ✓ |
+| Research targeted pytest | `tests/test_research_*` + ask bridge compatibility suite | All targeted tests pass | Success | ✓ |
 
 ## Error Log
 | Timestamp | Error | Attempt | Resolution |
 |-----------|-------|---------|------------|
 | 2026-03-12 | `python: command not found` | 1 | Switched to shell-only bootstrap |
+| 2026-03-12 | large file output truncation | 1 | Switched to method-level chunked reads |
+| 2026-03-12 | shell `apply_patch` warning | 1 | Switched to direct file writes for planning docs |
 
 ## 5-Question Reboot Check
 | Question | Answer |
 |----------|--------|
-| Where am I? | Phase 1 |
-| Where am I going? | Phase 2-5: 架构分析、统一设计、迁移规划、交付 |
-| What's the goal? | 基于真实实现提出统一研究引擎方案 |
-| What have I learned? | 用户关注研究一体化，不是功能堆叠 |
-| What have I done? | 完成技能读取与 planning 初始化 |
+| Where am I? | 已完成架构研究与执行蓝图，可进入 Phase 0 实施 |
+| Where am I going? | 下一步可启动 contract 冻结与 ask bridge 设计 |
+| What's the goal? | 让训练与问股在同一研究语义、同一因果、同一验证闭环中运行 |
+| What have I learned? | 最大矛盾是研究语义层分裂，不是数据层分裂 |
+| What have I done? | 输出 proposal/blueprint，并完成 Phase 0-4 最小可运行实现、测试与 eval 工件 |
+
+### Phase 7: Training Feedback Loop
+- **Status:** complete
+- Actions taken:
+  - 在 `SelfLearningController` 中消费 `ResearchCaseStore.build_training_feedback(...)`，并透传到 `EvalReport.metadata`、training report、cycle JSON 与 commander snapshot
+  - 在 `ReviewMeeting` 中接入 `research_feedback` 事实编译、LLM prompt 注入与 fallback 风险偏置
+  - 在 `ReviewDecisionAgent` prompt 中补充 ask 侧校准摘要，统一训练复盘语义
+  - 新增训练侧 feedback 回归测试并通过 targeted / broader pytest
+- Files created/modified:
+  - `invest/meetings/review.py` (updated)
+  - `invest/agents/reviewers.py` (updated)
+  - `tests/test_review_meeting_v2.py` (updated)
+  - `tests/test_research_case_store.py` (updated)
+  - `tests/test_train_ui_semantics.py` (updated)
+
+### Phase 8: Feedback-Driven Optimizer & Freeze Gate
+- **Status:** complete
+- Actions taken:
+  - 在 `app/training/reporting.py` 中新增 research feedback gate / freeze gate evaluation，并把评估结果接入 training report 与 freeze report
+  - 在 `SelfLearningController` 中新增 feedback optimization plan、cooldown、freeze gate state 与 snapshot 透传
+  - 在 `app/training/optimization.py` 中支持 `consecutive_losses` 与 `research_feedback` 双触发优化
+  - 新增 `tests/test_research_training_feedback.py`，覆盖 multi-horizon 优化 plan、cooldown、freeze gate 阻断/放行与 report 透传
+- Files created/modified:
+  - `app/training/reporting.py` (updated)
+  - `app/training/optimization.py` (updated)
+  - `app/train.py` (updated)
+  - `app/commander.py` (updated)
+  - `tests/test_research_training_feedback.py` (created)
+  - `tests/test_train_ui_semantics.py` (updated)
+
+### Phase 9: Promotion Gate Calibration
+- **Status:** complete
+- Actions taken:
+  - 在 `app/lab/evaluation.py` 中为 `promotion_gate` 新增 research feedback 校准门，并将 gate 结果落入 `promotion.research_feedback`
+  - 在 `InvestmentBodyService._to_result_dict()` 中透传 `research_feedback`，让真实 training run 的 evaluation summary 能看到校准状态
+  - 新增 commander 晋升门测试，覆盖 calibration reject / calibration promote 两种情况
+- Files created/modified:
+  - `app/lab/evaluation.py` (updated)
+  - `app/commander.py` (updated)
+  - `tests/test_commander.py` (updated)
+  - `tests/test_train_ui_semantics.py` (updated)
+
+### Phase 10: Training Plan Default Calibration Gate
+- **Status:** complete
+- Actions taken:
+  - 在 `app/lab/artifacts.py` 新增默认 `research_feedback` gate 模板、深度合并函数与 optimization payload 归一化逻辑
+  - 让 `build_training_plan_payload(...)` 在 plan 生成时默认注入 `optimization.promotion_gate.research_feedback`
+  - 为 `tests/test_lab_artifacts.py` 增加默认注入与 partial override merge 回归
+  - 为 `tests/test_commander.py` 增加 `create_training_plan(...)` 持久化默认 gate 回归，并修正 baseline promote 用例以显式提供通过校准的 `research_feedback`
+- Files created/modified:
+  - `app/lab/artifacts.py` (updated)
+  - `tests/test_lab_artifacts.py` (updated)
+  - `tests/test_commander.py` (updated)
+- Test Results:
+  - `./.venv/bin/python -m py_compile app/lab/artifacts.py app/commander.py app/lab/evaluation.py tests/test_lab_artifacts.py tests/test_commander.py` → pass
+  - `./.venv/bin/python -m pytest -q tests/test_lab_artifacts.py tests/test_commander.py -k 'create_training_plan or promotion_gate or evaluation_summary or research_feedback_gate'` → pass
+  - `./.venv/bin/python -m pytest -q tests/test_commander.py tests/test_train_ui_semantics.py tests/test_research_training_feedback.py tests/test_review_meeting_v2.py tests/test_research_case_store.py` → pass
+
+### Phase 11: Calibration Gate Visibility
+- **Status:** complete
+- Actions taken:
+  - 在 `app/lab/artifacts.py` 为 training plan 增加 `guardrails.promotion_gate.research_feedback` 可见化摘要，包含 `summary`、`reason_codes`、`policy_source` 与 `thresholds`
+  - 在 `app/lab/artifacts.py` 的 run artifact 中保留 plan guardrails，确保 run 追溯时也能看到创建时启用的默认校准门
+  - 在 `app/commander.py` 为 `training_lab` bundle 增加 `plan.guardrails` 与 `evaluation.promotion.research_feedback` brief summary / reason codes
+  - 为 `tests/test_lab_artifacts.py`、`tests/test_commander.py`、`tests/test_web_training_lab_api.py` 增加 CLI/Web 可见性回归测试
+- Files created/modified:
+  - `app/lab/artifacts.py` (updated)
+  - `app/commander.py` (updated)
+  - `tests/test_lab_artifacts.py` (updated)
+  - `tests/test_commander.py` (updated)
+  - `tests/test_web_training_lab_api.py` (updated)
+- Test Results:
+  - `./.venv/bin/python -m py_compile app/lab/artifacts.py app/commander.py app/web_server.py tests/test_lab_artifacts.py tests/test_commander.py tests/test_web_training_lab_api.py` → pass
+  - `./.venv/bin/python -m pytest -q tests/test_lab_artifacts.py tests/test_commander.py tests/test_web_training_lab_api.py -k 'training_lab or create_training_plan or research_feedback_gate or evaluation_summary or api_train'` → pass
+  - `./.venv/bin/python -m pytest -q tests/test_commander.py tests/test_train_ui_semantics.py tests/test_research_training_feedback.py tests/test_review_meeting_v2.py tests/test_research_case_store.py tests/test_web_training_lab_api.py` → pass
+
+### Phase 12: Daily Review & Closure
+- **Status:** complete
+- Actions taken:
+  - 基于 `git status` / `git diff --stat` 审计今日变更范围，确认变更主要落在 research contracts、ask bridge、training feedback、promotion gate、plan guardrails、API contracts 与回归测试
+  - 对 15 个核心 Python 文件执行 `py_compile`，全部通过
+  - 对今日关键测试集合执行完整 targeted regression，稳定通过
+  - 额外执行 `git diff --check`，发现仅 planning 文件末尾空行问题，并已在本次记录中一并收敛
+- Test Results:
+  - `./.venv/bin/python - <<'PY' ... py_compile.compile(...) ... PY`（15 core files） → pass
+  - `./.venv/bin/python -m pytest -q tests/test_schema_contracts.py -k 'golden_snapshot or matches_contract_keys or shared_enums'` → pass
+  - `./.venv/bin/python -m pytest -q tests/test_research_contracts.py tests/test_research_case_store.py tests/test_research_attribution_engine.py tests/test_ask_stock_model_bridge.py tests/test_stock_analysis_react.py tests/test_schema_contracts.py tests/test_frontend_api_contract.py tests/test_review_meeting_v2.py tests/test_train_ui_semantics.py tests/test_research_training_feedback.py tests/test_commander.py tests/test_lab_artifacts.py tests/test_web_training_lab_api.py tests/test_commander_direct_planner_golden.py tests/test_commander_mutating_workflow_golden.py tests/test_commander_transcript_golden.py tests/test_web_server_contract_headers.py` → pass
+- Closure assessment:
+  - Blocking issues: none reproduced
+  - Non-blocking issues: 建议后续按逻辑分组提交；Web UI 展示层按用户决策暂不继续推进
