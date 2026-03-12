@@ -68,7 +68,7 @@ def test_stock_analysis_returns_yaml_react_trace(tmp_path: Path):
     assert payload["entrypoint"]["meeting_path"] is False
     assert payload["message"]
     assert payload["feedback"]["summary"] == "当前任务已完成，计划与参数覆盖满足预期。"
-    assert payload["next_action"]["kind"] == "inspect_artifact"
+    assert payload["next_action"]["kind"] == "continue"
     assert payload["task_bus"]["schema_version"] == "task_bus.v2"
     assert payload["task_bus"]["planner"]["plan_summary"]["schema_version"] == "task_plan.v2"
     assert payload["task_bus"]["planner"]["plan_summary"]["recommended_step_count"] == len(payload["orchestration"]["recommended_plan"])

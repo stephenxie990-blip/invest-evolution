@@ -158,7 +158,7 @@ def _normalize_payload(payload):
                     'operation': 'status',
                 },
                 'feedback': {'summary': '分析已完成，但证据覆盖仍不完整，结论应谨慎使用。'},
-                'next_action': {'kind': 'inspect_artifact', 'requires_confirmation': False},
+                'next_action': {'kind': 'review', 'requires_confirmation': False},
             },
         ),
         (
@@ -202,7 +202,7 @@ def _normalize_payload(payload):
                 },
                 'protocol': None,
                 'feedback': {'summary': '当前任务已完成，计划与参数覆盖满足预期。'},
-                'next_action': {'kind': 'inspect_artifact', 'requires_confirmation': False},
+                'next_action': {'kind': 'continue', 'requires_confirmation': False},
                 'strategy': {
                     'name': 'chan_theory',
                     'required_tools': ['get_daily_history', 'get_indicator_snapshot', 'analyze_support_resistance', 'get_capital_flow', 'get_realtime_quote'],
