@@ -23,6 +23,23 @@ def _assert_bounded_workflow_protocol(payload: dict, *, domain: str, writes_stat
     assert payload["artifact_taxonomy"]["schema_version"] == "artifact_taxonomy.v2"
     assert "workspace" in payload["artifact_taxonomy"]["keys"]
     assert payload["orchestration"]["policy"]["writes_state"] is writes_state
+    assert payload["task_bus"]["schema_version"] == "task_bus.v2"
+    assert payload["task_bus"]["planner"]["operation"] == payload["protocol"]["operation"]
+    assert payload["task_bus"]["planner"]["mode"] == "commander_runtime_method"
+    recommended_tools = [step["tool"] for step in payload["task_bus"]["planner"]["recommended_plan"]]
+    assert payload["entrypoint"]["runtime_tool"] in recommended_tools
+    assert payload["task_bus"]["planner"]["plan_summary"]["schema_version"] == "task_plan.v2"
+    assert payload["task_bus"]["gate"]["writes_state"] is writes_state
+    assert payload["task_bus"]["audit"]["artifacts"]["domain"] == domain
+    assert payload["task_bus"]["audit"]["coverage"]["schema_version"] == "task_coverage.v2"
+    assert "parameterized_step_count" in payload["task_bus"]["audit"]["coverage"]
+    assert "covered_parameterized_step_ids" in payload["task_bus"]["audit"]["coverage"]
+    assert "missing_parameterized_step_ids" in payload["task_bus"]["audit"]["coverage"]
+    assert "parameter_coverage" in payload["task_bus"]["audit"]["coverage"]
+    assert payload["task_bus"]["audit"]["artifact_taxonomy"]["schema_version"] == "artifact_taxonomy.v2"
+    assert payload["feedback"]["summary"]
+    assert payload["next_action"]["kind"]
+    assert "planned_step_coverage" in payload["feedback"]["coverage"]
 
 
 def test_strategy_registry_templates(tmp_path: Path):
@@ -244,6 +261,10 @@ async def test_train_once_writes_plan_run_and_evaluation_artifacts(tmp_path):
     out = await runtime.train_once(rounds=2, mock=True)
 
     assert "training_lab" in out
+    assert out['training_lab']['plan']['guardrails']['promotion_gate']['research_feedback']['enabled'] is True
+    assert out['training_lab']['evaluation']['promotion']['research_feedback']['passed'] is False
+    assert 'research_feedback.available' in out['training_lab']['evaluation']['promotion']['research_feedback']['reason_codes']
+    assert '缺少可用研究反馈样本' in out['training_lab']['evaluation']['promotion']['research_feedback']['summary']
     assert out["entrypoint"]["agent_kind"] == "bounded_training_agent"
     assert out["orchestration"]["phase_stats"]["rounds"] == 2
     assert out["orchestration"]["policy"]["fixed_boundary"] is True
@@ -419,8 +440,34 @@ def test_training_evaluation_summary_builds_promotion_verdict_against_baseline(t
         {
             'status': 'completed',
             'results': [
-                {'status': 'ok', 'model_name': 'value_quality', 'config_name': 'value_quality_v1', 'return_pct': 0.8, 'benchmark_passed': True, 'strategy_scores': {'overall_score': 0.7}},
-                {'status': 'ok', 'model_name': 'value_quality', 'config_name': 'value_quality_v1', 'return_pct': 0.6, 'benchmark_passed': False, 'strategy_scores': {'overall_score': 0.62}},
+                {
+                    'status': 'ok',
+                    'model_name': 'value_quality',
+                    'config_name': 'value_quality_v1',
+                    'return_pct': 0.8,
+                    'benchmark_passed': True,
+                    'strategy_scores': {'overall_score': 0.7},
+                    'research_feedback': {
+                        'sample_count': 7,
+                        'recommendation': {'bias': 'maintain', 'summary': 'maintain'},
+                        'horizons': {'T+20': {'hit_rate': 0.54, 'invalidation_rate': 0.18}},
+                        'brier_like_direction_score': 0.18,
+                    },
+                },
+                {
+                    'status': 'ok',
+                    'model_name': 'value_quality',
+                    'config_name': 'value_quality_v1',
+                    'return_pct': 0.6,
+                    'benchmark_passed': False,
+                    'strategy_scores': {'overall_score': 0.62},
+                    'research_feedback': {
+                        'sample_count': 8,
+                        'recommendation': {'bias': 'maintain', 'summary': 'maintain'},
+                        'horizons': {'T+20': {'hit_rate': 0.58, 'invalidation_rate': 0.16}},
+                        'brier_like_direction_score': 0.16,
+                    },
+                },
             ],
         },
         plan=plan,
@@ -939,3 +986,246 @@ def test_reload_strategies_resets_runtime_to_idle_and_persists_last_task(tmp_pat
     assert last_task["gene_count"] == out["count"]
     assert payload["runtime"]["state"] == "idle"
     assert payload["runtime"]["last_task"]["gene_count"] == out["count"]
+
+
+@pytest.mark.asyncio
+async def test_mutating_workflow_gate_includes_coverage_gap_reasons(tmp_path):
+    cfg = CommanderConfig(
+        workspace=tmp_path / "workspace",
+        strategy_dir=tmp_path / "strategies",
+        state_file=tmp_path / "state.json",
+        cron_store=tmp_path / "cron.json",
+        memory_store=tmp_path / "memory.jsonl",
+        plugin_dir=tmp_path / "plugins",
+        bridge_inbox=tmp_path / "inbox",
+        bridge_outbox=tmp_path / "outbox",
+        mock_mode=True,
+        autopilot_enabled=False,
+        heartbeat_enabled=False,
+        bridge_enabled=False,
+    )
+    runtime = CommanderRuntime(cfg)
+    payload = runtime.status()
+    assert "incomplete_plan_coverage" in payload["task_bus"]["gate"]["reasons"]
+    assert payload["task_bus"]["gate"]["writes_state"] is False
+
+
+
+def test_training_evaluation_summary_rejects_when_research_feedback_gate_fails(tmp_path):
+    cfg = CommanderConfig(
+        workspace=tmp_path / 'workspace',
+        strategy_dir=tmp_path / 'strategies',
+        state_file=tmp_path / 'state' / 'state.json',
+        cron_store=tmp_path / 'state' / 'cron.json',
+        memory_store=tmp_path / 'memory' / 'memory.jsonl',
+        plugin_dir=tmp_path / 'plugins',
+        bridge_inbox=tmp_path / 'inbox',
+        bridge_outbox=tmp_path / 'outbox',
+        training_output_dir=tmp_path / 'runtime' / 'training',
+        mock_mode=True,
+        autopilot_enabled=False,
+        heartbeat_enabled=False,
+        bridge_enabled=False,
+    )
+    runtime = CommanderRuntime(cfg)
+    plan = runtime.create_training_plan(
+        rounds=2,
+        mock=True,
+        optimization={'promotion_gate': {
+            'min_samples': 2,
+            'min_avg_strategy_score': 0.6,
+            'research_feedback': {
+                'min_sample_count': 5,
+                'blocked_biases': ['tighten_risk', 'recalibrate_probability'],
+                'max_brier_like_direction_score': 0.25,
+                'horizons': {'T+20': {'min_hit_rate': 0.45, 'max_invalidation_rate': 0.30}},
+            },
+        }},
+    )
+    summary = runtime._build_training_evaluation_summary(
+        {
+            'status': 'completed',
+            'results': [
+                {
+                    'status': 'ok',
+                    'cycle_id': 1,
+                    'cutoff_date': '20240228',
+                    'model_name': 'momentum',
+                    'config_name': 'momentum_v1',
+                    'return_pct': 0.9,
+                    'benchmark_passed': True,
+                    'strategy_scores': {'overall_score': 0.72},
+                    'research_feedback': {
+                        'sample_count': 7,
+                        'recommendation': {'bias': 'tighten_risk', 'summary': 'tighten risk'},
+                        'horizons': {'T+20': {'hit_rate': 0.30, 'invalidation_rate': 0.42}},
+                        'brier_like_direction_score': 0.31,
+                    },
+                },
+                {
+                    'status': 'ok',
+                    'cycle_id': 2,
+                    'cutoff_date': '20240315',
+                    'model_name': 'momentum',
+                    'config_name': 'momentum_v1',
+                    'return_pct': 0.8,
+                    'benchmark_passed': True,
+                    'strategy_scores': {'overall_score': 0.68},
+                    'research_feedback': {
+                        'sample_count': 8,
+                        'recommendation': {'bias': 'tighten_risk', 'summary': 'tighten risk'},
+                        'horizons': {'T+20': {'hit_rate': 0.28, 'invalidation_rate': 0.40}},
+                        'brier_like_direction_score': 0.29,
+                    },
+                },
+            ],
+        },
+        plan=plan,
+        run_id='run_feedback_reject',
+    )
+    assert summary['promotion']['verdict'] == 'rejected'
+    assert summary['promotion']['research_feedback']['passed'] is False
+    assert summary['promotion']['research_feedback']['latest_feedback']['bias'] == 'tighten_risk'
+    assert any(check['name'] == 'research_feedback.blocked_biases' and check['passed'] is False for check in summary['promotion']['checks'])
+
+
+def test_training_evaluation_summary_promotes_when_research_feedback_gate_passes(tmp_path):
+    cfg = CommanderConfig(
+        workspace=tmp_path / 'workspace',
+        strategy_dir=tmp_path / 'strategies',
+        state_file=tmp_path / 'state' / 'state.json',
+        cron_store=tmp_path / 'state' / 'cron.json',
+        memory_store=tmp_path / 'memory' / 'memory.jsonl',
+        plugin_dir=tmp_path / 'plugins',
+        bridge_inbox=tmp_path / 'inbox',
+        bridge_outbox=tmp_path / 'outbox',
+        training_output_dir=tmp_path / 'runtime' / 'training',
+        mock_mode=True,
+        autopilot_enabled=False,
+        heartbeat_enabled=False,
+        bridge_enabled=False,
+    )
+    runtime = CommanderRuntime(cfg)
+    plan = runtime.create_training_plan(
+        rounds=2,
+        mock=True,
+        optimization={'promotion_gate': {
+            'min_samples': 2,
+            'min_avg_strategy_score': 0.6,
+            'research_feedback': {
+                'min_sample_count': 5,
+                'blocked_biases': ['tighten_risk', 'recalibrate_probability'],
+                'max_brier_like_direction_score': 0.25,
+                'horizons': {'T+20': {'min_hit_rate': 0.45, 'max_invalidation_rate': 0.30}},
+            },
+        }},
+    )
+    summary = runtime._build_training_evaluation_summary(
+        {
+            'status': 'completed',
+            'results': [
+                {
+                    'status': 'ok',
+                    'cycle_id': 1,
+                    'cutoff_date': '20240228',
+                    'model_name': 'momentum',
+                    'config_name': 'momentum_v1',
+                    'return_pct': 0.9,
+                    'benchmark_passed': True,
+                    'strategy_scores': {'overall_score': 0.72},
+                    'research_feedback': {
+                        'sample_count': 7,
+                        'recommendation': {'bias': 'maintain', 'summary': 'maintain'},
+                        'horizons': {'T+20': {'hit_rate': 0.54, 'invalidation_rate': 0.18}},
+                        'brier_like_direction_score': 0.18,
+                    },
+                },
+                {
+                    'status': 'ok',
+                    'cycle_id': 2,
+                    'cutoff_date': '20240315',
+                    'model_name': 'momentum',
+                    'config_name': 'momentum_v1',
+                    'return_pct': 0.8,
+                    'benchmark_passed': True,
+                    'strategy_scores': {'overall_score': 0.68},
+                    'research_feedback': {
+                        'sample_count': 8,
+                        'recommendation': {'bias': 'maintain', 'summary': 'maintain'},
+                        'horizons': {'T+20': {'hit_rate': 0.58, 'invalidation_rate': 0.16}},
+                        'brier_like_direction_score': 0.16,
+                    },
+                },
+            ],
+        },
+        plan=plan,
+        run_id='run_feedback_promote',
+    )
+    assert summary['promotion']['verdict'] == 'promoted'
+    assert summary['promotion']['research_feedback']['passed'] is True
+    assert summary['promotion']['research_feedback']['latest_feedback']['bias'] == 'maintain'
+    assert any(check['name'] == 'research_feedback.blocked_biases' and check['passed'] is True for check in summary['promotion']['checks'])
+
+
+def test_confirmation_workflow_message_includes_human_readable_gate_reasons(tmp_path):
+    cfg = CommanderConfig(
+        workspace=tmp_path / "workspace",
+        strategy_dir=tmp_path / "strategies",
+        state_file=tmp_path / "state.json",
+        cron_store=tmp_path / "cron.json",
+        memory_store=tmp_path / "memory.jsonl",
+        plugin_dir=tmp_path / "plugins",
+        bridge_inbox=tmp_path / "inbox",
+        bridge_outbox=tmp_path / "outbox",
+        mock_mode=True,
+        autopilot_enabled=False,
+        heartbeat_enabled=False,
+        bridge_enabled=False,
+    )
+    runtime = CommanderRuntime(cfg)
+    payload = runtime.build_training_confirmation_required(rounds=2, mock=False)
+
+    assert payload["status"] == "confirmation_required"
+    assert payload["feedback"]["requires_confirmation"] is True
+    assert "当前操作仍需要人工确认" in payload["message"]
+    assert "confirmation_required" in payload["feedback"]["reason_codes"]
+
+
+
+def test_create_training_plan_persists_default_research_feedback_gate(tmp_path):
+    cfg = CommanderConfig(
+        workspace=tmp_path / 'workspace',
+        strategy_dir=tmp_path / 'strategies',
+        state_file=tmp_path / 'state' / 'state.json',
+        cron_store=tmp_path / 'state' / 'cron.json',
+        memory_store=tmp_path / 'memory' / 'memory.jsonl',
+        plugin_dir=tmp_path / 'plugins',
+        bridge_inbox=tmp_path / 'inbox',
+        bridge_outbox=tmp_path / 'outbox',
+        mock_mode=True,
+        autopilot_enabled=False,
+        heartbeat_enabled=False,
+        bridge_enabled=False,
+    )
+    runtime = CommanderRuntime(cfg)
+
+    plan = runtime.create_training_plan(
+        rounds=1,
+        mock=True,
+        optimization={'promotion_gate': {'min_samples': 2}},
+    )
+
+    promotion_gate = plan['optimization']['promotion_gate']
+    gate = promotion_gate['research_feedback']
+    assert promotion_gate['min_samples'] == 2
+    assert gate['min_sample_count'] == 5
+    assert gate['blocked_biases'] == ['tighten_risk', 'recalibrate_probability']
+    assert gate['horizons']['T+20']['min_hit_rate'] == 0.45
+    assert plan['guardrails']['promotion_gate']['research_feedback']['enabled'] is True
+    assert plan['guardrails']['promotion_gate']['research_feedback']['policy_source']['mode'] == 'default_injected'
+    assert '默认启用 research_feedback 校准门' in plan['guardrails']['promotion_gate']['research_feedback']['summary']
+
+    saved = runtime.get_training_plan(plan['plan_id'])
+    assert saved['optimization']['promotion_gate']['research_feedback']['horizons']['T+20']['max_invalidation_rate'] == 0.30
+    assert saved['optimization']['promotion_gate']['research_feedback']['horizons']['T+20']['min_interval_hit_rate'] == 0.40
+    assert saved['guardrails']['promotion_gate']['research_feedback']['policy_source']['mode'] == 'default_injected'

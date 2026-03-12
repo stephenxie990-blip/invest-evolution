@@ -29,6 +29,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from brain.runtime import BrainRuntime
+from brain.task_bus import build_gate_feedback, build_mutating_task_bus, build_next_action, build_readonly_task_bus
 from brain.schema_contract import (
     ARTIFACT_KINDS,
     ARTIFACT_TAXONOMY_SCHEMA_VERSION,
@@ -47,6 +48,7 @@ from config import PROJECT_ROOT, RUNTIME_DIR, OUTPUT_DIR, LOGS_DIR, MEMORY_DIR, 
 from config.control_plane import resolve_component_llm, resolve_default_llm
 from config.services import EvolutionConfigService, RuntimePathConfigService
 from market_data import DataManager, DataSourceUnavailableError, MockDataProvider
+from invest.meetings import MeetingRecorder
 from app.train import SelfLearningController, TrainingResult
 from app.lab.artifacts import TrainingLabArtifactStore
 from app.lab.evaluation import (
@@ -219,6 +221,20 @@ def _apply_runtime_path_overrides(cfg: "CommanderConfig", overrides: dict[str, A
     return cfg
 
 
+def _sync_runtime_path_config(runtime: "CommanderRuntime", payload: dict[str, Any]) -> None:
+    import config as config_module
+
+    _apply_runtime_path_overrides(runtime.cfg, payload)
+    controller = runtime.body.controller
+    controller.output_dir = Path(runtime.cfg.training_output_dir)
+    controller.output_dir.mkdir(parents=True, exist_ok=True)
+    controller.meeting_recorder = MeetingRecorder(base_dir=str(runtime.cfg.meeting_log_dir))
+    controller.config_service = EvolutionConfigService(
+        project_root=config_module.PROJECT_ROOT,
+        live_config=config_module.config,
+        audit_log_path=Path(runtime.cfg.config_audit_log_path),
+        snapshot_dir=Path(runtime.cfg.config_snapshot_dir),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -996,6 +1012,9 @@ class InvestmentBodyService:
             "last_run_at": self.last_run_at,
             "current_cycle_id": self.controller.current_cycle_id,
             "rolling_self_assessment": rolling,
+            "research_feedback": getattr(self.controller, "last_research_feedback", {}),
+            "freeze_gate_evaluation": getattr(self.controller, "last_freeze_gate_evaluation", {}),
+            "research_feedback_optimization": getattr(self.controller, "last_feedback_optimization", {}),
             "training_state": self.training_state,
             "is_training": self._lock.locked(),
             "current_task": self.current_task,
@@ -1048,6 +1067,7 @@ class InvestmentBodyService:
             "config_snapshot_path": result.config_snapshot_path,
             "optimization_event_count": len(result.optimization_events or []),
             "optimization_events": result.optimization_events,
+            "research_feedback": result.research_feedback,
             "audit_tags": result.audit_tags,
             "artifacts": self._artifact_paths_for_cycle(result.cycle_id),
             "timestamp": datetime.now().isoformat(),
@@ -1103,7 +1123,7 @@ class CommanderRuntime:
         self._notifications: asyncio.Queue[str] = asyncio.Queue()
         self.memory = MemoryStore(self.cfg.memory_store, create=False)
         self.plugin_loader = PluginLoader(self.cfg.plugin_dir, create_dir=False)
-        self.stock_analysis = StockAnalysisService(strategy_dir=self.cfg.stock_strategy_dir, model=self.cfg.model, api_key=self.cfg.api_key, api_base=self.cfg.api_base, enable_llm_react=not self.cfg.mock_mode)
+        self.stock_analysis = StockAnalysisService(strategy_dir=self.cfg.stock_strategy_dir, model=self.cfg.model, api_key=self.cfg.api_key, api_base=self.cfg.api_base, enable_llm_react=not self.cfg.mock_mode, controller_provider=lambda: self.body.controller)
         self._plugin_tool_names: set[str] = set()
         self.bridge = BridgeHub(
             inbox_dir=self.cfg.bridge_inbox,
@@ -1722,6 +1742,272 @@ class CommanderRuntime:
         ]
 
 
+    @staticmethod
+    def _intent_for_bounded_workflow(*, domain: str, operation: str) -> str:
+        if operation == "status":
+            return f"{domain}_status"
+        if operation == "execute_training_plan":
+            return "training_plan_execution"
+        if operation.startswith("get_"):
+            suffix = operation[4:]
+            if suffix.startswith(f"{domain}_"):
+                suffix = suffix[len(domain) + 1:]
+            return f"{domain}_{suffix}"
+        if operation.startswith("update_"):
+            suffix = operation[7:]
+            return f"{domain}_{suffix}_update"
+        if operation.startswith("trigger_"):
+            return operation
+        return operation
+
+    @staticmethod
+    def _planner_args(*, phase_stats: dict[str, Any], payload: dict[str, Any] | None = None, keys: list[str]) -> dict[str, Any]:
+        source = dict(phase_stats or {})
+        if isinstance(payload, dict):
+            source.update({k: v for k, v in payload.items() if k not in source})
+        return {key: source[key] for key in keys if key in source and source[key] is not None and source[key] != ""}
+
+    def _recommended_plan_for_bounded_workflow(
+        self,
+        *,
+        domain: str,
+        operation: str,
+        runtime_tool: str,
+        writes_state: bool,
+        phase_stats: dict[str, Any] | None = None,
+        payload: dict[str, Any] | None = None,
+    ) -> list[dict[str, Any]]:
+        phase_stats = dict(phase_stats or {})
+        if domain == "runtime":
+            if operation == "status":
+                return [
+                    {"tool": runtime_tool, "args": {"detail": phase_stats.get("detail_mode", "fast")}},
+                    {"tool": "invest_events_summary", "args": {"limit": int(phase_stats.get("limit", 100) or 100)}},
+                    {"tool": "invest_runtime_diagnostics", "args": {"event_limit": int(phase_stats.get("event_limit", 50) or 50), "memory_limit": int(phase_stats.get("memory_limit", 20) or 20)}},
+                ]
+            if operation == "get_events_tail":
+                return [
+                    {"tool": "invest_events_tail", "args": {"limit": int(phase_stats.get("limit", 50) or 50)}},
+                    {"tool": "invest_events_summary", "args": {"limit": int(phase_stats.get("limit", 100) or 100)}},
+                ]
+            if operation == "get_events_summary":
+                return [
+                    {"tool": "invest_events_summary", "args": {"limit": int(phase_stats.get("limit", 100) or 100)}},
+                    {"tool": "invest_runtime_diagnostics", "args": {"event_limit": int(phase_stats.get("event_limit", 50) or 50), "memory_limit": int(phase_stats.get("memory_limit", 20) or 20)}},
+                ]
+            if operation == "get_runtime_diagnostics":
+                return [
+                    {"tool": "invest_runtime_diagnostics", "args": {"event_limit": int(phase_stats.get("event_limit", 50) or 50), "memory_limit": int(phase_stats.get("memory_limit", 20) or 20)}},
+                    {"tool": "invest_events_summary", "args": {"limit": int(phase_stats.get("limit", 100) or 100)}},
+                ]
+        if domain == "config":
+            if operation == "get_control_plane":
+                return [
+                    {"tool": "invest_control_plane_get", "args": {}},
+                    {"tool": "invest_evolution_config_get", "args": {}},
+                ]
+            if operation == "get_evolution_config":
+                return [
+                    {"tool": "invest_evolution_config_get", "args": {}},
+                    {"tool": "invest_control_plane_get", "args": {}},
+                    {"tool": "invest_runtime_paths_get", "args": {}},
+                ]
+            if operation == "get_runtime_paths":
+                return [
+                    {"tool": "invest_runtime_paths_get", "args": {}},
+                    {"tool": "invest_evolution_config_get", "args": {}},
+                ]
+            if operation == "list_agent_prompts":
+                return [{"tool": "invest_agent_prompts_list", "args": {}}]
+            if operation == "update_agent_prompt":
+                return [
+                    {"tool": "invest_agent_prompts_list", "args": {}},
+                    {"tool": "invest_agent_prompts_update", "args": self._planner_args(phase_stats=phase_stats, payload=payload, keys=["agent_name"])},
+                ]
+            if operation == "update_runtime_paths":
+                return [
+                    {"tool": "invest_runtime_paths_get", "args": {}},
+                    {"tool": "invest_runtime_paths_update", "args": {"confirm": bool(phase_stats.get("confirmed", False))}},
+                ]
+            if operation == "update_evolution_config":
+                return [
+                    {"tool": "invest_evolution_config_get", "args": {}},
+                    {"tool": "invest_evolution_config_update", "args": {"confirm": bool(phase_stats.get("confirmed", False))}},
+                    {"tool": "invest_control_plane_get", "args": {}},
+                ]
+            if operation == "update_control_plane":
+                return [
+                    {"tool": "invest_control_plane_get", "args": {}},
+                    {"tool": "invest_control_plane_update", "args": {"confirm": bool(phase_stats.get("confirmed", False))}},
+                    {"tool": "invest_evolution_config_get", "args": {}},
+                ]
+        if domain == "data":
+            if operation == "get_data_status":
+                return [
+                    {"tool": "invest_data_status", "args": {"refresh": bool(phase_stats.get("requested_refresh", False))}},
+                    {"tool": "invest_data_download", "args": {"action": "status", **self._planner_args(phase_stats=phase_stats, payload=payload, keys=["job_status"])}},
+                ]
+            if operation == "get_capital_flow":
+                return [
+                    {"tool": "invest_data_status", "args": {"refresh": False}},
+                    {"tool": "invest_data_capital_flow", "args": {"limit": int(phase_stats.get("limit", 200) or 200)}},
+                ]
+            if operation == "get_dragon_tiger":
+                return [
+                    {"tool": "invest_data_status", "args": {"refresh": False}},
+                    {"tool": "invest_data_dragon_tiger", "args": {"limit": int(phase_stats.get("limit", 200) or 200)}},
+                ]
+            if operation == "get_intraday_60m":
+                return [
+                    {"tool": "invest_data_status", "args": {"refresh": False}},
+                    {"tool": "invest_data_intraday_60m", "args": {"limit": int(phase_stats.get("limit", 500) or 500)}},
+                ]
+            if operation == "get_data_download_status":
+                return [
+                    {"tool": "invest_data_download", "args": {"action": "status", **self._planner_args(phase_stats=phase_stats, payload=payload, keys=["job_status"])}},
+                    {"tool": "invest_data_status", "args": {"refresh": False}},
+                ]
+            if operation == "trigger_data_download":
+                return [
+                    {"tool": "invest_data_download", "args": {"action": "status", **self._planner_args(phase_stats=phase_stats, payload=payload, keys=["job_status"])}},
+                    {"tool": "invest_data_download", "args": {"action": "trigger", "confirm": bool(phase_stats.get("confirmed", False))}},
+                    {"tool": "invest_data_status", "args": {"refresh": True}},
+                ]
+        if domain == "memory":
+            if operation == "list_memory":
+                return [
+                    {"tool": "invest_memory_search", "args": {"query": str(phase_stats.get("query", "") or ""), "limit": int(phase_stats.get("limit", 20) or 20)}},
+                    {"tool": "invest_memory_list", "args": {"limit": int(phase_stats.get("limit", 20) or 20)}},
+                ]
+            if operation == "get_memory_detail":
+                return [
+                    {"tool": "invest_memory_list", "args": {"limit": int(phase_stats.get("limit", 20) or 20)}},
+                    {"tool": "invest_memory_get", "args": self._planner_args(phase_stats=phase_stats, payload=payload, keys=["record_id"])},
+                ]
+        if domain == "scheduler":
+            if operation == "add_cron_job":
+                return [
+                    {"tool": "invest_cron_list", "args": {}},
+                    {"tool": "invest_cron_add", "args": self._planner_args(phase_stats=phase_stats, payload=payload, keys=["job_id", "every_sec"])},
+                ]
+            if operation == "list_cron_jobs":
+                return [{"tool": "invest_cron_list", "args": {}}]
+            if operation == "remove_cron_job":
+                return [
+                    {"tool": "invest_cron_list", "args": {}},
+                    {"tool": "invest_cron_remove", "args": self._planner_args(phase_stats=phase_stats, payload=payload, keys=["job_id"])},
+                ]
+        if domain == "analytics":
+            if operation == "get_investment_models":
+                return [
+                    {"tool": "invest_investment_models", "args": {}},
+                    {"tool": "invest_model_routing_preview", "args": {}},
+                ]
+            if operation == "get_leaderboard":
+                return [
+                    {"tool": "invest_leaderboard", "args": {}},
+                    {"tool": "invest_investment_models", "args": {}},
+                ]
+            if operation == "get_allocator_preview":
+                return [
+                    {"tool": "invest_allocator", "args": {}},
+                    {"tool": "invest_leaderboard", "args": {}},
+                    {"tool": "invest_model_routing_preview", "args": {}},
+                ]
+            if operation == "get_model_routing_preview":
+                return [
+                    {"tool": "invest_model_routing_preview", "args": {}},
+                    {"tool": "invest_investment_models", "args": {}},
+                ]
+        if domain == "training":
+            if operation == "get_training_lab_summary":
+                return [
+                    {"tool": "invest_training_lab_summary", "args": {"limit": int(phase_stats.get("limit", 5) or 5)}},
+                    {"tool": "invest_training_runs_list", "args": {"limit": int(phase_stats.get("limit", 5) or 5)}},
+                    {"tool": "invest_training_evaluations_list", "args": {"limit": int(phase_stats.get("limit", 5) or 5)}},
+                ]
+            if operation == "execute_training_plan":
+                return [
+                    {"tool": "invest_training_plan_execute", "args": self._planner_args(phase_stats=phase_stats, payload=payload, keys=["plan_id", "rounds", "mock"])},
+                    {"tool": "invest_training_evaluations_list", "args": {"limit": int(phase_stats.get("limit", 5) or 5)}},
+                    {"tool": "invest_training_lab_summary", "args": {"limit": int(phase_stats.get("limit", 5) or 5)}},
+                ]
+        if domain == "strategy":
+            if operation == "list_stock_strategies":
+                return [
+                    {"tool": "invest_stock_strategies", "args": {}},
+                    {"tool": "invest_list_strategies", "args": {"only_enabled": False}},
+                ]
+            if operation == "reload_strategies":
+                return [
+                    {"tool": "invest_list_strategies", "args": {"only_enabled": False}},
+                    {"tool": "invest_reload_strategies", "args": {}},
+                    {"tool": "invest_stock_strategies", "args": {}},
+                ]
+        if domain == "plugin" and operation == "reload_plugins":
+            return [{"tool": "invest_plugins_reload", "args": {}}]
+
+        return [{"tool": runtime_tool, "args": {}}]
+
+    @staticmethod
+    def _actual_tool_call_args(*, runtime_tool: str, writes_state: bool, recommended_plan: list[dict[str, Any]]) -> dict[str, Any]:
+        matching_steps = [step for step in list(recommended_plan or []) if str(step.get("tool") or "") == runtime_tool]
+        if not matching_steps:
+            return {}
+        selected = matching_steps[-1] if writes_state else matching_steps[0]
+        return dict(selected.get("args") or {})
+
+    def _build_bounded_workflow_task_bus(
+        self,
+        *,
+        payload: dict[str, Any],
+        domain: str,
+        operation: str,
+        runtime_tool: str,
+        writes_state: bool,
+        available_tools: list[str],
+        artifacts: dict[str, Any],
+        phase_stats: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        status = str(payload.get("status", STATUS_OK) or STATUS_OK)
+        requires_confirmation = status == STATUS_CONFIRMATION_REQUIRED
+        decision = "confirm" if requires_confirmation else "allow"
+        recommended_plan = self._recommended_plan_for_bounded_workflow(
+            domain=domain,
+            operation=operation,
+            runtime_tool=runtime_tool,
+            writes_state=writes_state,
+            phase_stats=phase_stats,
+            payload=payload,
+        )
+        actual_args = self._actual_tool_call_args(
+            runtime_tool=runtime_tool,
+            writes_state=writes_state,
+            recommended_plan=recommended_plan,
+        )
+        tool_calls = [] if requires_confirmation else [{"action": {"tool": runtime_tool, "args": actual_args}}]
+        builder = build_mutating_task_bus if writes_state else build_readonly_task_bus
+        kwargs = {
+            "intent": self._intent_for_bounded_workflow(domain=domain, operation=operation),
+            "operation": operation,
+            "user_goal": f"{domain}:{operation}",
+            "mode": "commander_runtime_method",
+            "available_tools": list(available_tools),
+            "recommended_plan": recommended_plan,
+            "tool_calls": tool_calls,
+            "artifacts": dict(artifacts),
+            "status": status,
+        }
+        if writes_state:
+            kwargs.update(
+                {
+                    "risk_level": "high" if requires_confirmation else "medium",
+                    "decision": decision,
+                    "requires_confirmation": requires_confirmation,
+                }
+            )
+        return builder(**kwargs)
+
     def _attach_bounded_workflow(
         self,
         payload: Any,
@@ -1801,6 +2087,27 @@ class CommanderRuntime:
         body["artifacts"] = _jsonable(artifacts)
         body["coverage"] = _jsonable(coverage)
         body["artifact_taxonomy"] = _jsonable(_build_workflow_artifact_taxonomy(artifacts))
+        if not isinstance(body.get("task_bus"), dict):
+            task_bus = _jsonable(
+                self._build_bounded_workflow_task_bus(
+                    payload=body,
+                    domain=domain,
+                    operation=operation,
+                    runtime_tool=runtime_tool,
+                    writes_state=writes_state,
+                    available_tools=available_tools,
+                    artifacts=artifacts,
+                    phase_stats=normalized_phase_stats,
+                )
+            )
+            body["task_bus"] = task_bus
+            gate_requires_confirmation = bool(dict(task_bus.get("gate") or {}).get("requires_confirmation"))
+            feedback = build_gate_feedback(task_bus=task_bus, default_message=str(body.get("message") or ""))
+            body["feedback"] = _jsonable(feedback)
+            body["next_action"] = _jsonable(build_next_action(task_bus=task_bus, feedback=feedback))
+            body["message"] = str(feedback.get("message") or body.get("message") or "")
+            if writes_state:
+                body["orchestration"]["policy"]["confirmation_gate"] = gate_requires_confirmation or body["orchestration"]["policy"].get("confirmation_gate")
         return _jsonable(body)
 
     def _attach_mutating_workflow(
@@ -2175,8 +2482,22 @@ class CommanderRuntime:
             },
         )
 
-    def ask_stock(self, *, question: str, query: str, strategy: str = "chan_theory", days: int = 60) -> dict[str, Any]:
-        return self.stock_analysis.ask_stock(question=question, query=query, strategy=strategy, days=days)
+    def ask_stock(
+        self,
+        *,
+        question: str,
+        query: str,
+        strategy: str = "chan_theory",
+        days: int = 60,
+        as_of_date: str = "",
+    ) -> dict[str, Any]:
+        return self.stock_analysis.ask_stock(
+            question=question,
+            query=query,
+            strategy=strategy,
+            days=days,
+            as_of_date=as_of_date,
+        )
 
     def list_stock_strategies(self) -> dict[str, Any]:
         payload = {"status": STATUS_OK, "items": self.stock_analysis.list_strategies()}
@@ -2350,11 +2671,67 @@ class CommanderRuntime:
         return run_cycles_kwargs
 
     @staticmethod
-    def _attach_training_lab_paths(payload: dict[str, Any], lab: dict[str, Any]) -> None:
+    def _summarize_research_feedback_promotion(promotion: dict[str, Any]) -> dict[str, Any]:
+        research_feedback = dict(promotion.get("research_feedback") or {})
+        latest_feedback = dict(research_feedback.get("latest_feedback") or {})
+        failed_checks = [dict(item) for item in list(research_feedback.get("failed_checks") or [])]
+        reason_codes = [
+            str(item.get("name") or "")
+            for item in failed_checks
+            if str(item.get("name") or "").strip()
+        ]
+
+        if not research_feedback.get("enabled", False):
+            summary = "未启用 research_feedback 校准门。"
+        elif research_feedback.get("passed", False):
+            latest_summary = str(latest_feedback.get("summary") or "")
+            summary = (
+                f"research_feedback 校准门通过：{latest_summary}"
+                if latest_summary
+                else "research_feedback 校准门通过。"
+            )
+        else:
+            latest_summary = str(latest_feedback.get("summary") or "")
+            if not latest_feedback.get("available", False):
+                summary = "未通过 research_feedback 校准门：缺少可用研究反馈样本。"
+            elif latest_summary:
+                summary = f"未通过 research_feedback 校准门：{latest_summary}"
+            elif reason_codes:
+                summary = f"未通过 research_feedback 校准门：{', '.join(reason_codes)}"
+            else:
+                summary = "未通过 research_feedback 校准门。"
+
+        return {
+            "enabled": bool(research_feedback.get("enabled", False)),
+            "passed": bool(research_feedback.get("passed", False)),
+            "summary": summary,
+            "reason_codes": reason_codes,
+            "latest_feedback": latest_feedback,
+        }
+
+    @classmethod
+    def _summarize_training_evaluation_brief(cls, evaluation: dict[str, Any]) -> dict[str, Any]:
+        promotion = dict(evaluation.get("promotion") or {})
+        return {
+            "verdict": str(promotion.get("verdict") or ""),
+            "passed": bool(promotion.get("passed", False)),
+            "research_feedback": cls._summarize_research_feedback_promotion(promotion),
+        }
+
+    @classmethod
+    def _attach_training_lab_paths(cls, payload: dict[str, Any], lab: dict[str, Any]) -> None:
         payload["training_lab"] = {
-            "plan": {"plan_id": lab["plan"]["plan_id"], "path": lab["plan"]["artifacts"]["plan_path"]},
+            "plan": {
+                "plan_id": lab["plan"]["plan_id"],
+                "path": lab["plan"]["artifacts"]["plan_path"],
+                "guardrails": dict(lab["plan"].get("guardrails") or {}),
+            },
             "run": {"run_id": lab["run"]["run_id"], "path": lab["evaluation"]["artifacts"]["run_path"]},
-            "evaluation": {"run_id": lab["evaluation"]["run_id"], "path": lab["evaluation"]["artifacts"]["evaluation_path"]},
+            "evaluation": {
+                "run_id": lab["evaluation"]["run_id"],
+                "path": lab["evaluation"]["artifacts"]["evaluation_path"],
+                "promotion": cls._summarize_training_evaluation_brief(lab["evaluation"]),
+            },
         }
 
     def _wrap_training_execution_payload(

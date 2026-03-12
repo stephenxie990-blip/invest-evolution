@@ -66,6 +66,9 @@ def test_stock_analysis_returns_yaml_react_trace(tmp_path: Path):
     assert payload["dashboard"]["signal"]
     assert payload["entrypoint"]["standalone_agent"] is False
     assert payload["entrypoint"]["meeting_path"] is False
+    assert payload["message"]
+    assert payload["feedback"]["summary"] == "当前任务已完成，计划与参数覆盖满足预期。"
+    assert payload["next_action"]["kind"] == "inspect_artifact"
     assert payload["task_bus"]["schema_version"] == "task_bus.v2"
     assert payload["task_bus"]["planner"]["plan_summary"]["schema_version"] == "task_plan.v2"
     assert payload["task_bus"]["planner"]["plan_summary"]["recommended_step_count"] == len(payload["orchestration"]["recommended_plan"])
@@ -226,3 +229,39 @@ def test_stock_analysis_gap_fill_when_llm_uses_wrong_yaml_args(tmp_path: Path):
     ]
     assert payload["orchestration"]["tool_calls"][3]["action"]["tool"] == "get_indicator_snapshot"
     assert payload["orchestration"]["tool_calls"][3]["action"]["args"]["days"] == 120
+
+
+def test_stock_analysis_feedback_warns_when_coverage_incomplete(tmp_path: Path):
+    service = _build_service(tmp_path)
+
+    def _partial_execution(**kwargs):
+        return {
+            "mode": "llm_react",
+            "plan": [{"tool": "get_daily_history", "args": {"query": "sh.600001", "days": 60}, "thought": "先看K线。"}],
+            "tool_calls": [
+                {
+                    "step": 1,
+                    "source": "llm_react",
+                    "thought": "先看K线。",
+                    "action": {"tool": "get_daily_history", "args": {"query": "sh.600001", "days": 60}},
+                    "observation": {"status": "ok"},
+                    "raw_status": "ok",
+                }
+            ],
+            "results": {"get_daily_history": {"status": "ok", "rows": []}},
+            "result_sequence": [{"tool": "get_daily_history", "result": {"status": "ok", "rows": []}, "source": "llm_react"}],
+            "final_reasoning": "证据暂不充分。",
+            "fallback_used": False,
+            "workflow": ["yaml_strategy_loaded", "llm_react", "finalize"],
+            "phase_stats": {"llm_react_steps": 1, "yaml_gap_fill_steps": 0, "yaml_planned_steps": 0, "total_steps": 1},
+            "gap_fill": {"enabled": False, "applied": False, "reason": "test_incomplete", "missing_plan_steps_before_fill": [], "filled_steps": [], "missing_plan_steps_after_fill": []},
+        }
+
+    service._run_react_executor = _partial_execution
+    payload = service.ask_stock(question="用缠论分析 FooBank", query="FooBank")
+
+    assert payload["status"] == "ok"
+    assert payload["feedback"]["summary"] == "分析已完成，但证据覆盖仍不完整，结论应谨慎使用。"
+    assert payload["next_action"]["kind"] == "review"
+    assert "incomplete_plan_coverage" in payload["task_bus"]["gate"]["reasons"]
+    assert "推荐计划尚未被完整覆盖" in payload["message"]

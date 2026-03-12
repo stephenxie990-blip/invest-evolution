@@ -114,6 +114,8 @@ def test_training_lab_plan_run_eval_api(tmp_path, monkeypatch):
     plan = created.get_json()
     plan_id = plan['plan_id']
     assert plan['source'] == 'api'
+    assert plan['guardrails']['promotion_gate']['research_feedback']['enabled'] is True
+    assert '默认启用 research_feedback 校准门' in plan['guardrails']['promotion_gate']['research_feedback']['summary']
     assert plan['spec']['detail_mode'] == 'slow'
     assert plan['protocol']['seed'] == 7
     assert plan['dataset']['simulation_days'] == 15
@@ -138,6 +140,10 @@ def test_training_lab_plan_run_eval_api(tmp_path, monkeypatch):
     assert executed.status_code == 200
     executed_data = executed.get_json()
     assert executed_data['training_lab']['plan']['plan_id'] == plan_id
+    assert executed_data['training_lab']['plan']['guardrails']['promotion_gate']['research_feedback']['enabled'] is True
+    assert executed_data['training_lab']['evaluation']['promotion']['research_feedback']['passed'] is False
+    assert 'research_feedback.available' in executed_data['training_lab']['evaluation']['promotion']['research_feedback']['reason_codes']
+    assert '缺少可用研究反馈样本' in executed_data['training_lab']['evaluation']['promotion']['research_feedback']['summary']
     run_id = executed_data['training_lab']['run']['run_id']
 
     assert len(list(runtime.cfg.training_run_dir.glob('*.json'))) == 1
@@ -202,6 +208,8 @@ def test_api_train_still_returns_training_lab_bundle(tmp_path, monkeypatch):
     assert payload['status'] == 'ok'
     assert 'training_lab' in payload
     assert payload['training_lab']['plan']['plan_id'].startswith('plan_')
+    assert payload['training_lab']['plan']['guardrails']['promotion_gate']['research_feedback']['enabled'] is True
+    assert payload['training_lab']['evaluation']['promotion']['research_feedback']['passed'] is False
     assert len(list(runtime.cfg.training_plan_dir.glob('*.json'))) == 1
     assert len(list(runtime.cfg.training_run_dir.glob('*.json'))) == 1
     assert len(list(runtime.cfg.training_eval_dir.glob('*.json'))) == 1

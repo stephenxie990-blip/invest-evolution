@@ -811,6 +811,7 @@ class InvestAskStockTool(BrainTool):
                 "query": {"type": "string", "description": "stock code or stock name"},
                 "strategy": {"type": "string", "default": "chan_theory"},
                 "days": {"type": "integer", "minimum": 30, "maximum": 500, "default": 60},
+                "as_of_date": {"type": "string", "default": "", "description": "point-in-time cutoff date in YYYYMMDD or YYYY-MM-DD"},
             },
             "required": ["query"],
         }
@@ -820,6 +821,7 @@ class InvestAskStockTool(BrainTool):
             query=str(kwargs["query"]),
             strategy=str(kwargs.get("strategy", "chan_theory") or "chan_theory"),
             days=int(kwargs.get("days", 60)),
+            as_of_date=str(kwargs.get("as_of_date", "") or ""),
         ))
 
 

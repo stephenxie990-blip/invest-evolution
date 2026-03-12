@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
@@ -15,11 +16,24 @@ except Exception:  # pragma: no cover
 import pandas as pd
 
 from app.llm_gateway import LLMGateway, LLMGatewayError, LLMUnavailableError
-from config import PROJECT_ROOT, normalize_date
+from config import OUTPUT_DIR, PROJECT_ROOT, config, normalize_date
 from config.control_plane import resolve_default_llm
-from brain.task_bus import build_readonly_task_bus
+from brain.task_bus import build_gate_feedback, build_next_action, build_readonly_task_bus
+from invest.leaderboard import write_leaderboard
+from invest.models import create_investment_model, resolve_model_config_path
+from invest.research import (
+    ResearchAttributionEngine,
+    ResearchCaseStore,
+    ResearchScenarioEngine,
+    build_dashboard_projection,
+    build_research_hypothesis,
+    build_research_snapshot,
+    resolve_policy_snapshot,
+)
+from invest.router import ModelRoutingCoordinator
 from invest.foundation.compute.features import compute_stock_summary
 from invest.foundation.compute.indicators_v2 import compute_indicator_snapshot
+from market_data import DataManager
 from market_data.repository import MarketDataRepository
 
 logger = logging.getLogger(__name__)
@@ -88,12 +102,25 @@ class StockAnalysisService:
         api_base: str = "",
         project_root: str | Path | None = None,
         enable_llm_react: bool = True,
+        controller_provider: Callable[[], Any] | None = None,
     ):
         self.repository = MarketDataRepository(str(db_path) if db_path else None)
         self.repository.initialize_schema()
         self.strategy_dir = Path(strategy_dir or (PROJECT_ROOT / "stock_strategies"))
         self.strategy_dir.mkdir(parents=True, exist_ok=True)
-        self._project_root = Path(project_root or PROJECT_ROOT)
+        inferred_project_root = project_root
+        if inferred_project_root is None:
+            if strategy_dir is not None:
+                inferred_project_root = Path(strategy_dir).expanduser().resolve().parent
+            elif db_path is not None:
+                inferred_project_root = Path(db_path).expanduser().resolve().parent
+            else:
+                inferred_project_root = PROJECT_ROOT
+        self._project_root = Path(inferred_project_root)
+        self._runtime_state_dir = self._project_root / "runtime" / "state"
+        self._runtime_state_dir.mkdir(parents=True, exist_ok=True)
+        self._analysis_as_of_date: str = ""
+        self._controller_provider = controller_provider
         self._ensure_default_strategies()
         self._tool_registry: dict[str, Callable[..., dict[str, Any]]] = {
             "get_daily_history": self.get_daily_history,
@@ -107,6 +134,9 @@ class StockAnalysisService:
         }
         self.gateway = gateway or self._build_gateway(model=model, api_key=api_key, api_base=api_base)
         self.enable_llm_react = bool(enable_llm_react)
+        self.case_store = ResearchCaseStore(self._runtime_state_dir)
+        self.scenario_engine = ResearchScenarioEngine(self.case_store)
+        self.attribution_engine = ResearchAttributionEngine(self.repository)
 
     def list_strategies(self) -> list[dict[str, Any]]:
         items: list[dict[str, Any]] = []
@@ -118,7 +148,7 @@ class StockAnalysisService:
 
     def get_daily_history(self, query: str, *, days: int = 60) -> dict[str, Any]:
         code, security = self.resolve_security(query)
-        frame = self.repository.get_stock(code)
+        frame = self._get_stock_frame(code)
         if frame.empty:
             return {
                 "status": "not_found",
@@ -145,7 +175,7 @@ class StockAnalysisService:
 
     def get_realtime_quote(self, query: str) -> dict[str, Any]:
         code, security = self.resolve_security(query)
-        frame = self.repository.get_stock(code)
+        frame = self._get_stock_frame(code)
         if frame.empty:
             return {
                 "status": "not_found",
@@ -169,7 +199,7 @@ class StockAnalysisService:
 
     def analyze_trend(self, query: str, *, days: int = 120) -> dict[str, Any]:
         code, security = self.resolve_security(query)
-        frame = self.repository.get_stock(code)
+        frame = self._get_stock_frame(code)
         if frame.empty:
             return {
                 "status": "not_found",
@@ -241,7 +271,7 @@ class StockAnalysisService:
 
     def get_indicator_snapshot(self, query: str, *, days: int = 180) -> dict[str, Any]:
         code, security = self.resolve_security(query)
-        frame = self.repository.get_stock(code)
+        frame = self._get_stock_frame(code)
         if frame.empty:
             return {
                 "status": "not_found",
@@ -272,7 +302,7 @@ class StockAnalysisService:
 
     def analyze_support_resistance(self, query: str, *, days: int = 120) -> dict[str, Any]:
         code, security = self.resolve_security(query)
-        frame = self.repository.get_stock(code)
+        frame = self._get_stock_frame(code)
         if frame.empty:
             return {
                 "status": "not_found",
@@ -337,7 +367,7 @@ class StockAnalysisService:
 
     def get_capital_flow(self, query: str, *, days: int = 20) -> dict[str, Any]:
         code, security = self.resolve_security(query)
-        price_frame = self.repository.get_stock(code)
+        price_frame = self._get_stock_frame(code)
         if price_frame.empty:
             return {
                 "status": "not_found",
@@ -351,7 +381,10 @@ class StockAnalysisService:
         start_date = str(price_frame.tail(max(1, int(days)))["trade_date"].min())
         frame = self.repository.query_capital_flow_daily(codes=[code], start_date=start_date, end_date=end_date)
         if frame.empty:
-            frame = self.repository.query_capital_flow_daily(codes=[code]).sort_values("trade_date").tail(max(1, int(days)))
+            frame = self.repository.query_capital_flow_daily(
+                codes=[code],
+                end_date=self._current_analysis_cutoff(),
+            ).sort_values("trade_date").tail(max(1, int(days)))
         if frame.empty:
             return {
                 "status": "no_data",
@@ -388,7 +421,7 @@ class StockAnalysisService:
 
     def get_intraday_context(self, query: str, *, days: int = 5) -> dict[str, Any]:
         code, security = self.resolve_security(query)
-        daily = self.repository.get_stock(code)
+        daily = self._get_stock_frame(code)
         if daily.empty:
             return {
                 "status": "not_found",
@@ -438,17 +471,151 @@ class StockAnalysisService:
             "artifacts": {"start_date": start_date, "end_date": end_date},
         }
 
-    def ask_stock(self, *, question: str, query: str, strategy: str = "chan_theory", days: int = 60) -> dict[str, Any]:
+    def ask_stock(
+        self,
+        *,
+        question: str,
+        query: str,
+        strategy: str = "chan_theory",
+        days: int = 60,
+        as_of_date: str = "",
+    ) -> dict[str, Any]:
         strategy_name, strategy_source = self._resolve_strategy_name(question=question, strategy=strategy)
         resolved_days = self._infer_days(question=question, default_days=days)
         strat = self.load_strategy(strategy_name)
         code, security = self.resolve_security(query)
-        recommended_plan = [step.to_dict() for step in self._build_plan(strategy=strat, query=code, days=resolved_days)]
-        allowed_tools = self._strategy_allowed_tools(strat)
-        execution = self._run_react_executor(question=question, query=code, security=security, strategy=strat, days=resolved_days)
-        coverage = self._build_execution_coverage(strategy=strat, execution=execution, recommended_plan=recommended_plan, allowed_tools=allowed_tools)
-        derived = self._derive_signals(execution)
-        dashboard = self._build_dashboard(strategy=strat, derived=derived, execution=execution)
+        effective_as_of_date = self._resolve_effective_as_of_date(code, as_of_date)
+        with self._analysis_scope(effective_as_of_date):
+            recommended_plan = [step.to_dict() for step in self._build_plan(strategy=strat, query=code, days=resolved_days)]
+            allowed_tools = self._strategy_allowed_tools(strat)
+            execution = self._run_react_executor(question=question, query=code, security=security, strategy=strat, days=resolved_days)
+            coverage = self._build_execution_coverage(strategy=strat, execution=execution, recommended_plan=recommended_plan, allowed_tools=allowed_tools)
+            derived = self._derive_signals(execution)
+        legacy_dashboard = self._build_dashboard(strategy=strat, derived=derived, execution=execution)
+        research_bridge = self._build_research_bridge(
+            code=code,
+            security=security,
+            requested_as_of_date=as_of_date,
+            effective_as_of_date=effective_as_of_date,
+            days=resolved_days,
+            derived=derived,
+        )
+        dashboard = legacy_dashboard
+        research_payload: dict[str, Any] = {
+            "status": str(research_bridge.get("status") or "unavailable"),
+            "requested_as_of_date": self._normalize_as_of_date(as_of_date),
+            "as_of_date": effective_as_of_date,
+        }
+        model_bridge_payload: dict[str, Any] = {
+            "status": str(research_bridge.get("status") or "unavailable"),
+            "requested_as_of_date": self._normalize_as_of_date(as_of_date),
+            "as_of_date": effective_as_of_date,
+        }
+        policy_id = ""
+        research_case_id = ""
+        attribution_id = ""
+        if research_bridge.get("status") == "ok":
+            snapshot = research_bridge["snapshot"]
+            policy = research_bridge["policy"]
+            preliminary_stance = self._estimate_preliminary_stance(snapshot)
+            scenario = self.scenario_engine.estimate(snapshot=snapshot, policy=policy, stance=preliminary_stance)
+            hypothesis = build_research_hypothesis(
+                snapshot=snapshot,
+                policy=policy,
+                scenario=scenario,
+                strategy_name=strat.name,
+                strategy_display_name=strat.display_name,
+            )
+            dashboard = build_dashboard_projection(
+                hypothesis=hypothesis,
+                matched_signals=list(derived.get("matched_signals") or []),
+                core_rules=list(strat.core_rules),
+                entry_conditions=list(strat.entry_conditions),
+                legacy_reason=str(legacy_dashboard.get("reason") or ""),
+            )
+            case_record = None
+            attribution_preview = None
+            attribution_record = None
+            calibration_report = None
+            try:
+                case_record = self.case_store.save_case(
+                    snapshot=snapshot,
+                    policy=policy,
+                    hypothesis=hypothesis,
+                    metadata={
+                        "question": question,
+                        "query": query,
+                        "strategy": strat.name,
+                        "strategy_source": strategy_source,
+                        "execution_mode": execution.get("mode"),
+                    },
+                )
+                research_case_id = str(case_record.get("research_case_id") or "")
+                attribution = self.attribution_engine.evaluate_case(case_record)
+                attribution_preview = attribution.to_dict()
+                has_scored_horizon = any(
+                    str((result or {}).get("label") or "") != "timeout"
+                    for result in dict(attribution.horizon_results or {}).values()
+                )
+                if has_scored_horizon:
+                    attribution_record = self.case_store.save_attribution(
+                        attribution,
+                        metadata={
+                            "policy_id": policy.policy_id,
+                            "research_case_id": research_case_id,
+                            "code": code,
+                            "as_of_date": effective_as_of_date,
+                        },
+                    )
+                    attribution_id = str(attribution_record.get("attribution_id") or "")
+                    calibration_report = self.case_store.write_calibration_report(policy_id=policy.policy_id)
+            except Exception:
+                logger.warning("Failed to persist/evaluate research case for %s", code, exc_info=True)
+            policy_id = policy.policy_id
+            model_bridge_payload.update(
+                {
+                    "status": "ok",
+                    "controller_bound": bool(research_bridge.get("controller_bound")),
+                    "replay_mode": bool(research_bridge.get("replay_mode")),
+                    "parameter_source": str(research_bridge.get("parameter_source") or ""),
+                    "routing_decision": dict(research_bridge.get("routing_decision") or {}),
+                    "model_output": research_bridge["model_output"].to_dict(),
+                    "policy_id": policy_id,
+                    "research_case_id": research_case_id,
+                    "attribution_id": attribution_id,
+                }
+            )
+            research_payload.update(
+                {
+                    "status": "ok",
+                    "snapshot": snapshot.to_dict(),
+                    "policy": policy.to_dict(),
+                    "hypothesis": hypothesis.to_dict(),
+                    "scenario": dict(scenario or {}),
+                    "case": dict(case_record or {}),
+                    "attribution": {
+                        "saved": bool(attribution_record),
+                        "record": dict(attribution_record or {}),
+                        "preview": dict(attribution_preview or {}),
+                    },
+                    "calibration_report": dict(calibration_report or {}),
+                }
+            )
+        else:
+            model_bridge_payload.update(
+                {
+                    "error": str(research_bridge.get("error") or ""),
+                    "fallback": "legacy_yaml_dashboard",
+                    "details": dict(research_bridge.get("details") or {}),
+                }
+            )
+            research_payload.update(
+                {
+                    "error": str(research_bridge.get("error") or ""),
+                    "fallback": "legacy_yaml_dashboard",
+                    "details": dict(research_bridge.get("details") or {}),
+                }
+            )
         task_bus = build_readonly_task_bus(
             intent="stock_analysis",
             operation="ask_stock",
@@ -467,11 +634,21 @@ class StockAnalysisService:
             coverage=coverage,
             status="ok",
         )
+        feedback = build_gate_feedback(task_bus=task_bus, default_message="已完成问股分析。")
+        next_action = build_next_action(task_bus=task_bus, feedback=feedback)
         return {
             "status": "ok",
+            "message": feedback["message"],
+            "feedback": feedback,
+            "next_action": next_action,
             "question": question,
             "query": query,
             "normalized_query": code,
+            "as_of_date": effective_as_of_date,
+            "requested_as_of_date": self._normalize_as_of_date(as_of_date),
+            "policy_id": policy_id,
+            "research_case_id": research_case_id,
+            "attribution_id": attribution_id,
             "resolved": security,
             "resolved_security": security,
             "entrypoint": {
@@ -516,8 +693,310 @@ class StockAnalysisService:
                 "tool_results": execution["results"],
                 "result_sequence": execution["result_sequence"],
                 "derived_signals": derived,
+                "model_bridge": model_bridge_payload,
             },
+            "research": research_payload,
             "dashboard": dashboard,
+        }
+
+    @staticmethod
+    def _normalize_as_of_date(value: str | None = None) -> str:
+        raw = str(value or "").strip()
+        return normalize_date(raw) if raw else ""
+
+    def _current_analysis_cutoff(self) -> str | None:
+        return self._normalize_as_of_date(self._analysis_as_of_date) or None
+
+    def _resolve_effective_as_of_date(self, code: str, requested_as_of_date: str = "") -> str:
+        requested = self._normalize_as_of_date(requested_as_of_date)
+        frame = self.repository.get_stock(code, cutoff_date=requested or None)
+        if frame.empty:
+            return requested
+        trade_dates = frame.get("trade_date")
+        if trade_dates is None or len(trade_dates) == 0:
+            return requested
+        return normalize_date(str(pd.Series(trade_dates).astype(str).max()))
+
+    @contextmanager
+    def _analysis_scope(self, as_of_date: str | None = None):
+        previous = self._analysis_as_of_date
+        self._analysis_as_of_date = self._normalize_as_of_date(as_of_date)
+        try:
+            yield self._analysis_as_of_date
+        finally:
+            self._analysis_as_of_date = previous
+
+    def _get_stock_frame(self, code: str) -> pd.DataFrame:
+        frame = self.repository.get_stock(code, cutoff_date=self._current_analysis_cutoff())
+        if frame.empty:
+            return frame
+        result = frame.copy()
+        if "trade_date" in result.columns:
+            result["trade_date"] = result["trade_date"].astype(str)
+            result = result.sort_values("trade_date").reset_index(drop=True)
+        return result
+
+    def _resolve_live_controller(self) -> Any | None:
+        if self._controller_provider is None:
+            return None
+        try:
+            return self._controller_provider()
+        except Exception:
+            logger.warning("Failed to resolve live controller for ask_stock research bridge", exc_info=True)
+            return None
+
+    def _ensure_query_in_stock_data(
+        self,
+        *,
+        stock_data: dict[str, pd.DataFrame],
+        code: str,
+        cutoff_date: str,
+    ) -> dict[str, pd.DataFrame]:
+        enriched = dict(stock_data or {})
+        if code in enriched:
+            return enriched
+        query_frame = self.repository.get_stock(code, cutoff_date=cutoff_date)
+        if query_frame.empty:
+            return enriched
+        query_frame = query_frame.copy()
+        if "trade_date" in query_frame.columns:
+            query_frame["trade_date"] = query_frame["trade_date"].astype(str)
+            query_frame = query_frame.sort_values("trade_date").reset_index(drop=True)
+        enriched[code] = query_frame
+        return enriched
+
+    @staticmethod
+    def _estimate_preliminary_stance(snapshot: Any) -> str:
+        cross = dict(getattr(snapshot, "cross_section_context", {}) or {})
+        percentile = cross.get("percentile")
+        percentile_f = float(percentile or 0.0) if percentile is not None else 0.0
+        selected_by_policy = bool(cross.get("selected_by_policy"))
+        raw_score = 50.0 + percentile_f * 40.0 + (8.0 if selected_by_policy else 0.0)
+        if raw_score >= 82:
+            return "候选买入"
+        if raw_score >= 68:
+            return "偏强关注"
+        if raw_score <= 35:
+            return "减仓/回避"
+        if raw_score <= 45:
+            return "偏弱回避"
+        return "持有观察"
+
+    def _build_research_bridge(
+        self,
+        *,
+        code: str,
+        security: dict[str, Any],
+        requested_as_of_date: str,
+        effective_as_of_date: str,
+        days: int,
+        derived: dict[str, Any],
+    ) -> dict[str, Any]:
+        controller = self._resolve_live_controller()
+        latest_live_date = self._resolve_effective_as_of_date(code, "")
+        replay_mode = bool(self._normalize_as_of_date(requested_as_of_date)) and bool(latest_live_date) and str(effective_as_of_date) < str(latest_live_date)
+        current_model = str(getattr(controller, "model_name", getattr(config, "investment_model", "momentum")) or "momentum")
+        fallback_config_path = str(resolve_model_config_path(current_model))
+        base_config_path = str(getattr(controller, "model_config_path", getattr(config, "investment_model_config", fallback_config_path)) or fallback_config_path)
+        try:
+            base_config_path = str(Path(base_config_path).expanduser().resolve())
+        except Exception:
+            base_config_path = fallback_config_path
+        current_params = dict(getattr(controller, "current_params", {}) or {})
+        if replay_mode:
+            current_params = {}
+        stock_count = max(10, int(getattr(config, "max_stocks", 50) or 50))
+        query_history_frame = self.repository.get_stock(code, cutoff_date=effective_as_of_date)
+        query_history_days = int(len(query_history_frame))
+        min_history_days = max(30, min(60, query_history_days if query_history_days > 0 else int(days or 60)))
+        lookback_days = max(60, int(days or 60))
+        parameter_source = "config_default_replay_safe" if replay_mode else "live_controller" if controller is not None else "config_default"
+        data_manager = DataManager(
+            db_path=str(self.repository.db_path),
+            prefer_offline=True,
+            allow_mock_fallback=False,
+        )
+        try:
+            stock_data = data_manager.load_stock_data(
+                cutoff_date=effective_as_of_date,
+                stock_count=stock_count,
+                min_history_days=min_history_days,
+                include_capital_flow=False,
+            )
+        except Exception as exc:
+            logger.warning("Research bridge data load failed for %s", code, exc_info=True)
+            return {
+                "status": "unavailable",
+                "error": str(exc),
+                "details": {
+                    "stage": "load_stock_data",
+                    "parameter_source": parameter_source,
+                    "as_of_date": effective_as_of_date,
+                },
+            }
+        stock_data = self._ensure_query_in_stock_data(
+            stock_data=stock_data,
+            code=code,
+            cutoff_date=effective_as_of_date,
+        )
+        if not stock_data:
+            return {
+                "status": "unavailable",
+                "error": "research bridge returned empty stock universe",
+                "details": {
+                    "stage": "empty_universe",
+                    "parameter_source": parameter_source,
+                    "as_of_date": effective_as_of_date,
+                },
+            }
+        leaderboard_root = Path(getattr(controller, "output_dir", OUTPUT_DIR) or OUTPUT_DIR)
+        if leaderboard_root.name == "training":
+            leaderboard_root = leaderboard_root.parent
+        leaderboard_root.mkdir(parents=True, exist_ok=True)
+        leaderboard_path = leaderboard_root / "leaderboard.json"
+        try:
+            write_leaderboard(leaderboard_root, leaderboard_path)
+        except Exception:
+            logger.debug("Leaderboard refresh failed during ask_stock bridge", exc_info=True)
+        allowed_models = [
+            str(item).strip()
+            for item in (
+                getattr(controller, "experiment_allowed_models", None)
+                or getattr(controller, "model_routing_allowed_models", None)
+                or getattr(config, "model_routing_allowed_models", None)
+                or []
+            )
+            if str(item).strip()
+        ]
+        routing_enabled = bool(getattr(controller, "model_routing_enabled", getattr(config, "model_routing_enabled", True)))
+        routing_mode = str(getattr(controller, "model_routing_mode", getattr(config, "model_routing_mode", "rule")) or "rule").strip().lower()
+        allocator_top_n = int(getattr(controller, "allocator_top_n", getattr(config, "allocator_top_n", 3)) or 3)
+        routing_coordinator = getattr(controller, "routing_coordinator", None)
+        if routing_coordinator is None:
+            routing_coordinator = ModelRoutingCoordinator(
+                routing_policy=dict(getattr(controller, "model_routing_policy", getattr(config, "model_routing_policy", {})) or {}),
+                min_confidence=float(getattr(controller, "model_switch_min_confidence", getattr(config, "model_switch_min_confidence", 0.60)) or 0.60),
+                cooldown_cycles=int(getattr(controller, "model_switch_cooldown_cycles", getattr(config, "model_switch_cooldown_cycles", 2)) or 2),
+                hysteresis_margin=float(getattr(controller, "model_switch_hysteresis_margin", getattr(config, "model_switch_hysteresis_margin", 0.08)) or 0.08),
+                agent_override_max_gap=float(
+                    getattr(controller, "model_routing_agent_override_max_gap", getattr(config, "model_routing_agent_override_max_gap", 0.18)) or 0.18
+                ),
+            )
+        try:
+            decision = routing_coordinator.route(
+                stock_data=stock_data,
+                cutoff_date=effective_as_of_date,
+                current_model=current_model,
+                leaderboard_path=leaderboard_path,
+                allocator_top_n=allocator_top_n,
+                allowed_models=allowed_models or None,
+                routing_mode=routing_mode if routing_enabled else "off",
+                regime_agent=(getattr(controller, "agents", {}) or {}).get("market_regime") if controller is not None and routing_mode in {"hybrid", "agent"} else None,
+                selector_agent=(getattr(controller, "agents", {}) or {}).get("model_selector")
+                if controller is not None and bool(getattr(controller, "model_routing_agent_override_enabled", False)) and routing_mode in {"hybrid", "agent"}
+                else None,
+                previous_decision=dict(getattr(controller, "last_routing_decision", {}) or {}),
+                current_cycle_id=getattr(controller, "current_cycle_id", None),
+                last_switch_cycle_id=getattr(controller, "last_model_switch_cycle_id", None),
+                data_manager=data_manager,
+            )
+        except Exception as exc:
+            logger.warning("Research bridge routing failed for %s", code, exc_info=True)
+            return {
+                "status": "unavailable",
+                "error": str(exc),
+                "details": {
+                    "stage": "routing",
+                    "parameter_source": parameter_source,
+                    "as_of_date": effective_as_of_date,
+                },
+            }
+        selected_model = str(getattr(decision, "selected_model", "") or current_model or "momentum")
+        selected_config = str(getattr(decision, "selected_config", "") or resolve_model_config_path(selected_model))
+        try:
+            selected_config = str(Path(selected_config).expanduser().resolve())
+        except Exception:
+            selected_config = str(selected_config)
+        runtime_overrides = current_params if (not replay_mode and selected_model == current_model and selected_config == base_config_path) else {}
+        try:
+            investment_model = create_investment_model(
+                selected_model,
+                config_path=selected_config,
+                runtime_overrides=runtime_overrides,
+            )
+            model_output = investment_model.process(stock_data, effective_as_of_date)
+        except Exception as exc:
+            logger.warning("Research bridge model execution failed for %s", code, exc_info=True)
+            return {
+                "status": "unavailable",
+                "error": str(exc),
+                "details": {
+                    "stage": "model_process",
+                    "selected_model": selected_model,
+                    "selected_config": selected_config,
+                },
+            }
+        routing_context = {
+            "as_of_date": effective_as_of_date,
+            "requested_as_of_date": self._normalize_as_of_date(requested_as_of_date),
+            "routing_mode": routing_mode if routing_enabled else "off",
+            "current_model": current_model,
+            "selected_model": selected_model,
+            "selected_config": selected_config,
+            "decision_source": str(getattr(decision, "decision_source", "") or ""),
+            "regime": str(getattr(decision, "regime", "") or "unknown"),
+            "regime_confidence": float(getattr(decision, "regime_confidence", 0.0) or 0.0),
+            "decision_confidence": float(getattr(decision, "decision_confidence", 0.0) or 0.0),
+            "allowed_models": allowed_models or [selected_model],
+            "hold_current": bool(getattr(decision, "hold_current", False)),
+            "hold_reason": str(getattr(decision, "hold_reason", "") or ""),
+        }
+        data_lineage = {
+            "db_path": str(self.repository.db_path),
+            "requested_as_of_date": self._normalize_as_of_date(requested_as_of_date),
+            "effective_as_of_date": effective_as_of_date,
+            "data_source": str(getattr(data_manager, "last_source", "unknown") or "unknown"),
+            "data_resolution": dict(getattr(data_manager, "last_resolution", {}) or {}),
+            "stock_count": len(stock_data),
+            "min_history_days": min_history_days,
+            "lookback_days": lookback_days,
+        }
+        snapshot = build_research_snapshot(
+            model_output=model_output,
+            security=security,
+            query_code=code,
+            stock_data=stock_data,
+            routing_context=routing_context,
+            data_lineage=data_lineage,
+            legacy_signals=derived,
+        )
+        policy = resolve_policy_snapshot(
+            investment_model=investment_model,
+            routing_context=routing_context,
+            data_window={
+                "as_of_date": effective_as_of_date,
+                "lookback_days": lookback_days,
+                "simulation_days": int(getattr(config, "simulation_days", 30) or 30),
+                "universe_definition": f"stock_count={stock_count}|min_history_days={min_history_days}",
+                "stock_universe_size": len(stock_data),
+            },
+            metadata={
+                "parameter_source": parameter_source,
+                "controller_bound": bool(controller is not None),
+                "replay_mode": replay_mode,
+                "requested_as_of_date": self._normalize_as_of_date(requested_as_of_date),
+                "effective_as_of_date": effective_as_of_date,
+            },
+        )
+        return {
+            "status": "ok",
+            "controller_bound": bool(controller is not None),
+            "replay_mode": replay_mode,
+            "parameter_source": parameter_source,
+            "routing_decision": decision.to_dict(),
+            "model_output": model_output,
+            "snapshot": snapshot,
+            "policy": policy,
         }
 
     def resolve_security(self, query: str) -> tuple[str, dict[str, Any]]:

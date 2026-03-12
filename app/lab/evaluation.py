@@ -3,6 +3,55 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
+from app.training.reporting import evaluate_research_feedback_gate
+
+
+def _feedback_sort_key(item: dict[str, Any]) -> tuple[str, int]:
+    cutoff = str(item.get("cutoff_date") or "")
+    try:
+        cycle_id = int(item.get("cycle_id") or 0)
+    except (TypeError, ValueError):
+        cycle_id = 0
+    return cutoff, cycle_id
+
+
+def _latest_research_feedback(ok_results: list[dict[str, Any]]) -> tuple[dict[str, Any], dict[str, Any]]:
+    latest_feedback: dict[str, Any] = {}
+    latest_source: dict[str, Any] = {}
+    latest_key = ("", 0)
+    for item in ok_results:
+        feedback = dict(item.get("research_feedback") or {})
+        if not feedback:
+            continue
+        key = _feedback_sort_key(item)
+        if key >= latest_key:
+            latest_key = key
+            latest_feedback = feedback
+            latest_source = {
+                "cycle_id": item.get("cycle_id"),
+                "cutoff_date": item.get("cutoff_date"),
+                "model_name": item.get("model_name"),
+                "config_name": item.get("config_name"),
+            }
+    return latest_feedback, latest_source
+
+
+def _research_feedback_brief(feedback: dict[str, Any], *, source: dict[str, Any] | None = None) -> dict[str, Any]:
+    payload = dict(feedback or {})
+    recommendation = dict(payload.get("recommendation") or {})
+    t20 = dict(payload.get("horizons") or {}).get("T+20") or {}
+    return {
+        "available": bool(payload),
+        "source": dict(source or {}),
+        "sample_count": int(payload.get("sample_count") or 0),
+        "bias": str(recommendation.get("bias") or "unknown"),
+        "summary": str(recommendation.get("summary") or ""),
+        "brier_like_direction_score": payload.get("brier_like_direction_score"),
+        "t20_hit_rate": t20.get("hit_rate"),
+        "t20_invalidation_rate": t20.get("invalidation_rate"),
+        "available_horizons": sorted((payload.get("horizons") or {}).keys()),
+    }
+
 
 def build_promotion_summary(*, plan: dict[str, Any], ok_results: list[dict[str, Any]], avg_return_pct: float | None, avg_strategy_score: float | None, benchmark_pass_rate: float, baseline_entries: list[dict[str, Any]]) -> dict[str, Any]:
     gate = dict((plan.get("optimization") or {}).get("promotion_gate") or {})
@@ -45,6 +94,57 @@ def build_promotion_summary(*, plan: dict[str, Any], ok_results: list[dict[str, 
         threshold = float(gate.get("min_strategy_score_advantage_vs_baseline") or 0.0)
         actual = round(avg_strategy_score - baseline_avg_score, 4)
         add_check("min_strategy_score_advantage_vs_baseline", actual >= threshold, actual, threshold)
+
+    latest_feedback, feedback_source = _latest_research_feedback(ok_results)
+    research_gate_policy = dict(gate.get("research_feedback") or {})
+    research_feedback_summary = _research_feedback_brief(latest_feedback, source=feedback_source)
+    promotion_feedback_gate: dict[str, Any] = {
+        "enabled": bool(research_gate_policy),
+        "passed": True,
+        "checks": [],
+        "latest_feedback": research_feedback_summary,
+    }
+    if research_gate_policy:
+        if not latest_feedback:
+            availability_check = {
+                "name": "research_feedback.available",
+                "passed": False,
+                "actual": 0,
+                "threshold": 1,
+            }
+            checks.append(availability_check)
+            promotion_feedback_gate = {
+                **promotion_feedback_gate,
+                "passed": False,
+                "checks": [availability_check],
+                "failed_checks": [availability_check],
+            }
+        else:
+            evaluation = evaluate_research_feedback_gate(
+                latest_feedback,
+                policy=research_gate_policy,
+                defaults=research_gate_policy,
+            )
+            gate_checks: list[dict[str, Any]] = []
+            for item in list(evaluation.get("checks") or []):
+                gate_check = {
+                    "name": f"research_feedback.{item.get('name')}",
+                    "passed": bool(item.get("passed", False)),
+                    "actual": item.get("actual"),
+                    "threshold": item.get("required_gte", item.get("required_lte", item.get("blocked"))),
+                    "meta": {k: v for k, v in item.items() if k not in {"name", "passed", "actual", "required_gte", "required_lte", "blocked"}},
+                }
+                gate_checks.append(gate_check)
+                checks.append(gate_check)
+            promotion_feedback_gate = {
+                **evaluation,
+                "enabled": True,
+                "latest_feedback": research_feedback_summary,
+                "checks": gate_checks,
+                "failed_checks": [item for item in gate_checks if not item.get("passed", False)],
+                "passed": all(item.get("passed", False) for item in gate_checks) if gate_checks else False,
+            }
+
     passed = all(item.get("passed", False) for item in checks) if checks else False
     verdict = "promoted" if passed else "rejected"
     if not ok_results:
@@ -59,6 +159,7 @@ def build_promotion_summary(*, plan: dict[str, Any], ok_results: list[dict[str, 
         },
         "gate": gate,
         "checks": checks,
+        "research_feedback": promotion_feedback_gate,
         "verdict": verdict,
         "passed": passed,
         "protocol": {"holdout": holdout, "walk_forward": walk_forward},

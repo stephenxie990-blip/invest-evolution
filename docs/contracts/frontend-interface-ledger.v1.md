@@ -12,6 +12,8 @@
 - 主契约：`GET /api/contracts/frontend-v1`。
 - JSON Schema：`GET /api/contracts/frontend-v1/schema`。
 - OpenAPI：`GET /api/contracts/frontend-v1/openapi`。
+- 标准响应片段：`responseFeedback`，用于承载 Commander/ask-stock 的用户可读 gate + audit 摘要。
+- 标准后续动作片段：`responseNextAction`，用于表达建议用户下一步动作。
 - 事件流：`GET /api/events`（SSE）。
 
 ## 页面分工

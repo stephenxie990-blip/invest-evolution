@@ -35,13 +35,13 @@ from typing import Any, Callable, Dict, List, Optional
 
 import numpy as np
 
-from config import OUTPUT_DIR, PROJECT_ROOT, config, normalize_date
+from config import OUTPUT_DIR, PROJECT_ROOT, RUNTIME_DIR, config, normalize_date
 from config.services import EvolutionConfigService, RuntimePathConfigService
 from config.control_plane import build_component_llm_caller, resolve_default_llm
 from invest.shared import AgentTracker
 from market_data import DataManager, DataSourceUnavailableError, MockDataProvider
 from invest.evolution import LLMOptimizer, StrategyEvolutionOptimizer, EvolutionEngine, YamlConfigMutator
-from invest.foundation import BenchmarkEvaluator, SimulatedTrader, StrategyEvaluator
+from invest.foundation import BenchmarkEvaluator, SimulatedTrader, StrategyEvaluator, sanitize_risk_params
 from invest.agents import (
     MarketRegimeAgent, ModelSelectorAgent, TrendHunterAgent, ContrarianAgent, QualityAgent, DefensiveAgent,
     ReviewDecisionAgent, StrategistAgent, EvoJudgeAgent
@@ -52,10 +52,13 @@ from invest.leaderboard import write_leaderboard
 from invest.router import ModelRoutingCoordinator
 from invest.models import create_investment_model, resolve_model_config_path
 from invest.models.defaults import COMMON_EXECUTION_DEFAULTS, COMMON_PARAM_DEFAULTS, COMMON_BENCHMARK_DEFAULTS
+from invest.research.case_store import ResearchCaseStore
 from app.training.optimization import trigger_loss_optimization
 from app.training.reporting import (
     build_freeze_report,
     build_self_assessment_snapshot,
+    evaluate_freeze_gate,
+    evaluate_research_feedback_gate,
     generate_training_report,
     rolling_self_assessment,
     should_freeze as should_freeze_report,
@@ -237,6 +240,7 @@ class TrainingResult:
     model_name: str = "momentum"
     config_name: str = ""
     routing_decision: Dict[str, Any] = field(default_factory=dict)
+    research_feedback: Dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if (not self.effective_data_mode or self.effective_data_mode == "unknown") and self.data_mode:
@@ -314,6 +318,7 @@ class SelfLearningController:
         meeting_log_dir: Optional[str] = None,
         config_audit_log_path: Optional[str] = None,
         config_snapshot_dir: Optional[str] = None,
+        runtime_state_dir: Optional[str] = None,
         freeze_total_cycles:    int = 10,
         freeze_profit_required: int = 7,
         max_losses_before_optimize: int = 3,
@@ -462,8 +467,189 @@ class SelfLearningController:
             OUTPUT_DIR / "training"
         )
         self.output_dir.mkdir(parents=True, exist_ok=True)
+        self.runtime_state_dir = self._infer_runtime_state_dir(runtime_state_dir, config_audit_log_path)
+        self.runtime_state_dir.mkdir(parents=True, exist_ok=True)
+        self.research_case_store = ResearchCaseStore(self.runtime_state_dir)
+        self.last_research_feedback: Dict[str, Any] = {}
+        self.last_freeze_gate_evaluation: Dict[str, Any] = {}
+        self.last_feedback_optimization: Dict[str, Any] = {}
+        self.last_feedback_optimization_cycle_id: int = 0
+        self.research_feedback_policy: Dict[str, Any] = {}
+        self.research_feedback_optimization_policy: Dict[str, Any] = {}
+        self.research_feedback_freeze_policy: Dict[str, Any] = {}
 
         logger.info("自我学习控制器初始化完成")
+
+    def _infer_runtime_state_dir(self, runtime_state_dir: Optional[str], config_audit_log_path: Optional[str]) -> Path:
+        if runtime_state_dir:
+            return Path(runtime_state_dir).expanduser().resolve()
+        if config_audit_log_path:
+            return Path(config_audit_log_path).expanduser().resolve().parent
+        output_root = self.output_dir.expanduser().resolve()
+        if output_root.parent.name == "outputs":
+            return output_root.parent.parent / "state"
+        if output_root == (OUTPUT_DIR / "training").resolve():
+            return RUNTIME_DIR / "state"
+        return output_root.parent / "state"
+
+    @staticmethod
+    def _research_feedback_brief(feedback: Dict[str, Any] | None = None) -> Dict[str, Any]:
+        payload = dict(feedback or {})
+        recommendation = dict(payload.get("recommendation") or {})
+        return {
+            "sample_count": int(payload.get("sample_count") or 0),
+            "bias": str(recommendation.get("bias") or "unknown"),
+            "brier_like_direction_score": payload.get("brier_like_direction_score"),
+            "t20_hit_rate": dict(payload.get("horizons") or {}).get("T+20", {}).get("hit_rate"),
+        }
+
+    def _load_research_feedback(self, *, cutoff_date: str, model_name: str, config_name: str) -> Dict[str, Any]:
+        try:
+            feedback = self.research_case_store.build_training_feedback(
+                model_name=model_name,
+                config_name=config_name,
+                as_of_date=cutoff_date,
+                limit=200,
+            )
+        except Exception:
+            logger.debug("research calibration feedback unavailable", exc_info=True)
+            feedback = {}
+        self.last_research_feedback = dict(feedback or {})
+        return self.last_research_feedback
+
+    @staticmethod
+    def _policy_lookup(policy: Dict[str, Any] | None, path: str, default: Any) -> Any:
+        current: Any = dict(policy or {})
+        for key in path.split('.'):
+            if not isinstance(current, dict) or key not in current:
+                return default
+            current = current[key]
+        return current
+
+    def _sanitize_runtime_param_adjustments(self, adjustments: Dict[str, Any] | None = None) -> Dict[str, Any]:
+        normalized = dict(adjustments or {})
+        risk_like = {
+            key: float(value)
+            for key, value in normalized.items()
+            if key in {"stop_loss_pct", "take_profit_pct", "position_size"} and value is not None
+        }
+        clean = sanitize_risk_params(risk_like, policy=self.risk_policy)
+        clamp_policy = dict(self._policy_lookup(self.review_policy, 'param_clamps', {}) or {})
+        cash_bounds = dict(clamp_policy.get('cash_reserve') or {'min': 0.0, 'max': 0.80})
+        trailing_bounds = dict(clamp_policy.get('trailing_pct') or {'min': 0.03, 'max': 0.20})
+        if normalized.get('cash_reserve') is not None:
+            clean['cash_reserve'] = max(
+                float(cash_bounds.get('min', 0.0)),
+                min(float(cash_bounds.get('max', 0.80)), float(normalized['cash_reserve'])),
+            )
+        if normalized.get('trailing_pct') is not None:
+            clean['trailing_pct'] = max(
+                float(trailing_bounds.get('min', 0.03)),
+                min(float(trailing_bounds.get('max', 0.20)), float(normalized['trailing_pct'])),
+            )
+        return clean
+
+    @staticmethod
+    def _feedback_optimization_brief(plan: Dict[str, Any] | None = None, *, triggered: bool = False) -> Dict[str, Any]:
+        payload = dict(plan or {})
+        if not payload:
+            return {}
+        return {
+            'triggered': bool(triggered),
+            'trigger': str(payload.get('trigger') or 'research_feedback'),
+            'bias': str(payload.get('bias') or ''),
+            'failed_horizons': list(payload.get('failed_horizons') or []),
+            'failed_check_names': list(payload.get('failed_check_names') or []),
+            'summary': str(payload.get('summary') or ''),
+            'sample_count': int(payload.get('sample_count') or 0),
+            'cooldown_cycles': int(payload.get('cooldown_cycles') or 0),
+        }
+
+    def _build_feedback_optimization_plan(self, feedback: Dict[str, Any] | None, *, cycle_id: int) -> Dict[str, Any]:
+        payload = dict(feedback or {})
+        evaluation = evaluate_research_feedback_gate(
+            payload,
+            policy=self.research_feedback_optimization_policy,
+            defaults={
+                'min_sample_count': 5,
+                'blocked_biases': ['tighten_risk', 'recalibrate_probability'],
+                'max_brier_like_direction_score': 0.28,
+                'horizons': {
+                    'default': {
+                        'min_hit_rate': 0.45,
+                        'max_invalidation_rate': 0.35,
+                        'min_interval_hit_rate': 0.40,
+                    }
+                },
+            },
+        )
+        if not evaluation.get('active') or evaluation.get('passed', True):
+            return {}
+
+        cooldown_cycles = int(self.research_feedback_optimization_policy.get('cooldown_cycles', 3) or 3)
+        if self.last_feedback_optimization_cycle_id and cycle_id - self.last_feedback_optimization_cycle_id < cooldown_cycles:
+            return {}
+
+        bias = str(evaluation.get('bias') or dict(payload.get('recommendation') or {}).get('bias') or 'maintain')
+        failed_checks = list(evaluation.get('failed_checks') or [])
+        failed_horizons = sorted({str(item.get('horizon') or '').strip() for item in failed_checks if str(item.get('horizon') or '').strip()})
+        fail_count = max(1, len(failed_checks))
+        severity = min(3.0, 1.0 + 0.30 * max(0, fail_count - 1) + (0.35 if bias == 'tighten_risk' else 0.20))
+
+        current_position = float(self.current_params.get('position_size', COMMON_PARAM_DEFAULTS['position_size']) or COMMON_PARAM_DEFAULTS['position_size'])
+        current_stop = float(self.current_params.get('stop_loss_pct', COMMON_PARAM_DEFAULTS['stop_loss_pct']) or COMMON_PARAM_DEFAULTS['stop_loss_pct'])
+        current_take_profit = float(self.current_params.get('take_profit_pct', COMMON_PARAM_DEFAULTS['take_profit_pct']) or COMMON_PARAM_DEFAULTS['take_profit_pct'])
+        current_cash = float(self.current_params.get('cash_reserve', COMMON_PARAM_DEFAULTS['cash_reserve']) or COMMON_PARAM_DEFAULTS['cash_reserve'])
+        current_trailing = float(self.current_params.get('trailing_pct', COMMON_PARAM_DEFAULTS['trailing_pct']) or COMMON_PARAM_DEFAULTS['trailing_pct'])
+
+        raw_adjustments: Dict[str, Any] = {
+            'position_size': current_position * max(0.60, 1.0 - 0.10 * severity),
+            'cash_reserve': current_cash + 0.04 + 0.02 * min(severity, 2.0),
+        }
+        suggestions = [
+            f"ask校准在 {', '.join(failed_horizons) if failed_horizons else '多周期'} 上显示风险偏高，先自动收紧风险暴露",
+        ]
+        if bias == 'tighten_risk':
+            raw_adjustments['stop_loss_pct'] = current_stop * max(0.72, 1.0 - 0.08 * severity)
+            raw_adjustments['trailing_pct'] = current_trailing * max(0.78, 1.0 - 0.05 * severity)
+            suggestions.append('优先收紧止损、跟踪止盈与仓位')
+        elif bias == 'recalibrate_probability':
+            raw_adjustments['take_profit_pct'] = current_take_profit * 0.95
+            suggestions.append('优先下调仓位并收紧概率兑现预期')
+
+        param_adjustments = self._sanitize_runtime_param_adjustments(raw_adjustments)
+        if not param_adjustments:
+            return {}
+
+        recommendation = dict(payload.get('recommendation') or {})
+        summary = str(recommendation.get('summary') or 'research feedback optimization')
+        return {
+            'trigger': 'research_feedback',
+            'bias': bias,
+            'summary': summary,
+            'sample_count': int(payload.get('sample_count') or 0),
+            'recommendation': recommendation,
+            'failed_horizons': failed_horizons,
+            'failed_check_names': [str(item.get('name') or '') for item in failed_checks if str(item.get('name') or '')],
+            'cooldown_cycles': cooldown_cycles,
+            'evaluation': evaluation,
+            'param_adjustments': param_adjustments,
+            'scoring_adjustments': {},
+            'suggestions': suggestions,
+        }
+
+    def _evaluate_freeze_gate(self, rolling: Dict[str, Any] | None = None) -> Dict[str, Any]:
+        active_rolling = dict(rolling or self._rolling_self_assessment(self.freeze_total_cycles) or {})
+        evaluation = evaluate_freeze_gate(
+            self.cycle_history,
+            self.freeze_total_cycles,
+            self.freeze_profit_required,
+            self.freeze_gate_policy,
+            active_rolling,
+            research_feedback=self.last_research_feedback,
+        )
+        self.last_freeze_gate_evaluation = dict(evaluation or {})
+        return self.last_freeze_gate_evaluation
 
     def configure_experiment(self, spec: Dict[str, Any] | None = None) -> None:
         spec = dict(spec or {})
@@ -667,6 +853,15 @@ class SelfLearningController:
         self.max_losses_before_optimize = int(self.train_policy.get("max_losses_before_optimize", self.max_losses_before_optimize) or self.max_losses_before_optimize)
         self.freeze_gate_policy = dict(self.train_policy.get("freeze_gate", {}) or {})
         self.auto_apply_mutation = bool(self.train_policy.get("auto_apply_mutation", False))
+        self.research_feedback_policy = dict(self.train_policy.get("research_feedback", {}) or {})
+        self.research_feedback_optimization_policy = dict(self.research_feedback_policy.get("optimization", {}) or {})
+        self.research_feedback_freeze_policy = dict(
+            self.research_feedback_policy.get("freeze_gate", {})
+            or self.freeze_gate_policy.get("research_feedback", {})
+            or {}
+        )
+        if self.research_feedback_freeze_policy and not self.freeze_gate_policy.get("research_feedback"):
+            self.freeze_gate_policy["research_feedback"] = dict(self.research_feedback_freeze_policy)
 
         agent_weights = self.investment_model.config_section("agent_weights", {}) or {}
         if agent_weights:
@@ -1060,6 +1255,7 @@ class SelfLearningController:
         review_applied = False
         benchmark_passed = False
         llm_used = bool(getattr(self.llm_caller.gateway, "available", False))
+        self.last_research_feedback = {}
         self.last_cycle_meta = {
             "status": "running",
             "cycle_id": cycle_id,
@@ -1528,6 +1724,22 @@ class SelfLearningController:
             "overall_score": float(strategy_eval.overall_score),
             "suggestions": list(strategy_eval.suggestions or []),
         }
+        research_feedback = self._load_research_feedback(
+            cutoff_date=cutoff_date,
+            model_name=getattr(model_output, "model_name", self.model_name),
+            config_name=getattr(model_output, "config_name", self.model_config_path),
+        )
+        cycle_dict["research_feedback"] = dict(research_feedback or {})
+        if research_feedback:
+            self._emit_module_log(
+                "review",
+                "载入 ask 侧校准反馈",
+                dict(research_feedback.get("recommendation") or {}).get("summary", "research feedback loaded"),
+                cycle_id=cycle_id,
+                kind="research_feedback",
+                details=research_feedback,
+                metrics=self._research_feedback_brief(research_feedback),
+            )
         self._emit_agent_status(
             "SimulatedTrader",
             "completed",
@@ -1553,14 +1765,44 @@ class SelfLearningController:
             },
         )
 
+        feedback_plan = self._build_feedback_optimization_plan(research_feedback, cycle_id=cycle_id)
+        self.last_feedback_optimization = self._feedback_optimization_brief(feedback_plan, triggered=False)
+        if feedback_plan:
+            cycle_dict["research_feedback_optimization"] = dict(self.last_feedback_optimization)
+
         if not is_profit:
             self.consecutive_losses += 1
             logger.warning(f"亏损！连续亏损: {self.consecutive_losses}")
             if self.consecutive_losses >= self.max_losses_before_optimize:
-                optimization_events.extend(self._trigger_optimization(cycle_dict, trade_dicts))
+                optimization_events.extend(
+                    self._trigger_optimization(
+                        cycle_dict,
+                        trade_dicts,
+                        trigger_reason="consecutive_losses",
+                        feedback_plan=feedback_plan or None,
+                    )
+                )
+                if feedback_plan:
+                    self.last_feedback_optimization_cycle_id = cycle_id
+                    self.last_feedback_optimization = self._feedback_optimization_brief(feedback_plan, triggered=True)
+                    cycle_dict["research_feedback_optimization"] = dict(self.last_feedback_optimization)
+                    feedback_plan = {}
         else:
             self.consecutive_losses = 0
             logger.info(f"盈利！收益率: {sim_result.return_pct:.2f}%")
+
+        if feedback_plan:
+            optimization_events.extend(
+                self._trigger_optimization(
+                    cycle_dict,
+                    trade_dicts,
+                    trigger_reason="research_feedback",
+                    feedback_plan=feedback_plan,
+                )
+            )
+            self.last_feedback_optimization_cycle_id = cycle_id
+            self.last_feedback_optimization = self._feedback_optimization_brief(feedback_plan, triggered=True)
+            cycle_dict["research_feedback_optimization"] = dict(self.last_feedback_optimization)
 
         logger.info("周期结语：复盘会议自省...")
         self._emit_agent_status("ReviewMeeting", "running", "复盘会议自省中...", cycle_id=cycle_id, stage="review_meeting", progress_pct=84, step=4, total_steps=6)
@@ -1593,6 +1835,7 @@ class SelfLearningController:
                 "llm_mode": llm_mode,
                 "degraded": degraded,
                 "degrade_reason": degrade_reason,
+                "research_feedback": dict(research_feedback or {}),
             },
         )
         self.cycle_records.append(cycle_dict)
@@ -1707,10 +1950,12 @@ class SelfLearningController:
             model_name=getattr(model_output, "model_name", self.model_name) if "model_output" in locals() and model_output is not None else self.model_name,
             config_name=getattr(model_output, "config_name", self.model_config_path) if "model_output" in locals() and model_output is not None else self.model_config_path,
             routing_decision=dict(self.last_routing_decision or {}),
+            research_feedback=dict(research_feedback or {}),
         )
         self.cycle_history.append(cycle_result)
         self.current_cycle_id += 1
         self._record_self_assessment(cycle_result, cycle_dict)
+        freeze_gate_evaluation = self._evaluate_freeze_gate()
 
         self.last_cycle_meta = {
             "status": "ok",
@@ -1723,6 +1968,9 @@ class SelfLearningController:
             "degraded": degraded,
             "degrade_reason": degrade_reason,
             "routing_decision": dict(self.last_routing_decision or {}),
+            "research_feedback": self._research_feedback_brief(research_feedback),
+            "research_feedback_optimization": dict(self.last_feedback_optimization or {}),
+            "freeze_gate_evaluation": dict(freeze_gate_evaluation or {}),
             "timestamp": datetime.now().isoformat(),
         }
         self._save_cycle_result(cycle_result)
@@ -1781,8 +2029,15 @@ class SelfLearningController:
         )
         return cycle_result
 
-    def _trigger_optimization(self, cycle_dict: Dict, trade_dicts: List[Dict]) -> List[Dict[str, Any]]:
-        return trigger_loss_optimization(self, cycle_dict, trade_dicts, event_factory=OptimizationEvent)
+    def _trigger_optimization(self, cycle_dict: Dict, trade_dicts: List[Dict], *, trigger_reason: str = "consecutive_losses", feedback_plan: Dict[str, Any] | None = None) -> List[Dict[str, Any]]:
+        return trigger_loss_optimization(
+            self,
+            cycle_dict,
+            trade_dicts,
+            event_factory=OptimizationEvent,
+            trigger_reason=trigger_reason,
+            feedback_plan=feedback_plan,
+        )
 
     def _append_optimization_event(self, event: OptimizationEvent) -> None:
         self.optimization_events_history.append(event)
@@ -1849,12 +2104,14 @@ class SelfLearningController:
         5. 基准评估通过率 >= 60%
         """
         rolling = self._rolling_self_assessment(self.freeze_total_cycles)
+        self.last_freeze_gate_evaluation = self._evaluate_freeze_gate(rolling)
         return should_freeze_report(
             self.cycle_history,
             self.freeze_total_cycles,
             self.freeze_profit_required,
             self.freeze_gate_policy,
             rolling,
+            research_feedback=self.last_research_feedback,
         )
 
     def _freeze_model(self) -> Dict:
@@ -1869,7 +2126,9 @@ class SelfLearningController:
             self.freeze_profit_required,
             self.freeze_gate_policy,
             rolling,
+            research_feedback=self.last_research_feedback,
         )
+        self.last_freeze_gate_evaluation = dict(report.get("freeze_gate_evaluation") or {})
 
         path = self.output_dir / "model_frozen.json"
         with open(path, "w", encoding="utf-8") as f:
@@ -1878,13 +2137,17 @@ class SelfLearningController:
         return report
 
     def _generate_report(self) -> Dict:
+        rolling = self._rolling_self_assessment(self.freeze_total_cycles)
+        freeze_gate_evaluation = self._evaluate_freeze_gate(rolling)
         return generate_training_report(
             self.total_cycle_attempts,
             self.skipped_cycle_count,
             self.cycle_history,
             self.current_params,
-            self.should_freeze(),
-            self._rolling_self_assessment(self.freeze_total_cycles),
+            bool(freeze_gate_evaluation.get("passed")),
+            rolling,
+            research_feedback=self.last_research_feedback,
+            freeze_gate_evaluation=freeze_gate_evaluation,
         )
 
     def _save_cycle_result(self, result: TrainingResult):
@@ -1949,6 +2212,7 @@ class SelfLearningController:
             "config_name": result.config_name,
             "routing_decision": _jsonable(dict(result.routing_decision or {})),
             "allocation_plan": _jsonable((result.routing_decision or {}).get("allocation_plan") or getattr(self, "last_allocation_plan", {}) or {}),
+            "research_feedback": _jsonable(dict(result.research_feedback or {})),
             "scoring_mutation_count": scoring_mutation_count,
             "scoring_changed_keys": sorted(set(scoring_changed_keys)),
         }

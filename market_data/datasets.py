@@ -501,7 +501,7 @@ def _attach_point_in_time_context(
     # ══════════════════════════════════════════════════════════════
     # Step 1: Concat all frames
     # ══════════════════════════════════════════════════════════════
-    combined = pd.concat(stock_frames.values(), ignore_index=True, copy=False)
+    combined = pd.concat(stock_frames.values(), ignore_index=True)
     if "code" not in combined.columns or combined.empty:
         return stock_frames
 

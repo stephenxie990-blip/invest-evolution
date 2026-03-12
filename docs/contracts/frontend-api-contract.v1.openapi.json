@@ -2424,6 +2424,12 @@
           "training_lab": {
             "type": "object",
             "additionalProperties": true
+          },
+          "feedback": {
+            "$ref": "#/components/schemas/responseFeedback"
+          },
+          "next_action": {
+            "$ref": "#/components/schemas/responseNextAction"
           }
         },
         "required": [
@@ -2467,6 +2473,12 @@
         "properties": {
           "reply": {
             "type": "string"
+          },
+          "next_action": {
+            "$ref": "#/components/schemas/responseNextAction"
+          },
+          "feedback": {
+            "$ref": "#/components/schemas/responseFeedback"
           }
         },
         "required": [
@@ -2542,6 +2554,12 @@
               "string",
               "null"
             ]
+          },
+          "feedback": {
+            "$ref": "#/components/schemas/responseFeedback"
+          },
+          "next_action": {
+            "$ref": "#/components/schemas/responseNextAction"
           }
         },
         "required": [
@@ -2604,6 +2622,12 @@
           "training_lab": {
             "type": "object",
             "additionalProperties": true
+          },
+          "feedback": {
+            "$ref": "#/components/schemas/responseFeedback"
+          },
+          "next_action": {
+            "$ref": "#/components/schemas/responseNextAction"
           }
         },
         "required": [
@@ -2640,6 +2664,12 @@
           "payload": {
             "type": "object",
             "additionalProperties": true
+          },
+          "feedback": {
+            "$ref": "#/components/schemas/responseFeedback"
+          },
+          "next_action": {
+            "$ref": "#/components/schemas/responseNextAction"
           }
         },
         "required": [
@@ -2691,6 +2721,12 @@
           "artifacts": {
             "type": "object",
             "additionalProperties": true
+          },
+          "feedback": {
+            "$ref": "#/components/schemas/responseFeedback"
+          },
+          "next_action": {
+            "$ref": "#/components/schemas/responseNextAction"
           }
         },
         "required": [
@@ -2747,6 +2783,12 @@
               "allowed_models"
             ],
             "additionalProperties": true
+          },
+          "feedback": {
+            "$ref": "#/components/schemas/responseFeedback"
+          },
+          "next_action": {
+            "$ref": "#/components/schemas/responseNextAction"
           }
         },
         "required": [
@@ -2758,7 +2800,15 @@
       },
       "leaderboard": {
         "type": "object",
-        "additionalProperties": true
+        "additionalProperties": true,
+        "properties": {
+          "feedback": {
+            "$ref": "#/components/schemas/responseFeedback"
+          },
+          "next_action": {
+            "$ref": "#/components/schemas/responseNextAction"
+          }
+        }
       },
       "allocator": {
         "type": "object",
@@ -2772,6 +2822,12 @@
           "allocation": {
             "type": "object",
             "additionalProperties": true
+          },
+          "feedback": {
+            "$ref": "#/components/schemas/responseFeedback"
+          },
+          "next_action": {
+            "$ref": "#/components/schemas/responseNextAction"
           }
         },
         "required": [
@@ -2868,6 +2924,12 @@
               "type": "object",
               "additionalProperties": true
             }
+          },
+          "feedback": {
+            "$ref": "#/components/schemas/responseFeedback"
+          },
+          "next_action": {
+            "$ref": "#/components/schemas/responseNextAction"
           }
         },
         "required": [
@@ -2886,6 +2948,12 @@
           "details": {
             "type": "object",
             "additionalProperties": true
+          },
+          "feedback": {
+            "$ref": "#/components/schemas/responseFeedback"
+          },
+          "next_action": {
+            "$ref": "#/components/schemas/responseNextAction"
           }
         },
         "required": [
@@ -2919,6 +2987,12 @@
               "ok",
               "error"
             ]
+          },
+          "feedback": {
+            "$ref": "#/components/schemas/responseFeedback"
+          },
+          "next_action": {
+            "$ref": "#/components/schemas/responseNextAction"
           }
         },
         "required": [
@@ -2944,6 +3018,12 @@
           "config": {
             "type": "object",
             "additionalProperties": true
+          },
+          "feedback": {
+            "$ref": "#/components/schemas/responseFeedback"
+          },
+          "next_action": {
+            "$ref": "#/components/schemas/responseNextAction"
           }
         },
         "required": [
@@ -3016,6 +3096,12 @@
               "fast",
               "slow"
             ]
+          },
+          "feedback": {
+            "$ref": "#/components/schemas/responseFeedback"
+          },
+          "next_action": {
+            "$ref": "#/components/schemas/responseNextAction"
           }
         },
         "required": [
@@ -3681,6 +3767,92 @@
         "required": [
           "current_model",
           "hold_reason"
+        ],
+        "additionalProperties": true
+      },
+      "responseFeedback": {
+        "type": "object",
+        "description": "Standard cross-domain feedback fragment returned by Commander-backed workflows and stock-analysis responses.",
+        "properties": {
+          "message": {
+            "type": "string"
+          },
+          "summary": {
+            "type": "string"
+          },
+          "reason_codes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "reason_texts": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "requires_confirmation": {
+            "type": "boolean"
+          },
+          "decision": {
+            "type": "string"
+          },
+          "coverage": {
+            "type": "object",
+            "properties": {
+              "planned_step_coverage": {
+                "type": "number"
+              },
+              "parameter_coverage": {
+                "type": "number"
+              }
+            },
+            "required": [
+              "planned_step_coverage",
+              "parameter_coverage"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "message",
+          "summary",
+          "reason_codes",
+          "reason_texts",
+          "requires_confirmation",
+          "decision",
+          "coverage"
+        ],
+        "additionalProperties": true
+      },
+      "responseNextAction": {
+        "type": "object",
+        "description": "Standard cross-domain next-action fragment derived from feedback and gate state.",
+        "properties": {
+          "kind": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "requires_confirmation": {
+            "type": "boolean"
+          },
+          "suggested_params": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        },
+        "required": [
+          "kind",
+          "label",
+          "description",
+          "requires_confirmation",
+          "suggested_params"
         ],
         "additionalProperties": true
       }

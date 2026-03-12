@@ -322,6 +322,75 @@ class ReviewMeeting:
         self.evo_judge.reflect(outcome)
         self.review_decision_agent.reflect(outcome)
         
+    @staticmethod
+    def _extract_research_feedback(record: dict) -> dict:
+        if not isinstance(record, dict):
+            return {}
+        metadata = record.get("metadata") if isinstance(record.get("metadata"), dict) else {}
+        feedback = metadata.get("research_feedback")
+        if isinstance(feedback, dict) and feedback:
+            return dict(feedback)
+        direct_feedback = record.get("research_feedback")
+        if isinstance(direct_feedback, dict) and direct_feedback:
+            return dict(direct_feedback)
+        return {}
+
+    @staticmethod
+    def _format_ratio(value: Any) -> str:
+        try:
+            if value is None or value == "":
+                return "n/a"
+            return f"{float(value):.0%}"
+        except (TypeError, ValueError):
+            return "n/a"
+
+    def _research_feedback_lines(self, feedback: dict) -> list[str]:
+        payload = dict(feedback or {})
+        if not payload:
+            return []
+        recommendation = dict(payload.get("recommendation") or {})
+        t20 = dict(payload.get("horizons") or {}).get("T+20") or {}
+        reason_codes = [str(item).strip() for item in recommendation.get("reason_codes", []) if str(item).strip()]
+        lines = [
+            "## 问股校准反馈",
+            f"- 建议偏置: {recommendation.get('bias') or 'unknown'}",
+            f"- 样本数: {int(payload.get('sample_count') or 0)}",
+        ]
+        if recommendation.get("summary"):
+            lines.append(f"- 摘要: {recommendation.get('summary')}")
+        if reason_codes:
+            lines.append(f"- 原因码: {', '.join(reason_codes)}")
+        if t20:
+            lines.append(f"- T+20 命中率: {self._format_ratio(t20.get('hit_rate'))}")
+            lines.append(f"- T+20 失效率: {self._format_ratio(t20.get('invalidation_rate'))}")
+            lines.append(f"- T+20 区间命中率: {self._format_ratio(t20.get('interval_hit_rate'))}")
+        brier = payload.get("brier_like_direction_score")
+        if brier is not None:
+            try:
+                lines.append(f"- 方向 Brier-like: {float(brier):.3f}")
+            except (TypeError, ValueError):
+                pass
+        return lines
+
+    def _research_feedback_summary(self, feedback: dict) -> str:
+        payload = dict(feedback or {})
+        if not payload:
+            return ""
+        recommendation = dict(payload.get("recommendation") or {})
+        t20 = dict(payload.get("horizons") or {}).get("T+20") or {}
+        parts = [
+            f"bias={recommendation.get('bias') or 'unknown'}",
+            f"sample_count={int(payload.get('sample_count') or 0)}",
+        ]
+        if t20.get("hit_rate") is not None:
+            parts.append(f"T+20_hit_rate={self._format_ratio(t20.get('hit_rate'))}")
+        if payload.get("brier_like_direction_score") is not None:
+            try:
+                parts.append(f"brier={float(payload.get('brier_like_direction_score')):.3f}")
+            except (TypeError, ValueError):
+                pass
+        return "；".join(parts)
+
     def _compile_facts(self, recent_results: List[dict], agent_accuracy: dict) -> dict:
         """编译事实数据"""
         if not recent_results:
@@ -331,6 +400,7 @@ class ReviewMeeting:
         wins = sum(1 for r in recent_results if r.get("is_profit"))
         returns = [r.get("return_pct", 0) for r in recent_results]
         avg_return = sum(returns) / total
+        research_feedback: Dict[str, Any] = {}
 
         def _is_meeting_result(record: dict) -> bool:
             selection_mode = str(record.get("selection_mode", "") or "")
@@ -354,6 +424,9 @@ class ReviewMeeting:
             if r.get("is_profit"):
                 regime_stats[rg]["wins"] += 1
             regime_stats[rg]["returns"].append(r.get("return_pct", 0))
+            feedback = self._extract_research_feedback(r)
+            if feedback:
+                research_feedback = feedback
 
         return {
             "empty": False,
@@ -385,6 +458,7 @@ class ReviewMeeting:
                 for rg, s in regime_stats.items()
             },
             "agent_accuracy": agent_accuracy,
+            "research_feedback": research_feedback,
         }
 
     def _log_facts(self, facts: dict):
@@ -395,6 +469,9 @@ class ReviewMeeting:
             f"  📊 近期表现: {facts['total_cycles']}轮, "
             f"胜率{facts['win_rate']:.0%}, 均收益{facts['avg_return']:+.2f}%"
         )
+        research_feedback = dict(facts.get("research_feedback") or {})
+        if research_feedback:
+            logger.info("    ask校准: %s", self._research_feedback_summary(research_feedback))
         for rg, rs in facts.get("regime_stats", {}).items():
             logger.info(f"    {rg}: {rs['total']}轮, 胜率{rs['win_rate']:.0%}")
         for agent, stats in facts.get("agent_accuracy", {}).items():
@@ -434,12 +511,7 @@ class ReviewMeeting:
             '"take_profit_pct": 值或null, "position_size": 值或null}, '
             '"evolution_direction": "aggressive/conservative/maintain", "confidence": 0.0-1.0}'
         )
-        user = (
-            f"近期表现：胜率{facts['win_rate']:.0%}，平均收益{facts['avg_return']:+.2f}%\n"
-            f"策略问题：{strategy_analysis.get('problems', [])}\n"
-            f"策略建议：{strategy_analysis.get('suggestions', [])}\n"
-            f"请给出参数调整建议。"
-        )
+        user = self._build_evo_user_message(facts, strategy_analysis)
 
         try:
             result = self.llm.call_json(system, user)
@@ -520,11 +592,41 @@ class ReviewMeeting:
             problems.append("胜率过低"); suggestions.append("收紧选股标准")
         if facts.get("avg_return", 0) < float(self._policy_value('fallback.strategy.avg_return_low', -3.0) or -3.0):
             problems.append("平均亏损过大"); suggestions.append("降低仓位")
+        recommendation = dict(dict(facts.get("research_feedback") or {}).get("recommendation") or {})
+        bias = str(recommendation.get("bias") or "")
+        if bias == "tighten_risk":
+            problems.append("问股校准显示近期假设命中偏弱")
+            suggestions.append("先收紧入场条件与风险暴露")
+        elif bias == "recalibrate_probability":
+            problems.append("问股校准显示概率表达偏乐观")
+            suggestions.append("下调置信度并收紧触发阈值")
         return {"problems": problems, "suggestions": suggestions, "confidence": float(self._policy_value('fallback.strategy.confidence', 0.4) or 0.4)}
 
     def _evo_judge_fallback(self, facts: dict) -> dict:
         adjustments, direction = {}, "maintain"
         suggestions = []
+        research_feedback = dict(facts.get("research_feedback") or {})
+        recommendation = dict(research_feedback.get("recommendation") or {})
+        bias = str(recommendation.get("bias") or "")
+        if bias in {"tighten_risk", "recalibrate_probability"}:
+            adjustments = self._sanitize_adjustment_payload(
+                dict(self._policy_value('fallback.evo.conservative_adjustments', {"stop_loss_pct": 0.03, "position_size": 0.15}) or {})
+            )
+            direction = "conservative"
+            if bias == "tighten_risk":
+                suggestions = ["问股校准显示近期命中偏弱，先收紧止损与仓位"]
+            else:
+                suggestions = ["问股校准显示概率偏乐观，先收紧触发条件与风险暴露"]
+            if recommendation.get("summary"):
+                suggestions.append(str(recommendation.get("summary")))
+            return {
+                "param_adjustments": adjustments,
+                "evolution_direction": direction,
+                "suggestions": suggestions,
+                "confidence": float(self._policy_value('fallback.evo.confidence', 0.4) or 0.4),
+                "reasoning": f"ask侧校准反馈要求先偏保守：{bias}",
+            }
+
         win_rate = facts.get("win_rate", 0.5)
         if win_rate < float(self._policy_value('fallback.evo.win_rate_conservative', 0.35) or 0.35):
             adjustments = self._sanitize_adjustment_payload(dict(self._policy_value('fallback.evo.conservative_adjustments', {"stop_loss_pct": 0.03, "position_size": 0.15}) or {}))
@@ -574,6 +676,10 @@ class ReviewMeeting:
         ]
         for rg, rs in facts.get("regime_stats", {}).items():
             lines.append(f"- {rg}: {rs['total']}轮, 胜率{rs['win_rate']:.0%}, 平均收益{rs['avg_return']:+.2f}%")
+        research_feedback_lines = self._research_feedback_lines(dict(facts.get("research_feedback") or {}))
+        if research_feedback_lines:
+            lines.append("")
+            lines.extend(research_feedback_lines)
         if facts.get("agent_accuracy"):
             lines.append("\n## Agent 准确率")
             for name, stats in facts.get("agent_accuracy", {}).items():
@@ -589,8 +695,11 @@ class ReviewMeeting:
             f"## 近期表现\n- 胜率: {facts['win_rate']:.0%}\n- 平均收益: {facts['avg_return']:+.2f}%",
             f"## 策略问题\n{strategy_analysis.get('problems', [])}",
             f"## 策略建议\n{strategy_analysis.get('suggestions', [])}",
-            "请输出参数调整方向，保持风险口径清晰。",
         ]
+        research_feedback_lines = self._research_feedback_lines(dict(facts.get("research_feedback") or {}))
+        if research_feedback_lines:
+            lines.append("\n".join(research_feedback_lines))
+        lines.append("请输出参数调整方向，保持风险口径清晰。")
         return "\n\n".join(lines)
 
     def _build_commander_user_message(
@@ -605,9 +714,13 @@ class ReviewMeeting:
             f"- {name}: 准确率{stats['accuracy']:.0%}, 盈利{stats['profitable_count']}/{stats['traded_count']}, 平均评分{stats.get('avg_score', 0):.2f}"
             for name, stats in aa.items()
         ]
+        research_feedback_section = "\n".join(self._research_feedback_lines(dict(facts.get("research_feedback") or {})))
+        if research_feedback_section:
+            research_feedback_section += "\n\n"
         return (
             f"## 近期表现\n胜率{facts['win_rate']:.0%}，平均收益{facts['avg_return']:+.2f}%\n\n"
             f"## Agent准确率\n" + "\n".join(agent_lines) + "\n\n"
+            f"{research_feedback_section}"
             f"## 策略分析师意见\n问题：{strategy_analysis.get('problems', [])}\n建议：{strategy_analysis.get('suggestions', [])}\n\n"
             f"## 进化裁判意见\n方向：{evo_assessment.get('evolution_direction', 'maintain')}\n"
             f"参数调整：{evo_assessment.get('param_adjustments', {})}\n"
@@ -615,6 +728,7 @@ class ReviewMeeting:
             f"## 当前参数\n{current_params}\n\n"
             "请综合以上信息，给出下一轮可执行决策。"
         )
+
     def _validate_strategy_analysis(self, result: dict) -> dict:
         problems = result.get("problems") if isinstance(result.get("problems"), list) else []
         suggestions = result.get("suggestions") if isinstance(result.get("suggestions"), list) else []

@@ -31,6 +31,10 @@ def test_frontend_contract_endpoint_returns_machine_readable_contract():
     payload = res.get_json()
     assert payload['contract_id'] == 'frontend-v1'
     assert payload['frontend_shell_mount'] == '/app'
+    assert payload['components']['schemas']['responseFeedback']['properties']['summary']['type'] == 'string'
+    assert payload['components']['schemas']['responseNextAction']['properties']['kind']['type'] == 'string'
+    assert payload['components']['schemas']['statusWrappedConfig']['properties']['feedback']['$ref'] == '#/components/schemas/responseFeedback'
+    assert payload['components']['schemas']['chatReply']['properties']['next_action']['$ref'] == '#/components/schemas/responseNextAction'
     assert any(endpoint['path'] == '/api/train' and endpoint['method'] == 'POST' for endpoint in payload['endpoints'])
     assert any(endpoint['path'] == '/api/model-routing/preview' and endpoint['method'] == 'GET' for endpoint in payload['endpoints'])
     assert '#/components/sse_schemas/routingDecision' in payload['sse']['event_refs']

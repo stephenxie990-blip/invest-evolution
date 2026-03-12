@@ -20,7 +20,7 @@ from brain.schema_contract import (
     RISK_LEVEL_MEDIUM,
     TRAINING_DEFAULT_REASON_CODES,
 )
-from brain.task_bus import build_mutating_task_bus, build_readonly_task_bus
+from brain.task_bus import build_gate_feedback, build_mutating_task_bus, build_next_action, build_readonly_task_bus
 
 logger = logging.getLogger(__name__)
 
@@ -851,6 +851,11 @@ class BrainRuntime:
                 tool_calls=calls,
                 artifacts={"workspace": str(self.workspace), "tools": names, "mode": mode},
             )
+        feedback = build_gate_feedback(task_bus=dict(payload.get("task_bus") or {}), default_message=str(payload.get("message") or payload.get("reply") or ""))
+        payload["feedback"] = feedback
+        payload["next_action"] = build_next_action(task_bus=dict(payload.get("task_bus") or {}), feedback=feedback)
+        payload["message"] = str(feedback.get("message") or payload.get("message") or payload.get("reply") or "")
+        payload.setdefault("reply", str(payload.get("message") or ""))
         return json.dumps(payload, ensure_ascii=False, indent=2)
 
     def _wrap_builtin_payload(
@@ -877,8 +882,6 @@ class BrainRuntime:
                     "operation": operation,
                 },
             }, ensure_ascii=False, indent=2)
-        if "task_bus" in payload:
-            return json.dumps(payload, ensure_ascii=False, indent=2)
         plan = list(recommended_plan or self._recommended_plan_for_intent(intent=intent, tool_names=tool_names, writes_state=writes_state, user_goal=user_goal))
         tool_calls = self._tool_trace(tool_names)
         payload = dict(payload)
@@ -907,6 +910,11 @@ class BrainRuntime:
                 "operation": operation,
             },
         )
+        feedback = build_gate_feedback(task_bus=dict(payload.get("task_bus") or {}), default_message=str(payload.get("message") or payload.get("reply") or ""))
+        payload["feedback"] = feedback
+        payload["next_action"] = build_next_action(task_bus=dict(payload.get("task_bus") or {}), feedback=feedback)
+        payload["message"] = str(feedback.get("message") or payload.get("message") or payload.get("reply") or "")
+        payload.setdefault("reply", str(payload.get("message") or ""))
         return json.dumps(payload, ensure_ascii=False, indent=2)
 
 

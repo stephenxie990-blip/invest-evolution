@@ -172,6 +172,45 @@ def _sync_runtime_path_config(runtime: CommanderRuntime, payload: dict[str, Any]
 
 
 
+def _contract_payload_root(payload: Any) -> dict[str, Any] | None:
+    if isinstance(payload, dict):
+        if isinstance(payload.get("protocol"), dict) or isinstance(payload.get("task_bus"), dict):
+            return payload
+        snapshot = payload.get("snapshot")
+        if isinstance(snapshot, dict) and (isinstance(snapshot.get("protocol"), dict) or isinstance(snapshot.get("task_bus"), dict)):
+            return snapshot
+    return None
+
+
+def _jsonify_contract_payload(payload: Any, status_code: int = 200):
+    response = jsonify(payload)
+    response.status_code = int(status_code)
+    root = _contract_payload_root(payload)
+    if not root:
+        return response
+
+    protocol = dict(root.get("protocol") or {})
+    task_bus = dict(root.get("task_bus") or {})
+    coverage = dict(root.get("coverage") or {})
+    artifact_taxonomy = dict(root.get("artifact_taxonomy") or {})
+
+    if protocol.get("schema_version"):
+        response.headers["X-Bounded-Workflow-Schema"] = str(protocol.get("schema_version"))
+    if protocol.get("task_bus_schema_version"):
+        response.headers["X-Task-Bus-Schema"] = str(protocol.get("task_bus_schema_version"))
+    elif task_bus.get("schema_version"):
+        response.headers["X-Task-Bus-Schema"] = str(task_bus.get("schema_version"))
+    if coverage.get("schema_version"):
+        response.headers["X-Coverage-Schema"] = str(coverage.get("schema_version"))
+    if artifact_taxonomy.get("schema_version"):
+        response.headers["X-Artifact-Taxonomy-Schema"] = str(artifact_taxonomy.get("schema_version"))
+    if protocol.get("domain"):
+        response.headers["X-Commander-Domain"] = str(protocol.get("domain"))
+    if protocol.get("operation"):
+        response.headers["X-Commander-Operation"] = str(protocol.get("operation"))
+    return response
+
+
 def _runtime_not_ready_response():
     return jsonify({
         "error": "Commander runtime is not initialized. Start server with `python web_server.py`.",
@@ -554,7 +593,7 @@ def api_status():
     if runtime is None:
         return _runtime_not_ready_response()
     detail = str(request.args.get("detail", "fast") or "fast").strip().lower()
-    return jsonify(runtime.status(detail=detail))
+    return _jsonify_contract_payload(runtime.status(detail=detail))
 
 
 @app.route("/api/lab/status/quick")
@@ -562,7 +601,7 @@ def api_lab_status_quick():
     runtime = _runtime
     if runtime is None:
         return _runtime_not_ready_response()
-    return jsonify({
+    return _jsonify_contract_payload({
         "mode": "quick",
         "snapshot": runtime.status(detail="fast"),
     })
@@ -573,7 +612,7 @@ def api_lab_status_deep():
     runtime = _runtime
     if runtime is None:
         return _runtime_not_ready_response()
-    return jsonify({
+    return _jsonify_contract_payload({
         "mode": "deep",
         "snapshot": runtime.status(detail="slow"),
     })
@@ -634,7 +673,15 @@ def api_chat():
         reply = _run_async(
             runtime.ask(message, session_key="web:chat", channel="web", chat_id="chat")
         )
-        return jsonify({"reply": reply})
+        try:
+            payload = json.loads(reply) if isinstance(reply, str) else dict(reply or {})
+        except Exception:
+            payload = {"reply": str(reply)}
+        if not isinstance(payload, dict):
+            payload = {"reply": str(reply)}
+        payload.setdefault("reply", str(payload.get("message") or reply))
+        payload.setdefault("message", str(payload.get("reply") or ""))
+        return jsonify(payload)
     except Exception as exc:
         logger.exception("Chat error")
         return jsonify({"error": str(exc)}), 500
@@ -659,7 +706,7 @@ def api_train():
         return jsonify({"error": str(exc)}), 400
     try:
         result = _run_async(runtime.train_once(rounds=rounds, mock=mock))
-        return jsonify(result)
+        return _jsonify_contract_payload(result)
     except DataSourceUnavailableError as exc:
         logger.warning("Train data source unavailable: %s", exc)
         return _data_source_unavailable_response(exc)
@@ -711,7 +758,7 @@ def api_training_plan_create():
         optimization=data.get("optimization") if isinstance(data.get("optimization"), dict) else None,
         source="api",
     )
-    return jsonify(plan), 201
+    return _jsonify_contract_payload(plan, 201)
 
 
 @app.route("/api/lab/training/plans")
@@ -723,7 +770,7 @@ def api_training_plan_list():
         limit = _parse_limit_arg()
     except ValueError as exc:
         return jsonify({"error": str(exc)}), 400
-    return jsonify(runtime.list_training_plans(limit=limit))
+    return _jsonify_contract_payload(runtime.list_training_plans(limit=limit))
 
 
 @app.route("/api/lab/training/plans/<plan_id>")
@@ -732,7 +779,7 @@ def api_training_plan_get(plan_id: str):
     if runtime is None:
         return _runtime_not_ready_response()
     try:
-        return jsonify(runtime.get_training_plan(plan_id))
+        return _jsonify_contract_payload(runtime.get_training_plan(plan_id))
     except FileNotFoundError as exc:
         return jsonify({"error": str(exc)}), 404
 
@@ -744,7 +791,7 @@ def api_training_plan_execute(plan_id: str):
         return _runtime_not_ready_response()
     try:
         payload = _run_async(runtime.execute_training_plan(plan_id))
-        return jsonify(payload)
+        return _jsonify_contract_payload(payload)
     except FileNotFoundError as exc:
         return jsonify({"error": str(exc)}), 404
     except DataSourceUnavailableError as exc:
@@ -764,7 +811,7 @@ def api_training_run_list():
         limit = _parse_limit_arg()
     except ValueError as exc:
         return jsonify({"error": str(exc)}), 400
-    return jsonify(runtime.list_training_runs(limit=limit))
+    return _jsonify_contract_payload(runtime.list_training_runs(limit=limit))
 
 
 @app.route("/api/lab/training/runs/<run_id>")
@@ -773,7 +820,7 @@ def api_training_run_get(run_id: str):
     if runtime is None:
         return _runtime_not_ready_response()
     try:
-        return jsonify(runtime.get_training_run(run_id))
+        return _jsonify_contract_payload(runtime.get_training_run(run_id))
     except FileNotFoundError as exc:
         return jsonify({"error": str(exc)}), 404
 
@@ -787,7 +834,7 @@ def api_training_evaluation_list():
         limit = _parse_limit_arg()
     except ValueError as exc:
         return jsonify({"error": str(exc)}), 400
-    return jsonify(runtime.list_training_evaluations(limit=limit))
+    return _jsonify_contract_payload(runtime.list_training_evaluations(limit=limit))
 
 
 @app.route("/api/lab/training/evaluations/<run_id>")
@@ -796,7 +843,7 @@ def api_training_evaluation_get(run_id: str):
     if runtime is None:
         return _runtime_not_ready_response()
     try:
-        return jsonify(runtime.get_training_evaluation(run_id))
+        return _jsonify_contract_payload(runtime.get_training_evaluation(run_id))
     except FileNotFoundError as exc:
         return jsonify({"error": str(exc)}), 404
 
@@ -808,7 +855,7 @@ def api_investment_models():
     runtime = _runtime
     if runtime is None:
         return _runtime_not_ready_response()
-    return jsonify(runtime.get_investment_models())
+    return _jsonify_contract_payload(runtime.get_investment_models())
 
 
 @app.route("/api/leaderboard")
@@ -816,7 +863,7 @@ def api_leaderboard():
     runtime = _runtime
     if runtime is None:
         return _runtime_not_ready_response()
-    return jsonify(runtime.get_leaderboard())
+    return _jsonify_contract_payload(runtime.get_leaderboard())
 
 
 @app.route("/api/allocator")
@@ -825,7 +872,7 @@ def api_allocator():
     if runtime is None:
         return _runtime_not_ready_response()
     regime = str(request.args.get("regime", "oscillation") or "oscillation").strip().lower()
-    return jsonify(runtime.get_allocator_preview(
+    return _jsonify_contract_payload(runtime.get_allocator_preview(
         regime=regime,
         top_n=max(1, min(4, int(request.args.get("top_n", 3) or 3))),
         as_of_date=datetime.now().strftime("%Y%m%d"),
@@ -859,7 +906,7 @@ def api_model_routing_preview():
             min_history_days=min_history_days,
             allowed_models=allowed_models or None,
         )
-        return jsonify(payload)
+        return _jsonify_contract_payload(payload)
     except DataSourceUnavailableError as exc:
         logger.warning("Model routing preview data source unavailable: %s", exc)
         return _data_source_unavailable_response(exc)
@@ -888,7 +935,7 @@ def api_strategies_reload():
     if runtime is None:
         return _runtime_not_ready_response()
     result = runtime.reload_strategies()
-    return jsonify(result)
+    return _jsonify_contract_payload(result)
 
 
 # ---- Cron ----
@@ -1217,7 +1264,7 @@ def api_memory_detail(record_id: str):
 def api_agent_prompts_list():
     runtime = _runtime
     if runtime is not None:
-        return jsonify(runtime.list_agent_prompts())
+        return _jsonify_contract_payload(runtime.list_agent_prompts())
     import config as config_module
     from app.commander_services import list_agent_prompts_payload
     return jsonify(list_agent_prompts_payload(project_root=config_module.PROJECT_ROOT))
@@ -1234,7 +1281,7 @@ def api_agent_prompts_update():
     try:
         runtime = _runtime
         if runtime is not None:
-            return jsonify(runtime.update_agent_prompt(agent_name=agent_name, system_prompt=str(data.get("system_prompt", "") or "")))
+            return _jsonify_contract_payload(runtime.update_agent_prompt(agent_name=agent_name, system_prompt=str(data.get("system_prompt", "") or "")))
         import config as config_module
         from app.commander_services import update_agent_prompt_payload
         return jsonify(update_agent_prompt_payload(agent_name=agent_name, system_prompt=str(data.get("system_prompt", "") or ""), project_root=config_module.PROJECT_ROOT))
@@ -1249,7 +1296,7 @@ def api_agent_prompts_update():
 def api_runtime_paths_get():
     runtime = _runtime
     if runtime is not None:
-        return jsonify(runtime.get_runtime_paths())
+        return _jsonify_contract_payload(runtime.get_runtime_paths())
     import config as config_module
     from app.commander_services import get_runtime_paths_payload
     return jsonify(get_runtime_paths_payload(None, project_root=config_module.PROJECT_ROOT))
@@ -1261,7 +1308,7 @@ def api_runtime_paths_update():
     try:
         runtime = _runtime
         if runtime is not None:
-            return jsonify(runtime.update_runtime_paths(data, confirm=True))
+            return _jsonify_contract_payload(runtime.update_runtime_paths(data, confirm=True))
         import config as config_module
         from app.commander_services import update_runtime_paths_payload
         return jsonify(update_runtime_paths_payload(patch=data, runtime=None, project_root=config_module.PROJECT_ROOT, sync_runtime=None))
@@ -1278,7 +1325,7 @@ def api_runtime_paths_update():
 def api_evolution_config_get():
     runtime = _runtime
     if runtime is not None:
-        return jsonify(runtime.get_evolution_config())
+        return _jsonify_contract_payload(runtime.get_evolution_config())
     import config as config_module
     from app.commander_services import get_evolution_config_payload
     return jsonify(get_evolution_config_payload(project_root=config_module.PROJECT_ROOT, live_config=config_module.config))
@@ -1299,7 +1346,7 @@ def api_evolution_config_update():
     try:
         runtime = _runtime
         if runtime is not None:
-            return jsonify(runtime.update_evolution_config(data, confirm=True))
+            return _jsonify_contract_payload(runtime.update_evolution_config(data, confirm=True))
         import config as config_module
         from app.commander_services import update_evolution_config_payload
         return jsonify(update_evolution_config_payload(patch=data, project_root=config_module.PROJECT_ROOT, live_config=config_module.config, source="web_api"))
@@ -1314,7 +1361,7 @@ def api_evolution_config_update():
 def api_control_plane_get():
     runtime = _runtime
     if runtime is not None:
-        return jsonify(runtime.get_control_plane())
+        return _jsonify_contract_payload(runtime.get_control_plane())
     import config as config_module
     from app.commander_services import get_control_plane_payload
     return jsonify(get_control_plane_payload(project_root=config_module.PROJECT_ROOT))
@@ -1326,7 +1373,7 @@ def api_control_plane_update():
     try:
         runtime = _runtime
         if runtime is not None:
-            return jsonify(runtime.update_control_plane(data, confirm=True))
+            return _jsonify_contract_payload(runtime.update_control_plane(data, confirm=True))
         import config as config_module
         from app.commander_services import update_control_plane_payload
         return jsonify(update_control_plane_payload(patch=data, project_root=config_module.PROJECT_ROOT, source="web_api"))
@@ -1344,7 +1391,7 @@ def api_data_status():
     refresh = _parse_bool(request.args.get("refresh", False), "refresh")
     runtime = _runtime
     if runtime is not None:
-        return jsonify(runtime.get_data_status(refresh=refresh))
+        return _jsonify_contract_payload(runtime.get_data_status(refresh=refresh))
     from app.commander_services import get_data_status_payload
     return jsonify(get_data_status_payload(refresh=refresh))
 
@@ -1357,7 +1404,7 @@ def api_data_capital_flow():
     limit = _parse_limit_arg(default=200, maximum=5000)
     runtime = _runtime
     if runtime is not None:
-        return jsonify(runtime.get_capital_flow(codes=codes, start_date=start_date, end_date=end_date, limit=limit))
+        return _jsonify_contract_payload(runtime.get_capital_flow(codes=codes, start_date=start_date, end_date=end_date, limit=limit))
     from app.commander_services import get_capital_flow_payload
     return jsonify(get_capital_flow_payload(codes=codes, start_date=start_date, end_date=end_date, limit=limit))
 
@@ -1371,7 +1418,7 @@ def api_data_dragon_tiger():
     limit = _parse_limit_arg(default=200, maximum=5000)
     runtime = _runtime
     if runtime is not None:
-        return jsonify(runtime.get_dragon_tiger(codes=codes, start_date=start_date, end_date=end_date, limit=limit))
+        return _jsonify_contract_payload(runtime.get_dragon_tiger(codes=codes, start_date=start_date, end_date=end_date, limit=limit))
     from app.commander_services import get_dragon_tiger_payload
     return jsonify(get_dragon_tiger_payload(codes=codes, start_date=start_date, end_date=end_date, limit=limit))
 
@@ -1385,7 +1432,7 @@ def api_data_intraday_60m():
     limit = _parse_limit_arg(default=500, maximum=10000)
     runtime = _runtime
     if runtime is not None:
-        return jsonify(runtime.get_intraday_60m(codes=codes, start_date=start_date, end_date=end_date, limit=limit))
+        return _jsonify_contract_payload(runtime.get_intraday_60m(codes=codes, start_date=start_date, end_date=end_date, limit=limit))
     from app.commander_services import get_intraday_60m_payload
     return jsonify(get_intraday_60m_payload(codes=codes, start_date=start_date, end_date=end_date, limit=limit))
 
@@ -1393,6 +1440,15 @@ def api_data_intraday_60m():
 @app.route("/api/data/download", methods=["POST"])
 def api_data_download():
     global _data_download_running
+
+    runtime = _runtime
+    if runtime is not None:
+        data = request.get_json(silent=True) or {}
+        try:
+            confirm = _parse_bool(data.get("confirm", False), "confirm")
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
+        return _jsonify_contract_payload(runtime.trigger_data_download(confirm=confirm))
 
     def _do_download():
         global _data_download_running

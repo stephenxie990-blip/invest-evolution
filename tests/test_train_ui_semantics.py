@@ -182,10 +182,12 @@ def test_commander_result_dict_serializes_numpy_bool(tmp_path):
         optimization_events=[],
         audit_tags={'benchmark_passed': np.bool_(True)},
     )
+    result.research_feedback = {'recommendation': {'bias': 'tighten_risk'}}
     payload = body._to_result_dict(result)
     assert payload['is_profit'] is True
     assert payload['benchmark_passed'] is True
     assert payload['params']['x'] == 1
+    assert payload['research_feedback']['recommendation']['bias'] == 'tighten_risk'
 
 
 def test_commander_snapshot_is_jsonable(tmp_path):
@@ -558,6 +560,10 @@ def test_generate_report_wrapper_preserves_fields(tmp_path):
     )
     controller.total_cycle_attempts = 2
     controller.skipped_cycle_count = 1
+    controller.last_research_feedback = {
+        'sample_count': 4,
+        'recommendation': {'bias': 'tighten_risk', 'summary': 'ask calibration says tighten risk'},
+    }
     controller.cycle_history.append(TrainingResult(
         cycle_id=1, cutoff_date='20240101', selected_stocks=['x'], initial_capital=1, final_value=2, return_pct=1.0, is_profit=True, trade_history=[], params={}
     ))
@@ -566,4 +572,26 @@ def test_generate_report_wrapper_preserves_fields(tmp_path):
     assert report['status'] == 'completed_with_skips'
     assert report['successful_cycles'] == 1
     assert report['skipped_cycles'] == 1
+    assert report['research_feedback']['recommendation']['bias'] == 'tighten_risk'
 
+
+
+def test_commander_snapshot_exposes_research_feedback(tmp_path):
+    from app.commander import InvestmentBodyService, CommanderConfig
+
+    cfg = CommanderConfig(mock_mode=True, autopilot_enabled=False, heartbeat_enabled=False, bridge_enabled=False)
+    cfg.training_output_dir = tmp_path / 'training'
+    cfg.meeting_log_dir = tmp_path / 'meetings'
+    cfg.config_audit_log_path = tmp_path / 'audit' / 'changes.jsonl'
+    cfg.config_snapshot_dir = tmp_path / 'snapshots'
+
+    body = InvestmentBodyService(cfg)
+    body.controller.last_research_feedback = {
+        'sample_count': 6,
+        'recommendation': {'bias': 'recalibrate_probability'},
+    }
+
+    snapshot = body.snapshot()
+    assert snapshot['research_feedback']['recommendation']['bias'] == 'recalibrate_probability'
+    assert 'freeze_gate_evaluation' in snapshot
+    assert 'research_feedback_optimization' in snapshot

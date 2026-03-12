@@ -44,7 +44,13 @@ REASON_READ_ONLY_ANALYSIS = "read_only_analysis"
 REASON_TOOL_GROUNDED_EXECUTION = "tool_grounded_execution"
 REASON_STATE_CHANGING_REQUEST = "state_changing_request"
 REASON_TRAINING_CHANGES_RUNTIME_STATE = "training_changes_runtime_state"
+REASON_CONFIRMATION_REQUIRED = "confirmation_required"
+REASON_INCOMPLETE_PLAN_COVERAGE = "incomplete_plan_coverage"
+REASON_INCOMPLETE_PARAMETER_COVERAGE = "incomplete_parameter_coverage"
 REASON_CODES = [
+    REASON_CONFIRMATION_REQUIRED,
+    REASON_INCOMPLETE_PARAMETER_COVERAGE,
+    REASON_INCOMPLETE_PLAN_COVERAGE,
     REASON_READ_ONLY_ANALYSIS,
     REASON_STATE_CHANGING_REQUEST,
     REASON_TOOL_GROUNDED_EXECUTION,
@@ -60,6 +66,9 @@ TASK_PLAN_SUMMARY_KEYS = ["schema_version", "available_tool_count", "recommended
 TASK_GATE_KEYS = ["decision", "risk_level", "writes_state", "requires_confirmation", "reasons", "confirmation"]
 TASK_CONFIRMATION_KEYS = ["required", "decision", "state", "reason_codes"]
 TASK_AUDIT_KEYS = ["status", "started_at", "completed_at", "tool_count", "used_tools", "artifacts", "coverage", "artifact_taxonomy"]
+FEEDBACK_COVERAGE_KEYS = ["planned_step_coverage", "parameter_coverage"]
+FEEDBACK_KEYS = ["message", "summary", "reason_codes", "reason_texts", "requires_confirmation", "decision", "coverage"]
+NEXT_ACTION_KEYS = ["kind", "label", "description", "requires_confirmation", "suggested_params"]
 TASK_COVERAGE_KEYS = [
     "schema_version",
     "coverage_kind",
@@ -74,11 +83,15 @@ TASK_COVERAGE_KEYS = [
     "missing_planned_step_ids",
     "planned_step_coverage",
     "required_tool_coverage",
+    "parameterized_step_count",
+    "covered_parameterized_step_ids",
+    "missing_parameterized_step_ids",
+    "parameter_coverage",
 ]
 ARTIFACT_TAXONOMY_KEYS = ["schema_version", "count", "keys", "kinds", "path_keys", "object_keys", "collection_keys", "known_kinds"]
 PLAN_STEP_KEYS = ["step_id", "tool", "args"]
 
-BOUNDED_WORKFLOW_TOP_LEVEL_KEYS = ["entrypoint", "orchestration", "protocol", "artifacts", "coverage", "artifact_taxonomy"]
+BOUNDED_WORKFLOW_TOP_LEVEL_KEYS = ["entrypoint", "orchestration", "protocol", "artifacts", "coverage", "artifact_taxonomy", "feedback", "next_action"]
 BOUNDED_PROTOCOL_KEYS = [
     "schema_version",
     "task_bus_schema_version",
@@ -127,6 +140,13 @@ def task_bus_contract() -> dict[str, Any]:
             "artifact_taxonomy_schema_version": ARTIFACT_TAXONOMY_SCHEMA_VERSION,
             "artifact_kinds": list(ARTIFACT_KINDS),
         },
+        "feedback": {
+            "keys": list(FEEDBACK_KEYS),
+            "coverage_keys": list(FEEDBACK_COVERAGE_KEYS),
+        },
+        "next_action": {
+            "keys": list(NEXT_ACTION_KEYS),
+        },
     }
 
 
@@ -145,6 +165,13 @@ def bounded_workflow_contract() -> dict[str, Any]:
         "coverage_kind": COVERAGE_KIND_WORKFLOW_PHASE,
         "artifact_taxonomy_keys": list(ARTIFACT_TAXONOMY_KEYS),
         "artifact_kinds": list(ARTIFACT_KINDS),
+        "feedback": {
+            "keys": list(FEEDBACK_KEYS),
+            "coverage_keys": list(FEEDBACK_COVERAGE_KEYS),
+        },
+        "next_action": {
+            "keys": list(NEXT_ACTION_KEYS),
+        },
     }
 
 

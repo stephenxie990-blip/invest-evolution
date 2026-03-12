@@ -8,6 +8,7 @@ from brain.schema_contract import (
     bounded_workflow_contract,
     task_bus_contract,
 )
+from brain.task_bus import build_mutating_task_bus
 from commander import CommanderConfig, CommanderRuntime
 from app.stock_analysis import StockAnalysisService
 from market_data.repository import MarketDataRepository
@@ -73,7 +74,7 @@ def test_task_bus_contract_golden_snapshot():
             "confirmation_keys": ["required", "decision", "state", "reason_codes"],
             "confirmation_states": ["pending_confirmation", "confirmed_or_not_required", "not_applicable"],
             "risk_levels": ["low", "medium", "high"],
-            "reason_codes": ["read_only_analysis", "state_changing_request", "tool_grounded_execution", "training_changes_runtime_state"],
+            "reason_codes": ["confirmation_required", "incomplete_parameter_coverage", "incomplete_plan_coverage", "read_only_analysis", "state_changing_request", "tool_grounded_execution", "training_changes_runtime_state"],
             "readonly_default_reason_codes": ["read_only_analysis", "tool_grounded_execution"],
             "mutating_default_reason_codes": ["state_changing_request", "tool_grounded_execution"],
             "training_default_reason_codes": ["training_changes_runtime_state", "tool_grounded_execution"],
@@ -94,12 +95,26 @@ def test_task_bus_contract_golden_snapshot():
                 "missing_planned_step_ids",
                 "planned_step_coverage",
                 "required_tool_coverage",
+                "parameterized_step_count",
+                "covered_parameterized_step_ids",
+                "missing_parameterized_step_ids",
+                "parameter_coverage",
             ],
             "coverage_schema_version": "task_coverage.v2",
             "coverage_kinds": ["plan_vs_execution", "workflow_phase_completion"],
             "artifact_taxonomy_keys": ["schema_version", "count", "keys", "kinds", "path_keys", "object_keys", "collection_keys", "known_kinds"],
             "artifact_taxonomy_schema_version": "artifact_taxonomy.v2",
             "artifact_kinds": ["collection", "id", "object", "path", "scalar", "unknown"],
+        },
+        "feedback": {
+            "keys": ["message", "summary", "reason_codes", "reason_texts", "requires_confirmation", "decision", "coverage"],
+            "coverage_keys": ["planned_step_coverage", "parameter_coverage"],
+        },
+        "next_action": {
+            "keys": ["kind", "label", "description", "requires_confirmation", "suggested_params"],
+        },
+        "next_action": {
+            "keys": ["kind", "label", "description", "requires_confirmation", "suggested_params"],
         },
     }
     assert task_bus_contract() == expected
@@ -108,7 +123,7 @@ def test_task_bus_contract_golden_snapshot():
 def test_bounded_workflow_contract_golden_snapshot():
     expected = {
         "schema_version": "bounded_workflow.v2",
-        "top_level_keys": ["entrypoint", "orchestration", "protocol", "artifacts", "coverage", "artifact_taxonomy"],
+        "top_level_keys": ["entrypoint", "orchestration", "protocol", "artifacts", "coverage", "artifact_taxonomy", "feedback", "next_action"],
         "protocol_keys": [
             "schema_version",
             "task_bus_schema_version",
@@ -135,6 +150,13 @@ def test_bounded_workflow_contract_golden_snapshot():
         "coverage_kind": "workflow_phase_completion",
         "artifact_taxonomy_keys": ["schema_version", "count", "keys", "kinds", "path_keys", "object_keys", "collection_keys", "known_kinds"],
         "artifact_kinds": ["collection", "id", "object", "path", "scalar", "unknown"],
+        "feedback": {
+            "keys": ["message", "summary", "reason_codes", "reason_texts", "requires_confirmation", "decision", "coverage"],
+            "coverage_keys": ["planned_step_coverage", "parameter_coverage"],
+        },
+        "next_action": {
+            "keys": ["kind", "label", "description", "requires_confirmation", "suggested_params"],
+        },
     }
     assert bounded_workflow_contract() == expected
 
@@ -232,3 +254,32 @@ def test_bounded_workflow_backward_compat_legacy_keys_preserved(tmp_path: Path):
     assert "coverage" in payload
     assert payload["orchestration"]["policy"]["fixed_boundary"] is True
     assert payload["orchestration"]["policy"]["fixed_workflow"] is True
+
+
+def test_mutating_task_bus_escalates_when_plan_or_parameter_coverage_is_incomplete():
+    task_bus = build_mutating_task_bus(
+        intent="config_runtime_paths_update",
+        operation="update_runtime_paths",
+        user_goal="config:update_runtime_paths",
+        mode="commander_runtime_method",
+        available_tools=["invest_runtime_paths_get", "invest_runtime_paths_update"],
+        recommended_plan=[
+            {"tool": "invest_runtime_paths_get", "args": {}},
+            {"tool": "invest_runtime_paths_update", "args": {"confirm": True}},
+        ],
+        tool_calls=[{"action": {"tool": "invest_runtime_paths_update", "args": {"confirm": True}}}],
+        status="ok",
+        risk_level="medium",
+        decision="allow",
+        requires_confirmation=False,
+        reasons=list(MUTATING_DEFAULT_REASON_CODES),
+    )
+
+    gate = task_bus["gate"]
+    assert gate["decision"] == "confirm"
+    assert gate["risk_level"] == "high"
+    assert gate["requires_confirmation"] is True
+    assert gate["confirmation"]["state"] == "pending_confirmation"
+    assert "incomplete_plan_coverage" in gate["reasons"]
+    assert "incomplete_plan_coverage" in gate["confirmation"]["reason_codes"]
+    assert "incomplete_parameter_coverage" not in gate["reasons"]

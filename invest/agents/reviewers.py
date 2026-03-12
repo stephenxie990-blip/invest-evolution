@@ -226,10 +226,22 @@ class ReviewDecisionAgent(InvestAgent):
         if not agent_lines:
             agent_lines.append("- 暂无足够 Agent 准确率样本")
 
+        research_feedback = dict(facts.get("research_feedback") or {})
+        recommendation = dict(research_feedback.get("recommendation") or {})
+        research_section: list[str] = []
+        if research_feedback:
+            research_section = [
+                "## 问股校准反馈",
+                f"- 建议偏置: {recommendation.get('bias') or 'unknown'}",
+                f"- 样本数: {int(research_feedback.get('sample_count') or 0)}",
+                f"- 摘要: {recommendation.get('summary') or '无'}",
+            ]
+
         sections = [
             f"## 近期表现\n胜率{facts.get('win_rate', 0):.0%}，平均收益{facts.get('avg_return', 0):+.2f}%，总轮数{facts.get('total_cycles', 0)}",
             "## Agent 准确率",
             *agent_lines,
+            *research_section,
             f"## 策略分析师意见\n问题：{strategy_analysis.get('problems', [])}\n建议：{strategy_analysis.get('suggestions', [])}",
             f"## 进化裁判意见\n方向：{evo_assessment.get('evolution_direction', 'maintain')}\n参数调整：{evo_assessment.get('param_adjustments', {})}\n建议：{evo_assessment.get('suggestions', [])}",
             f"## 当前参数\n{current_params}",
