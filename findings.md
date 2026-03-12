@@ -168,3 +168,98 @@
   - `tests/test_structure_guards.py::test_project_code_does_not_import_src_package_internally`
   - 失败根因：扫描到 `external/lean/Tests/Python/Indicators/IndicatorExtensionsTests.py`，其文件开头包含 BOM（U+FEFF），`ast.parse` 直接解析失败。
 - 该失败看起来是“结构守卫未排除 vendored external tree / BOM 文件”的仓库遗留问题，不是本次验证命令引入的新故障。
+
+### 已执行的第一波安全清理
+- 修复 `tests/test_structure_guards.py`：
+  - 将 `external/` vendored tree 排除在项目源码守卫之外
+  - 读取源码时改用 `utf-8-sig`，避免 BOM 文件导致 `ast.parse` 假失败
+- 新增 `docs/README.md`：为文档体系建立索引，降低 docs 根目录可读性成本
+- 新增 `scripts/clean_local_artifacts.sh`：标准化清理本地缓存、构建物、测试残留
+- 已清理本地产物：`__pycache__`、`.pytest_cache`、`frontend/dist`、`frontend/test-results`、`.DS_Store`
+- 已恢复真实训练带来的跟踪文件副作用：`data/evolution/generations/momentum_v1_test_candidate.json`
+
+### 清理后验证结果
+- `./.venv/bin/python -m pytest -q tests/test_structure_guards.py` → pass
+- `./.venv/bin/python -m pytest -q` → pass（清理前唯一失败项已消除）
+- `cd frontend && npm run build` → pass
+
+### 架构审计结论（当前实现视角）
+- 统一运行时主轴已经比较清晰：`CommanderRuntime` → `InvestmentBodyService` → `SelfLearningController`
+- 训练链路主轴清晰：`DataManager` → `InvestmentModel` → `SelectionMeeting` → `SimulatedTrader` → `StrategyEvaluator/BenchmarkEvaluator` → `ReviewMeeting`
+- 数据链路主轴清晰：`DataIngestionService` / `MarketDataRepository` 写入 canonical SQLite，`TrainingDatasetBuilder` / `WebDatasetService` / 各 read-side builder 统一读出
+- 当前主要混乱点不在“核心业务主链”，而在“仓库表层”：
+  - 根目录兼容壳仍多
+  - docs 顶层平铺较多
+  - 本地运行产物容易与源码视图混杂
+  - vendored / archive / runtime / external 与主源码边界需要更强约束
+
+### 后续建议的第二波清理（仍建议分波次做）
+1. `docs/` 进一步分层：将 dated audit / remediation / blueprint 文档移入 `docs/audits/`、`docs/plans/`、`docs/blueprints/`
+2. 为根目录兼容壳建立显式 `compatibility surface` 文档，并在 README 上收拢入口说明
+3. 继续盘点 `app/stock_analysis.py`、legacy dashboard、旧字段兼容层，制定真正的弃用窗口
+4. 为 `external/`、`历史归档区/`、运行态目录建立更严格的结构守卫规则
+
+## 2026-03-12 第二波整理
+
+### 本轮目标
+- 继续降低仓库表层复杂度，而不触碰训练 / 调度 / Web / 数据主链逻辑。
+- 把 `docs/` 从“根目录平铺”调整成“可导航的分层结构”。
+- 明确根目录兼容入口边界，避免未来继续把业务实现堆回仓库根部。
+
+### 已完成调整
+- `docs/` 分层完成：
+  - `docs/audits/`：审计 / 评审 / 结果报告
+  - `docs/plans/`：执行计划 / 看板 / 迁移步骤
+  - `docs/blueprints/`：架构蓝图 / 提案 / 专题设计
+- `README.md` 相关文档区已更新到新路径，并补充 `docs/README.md` 作为总索引入口。
+- 新增 `docs/COMPATIBILITY_SURFACE.md`：明确正式实现入口、根目录兼容壳、独立工具脚本与迁移建议。
+- `tests/test_structure_guards.py` 新增 `test_root_python_surface_is_intentional()`，把根目录 Python 文件集合收敛成受控边界。
+- 已同步修复 moved docs 的内部引用，避免重组后出现坏链。
+
+### 本轮收益
+- 新人理解项目时，不必先在 `docs/` 根目录手动筛选 dated report / plan / blueprint。
+- 根目录“正式实现 vs 兼容壳”的边界变得明确，后续更容易继续清理 legacy 表层结构。
+- 仓库结构守卫从“只防 import 漂移”升级到“同时防根目录脚本面继续膨胀”。
+
+### 仍待后续治理的点
+- `app/stock_analysis.py` 与 research payload / legacy dashboard 双轨仍在，属于第三波更适合处理的代码级兼容收口。
+- 当前工作区还存在与本轮无关的其他未提交改动（如 contract freeze gate 相关文件），本轮未触碰。
+
+## 2026-03-12 第三波收口
+
+### 本轮目标
+- 收缩 `app/stock_analysis.py` → `invest/research/*` 之间对 `legacy_signals` / `legacy_dashboard` 的主依赖。
+- 保持对外 payload 与既有测试兼容，但让 canonical snapshot 成为研究假设的优先输入。
+
+### 已完成调整
+- `invest/research/snapshot_builder.py`
+  - 继续保留 `feature_snapshot.legacy_signals` 作为兼容镜像
+  - 但把 `flags`、`matched_signals`、`latest_close`、部分技术值（如 `rsi` / `ma20`）提升到 canonical `metadata` / `factor_values`
+- `invest/research/hypothesis_engine.py`
+  - `latest_close` 优先读取 canonical `summary.close` / `metadata.latest_close` / `factor_values.latest_close`
+  - `supporting_factors` / `contradicting_factors` 优先消费 canonical `metadata.flags` / `metadata.matched_signals`
+  - `legacy_signals` 从“主输入”降级为最后兜底
+- 新增 `tests/test_research_hypothesis_engine.py`
+  - 验证 hypothesis 在没有 `legacy_signals` 的情况下仍可依赖 canonical snapshot 正常工作
+  - 验证 snapshot_builder 会把 legacy-derived 字段提升到 canonical metadata/factor_values
+
+### 本轮收益
+- research hypothesis 不再把 `legacy_signals` 当成第一数据源
+- `stock_analysis -> research snapshot -> hypothesis` 这条链更贴近统一研究引擎设计
+- 后续若要进一步压缩 ask legacy dashboard，可在不改 hypothesis 核心逻辑的前提下继续推进
+
+### 回归结果
+- `tests/test_research_hypothesis_engine.py` + `tests/test_ask_stock_model_bridge.py` → pass
+- `tests/test_research_runtime_assets.py` + `tests/test_schema_contracts.py` + 上述研究桥接测试 → pass
+- `./.venv/bin/python -m pytest -q` → pass
+## 2026-03-12 第二段清理补充发现
+- `app/stock_analysis.py` 的主要可读性问题不在算法，而在 `ask_stock()` 同时承担了 orchestration、research payload 组装、case/attribution 持久化、fallback 分支四类职责。
+- 将 research 结果归并逻辑下沉为 helper 后，主入口更接近“编排层”，后续继续替换 legacy fallback 时风险面更小。
+- 当前 legacy dashboard 仍是 research bridge unavailable 时的唯一兼容兜底，但已被压缩到单一 helper 返回点，后续可以继续替换为 canonical adapter。
+## 2026-03-12 第三段清理补充发现
+- `legacy_yaml_dashboard` 现在只剩“fallback 来源标记”语义，不再承担独立的最终 dashboard 展示协议责任。
+- `ask_stock()` 的主干已基本收缩为：参数解析 → 执行分析 → 解析 research resolution → 组装协议响应。
+- 后续更值得清理的方向，已经从 `app/stock_analysis.py` 内部结构，转向仓库级 legacy/compat 残留面扫描与逐模块收口。
+## 2026-03-12 第四段清理补充发现
+- `legacy_signals` 当前在 research contract 中的剩余职责已经收缩为兼容桥，不再适合承载完整 derived payload。
+- 继续清理时，优先级更高的对象已经不是 `ask_stock()` 主流程，而是仓库范围内的 compat route / legacy shell / backward alias 面。

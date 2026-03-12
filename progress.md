@@ -272,3 +272,37 @@
 - 风险记录：
   - 全量 pytest 当前有 1 个基线失败，来自 `external/lean` vendored 树被结构守卫扫描并触发 BOM 解析异常
   - 工作区已有用户未提交改动，后续不得覆盖
+- 新进展：
+  - 修复全量 pytest 基线失败（结构守卫误扫 vendored external tree）
+  - 新增 docs 索引页与本地清理脚本
+  - 再次回归：全量 pytest 通过、前端 build 通过
+  - 恢复真实训练引入的跟踪文件副作用
+- 第二波进展：
+  - 完成 `docs/` 分层重组（audits / plans / blueprints）
+  - 更新 README 与 docs 内部引用到新路径
+  - 新增 `docs/COMPATIBILITY_SURFACE.md`
+  - 为根目录 Python surface 增加结构守卫测试
+  - 全量 pytest 再次通过
+- 第三波进展：
+  - 已将 hypothesis 对 `legacy_signals` 的主依赖降级为兜底
+  - 已把部分 legacy-derived 结构提升到 canonical snapshot metadata/factor_values
+  - 新增 hypothesis-focused 回归测试
+  - 全量 pytest 再次通过
+- 第二段进展：
+  - 已将 `StockAnalysisService.ask_stock()` 中 research 成功/降级分支抽取为专用 helper，主流程只保留编排职责
+  - 新增 `_build_research_payload_bases`、`_persist_research_case_artifacts`、`_resolve_ask_stock_research_outputs`
+  - 新增 fallback 回归测试，确保 research bridge 不可用时仍走 `legacy_yaml_dashboard` 合约
+  - 回归通过：`./.venv/bin/python -m pytest -q tests/test_ask_stock_model_bridge.py tests/test_stock_analysis_react.py`
+  - 回归通过：`./.venv/bin/python -m pytest -q`
+- 第三段进展：
+  - 已将 fallback dashboard 的最终输出统一收口到 `build_dashboard_projection()`，兼容逻辑与展示协议分离
+  - 新增 `_build_dashboard_fallback_projection`，legacy 打分逻辑仅保留为 fallback 输入源
+  - 已将 `ask_stock()` 末尾 task_bus / bounded_context / payload 组装提取为 helper，主流程继续瘦身
+  - 新增 fallback canonical renderer 回归测试
+  - 回归通过：`./.venv/bin/python -m pytest -q tests/test_ask_stock_model_bridge.py tests/test_stock_analysis_react.py tests/test_commander_unified_entry.py`
+  - 回归通过：`./.venv/bin/python -m pytest -q`
+- 第四段进展：
+  - 已将 research snapshot 中 `legacy_signals` 压缩为兼容最小子集（flags / matched_signals / latest_close / ma20 / rsi）
+  - 新增 snapshot builder 回归测试，防止整包 `derived` 再次泄入 research contracts
+  - 回归通过：`./.venv/bin/python -m pytest -q tests/test_research_hypothesis_engine.py tests/test_ask_stock_model_bridge.py tests/test_research_runtime_assets.py`
+  - 回归通过：`./.venv/bin/python -m pytest -q`

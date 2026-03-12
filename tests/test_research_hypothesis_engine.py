@@ -80,3 +80,51 @@ def test_snapshot_builder_promotes_legacy_derived_fields_into_canonical_metadata
     assert metadata["matched_signals"] == ["多头排列"]
     assert metadata["latest_close"] == 10.5
     assert factor_values["rsi"] == 48.0
+
+
+def test_snapshot_builder_compacts_legacy_signals_to_compatibility_subset():
+    from types import SimpleNamespace
+    from invest.research.snapshot_builder import build_research_snapshot
+
+    signal_packet = SimpleNamespace(
+        metadata={"raw_summaries": [{"code": "sh.600001", "algo_score": 0.8, "close": 10.5}]},
+        model_name="momentum",
+        config_name="momentum_v1",
+        regime="bull",
+        cash_reserve=0.2,
+        signals=[SimpleNamespace(code="sh.600001", to_dict=lambda: {"score": 0.9, "evidence": ["强势放量"], "factor_values": {}})],
+        selected_codes=["sh.600001"],
+        as_of_date="20240130",
+        reasoning="",
+    )
+    model_output = SimpleNamespace(
+        signal_packet=signal_packet,
+        model_name="momentum",
+        config_name="momentum_v1",
+        agent_context=SimpleNamespace(summary=""),
+    )
+
+    snapshot = build_research_snapshot(
+        model_output=model_output,
+        security={"code": "sh.600001"},
+        query_code="sh.600001",
+        stock_data={"sh.600001": []},
+        legacy_signals={
+            "flags": {"趋势向上": True},
+            "matched_signals": ["多头排列"],
+            "latest_close": 10.5,
+            "ma20": 10.1,
+            "rsi": 48.0,
+            "algo_score": 0.8,
+            "structure": "uptrend",
+            "unused_blob": {"foo": "bar"},
+        },
+    )
+
+    assert snapshot.feature_snapshot["legacy_signals"] == {
+        "flags": {"趋势向上": True},
+        "matched_signals": ["多头排列"],
+        "latest_close": 10.5,
+        "ma20": 10.1,
+        "rsi": 48.0,
+    }

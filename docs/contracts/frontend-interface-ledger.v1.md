@@ -12,8 +12,12 @@
 - 主契约：`GET /api/contracts/frontend-v1`。
 - JSON Schema：`GET /api/contracts/frontend-v1/schema`。
 - OpenAPI：`GET /api/contracts/frontend-v1/openapi`。
+- 契约刷新命令：`python3 scripts/generate_frontend_contract_derivatives.py` 或 `invest-refresh-contracts`。
+- 契约漂移校验：`python3 scripts/generate_frontend_contract_derivatives.py --check` 或 `invest-refresh-contracts --check`。
+- Freeze gate：`invest-freeze-gate --mode quick|full`，用于把 contract / transcript / regression 一起冻结。
 - 标准响应片段：`responseFeedback`，用于承载 Commander/ask-stock 的用户可读 gate + audit 摘要。
 - 标准后续动作片段：`responseNextAction`，用于表达建议用户下一步动作。
+- 标准 transcript 快照：主契约中的 `transcript_snapshots` 与 OpenAPI 中的 `x-transcript-snapshots`，由 shared transcript snapshot builder 自动导出，用于前端 mock、回放与回归比对。
 - 事件流：`GET /api/events`（SSE）。
 
 ## 页面分工

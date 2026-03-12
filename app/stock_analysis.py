@@ -25,6 +25,7 @@ from invest.models import create_investment_model, resolve_model_config_path
 from invest.research import (
     ResearchAttributionEngine,
     ResearchCaseStore,
+    ResearchHypothesis,
     ResearchScenarioEngine,
     build_dashboard_projection,
     build_research_hypothesis,
@@ -492,131 +493,109 @@ class StockAnalysisService:
             execution = self._run_react_executor(question=question, query=code, security=security, strategy=strat, days=resolved_days)
             coverage = self._build_execution_coverage(strategy=strat, execution=execution, recommended_plan=recommended_plan, allowed_tools=allowed_tools)
             derived = self._derive_signals(execution)
-        research_bridge = self._build_research_bridge(
+        research_resolution = self._resolve_ask_stock_research_outputs(
+            question=question,
+            query=query,
+            strategy=strat,
+            strategy_source=strategy_source,
             code=code,
             security=security,
             requested_as_of_date=as_of_date,
             effective_as_of_date=effective_as_of_date,
             days=resolved_days,
+            execution=execution,
             derived=derived,
         )
-        dashboard: dict[str, Any] = {}
-        research_payload: dict[str, Any] = {
-            "status": str(research_bridge.get("status") or "unavailable"),
-            "requested_as_of_date": self._normalize_as_of_date(as_of_date),
-            "as_of_date": effective_as_of_date,
+        dashboard = research_resolution["dashboard"]
+        research_payload = research_resolution["research"]
+        model_bridge_payload = research_resolution["model_bridge"]
+        policy_id = str(research_resolution.get("policy_id") or "")
+        research_case_id = str(research_resolution.get("research_case_id") or "")
+        attribution_id = str(research_resolution.get("attribution_id") or "")
+        task_bus_artifacts = self._build_ask_stock_task_artifacts(
+            code=code,
+            strategy_name=strat.name,
+            strategy_source=strategy_source,
+            derived=derived,
+            execution=execution,
+        )
+        task_bus = self._build_ask_stock_task_bus(
+            question=question,
+            query=query,
+            execution=execution,
+            recommended_plan=recommended_plan,
+            coverage=coverage,
+            task_bus_artifacts=task_bus_artifacts,
+        )
+        bounded_context = self._build_ask_stock_bounded_context(
+            execution=execution,
+            coverage=coverage,
+            task_bus_artifacts=task_bus_artifacts,
+            policy_id=policy_id,
+            research_case_id=research_case_id,
+            attribution_id=attribution_id,
+        )
+        payload = self._build_ask_stock_payload(
+            question=question,
+            query=query,
+            code=code,
+            as_of_date=as_of_date,
+            effective_as_of_date=effective_as_of_date,
+            security=security,
+            strategy=strat,
+            strategy_source=strategy_source,
+            days=resolved_days,
+            execution=execution,
+            allowed_tools=allowed_tools,
+            recommended_plan=recommended_plan,
+            coverage=coverage,
+            derived=derived,
+            dashboard=dashboard,
+            research_payload=research_payload,
+            model_bridge_payload=model_bridge_payload,
+            task_bus=task_bus,
+            policy_id=policy_id,
+            research_case_id=research_case_id,
+            attribution_id=attribution_id,
+        )
+        return build_protocol_response(
+            payload=payload,
+            protocol=bounded_context["protocol"],
+            task_bus=task_bus,
+            artifacts=bounded_context["artifacts"],
+            coverage=bounded_context["coverage"],
+            artifact_taxonomy=bounded_context["artifact_taxonomy"],
+            default_reply="已完成问股分析。",
+        )
+
+    def _build_ask_stock_task_artifacts(
+        self,
+        *,
+        code: str,
+        strategy_name: str,
+        strategy_source: str,
+        derived: dict[str, Any],
+        execution: dict[str, Any],
+    ) -> dict[str, Any]:
+        return {
+            "code": code,
+            "strategy": strategy_name,
+            "strategy_source": strategy_source,
+            "latest_close": derived.get("latest_close"),
+            "gap_fill_applied": bool(dict(execution.get("gap_fill") or {}).get("applied")),
         }
-        model_bridge_payload: dict[str, Any] = {
-            "status": str(research_bridge.get("status") or "unavailable"),
-            "requested_as_of_date": self._normalize_as_of_date(as_of_date),
-            "as_of_date": effective_as_of_date,
-        }
-        policy_id = ""
-        research_case_id = ""
-        attribution_id = ""
-        if research_bridge.get("status") == "ok":
-            snapshot = research_bridge["snapshot"]
-            policy = research_bridge["policy"]
-            preliminary_stance = self._estimate_preliminary_stance(snapshot)
-            scenario = self.scenario_engine.estimate(snapshot=snapshot, policy=policy, stance=preliminary_stance)
-            hypothesis = build_research_hypothesis(
-                snapshot=snapshot,
-                policy=policy,
-                scenario=scenario,
-                strategy_name=strat.name,
-                strategy_display_name=strat.display_name,
-            )
-            dashboard = build_dashboard_projection(
-                hypothesis=hypothesis,
-                matched_signals=list(derived.get("matched_signals") or []),
-                core_rules=list(strat.core_rules),
-                entry_conditions=list(strat.entry_conditions),
-            )
-            case_record = None
-            attribution_preview = None
-            attribution_record = None
-            calibration_report = None
-            try:
-                case_record = self.case_store.save_case(
-                    snapshot=snapshot,
-                    policy=policy,
-                    hypothesis=hypothesis,
-                    metadata={
-                        "question": question,
-                        "query": query,
-                        "strategy": strat.name,
-                        "strategy_source": strategy_source,
-                        "execution_mode": execution.get("mode"),
-                    },
-                )
-                research_case_id = str(case_record.get("research_case_id") or "")
-                attribution = self.attribution_engine.evaluate_case(case_record)
-                attribution_preview = attribution.to_dict()
-                has_scored_horizon = any(
-                    str((result or {}).get("label") or "") != "timeout"
-                    for result in dict(attribution.horizon_results or {}).values()
-                )
-                if has_scored_horizon:
-                    attribution_record = self.case_store.save_attribution(
-                        attribution,
-                        metadata={
-                            "policy_id": policy.policy_id,
-                            "research_case_id": research_case_id,
-                            "code": code,
-                            "as_of_date": effective_as_of_date,
-                        },
-                    )
-                    attribution_id = str(attribution_record.get("attribution_id") or "")
-                    calibration_report = self.case_store.write_calibration_report(policy_id=policy.policy_id)
-            except Exception:
-                logger.warning("Failed to persist/evaluate research case for %s", code, exc_info=True)
-            policy_id = policy.policy_id
-            model_bridge_payload.update(
-                {
-                    "status": "ok",
-                    "controller_bound": bool(research_bridge.get("controller_bound")),
-                    "replay_mode": bool(research_bridge.get("replay_mode")),
-                    "parameter_source": str(research_bridge.get("parameter_source") or ""),
-                    "routing_decision": dict(research_bridge.get("routing_decision") or {}),
-                    "model_output": research_bridge["model_output"].to_dict(),
-                    "policy_id": policy_id,
-                    "research_case_id": research_case_id,
-                    "attribution_id": attribution_id,
-                }
-            )
-            research_payload.update(
-                {
-                    "status": "ok",
-                    "snapshot": snapshot.to_dict(),
-                    "policy": policy.to_dict(),
-                    "hypothesis": hypothesis.to_dict(),
-                    "scenario": dict(scenario or {}),
-                    "case": dict(case_record or {}),
-                    "attribution": {
-                        "saved": bool(attribution_record),
-                        "record": dict(attribution_record or {}),
-                        "preview": dict(attribution_preview or {}),
-                    },
-                    "calibration_report": dict(calibration_report or {}),
-                }
-            )
-        else:
-            dashboard = self._build_dashboard(strategy=strat, derived=derived, execution=execution)
-            model_bridge_payload.update(
-                {
-                    "error": str(research_bridge.get("error") or ""),
-                    "fallback": "legacy_yaml_dashboard",
-                    "details": dict(research_bridge.get("details") or {}),
-                }
-            )
-            research_payload.update(
-                {
-                    "error": str(research_bridge.get("error") or ""),
-                    "fallback": "legacy_yaml_dashboard",
-                    "details": dict(research_bridge.get("details") or {}),
-                }
-            )
-        task_bus = build_readonly_task_bus(
+
+    def _build_ask_stock_task_bus(
+        self,
+        *,
+        question: str,
+        query: str,
+        execution: dict[str, Any],
+        recommended_plan: list[dict[str, Any]],
+        coverage: dict[str, Any],
+        task_bus_artifacts: dict[str, Any],
+    ) -> dict[str, Any]:
+        return build_readonly_task_bus(
             intent="stock_analysis",
             operation="ask_stock",
             user_goal=question or query,
@@ -624,26 +603,27 @@ class StockAnalysisService:
             available_tools=sorted(self._tool_registry.keys()),
             recommended_plan=recommended_plan,
             tool_calls=execution["tool_calls"],
-            artifacts={
-                "code": code,
-                "strategy": strat.name,
-                "strategy_source": strategy_source,
-                "latest_close": derived.get("latest_close"),
-                "gap_fill_applied": bool(dict(execution.get("gap_fill") or {}).get("applied")),
-            },
+            artifacts=task_bus_artifacts,
             coverage=coverage,
             status="ok",
         )
-        bounded_context = build_bounded_response_context(
+
+    def _build_ask_stock_bounded_context(
+        self,
+        *,
+        execution: dict[str, Any],
+        coverage: dict[str, Any],
+        task_bus_artifacts: dict[str, Any],
+        policy_id: str,
+        research_case_id: str,
+        attribution_id: str,
+    ) -> dict[str, Any]:
+        return build_bounded_response_context(
             schema_version=BOUNDED_WORKFLOW_SCHEMA_VERSION,
             domain="stock",
             operation="ask_stock",
             artifacts={
-                "code": code,
-                "strategy": strat.name,
-                "strategy_source": strategy_source,
-                "latest_close": derived.get("latest_close"),
-                "gap_fill_applied": bool(dict(execution.get("gap_fill") or {}).get("applied")),
+                **task_bus_artifacts,
                 "policy_id": policy_id,
                 "research_case_id": research_case_id,
                 "attribution_id": attribution_id,
@@ -652,7 +632,33 @@ class StockAnalysisService:
             phase_stats=dict(execution.get("phase_stats") or {}),
             coverage=coverage,
         )
-        payload = {
+
+    def _build_ask_stock_payload(
+        self,
+        *,
+        question: str,
+        query: str,
+        code: str,
+        as_of_date: str,
+        effective_as_of_date: str,
+        security: dict[str, Any],
+        strategy: StockAnalysisStrategy,
+        strategy_source: str,
+        days: int,
+        execution: dict[str, Any],
+        allowed_tools: list[str],
+        recommended_plan: list[dict[str, Any]],
+        coverage: dict[str, Any],
+        derived: dict[str, Any],
+        dashboard: dict[str, Any],
+        research_payload: dict[str, Any],
+        model_bridge_payload: dict[str, Any],
+        task_bus: dict[str, Any],
+        policy_id: str,
+        research_case_id: str,
+        attribution_id: str,
+    ) -> dict[str, Any]:
+        return {
             "status": "ok",
             "question": question,
             "query": query,
@@ -675,9 +681,9 @@ class StockAnalysisService:
                 meeting_path=False,
                 agent_system="commander_brain_tooling",
             ),
-            "strategy": strat.to_dict(),
+            "strategy": strategy.to_dict(),
             "strategy_source": strategy_source,
-            "days": resolved_days,
+            "days": days,
             "task_bus": task_bus,
             "orchestration": build_bounded_orchestration(
                 mode=execution["mode"],
@@ -689,13 +695,13 @@ class StockAnalysisService:
                     source="yaml_strategy",
                     agent_kind="bounded_stock_agent",
                     workflow_mode="llm_react_with_yaml_gap_fill",
-                    react_enabled=bool(strat.react_enabled),
+                    react_enabled=bool(strategy.react_enabled),
                     tool_catalog_scope="strategy_restricted",
                     fixed_boundary=True,
                     fixed_workflow=True,
                 ),
                 extra={
-                    "required_tools": list(strat.required_tools),
+                    "required_tools": list(strategy.required_tools),
                     "recommended_plan": recommended_plan,
                     "tool_plan": execution["plan"],
                     "tool_calls": execution["tool_calls"],
@@ -715,14 +721,239 @@ class StockAnalysisService:
             "research": research_payload,
             "dashboard": dashboard,
         }
-        return build_protocol_response(
-            payload=payload,
-            protocol=bounded_context["protocol"],
-            task_bus=task_bus,
-            artifacts=bounded_context["artifacts"],
-            coverage=bounded_context["coverage"],
-            artifact_taxonomy=bounded_context["artifact_taxonomy"],
-            default_reply="已完成问股分析。",
+
+    def _build_research_payload_bases(
+        self,
+        *,
+        research_bridge: dict[str, Any],
+        requested_as_of_date: str,
+        effective_as_of_date: str,
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
+        status = str(research_bridge.get("status") or "unavailable")
+        base_payload = {
+            "status": status,
+            "requested_as_of_date": self._normalize_as_of_date(requested_as_of_date),
+            "as_of_date": effective_as_of_date,
+        }
+        return dict(base_payload), dict(base_payload)
+
+    def _persist_research_case_artifacts(
+        self,
+        *,
+        snapshot: Any,
+        policy: Any,
+        hypothesis: Any,
+        question: str,
+        query: str,
+        strategy: StockAnalysisStrategy,
+        strategy_source: str,
+        execution_mode: str,
+        code: str,
+        effective_as_of_date: str,
+    ) -> dict[str, Any]:
+        case_record = None
+        attribution_preview = None
+        attribution_record = None
+        calibration_report = None
+        research_case_id = ""
+        attribution_id = ""
+        try:
+            case_record = self.case_store.save_case(
+                snapshot=snapshot,
+                policy=policy,
+                hypothesis=hypothesis,
+                metadata={
+                    "question": question,
+                    "query": query,
+                    "strategy": strategy.name,
+                    "strategy_source": strategy_source,
+                    "execution_mode": execution_mode,
+                },
+            )
+            research_case_id = str(case_record.get("research_case_id") or "")
+            attribution = self.attribution_engine.evaluate_case(case_record)
+            attribution_preview = attribution.to_dict()
+            has_scored_horizon = any(
+                str((result or {}).get("label") or "") != "timeout"
+                for result in dict(attribution.horizon_results or {}).values()
+            )
+            if has_scored_horizon:
+                attribution_record = self.case_store.save_attribution(
+                    attribution,
+                    metadata={
+                        "policy_id": policy.policy_id,
+                        "research_case_id": research_case_id,
+                        "code": code,
+                        "as_of_date": effective_as_of_date,
+                    },
+                )
+                attribution_id = str(attribution_record.get("attribution_id") or "")
+                calibration_report = self.case_store.write_calibration_report(policy_id=policy.policy_id)
+        except Exception:
+            logger.warning("Failed to persist/evaluate research case for %s", code, exc_info=True)
+        return {
+            "case": dict(case_record or {}),
+            "research_case_id": research_case_id,
+            "attribution": {
+                "saved": bool(attribution_record),
+                "record": dict(attribution_record or {}),
+                "preview": dict(attribution_preview or {}),
+            },
+            "attribution_id": attribution_id,
+            "calibration_report": dict(calibration_report or {}),
+        }
+
+    def _resolve_ask_stock_research_outputs(
+        self,
+        *,
+        question: str,
+        query: str,
+        strategy: StockAnalysisStrategy,
+        strategy_source: str,
+        code: str,
+        security: dict[str, Any],
+        requested_as_of_date: str,
+        effective_as_of_date: str,
+        days: int,
+        execution: dict[str, Any],
+        derived: dict[str, Any],
+    ) -> dict[str, Any]:
+        research_bridge = self._build_research_bridge(
+            code=code,
+            security=security,
+            requested_as_of_date=requested_as_of_date,
+            effective_as_of_date=effective_as_of_date,
+            days=days,
+            derived=derived,
+        )
+        research_payload, model_bridge_payload = self._build_research_payload_bases(
+            research_bridge=research_bridge,
+            requested_as_of_date=requested_as_of_date,
+            effective_as_of_date=effective_as_of_date,
+        )
+        if research_bridge.get("status") != "ok":
+            fallback_details = {
+                "error": str(research_bridge.get("error") or ""),
+                "fallback": "legacy_yaml_dashboard",
+                "details": dict(research_bridge.get("details") or {}),
+            }
+            research_payload.update(fallback_details)
+            model_bridge_payload.update(fallback_details)
+            return {
+                "dashboard": self._build_dashboard_fallback_projection(
+                    strategy=strategy,
+                    derived=derived,
+                    execution=execution,
+                ),
+                "research": research_payload,
+                "model_bridge": model_bridge_payload,
+                "policy_id": "",
+                "research_case_id": "",
+                "attribution_id": "",
+            }
+
+        snapshot = research_bridge["snapshot"]
+        policy = research_bridge["policy"]
+        preliminary_stance = self._estimate_preliminary_stance(snapshot)
+        scenario = self.scenario_engine.estimate(snapshot=snapshot, policy=policy, stance=preliminary_stance)
+        hypothesis = build_research_hypothesis(
+            snapshot=snapshot,
+            policy=policy,
+            scenario=scenario,
+            strategy_name=strategy.name,
+            strategy_display_name=strategy.display_name,
+        )
+        persistence = self._persist_research_case_artifacts(
+            snapshot=snapshot,
+            policy=policy,
+            hypothesis=hypothesis,
+            question=question,
+            query=query,
+            strategy=strategy,
+            strategy_source=strategy_source,
+            execution_mode=str(execution.get("mode") or ""),
+            code=code,
+            effective_as_of_date=effective_as_of_date,
+        )
+        policy_id = str(policy.policy_id or "")
+        research_case_id = str(persistence.get("research_case_id") or "")
+        attribution_id = str(persistence.get("attribution_id") or "")
+        model_bridge_payload.update(
+            {
+                "status": "ok",
+                "controller_bound": bool(research_bridge.get("controller_bound")),
+                "replay_mode": bool(research_bridge.get("replay_mode")),
+                "parameter_source": str(research_bridge.get("parameter_source") or ""),
+                "routing_decision": dict(research_bridge.get("routing_decision") or {}),
+                "model_output": research_bridge["model_output"].to_dict(),
+                "policy_id": policy_id,
+                "research_case_id": research_case_id,
+                "attribution_id": attribution_id,
+            }
+        )
+        research_payload.update(
+            {
+                "status": "ok",
+                "snapshot": snapshot.to_dict(),
+                "policy": policy.to_dict(),
+                "hypothesis": hypothesis.to_dict(),
+                "scenario": dict(scenario or {}),
+                "case": dict(persistence.get("case") or {}),
+                "attribution": dict(persistence.get("attribution") or {}),
+                "calibration_report": dict(persistence.get("calibration_report") or {}),
+            }
+        )
+        return {
+            "dashboard": build_dashboard_projection(
+                hypothesis=hypothesis,
+                matched_signals=list(derived.get("matched_signals") or []),
+                core_rules=list(strategy.core_rules),
+                entry_conditions=list(strategy.entry_conditions),
+            ),
+            "research": research_payload,
+            "model_bridge": model_bridge_payload,
+            "policy_id": policy_id,
+            "research_case_id": research_case_id,
+            "attribution_id": attribution_id,
+        }
+
+    def _build_dashboard_fallback_projection(
+        self,
+        *,
+        strategy: StockAnalysisStrategy,
+        derived: dict[str, Any],
+        execution: dict[str, Any],
+    ) -> dict[str, Any]:
+        legacy_dashboard = self._build_dashboard(strategy=strategy, derived=derived, execution=execution)
+        legacy_reason = str(legacy_dashboard.get("reason") or "")
+        fallback_hypothesis = ResearchHypothesis(
+            hypothesis_id="hypothesis_legacy_dashboard_fallback",
+            snapshot_id="snapshot_legacy_dashboard_fallback",
+            policy_id="policy_legacy_dashboard_fallback",
+            stance=str(legacy_dashboard.get("signal") or "持有观察"),
+            score=float(legacy_dashboard.get("score") or 0.0),
+            entry_rule={
+                "kind": "legacy_dashboard_entry",
+                "price": legacy_dashboard.get("entry_price"),
+                "source": strategy.display_name,
+            },
+            invalidation_rule={
+                "kind": "legacy_dashboard_stop_loss",
+                "price": legacy_dashboard.get("stop_loss"),
+                "source": strategy.name,
+            },
+            supporting_factors=list(legacy_dashboard.get("matched_signals") or []),
+            metadata={
+                "source": "legacy_dashboard_fallback",
+                "strategy_name": strategy.name,
+            },
+        )
+        return build_dashboard_projection(
+            hypothesis=fallback_hypothesis,
+            matched_signals=list(legacy_dashboard.get("matched_signals") or []),
+            core_rules=list(legacy_dashboard.get("core_rules") or strategy.core_rules),
+            entry_conditions=list(legacy_dashboard.get("entry_conditions") or strategy.entry_conditions),
+            legacy_reason=legacy_reason,
         )
 
     @staticmethod

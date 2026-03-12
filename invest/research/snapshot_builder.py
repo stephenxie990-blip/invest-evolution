@@ -12,6 +12,13 @@ _MODEL_SCORE_KEYS = {
     "value_quality": ["value_quality_score", "algo_score"],
     "defensive_low_vol": ["defensive_score", "algo_score"],
 }
+_LEGACY_SIGNAL_COMPAT_KEYS = {
+    "flags",
+    "matched_signals",
+    "latest_close",
+    "ma20",
+    "rsi",
+}
 
 
 def _coerce_float(value: Any) -> float | None:
@@ -45,6 +52,14 @@ def _normalize_universe(model_name: str, stock_summaries: Iterable[Dict[str, Any
         reverse=True,
     )
     return ranked
+
+
+def _compact_legacy_signals(payload: Dict[str, Any] | None) -> Dict[str, Any]:
+    compacted: Dict[str, Any] = {}
+    for key, value in dict(payload or {}).items():
+        if key in _LEGACY_SIGNAL_COMPAT_KEYS and value not in (None, "", [], {}):
+            compacted[key] = value
+    return compacted
 
 
 def build_research_snapshot(
@@ -110,7 +125,7 @@ def build_research_snapshot(
     }
     factor_values = dict(selected_signal.get("factor_values") or {})
     signal_metadata = dict(selected_signal.get("metadata") or {})
-    legacy_payload = dict(legacy_signals or {})
+    legacy_payload = _compact_legacy_signals(legacy_signals)
     legacy_flags = dict(legacy_payload.get("flags") or {})
     if legacy_flags and "flags" not in signal_metadata:
         signal_metadata["flags"] = legacy_flags

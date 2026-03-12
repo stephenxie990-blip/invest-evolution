@@ -1,6 +1,7 @@
 from pathlib import Path
 from types import SimpleNamespace
 
+import app.stock_analysis as stock_analysis_module
 from app.stock_analysis import StockAnalysisService
 from invest.models import resolve_model_config_path
 from market_data.repository import MarketDataRepository
@@ -198,3 +199,72 @@ def test_ask_stock_canonical_dashboard_path_does_not_require_legacy_dashboard_bu
 
     assert payload["research"]["status"] == "ok"
     assert payload["dashboard"]["signal"] == payload["research"]["hypothesis"]["stance"]
+
+
+def test_ask_stock_fallback_path_keeps_legacy_dashboard_contract(tmp_path: Path):
+    service = _build_service(tmp_path)
+    service._build_research_bridge = lambda **kwargs: {
+        "status": "unavailable",
+        "error": "bridge offline",
+        "details": {"stage": "test"},
+    }
+    service._build_dashboard = lambda **kwargs: {
+        "signal": "legacy-fallback",
+        "score": 42.0,
+        "entry_price": None,
+        "stop_loss": None,
+        "reason": "fallback",
+        "matched_signals": [],
+        "core_rules": [],
+        "entry_conditions": [],
+    }
+
+    payload = service.ask_stock(question="请分析 Alpha", query="Alpha")
+
+    assert payload["research"]["status"] == "unavailable"
+    assert payload["research"]["fallback"] == "legacy_yaml_dashboard"
+    assert payload["analysis"]["model_bridge"]["fallback"] == "legacy_yaml_dashboard"
+    assert payload["dashboard"]["signal"] == "legacy-fallback"
+
+
+def test_ask_stock_fallback_path_uses_canonical_dashboard_renderer(tmp_path: Path, monkeypatch):
+    service = _build_service(tmp_path)
+    service._build_research_bridge = lambda **kwargs: {
+        "status": "unavailable",
+        "error": "bridge offline",
+        "details": {"stage": "test"},
+    }
+    service._build_dashboard = lambda **kwargs: {
+        "signal": "legacy-fallback",
+        "score": 42.0,
+        "entry_price": 9.9,
+        "stop_loss": 9.3,
+        "reason": "legacy fallback reason",
+        "matched_signals": ["B", "A"],
+        "core_rules": ["rule-1"],
+        "entry_conditions": ["cond-1"],
+    }
+    captured = {}
+
+    def _fake_projection(**kwargs):
+        captured.update(kwargs)
+        return {
+            "signal": "canonical-fallback",
+            "score": kwargs["hypothesis"].score,
+            "entry_price": kwargs["hypothesis"].entry_rule.get("price"),
+            "stop_loss": kwargs["hypothesis"].invalidation_rule.get("price"),
+            "reason": kwargs.get("legacy_reason", ""),
+            "matched_signals": list(kwargs["matched_signals"]),
+            "core_rules": list(kwargs["core_rules"]),
+            "entry_conditions": list(kwargs["entry_conditions"]),
+        }
+
+    monkeypatch.setattr(stock_analysis_module, "build_dashboard_projection", _fake_projection)
+
+    payload = service.ask_stock(question="请分析 Alpha", query="Alpha")
+
+    assert payload["dashboard"]["signal"] == "canonical-fallback"
+    assert payload["dashboard"]["reason"] == "legacy fallback reason"
+    assert captured["hypothesis"].stance == "legacy-fallback"
+    assert captured["legacy_reason"] == "legacy fallback reason"
+    assert captured["matched_signals"] == ["B", "A"]
