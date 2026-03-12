@@ -27,6 +27,17 @@ from typing import Any
 from flask import Flask, jsonify, request, send_from_directory, Response, stream_with_context
 
 from app.commander import CommanderConfig, CommanderRuntime, _apply_runtime_path_overrides
+from app.web_ui_metadata import (
+    FRONTEND_APP_ROUTE,
+    LEGACY_UI_ROUTE,
+)
+from app.web_ui_runtime import (
+    FRONTEND_APP_SHELL_TARGET,
+    WebUIShellSettings,
+    is_shell_public_path,
+    normalize_frontend_asset_path,
+    resolve_root_shell_target,
+)
 from invest.allocator import build_allocation_plan
 from invest.leaderboard import write_leaderboard
 from invest.models import list_models
@@ -231,10 +242,6 @@ _FRONTEND_API_CONTRACT_V1_PATH = _CONTRACTS_DIR / "frontend-api-contract.v1.json
 _FRONTEND_API_CONTRACT_V1_SCHEMA_PATH = _CONTRACTS_DIR / "frontend-api-contract.v1.schema.json"
 _FRONTEND_API_CONTRACT_V1_OPENAPI_PATH = _CONTRACTS_DIR / "frontend-api-contract.v1.openapi.json"
 _FRONTEND_DIST_DIR = Path(__file__).parent.parent / "frontend" / "dist"
-_FRONTEND_CANARY_HEADER = "X-Invest-Frontend-Canary"
-_LEGACY_UI_ROUTE = "/legacy"
-_FRONTEND_APP_ROUTE = "/app"
-_SHELL_PUBLIC_PATHS = frozenset({"/healthz", "/", _LEGACY_UI_ROUTE, _FRONTEND_APP_ROUTE})
 
 
 def _load_contract_document(path: Path) -> dict[str, Any]:
@@ -320,10 +327,7 @@ def _extract_request_token() -> str:
 
 
 def _is_shell_public_path(path: str) -> bool:
-    normalized = str(path or "")
-    if normalized in _SHELL_PUBLIC_PATHS:
-        return True
-    return normalized.startswith("/static/") or normalized.startswith(f"{_FRONTEND_APP_ROUTE}/")
+    return is_shell_public_path(path)
 
 
 def _request_requires_auth() -> bool:
@@ -468,41 +472,32 @@ def _frontend_dist_available() -> bool:
     return _FRONTEND_DIST_DIR.exists() and _FRONTEND_DIST_DIR.is_dir()
 
 
-def _ui_shell_mode() -> str:
+def _web_ui_settings() -> WebUIShellSettings:
     import config as config_module
 
-    return str(getattr(config_module.config, "web_ui_shell_mode", "legacy") or "legacy").strip().lower() or "legacy"
+    return WebUIShellSettings.from_config(config_module.config)
 
 
-def _request_prefers_frontend_app() -> bool:
-    import config as config_module
-
-    if _ui_shell_mode() == "app":
-        return True
-    if not bool(getattr(config_module.config, "frontend_canary_enabled", False)):
-        return False
-    query_param = str(getattr(config_module.config, "frontend_canary_query_param", "__frontend") or "__frontend")
-    query_value = str(request.args.get(query_param, "") or "").strip().lower()
-    if query_value in (_TRUE_VALUES | {"app", "new", "frontend"}):
-        return True
-    header_value = str(request.headers.get(_FRONTEND_CANARY_HEADER, "") or "").strip().lower()
-    return header_value in (_TRUE_VALUES | {"app", "new", "frontend"})
-
-
-@app.route(_LEGACY_UI_ROUTE)
+@app.route(LEGACY_UI_ROUTE)
 def legacy_index():
     return _serve_legacy_shell()
 
 
 @app.route("/")
 def index():
-    if _request_prefers_frontend_app() and _frontend_dist_available():
+    target = resolve_root_shell_target(
+        _web_ui_settings(),
+        frontend_dist_available=_frontend_dist_available(),
+        query_args=request.args,
+        headers=request.headers,
+    )
+    if target == FRONTEND_APP_SHELL_TARGET:
         return frontend_app()
     return _serve_legacy_shell()
 
 
-@app.route(_FRONTEND_APP_ROUTE)
-@app.route(f"{_FRONTEND_APP_ROUTE}/<path:asset_path>")
+@app.route(FRONTEND_APP_ROUTE)
+@app.route(f"{FRONTEND_APP_ROUTE}/<path:asset_path>")
 def frontend_app(asset_path: str = ""):
     if not _FRONTEND_DIST_DIR.exists():
         return jsonify({
@@ -510,7 +505,7 @@ def frontend_app(asset_path: str = ""):
             "expected_path": str(_FRONTEND_DIST_DIR),
             "hint": "Build the standalone frontend into frontend/dist and revisit /app.",
         }), 404
-    normalized = str(asset_path or "").strip()
+    normalized = normalize_frontend_asset_path(asset_path)
     if normalized:
         asset = _FRONTEND_DIST_DIR / normalized
         if asset.exists() and asset.is_file():
@@ -530,7 +525,7 @@ def api_contracts():
             "kind": "frontend-api-contract",
             "path": "/api/contracts/frontend-v1",
             "source_path": str(_FRONTEND_API_CONTRACT_V1_PATH),
-            "shell_mount": "/app",
+            "shell_mount": FRONTEND_APP_ROUTE,
         })
     if _FRONTEND_API_CONTRACT_V1_SCHEMA_PATH.exists():
         items.append({
@@ -539,7 +534,7 @@ def api_contracts():
             "kind": "frontend-api-contract-derivative",
             "path": "/api/contracts/frontend-v1/schema",
             "source_path": str(_FRONTEND_API_CONTRACT_V1_SCHEMA_PATH),
-            "shell_mount": "/app",
+            "shell_mount": FRONTEND_APP_ROUTE,
         })
     if _FRONTEND_API_CONTRACT_V1_OPENAPI_PATH.exists():
         items.append({
@@ -548,7 +543,7 @@ def api_contracts():
             "kind": "frontend-api-contract-derivative",
             "path": "/api/contracts/frontend-v1/openapi",
             "source_path": str(_FRONTEND_API_CONTRACT_V1_OPENAPI_PATH),
-            "shell_mount": "/app",
+            "shell_mount": FRONTEND_APP_ROUTE,
         })
     return jsonify({"count": len(items), "items": items})
 

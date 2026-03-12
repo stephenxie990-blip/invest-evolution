@@ -328,3 +328,27 @@
   - `app/web_server.py` 已将 legacy/app shell route 常量化，并统一 legacy shell 响应入口
   - 回归通过：`./.venv/bin/python -m pytest -q tests/test_commander.py tests/test_web_ui_rollout.py tests/test_web_server_security.py tests/test_web_training_lab_api.py`
   - 回归通过：`./.venv/bin/python -m pytest -q`
+- 第七段进展：
+  - 新增 `app/web_ui_metadata.py`，集中维护 web shell compat 元数据（`/app`、`/legacy`、canary header、query param 默认值等）
+  - `app/web_server.py` 已改为复用共享 UI metadata，进一步压缩 shell compat 决策面的散落常量
+  - 保持 `docs/contracts/frontend-api-contract.v1.json` 基线不变，未再修改 contract 源文件语义
+  - 回归通过：`./.venv/bin/python -m pytest -q tests/test_frontend_contract_generation.py tests/test_frontend_api_contract.py tests/test_web_ui_rollout.py tests/test_web_server_security.py`
+  - 回归通过：`./.venv/bin/python -m pytest -q`
+- 第八段进展：
+  - 新增 `config/web_ui.py`，集中维护 `web_ui_shell_mode` / `frontend_canary_query_param` 的默认值、合法值集合与归一化逻辑
+  - `config/__init__.py` 已改为复用共享规范，并补上 `FRONTEND_CANARY_QUERY_PARAM` 的环境变量覆盖链路
+  - `config/services.py` 已改为复用共享规范，`frontend_canary_query_param` 进入可编辑配置面，控制面 patch 与掩码输出保持一致
+  - `app/web_server.py` 已改为复用共享归一化函数，避免运行时再维护一套独立的 shell mode / query param 清洗逻辑
+  - 新增配置层回归：`tests/test_config_layering.py` 覆盖 env 覆盖 query param、非法 shell mode 回落；`tests/test_config_service_security.py` 覆盖控制面 patch 归一化与非法值拒绝
+  - 回归通过：`./.venv/bin/python -m py_compile config/__init__.py config/web_ui.py config/services.py app/web_ui_metadata.py app/web_server.py tests/test_config_layering.py tests/test_config_service_security.py`
+  - 回归通过：`./.venv/bin/python -m pytest -q tests/test_config_layering.py tests/test_config_service_security.py tests/test_web_ui_rollout.py tests/test_web_server_security.py`
+  - 回归通过：`./.venv/bin/python -m pytest -q`
+- 第九段进展：
+  - 新增 `/Users/zhangsan/Desktop/投资进化系统v1.0/app/web_ui_runtime.py`，把 Web 壳层的公开路径判定、灰度判定、根路径壳选择、前端资产路径清洗统一为纯函数 helper
+  - `/Users/zhangsan/Desktop/投资进化系统v1.0/app/web_server.py` 已改为复用 `WebUIShellSettings` / `resolve_root_shell_target()` / `is_shell_public_path()`，路由逻辑进一步瘦身
+  - `/Users/zhangsan/Desktop/投资进化系统v1.0/tests/test_web_ui_rollout.py` 新增 Header 灰度回归，以及 `frontend/dist` 缺失时根路径自动回退 legacy 壳的回归
+  - 全量回归首轮发现并修复 `_parse_bool()` 对 `_TRUE_VALUES` 的隐式依赖；该问题表现为 `tests/test_data_unification.py::test_web_data_status_refresh_query_switches_detail_mode` 返回 500
+  - 回归通过：`./.venv/bin/python -m py_compile app/web_ui_runtime.py app/web_server.py tests/test_web_ui_rollout.py`
+  - 回归通过：`./.venv/bin/python -m pytest -q tests/test_data_unification.py -k web_data_status_refresh_query_switches_detail_mode tests/test_web_ui_rollout.py tests/test_web_server_security.py`
+  - 回归通过：`./.venv/bin/python -m pytest -q tests/test_web_ui_rollout.py tests/test_web_server_security.py tests/test_frontend_api_contract.py tests/test_frontend_contract_generation.py`
+  - 回归通过：`./.venv/bin/python -m pytest -q`

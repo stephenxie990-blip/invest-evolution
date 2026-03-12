@@ -274,3 +274,14 @@
 ## 2026-03-12 第六段清理补充发现
 - `invest_status` 的问题不在功能，而在“兼容说明、分类、提示语”分散在多个文件；集中到 shared metadata 后，compat surface 更可控。
 - `web_server` 的 legacy shell 现在已有明确常量和单一响应入口，后续如果决定正式下线 legacy route，会更容易做成一次性变更。
+## 2026-03-12 第七段清理补充发现
+- Web 壳层 compat 面的关键不是删掉 `/legacy`，而是先把路径、canary header、query param 这些元数据从运行逻辑中抽离出来。
+- frontend contract 源文件当前仍以仓库文档为准；运行时常量与文档基线不应混写，否则会引入 contract drift。
+## 2026-03-12 第八段清理补充发现
+- `web_ui_shell_mode`、`frontend_canary_query_param` 在 `config/__init__.py`、`config/services.py`、`app/web_server.py` 之间存在重复归一化逻辑，属于典型“配置语义散点”。
+- `FRONTEND_CANARY_QUERY_PARAM` 之前只在 dataclass 默认值阶段读环境变量；当 YAML 已设置时，环境变量无法按注释声明覆盖 YAML，属于真实优先级缺口。
+- 将 shell mode / canary query param 收敛到共享规范模块后，配置加载、控制面 patch、Web 运行时决策可以复用同一份默认值与合法值集合，后续再清 legacy shell 时风险更低。
+## 2026-03-12 第九段清理补充发现
+- `web_server` 壳层剩余复杂度，主要来自“公开路径判定”“根路径该回 legacy 还是 app”“Header / Query 灰度判定”三件事散落在路由函数与安全判断之间。
+- 把这些逻辑抽成纯函数 helper 后，`/`、`/legacy`、`/app` 的职责边界更清楚：路由只负责响应，判定规则由单一适配层决定。
+- 本轮抽取时暴露出一个真实脆弱点：`_parse_bool()` 仍依赖模块级 `_TRUE_VALUES`。这说明旧 `web_server.py` 里“通用解析常量”和“UI rollout 常量”之前耦得比较紧；修复后这两类语义已经重新分层。

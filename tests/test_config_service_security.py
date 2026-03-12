@@ -63,3 +63,34 @@ def test_runtime_path_service_rejects_paths_outside_runtime(tmp_path):
 
     with pytest.raises(ValueError, match='runtime directory'):
         service.apply_patch({'training_output_dir': '../escape'})
+
+
+def test_config_service_normalizes_web_ui_fields(tmp_path):
+    project_root = tmp_path
+    (project_root / 'config').mkdir(parents=True, exist_ok=True)
+    service = EvolutionConfigService(
+        project_root=project_root,
+        live_config=EvolutionConfig(),
+    )
+
+    payload = service.apply_patch(
+        {
+            'web_ui_shell_mode': ' APP ',
+            'frontend_canary_query_param': '  rollout  ',
+        },
+        source='test',
+    )
+
+    cfg = payload['config']
+    assert cfg['web_ui_shell_mode'] == 'app'
+    assert cfg['frontend_canary_query_param'] == 'rollout'
+
+
+def test_config_service_rejects_invalid_web_ui_shell_mode(tmp_path):
+    service = EvolutionConfigService(
+        project_root=tmp_path,
+        live_config=EvolutionConfig(),
+    )
+
+    with pytest.raises(ValueError, match='web_ui_shell_mode must be one of'):
+        service.apply_patch({'web_ui_shell_mode': 'beta'}, source='test')
