@@ -116,3 +116,17 @@
 - `app/stock_analysis.py`、`invest/research/case_store.py`、`app/train.py`、`app/lab/evaluation.py`、`app/lab/artifacts.py`、`app/commander.py` 之间的字段口径目前已基本收敛到 `research_feedback` / `promotion.research_feedback` / `guardrails.promotion_gate.research_feedback` 这三层。
 - 今日收口审查中，完整 targeted regression 二次复跑通过；首次批量运行时出现过一次 `tests/test_schema_contracts.py` 的瞬时失败，但单独复跑与整组复跑均稳定通过，当前未复现为持续性问题。
 - 非阻塞收口事项：当前工作树仍混合了实现代码、契约文档、planning 文档与 golden tests，适合下一步按“研究闭环核心实现 / 契约文档更新 / planning 记录”三组进行提交或归档，而不是一次性无差别打包。
+
+### Phase 13: Executable Remediation Action Plan
+- 项目下一阶段的最佳推进方式不是继续横向加功能，而是围绕“研究闭环已打通”的事实，做结构减重、typed contract 收敛与状态/工件治理清晰化。
+- 推荐 owner 切法不是按技术栈，而是按闭环职责：`Research Kernel`、`Training Runtime`、`Runtime & Interaction`、`Data & Lineage`、`Quality & Governance` 五类 owner。
+- P0 的核心不是修 bug，而是做结构性收敛：拆轻 `SelfLearningController`、拆轻 `CommanderRuntime`、固化 calibration schema、减少裸 `dict`、明确生命周期边界。
+- subagent 调度应按“闭环 work unit”而不是按文件切分，避免多个 agent 长时间交叉改同一超级类。
+- 已形成正式整改文档：`docs/PROJECT_REMEDIATION_ACTION_PLAN_20260312.md`。
+
+
+## Runtime Response Envelope & Research Asset Findings
+- `brain/task_bus.py` 的共享 response envelope 已成为 runtime / commander / ask_stock 的统一响应拼装入口，减少了 `message/reply/feedback/next_action` 各自散落拼装导致的漂移风险。
+- `SelfLearningController` 已完成第一轮 service 化：`TrainingFeedbackService`、`FreezeGateService`、`TrainingPersistenceService` 把 calibration feedback、freeze gate、cycle artifact 持久化从控制器本体抽离出来。
+- `CommanderRuntime` 现可直接查询 `research cases / attributions / calibration`，意味着 research asset 不再只是 ask/train 内部文件，而是可审计、可检索、可重放的一等运行时资产。
+- 新增 research asset tool 后，P1 的“research 中间层升格”开始具备真实运维入口，而不仅仅是 ask_stock 返回体里的附属字段。

@@ -117,3 +117,17 @@ Phase 9
 - [x] 识别收口阻塞与非阻塞事项
 - [x] 形成明日续接前的退出门与收口清单
 - **Status:** complete
+
+
+
+### Phase 14: Runtime Response Envelope Unification
+- [x] 抽取共享 `build_protocol_response(...)`，统一 runtime / commander / ask_stock 的反馈与 next_action 封装
+- [x] 将 response envelope 纳入 schema contract / frontend contract / golden transcript
+- [x] 回归验证 bounded workflow 与 ask payload 的协议一致性
+- **Status:** complete
+
+### Phase 15: Training Controller Service Extraction
+- [x] 抽离 `TrainingFeedbackService` / `FreezeGateService` / `TrainingPersistenceService`
+- [x] 让 `SelfLearningController` 改为服务委派，保留原有接口兼容
+- [x] 补充 service delegation 回归测试并验证训练/契约关键链路
+- **Status:** complete

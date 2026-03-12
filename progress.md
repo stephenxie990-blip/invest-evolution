@@ -189,3 +189,66 @@
 - Closure assessment:
   - Blocking issues: none reproduced
   - Non-blocking issues: 建议后续按逻辑分组提交；Web UI 展示层按用户决策暂不继续推进
+
+### Phase 13: Executable Remediation Action Plan
+- **Status:** complete
+- Actions taken:
+  - 结合总体评审报告与研究统一蓝图，拆解出 P0 / P1 / P2 可执行整改项
+  - 设计五类 owner：Research Kernel / Training Runtime / Runtime & Interaction / Data & Lineage / Quality & Governance
+  - 输出 work unit 粒度的任务分配方案、subagent 调度建议与 skills 使用矩阵
+  - 新增整改清单文档 `docs/PROJECT_REMEDIATION_ACTION_PLAN_20260312.md`
+- Files created/modified:
+  - `docs/PROJECT_REMEDIATION_ACTION_PLAN_20260312.md` (created)
+  - `task_plan.md` (updated)
+  - `findings.md` (updated)
+  - `progress.md` (updated)
+
+
+### Phase 14: Runtime Response Envelope Unification
+- **Status:** complete
+- Actions taken:
+  - 在 `brain/task_bus.py` 抽取共享 `build_protocol_response(...)` / `build_response_envelope(...)`，统一 message / reply / feedback / next_action 组装
+  - 让 `brain/runtime.py`、`app/commander.py`、`app/stock_analysis.py` 统一消费共享协议封装，而不是各自散落拼装响应
+  - 同步扩展 `brain/schema_contract.py` 与 frontend contract / transcript golden，固化 response envelope 键集
+- Files created/modified:
+  - `brain/task_bus.py` (updated)
+  - `brain/runtime.py` (updated)
+  - `app/commander.py` (updated)
+  - `app/stock_analysis.py` (updated)
+  - `brain/schema_contract.py` (updated)
+  - `docs/contracts/frontend-api-contract.v1.json` (updated)
+  - `docs/contracts/frontend-api-contract.v1.openapi.json` (updated)
+  - `docs/contracts/frontend-api-contract.v1.schema.json` (updated)
+  - `tests/test_schema_contracts.py` (updated)
+  - `tests/test_frontend_api_contract.py` (updated)
+  - `tests/test_commander_transcript_golden.py` (updated)
+
+### Phase 15: Training Controller Service Extraction
+- **Status:** complete
+- Actions taken:
+  - 新增 `app/training/controller_services.py`，承接 research feedback、freeze gate、cycle persistence 三类职责
+  - 让 `SelfLearningController` 初始化 service 并以委派方式保留原有方法接口，减少控制器直接承载的逻辑重量
+  - 新增 `tests/test_training_controller_services.py` 验证 service 暴露、委派链路与 cycle 持久化行为
+- Files created/modified:
+  - `app/training/controller_services.py` (created)
+  - `app/train.py` (updated)
+  - `tests/test_training_controller_services.py` (created)
+
+### Phase 16: Research Asset Runtime Exposure
+- **Status:** complete
+- Actions taken:
+  - 新增 `app/research_services.py`，把 research case / attribution / calibration 组织成 runtime 可读 payload
+  - 为 `CommanderRuntime` 增加 `list_research_cases(...)`、`list_research_attributions(...)`、`get_research_calibration(...)`
+  - 为 `brain/tools.py` 注册 `invest_research_cases`、`invest_research_attributions`、`invest_research_calibration`
+  - 新增 `tests/test_research_runtime_assets.py` 验证 research asset 运行时检索协议
+- Files created/modified:
+  - `app/research_services.py` (created)
+  - `app/commander.py` (updated)
+  - `brain/tools.py` (updated)
+  - `tests/test_research_runtime_assets.py` (created)
+
+### Final Verification
+- **Status:** complete
+- Commands run:
+  - `./.venv/bin/python -m py_compile app/train.py app/training/controller_services.py app/research_services.py app/commander.py app/stock_analysis.py brain/runtime.py brain/schema_contract.py brain/task_bus.py brain/tools.py tests/test_training_controller_services.py tests/test_research_runtime_assets.py tests/test_research_training_feedback.py tests/test_research_case_store.py tests/test_stock_analysis_react.py tests/test_ask_stock_model_bridge.py tests/test_schema_contracts.py tests/test_frontend_api_contract.py tests/test_commander.py tests/test_commander_transcript_golden.py tests/test_web_server_contract_headers.py tests/test_train_ui_semantics.py` → pass
+  - `./.venv/bin/python -m pytest -q tests/test_training_controller_services.py tests/test_research_runtime_assets.py tests/test_research_training_feedback.py tests/test_research_case_store.py tests/test_stock_analysis_react.py tests/test_ask_stock_model_bridge.py tests/test_schema_contracts.py tests/test_frontend_api_contract.py tests/test_commander.py tests/test_commander_transcript_golden.py tests/test_web_server_contract_headers.py tests/test_train_ui_semantics.py` → pass
