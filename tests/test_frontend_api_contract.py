@@ -89,6 +89,34 @@ def test_frontend_contract_openapi_endpoint_returns_openapi_document():
     assert 'runtime_status' in payload['x-transcript-snapshots']['examples']
 
 
+def test_frontend_contract_endpoint_returns_404_when_document_missing(monkeypatch):
+    client = web_server.app.test_client()
+
+    def fake_load(document):
+        raise FileNotFoundError(document.source_path)
+
+    monkeypatch.setattr(web_server, 'load_frontend_contract_document', fake_load)
+
+    res = client.get('/api/contracts/frontend-v1/schema')
+
+    assert res.status_code == 404
+    assert res.get_json()['error'] == 'frontend contract schema not found'
+
+
+def test_frontend_contract_endpoint_returns_500_for_invalid_document(monkeypatch):
+    client = web_server.app.test_client()
+
+    def fake_load(document):
+        raise ValueError('broken contract payload')
+
+    monkeypatch.setattr(web_server, 'load_frontend_contract_document', fake_load)
+
+    res = client.get('/api/contracts/frontend-v1/openapi')
+
+    assert res.status_code == 500
+    assert res.get_json()['error'] == 'broken contract payload'
+
+
 def test_generated_contract_derivatives_validate_against_main_contract():
     contract = json.loads(CONTRACT_PATH.read_text(encoding='utf-8'))
     contract_schema = json.loads(CONTRACT_SCHEMA_PATH.read_text(encoding='utf-8'))

@@ -359,3 +359,10 @@
   - 回归通过：`./.venv/bin/python -m py_compile app/frontend_contract_catalog.py app/web_server.py tests/test_frontend_api_contract.py`
   - 回归通过：`./.venv/bin/python -m pytest -q tests/test_frontend_api_contract.py tests/test_frontend_contract_generation.py tests/test_web_server_security.py tests/test_web_ui_rollout.py`
   - 回归通过：`./.venv/bin/python -m pytest -q`
+- 第十一段进展：
+  - `/Users/zhangsan/Desktop/投资进化系统v1.0/app/web_server.py` 新增统一 `_serve_frontend_contract_document(...)`，收口三条 `/api/contracts/frontend-v1*` 路由的重复读盘与异常映射
+  - 三条文档路由现仅保留 document id 声明，404 文案与 500 日志文案继续复用 catalog 元数据
+  - `/Users/zhangsan/Desktop/投资进化系统v1.0/tests/test_frontend_api_contract.py` 新增异常路径回归：缺文件返回 404、坏 payload 返回 500
+  - 回归通过：`./.venv/bin/python -m py_compile app/web_server.py tests/test_frontend_api_contract.py`
+  - 回归通过：`./.venv/bin/python -m pytest -q tests/test_frontend_api_contract.py tests/test_frontend_contract_generation.py tests/test_web_server_security.py`
+  - 回归通过：`./.venv/bin/python -m pytest -q`

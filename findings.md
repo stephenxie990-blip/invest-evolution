@@ -289,3 +289,7 @@
 - `/api/contracts` 的问题不在功能，而在 catalog 元数据、公开路径白名单、文档文件路径、读盘逻辑分散在 `web_server.py` 和 contract 工具之间，维护成本偏高。
 - 将 frontend contract catalog 收成共享模块后，`web_server` 不再需要自己维护 `frontend-v1/schema/openapi` 三份描述字典，也不再重复声明 doc 路径常量。
 - 这一步把“前端契约是什么”和“Web 如何暴露它”分开了：前者沉到 catalog，后者只做 HTTP 转发，后续如果新增 v2 契约或别的派生文档，扩展面会更稳。
+## 2026-03-12 第十一段清理补充发现
+- frontend contract 三条文档路由最后一层仍有重复：每条都在做“读盘 → FileNotFoundError 映射 404 → 其他异常映射 500 → logger.exception”的同构分支。
+- 将这层收成统一 responder 后，路由只剩“声明 document_id”，而错误文案和日志语义继续由 catalog 元数据驱动，避免后续局部改错或漂移。
+- 这一步也把异常路径纳入了显式回归：现在不仅验证正常返回，还验证 schema/openapi 在缺文件或坏 payload 时会保持既有 HTTP 语义。

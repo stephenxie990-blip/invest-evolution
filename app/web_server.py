@@ -508,37 +508,30 @@ def api_contracts():
     return jsonify({"count": len(items), "items": items})
 
 
+def _serve_frontend_contract_document(document_id: str):
+    document = FRONTEND_CONTRACT_DOCUMENTS_BY_ID[document_id]
+    try:
+        return jsonify(load_frontend_contract_document(document))
+    except FileNotFoundError:
+        return jsonify({"error": document.not_found_error}), 404
+    except Exception as exc:
+        logger.exception(document.load_error_log)
+        return jsonify({"error": str(exc)}), 500
+
+
 @app.route("/api/contracts/frontend-v1")
 def api_contract_frontend_v1():
-    try:
-        return jsonify(load_frontend_contract_document(FRONTEND_CONTRACT_DOCUMENTS_BY_ID["frontend-v1"]))
-    except FileNotFoundError:
-        return jsonify({"error": "frontend contract not found"}), 404
-    except Exception as exc:
-        logger.exception("Failed to load frontend API contract")
-        return jsonify({"error": str(exc)}), 500
+    return _serve_frontend_contract_document("frontend-v1")
 
 
 @app.route("/api/contracts/frontend-v1/schema")
 def api_contract_frontend_v1_schema():
-    try:
-        return jsonify(load_frontend_contract_document(FRONTEND_CONTRACT_DOCUMENTS_BY_ID["frontend-v1-schema"]))
-    except FileNotFoundError:
-        return jsonify({"error": "frontend contract schema not found"}), 404
-    except Exception as exc:
-        logger.exception("Failed to load frontend API contract schema")
-        return jsonify({"error": str(exc)}), 500
+    return _serve_frontend_contract_document("frontend-v1-schema")
 
 
 @app.route("/api/contracts/frontend-v1/openapi")
 def api_contract_frontend_v1_openapi():
-    try:
-        return jsonify(load_frontend_contract_document(FRONTEND_CONTRACT_DOCUMENTS_BY_ID["frontend-v1-openapi"]))
-    except FileNotFoundError:
-        return jsonify({"error": "frontend contract openapi not found"}), 404
-    except Exception as exc:
-        logger.exception("Failed to load frontend API contract openapi")
-        return jsonify({"error": str(exc)}), 500
+    return _serve_frontend_contract_document("frontend-v1-openapi")
 
 
 @app.route("/healthz")
