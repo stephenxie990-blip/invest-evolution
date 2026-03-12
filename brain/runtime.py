@@ -13,6 +13,13 @@ from pathlib import Path
 from typing import Any, Awaitable, Callable, Optional
 
 from app.llm_gateway import LLMGateway, LLMGatewayError, LLMUnavailableError
+from brain.schema_contract import (
+    MUTATING_DEFAULT_REASON_CODES,
+    RISK_LEVEL_HIGH,
+    RISK_LEVEL_LOW,
+    RISK_LEVEL_MEDIUM,
+    TRAINING_DEFAULT_REASON_CODES,
+)
 from brain.task_bus import build_mutating_task_bus, build_readonly_task_bus
 
 logger = logging.getLogger(__name__)
@@ -467,10 +474,10 @@ class BrainRuntime:
     def _risk_level_for_tools(self, tool_names: list[str]) -> str:
         names = {str(name or "") for name in tool_names}
         if any(name in {"invest_train", "invest_control_plane_update", "invest_runtime_paths_update", "invest_evolution_config_update"} for name in names):
-            return "high"
+            return RISK_LEVEL_HIGH
         if any(self._is_mutating_tool(name) for name in names):
-            return "medium"
-        return "low"
+            return RISK_LEVEL_MEDIUM
+        return RISK_LEVEL_LOW
 
     @staticmethod
     def _intent_for_tools(tool_names: list[str]) -> str:
@@ -794,7 +801,7 @@ class BrainRuntime:
                     "risk_level": risk_level,
                     "decision": decision,
                     "requires_confirmation": requires_confirmation,
-                    "reasons": list(reasons or ["state_changing_request", "tool_grounded_execution"]),
+                    "reasons": list(reasons or MUTATING_DEFAULT_REASON_CODES),
                 }
             )
         return builder(**kwargs)
@@ -855,7 +862,7 @@ class BrainRuntime:
         operation: str,
         tool_names: list[str],
         writes_state: bool = False,
-        risk_level: str = "low",
+        risk_level: str = RISK_LEVEL_LOW,
         recommended_plan: list[dict[str, Any]] | None = None,
         reasons: list[str] | None = None,
     ) -> str:
@@ -1076,7 +1083,7 @@ class BrainRuntime:
             mock = any(token in low for token in ["mock", "演示", "测试", "dry-run", "quick"])
             confirm = any(token in low for token in ["确认", "confirm"])
             payload = await run_json("invest_train", {"rounds": rounds, "mock": mock, "confirm": confirm})
-            risk_level = "low" if mock else "high" if rounds > 1 else "medium"
+            risk_level = RISK_LEVEL_LOW if mock else RISK_LEVEL_HIGH if rounds > 1 else RISK_LEVEL_MEDIUM
             return self._wrap_builtin_payload(
                 payload,
                 user_goal=text,
@@ -1085,7 +1092,7 @@ class BrainRuntime:
                 tool_names=["invest_train"],
                 writes_state=True,
                 risk_level=risk_level,
-                reasons=["training_changes_runtime_state", "tool_grounded_execution"],
+                reasons=list(TRAINING_DEFAULT_REASON_CODES),
             )
 
         if asks_status:

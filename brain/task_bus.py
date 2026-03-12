@@ -4,11 +4,21 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 
-
-TASK_BUS_SCHEMA_VERSION = "task_bus.v2"
-PLAN_SCHEMA_VERSION = "task_plan.v2"
-COVERAGE_SCHEMA_VERSION = "task_coverage.v2"
-ARTIFACT_TAXONOMY_SCHEMA_VERSION = "artifact_taxonomy.v2"
+from brain.schema_contract import (
+    ARTIFACT_KINDS,
+    ARTIFACT_TAXONOMY_SCHEMA_VERSION,
+    CONFIRMATION_STATE_CONFIRMED_OR_NOT_REQUIRED,
+    CONFIRMATION_STATE_NOT_APPLICABLE,
+    CONFIRMATION_STATE_PENDING,
+    COVERAGE_KIND_PLAN_EXECUTION,
+    COVERAGE_SCHEMA_VERSION,
+    MUTATING_DEFAULT_REASON_CODES,
+    PLAN_SCHEMA_VERSION,
+    READONLY_DEFAULT_REASON_CODES,
+    RISK_LEVEL_LOW,
+    RISK_LEVEL_MEDIUM,
+    TASK_BUS_SCHEMA_VERSION,
+)
 
 
 @dataclass
@@ -133,7 +143,7 @@ def _default_coverage(*, recommended_plan: list[dict[str, Any]], tool_calls: lis
     missing_steps = [step for step in recommended_steps if str(step.get("tool") or "") not in used_tool_set]
     return {
         "schema_version": COVERAGE_SCHEMA_VERSION,
-        "coverage_kind": "plan_vs_execution",
+        "coverage_kind": COVERAGE_KIND_PLAN_EXECUTION,
         "recommended_step_count": len(recommended_steps),
         "executed_step_count": len(list(tool_calls or [])),
         "available_tool_count": len(list(available_tools or [])),
@@ -158,7 +168,7 @@ def _normalize_coverage(*, coverage: dict[str, Any] | None, recommended_plan: li
         return base
     merged = {**base, **dict(coverage)}
     merged.setdefault("schema_version", COVERAGE_SCHEMA_VERSION)
-    merged.setdefault("coverage_kind", "plan_vs_execution")
+    merged.setdefault("coverage_kind", COVERAGE_KIND_PLAN_EXECUTION)
     merged.setdefault("recommended_step_count", len(_normalize_recommended_plan(recommended_plan)))
     merged.setdefault("executed_step_count", len(list(tool_calls or [])))
     merged.setdefault("available_tool_count", len(list(available_tools or [])))
@@ -175,10 +185,10 @@ def _normalize_coverage(*, coverage: dict[str, Any] | None, recommended_plan: li
 
 def _confirmation_state(*, writes_state: bool, requires_confirmation: bool, decision: str) -> str:
     if requires_confirmation:
-        return "pending_confirmation"
+        return CONFIRMATION_STATE_PENDING
     if writes_state:
-        return "confirmed_or_not_required" if decision == "allow" else str(decision or "pending")
-    return "not_applicable"
+        return CONFIRMATION_STATE_CONFIRMED_OR_NOT_REQUIRED if decision == "allow" else str(decision or "pending")
+    return CONFIRMATION_STATE_NOT_APPLICABLE
 
 
 def _build_confirmation_summary(*, writes_state: bool, requires_confirmation: bool, decision: str, reasons: list[str]) -> dict[str, Any]:
@@ -218,7 +228,7 @@ def _build_artifact_taxonomy(artifacts: dict[str, Any]) -> dict[str, Any]:
         "path_keys": sorted([key for key, kind in kinds.items() if kind == "path"]),
         "object_keys": sorted([key for key, kind in kinds.items() if kind == "object"]),
         "collection_keys": sorted([key for key, kind in kinds.items() if kind == "collection"]),
-        "known_kinds": ["collection", "id", "object", "path", "scalar", "unknown"],
+        "known_kinds": list(ARTIFACT_KINDS),
     }
 
 
@@ -235,7 +245,7 @@ def build_task_bus(
     coverage: dict[str, Any] | None = None,
     status: str = "ok",
     writes_state: bool = False,
-    risk_level: str = "low",
+    risk_level: str = RISK_LEVEL_LOW,
     decision: str = "allow",
     requires_confirmation: bool = False,
     reasons: list[str] | None = None,
@@ -316,10 +326,10 @@ def build_readonly_task_bus(
         coverage=coverage,
         status=status,
         writes_state=False,
-        risk_level="low",
+        risk_level=RISK_LEVEL_LOW,
         decision="allow",
         requires_confirmation=False,
-        reasons=["read_only_analysis", "tool_grounded_execution"],
+        reasons=list(READONLY_DEFAULT_REASON_CODES),
     )
 
 
@@ -335,7 +345,7 @@ def build_mutating_task_bus(
     artifacts: dict[str, Any] | None = None,
     coverage: dict[str, Any] | None = None,
     status: str = "ok",
-    risk_level: str = "medium",
+    risk_level: str = RISK_LEVEL_MEDIUM,
     decision: str = "allow",
     requires_confirmation: bool = False,
     reasons: list[str] | None = None,
@@ -355,7 +365,7 @@ def build_mutating_task_bus(
         risk_level=risk_level,
         decision=decision,
         requires_confirmation=requires_confirmation,
-        reasons=list(reasons or ["state_changing_request", "tool_grounded_execution"]),
+        reasons=list(reasons or MUTATING_DEFAULT_REASON_CODES),
     )
 
 

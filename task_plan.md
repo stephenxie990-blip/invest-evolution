@@ -1,123 +1,58 @@
-# P0 修复计划（2026-03-10）
+# Task Plan: 研究一体化融合方案
 
-## 目标
-- 修复兼容壳、训练契约和 Hunter 恢复签名漂移。
-- 将旧训练页正式降级为过渡壳层，并暴露新前端契约入口。
-- 跑完 P0 定向回归与全量回归。
+## Goal
+基于当前仓库真实实现，研究“训练链 + 问股链”割裂问题，提出统一研究引擎的架构方案、迁移路径与验证闭环。
 
-## 阶段
-- [x] 建立实施控制板与验收口径
-- [x] 修复根模块兼容壳
-- [x] 收口训练数据契约回退
-- [x] 兼容 Hunter 恢复签名
-- [x] 调整旧页测试职责并补壳层入口
-- [x] 跑回归并复盘余项
+## Current Phase
+Phase 1
 
-## 验收
-- `import web_server` 支持 monkeypatch 私有状态。
-- 训练相关旧 monkeypatch 仍然可用。
-- 旧页只承担壳层职责，新前端入口与契约链接可见。
-- 全量 pytest 通过或余项已明确归档。
+## Phases
+### Phase 1: Requirements & Discovery
+- [x] Understand user intent
+- [x] Identify constraints and requirements
+- [ ] Document findings in findings.md
+- **Status:** in_progress
 
-## 最新验证
-- `./.venv/bin/python -m pytest tests/test_web_server_runtime_and_bool.py tests/test_train_cycle.py tests/test_train_event_stream.py tests/test_hunter_code_normalization.py tests/test_train_ui_semantics.py -q` 通过。
-- `./.venv/bin/python -m pytest -q` 全量通过。
-- `./.venv/bin/python -m compileall app brain invest market_data config web_server.py train.py commander.py` 通过。
+### Phase 2: Current Architecture Analysis
+- [ ] Locate training and ask-stock pipelines
+- [ ] Identify shared/duplicated state and semantics
+- [ ] Map dataflow and responsibility boundaries
+- **Status:** pending
 
-## Wave 3
-- [x] 生成前端契约派生物（JSON Schema / OpenAPI）
-- [x] 暴露契约派生端点并纳入目录索引
-- [x] 将 Agent 观测语义迁移为 API 契约测试
-- [x] 在前端事件流层增加契约校验
-- [x] 跑全量回归与构建验证
+### Phase 3: Unified Engine Design
+- [ ] Define target domain model
+- [ ] Design unified execution flow
+- [ ] Define evaluation and feedback loop
+- **Status:** pending
 
-## 训练数据加载性能专项（2026-03-11）
-- [x] 复现真实库数据加载基线并拆分阶段耗时
-- [x] 对比多个候选方案（跳过补数 / 窗口裁剪 / 按股切片 / 向量化增强）
-- [x] 落地最优方案并补回归测试
-- [x] 在真实数据库与单周期 dry-run 上复测确认
+### Phase 4: Migration Planning
+- [ ] Propose phased migration path
+- [ ] Define rollout risks and compatibility strategy
+- [ ] Identify short-term high-leverage changes
+- **Status:** pending
 
+### Phase 5: Delivery
+- [ ] Deliver research proposal to user
+- [ ] Include milestones and next actions
+- [ ] Reference current code locations
+- **Status:** pending
 
-## 统一控制面专项（2026-03-11）
+## Key Questions
+1. 训练链与问股链分别由哪些模块主导，边界如何划分？
+2. 当前系统缺失的“统一语义层/状态层/归因层”具体体现在哪些代码断点？
+3. 如何在不做大爆炸重构的前提下，演进到统一研究引擎？
 
-### 目标
-- 建立统一 LLM 控制面与运行时外部数据出口策略。
-- 确保修改配置后重启系统即可全局生效。
-- 收口训练与 commander 的 LLM 装配语义。
+## Decisions Made
+| Decision | Rationale |
+|----------|-----------|
+| 先做仓库级结构摸底再出方案 | 方案必须绑定现有实现，避免空中楼阁 |
+| 使用文件化 planning 记录研究 | 任务跨度较大，便于持续收敛 |
 
-### 阶段
-- [x] 建立实施板与兼容边界
-- [x] 新增控制面 loader / resolver
-- [x] 接入训练链路与 commander 启动装配
-- [x] 增加运行时数据出口策略
-- [x] 暴露统一控制面 API 并补回归
+## Errors Encountered
+| Error | Attempt | Resolution |
+|-------|---------|------------|
+| `python` command not found when running session-catchup | 1 | 改用 `python3` 或直接继续手工初始化 planning files |
 
-### 验收
-- 统一控制面可表达 provider / model / binding。
-- 训练与 commander 启动时统一从控制面解析 LLM。
-- 运行时训练默认不再在线抓市场数据。
-- 配置变更 API 明确返回 `restart_required=true`。
-
-
-## 统一控制面专项（2026-03-11）
-
-### 第二阶段
-- [x] 将 `/api/evolution_config` 收口为兼容壳
-- [x] 将 `/api/agent_configs` 收口为兼容壳
-- [x] 新增 `market_data_gateway` 统一外部数据出站层
-- [x] 接入 CLI / Web 下载 / 运行时训练链路
-- [x] 完成真实训练回归验证
-
-
-- [x] 第一波：迁移旧前端 Agent 配置到 `/api/agent_prompts` + `/api/control_plane`
-- [x] 第一波：删除 `/api/agent_configs` 兼容壳
-
-
-- [x] 第二波：`/api/evolution_config` 下线 LLM 字段，仅保留训练参数
-- [x] 第三波：删除 evolution 兼容翻译层、旧说明与旧契约测试
-
-
-- [x] 底层瘦身：`EvolutionConfigService` 去除 LLM 输出/编辑职责
-- [x] 合约产物与设置页契约改为 control plane 安全面板
-
-## Commander 统一入口升级总方案（2026-03-11）
-
-### 目标
-- 将 Commander 升级为唯一人类入口与统一控制平面代理。
-- 停止前端继续承担关键控制职责，后续只保留可选展示壳。
-- 分阶段补齐 Commander 在配置域、数据域、分析查询域、观测域的覆盖能力。
-
-### 阶段
-- [x] 完成功能盘点与差距分析
-- [x] 输出总方案、技术路径图、subagent 拆分与验收标准
-- [ ] Phase 1：补齐 Commander 管理能力缺口
-- [ ] Phase 2：补统一观测面
-- [ ] Phase 3：构建自然语言任务层与风险门控
-- [ ] Phase 4：前端降级为可选视图
-- [ ] Phase 5：问股 / 策略 DSL 增强
-
-### 立即实施建议
-- 先做分析查询域 + 配置域 + Lab 列表能力接入 Commander。
-- 再做数据域与统一观测层。
-- 最后把高频操作提升为自然语言任务模板。
-
-
-
-- [x] 启动层瘦身：训练 / commander / LLMCaller 优先使用 control plane 默认绑定
-
-## Commander 统一入口升级实施收官（2026-03-11）
-
-### Phase 0~5 完成情况
-- [x] Phase 0：完成现状审计、能力矩阵与升级蓝图
-- [x] Phase 1：补齐 Commander 对配置域、训练实验室、模型路由、数据状态的管理能力
-- [x] Phase 2：补齐统一观测面（events / diagnostics / memory / runtime summary）
-- [x] Phase 3：补齐自然语言入口与风险门控（tool routing / confirm gate / no-LLM fallback）
-- [x] Phase 4：Web 降级为兼容壳并复用共享 service，Commander 成为推荐主入口
-- [x] Phase 5：补齐问股能力、策略目录与本地 stock analysis 工作流
-
-### 最终验收
-- [x] Commander 可覆盖核心训练、配置、观测、数据查询、实验室查询、问股能力
-- [x] Web/API 与 Commander 复用共享 service，避免能力分叉
-- [x] 全量 pytest 通过
-- [x] 通过 Commander `ask` 入口完成 mock 训练
-- [x] 通过 Commander `ask` 入口完成真实训练
+## Notes
+- 重点不是叠加新功能，而是统一研究语义、时序因果和验证闭环
+- 优先寻找最小破坏式演进路径

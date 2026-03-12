@@ -29,6 +29,15 @@ from pathlib import Path
 from typing import Any, Optional
 
 from brain.runtime import BrainRuntime
+from brain.schema_contract import (
+    ARTIFACT_KINDS,
+    ARTIFACT_TAXONOMY_SCHEMA_VERSION,
+    BOUNDED_WORKFLOW_SCHEMA_VERSION,
+    COVERAGE_KIND_WORKFLOW_PHASE,
+    COVERAGE_SCHEMA_VERSION,
+    PLAN_SCHEMA_VERSION,
+    TASK_BUS_SCHEMA_VERSION,
+)
 from brain.scheduler import CronService, HeartbeatService
 from brain.tools import build_commander_tools
 from brain.memory import MemoryStore
@@ -139,6 +148,52 @@ def _jsonable(value: Any) -> Any:
     if isinstance(value, np.generic):
         return value.item()
     return value
+
+
+def _classify_workflow_artifact(value: Any) -> str:
+    if isinstance(value, str):
+        lower = value.lower()
+        if "/" in value or chr(92) in value or lower.endswith((".json", ".jsonl", ".md", ".csv", ".txt", ".log", ".yaml", ".yml")):
+            return "path"
+        return "scalar"
+    if isinstance(value, (int, float, bool)) or value is None:
+        return "scalar"
+    if isinstance(value, list):
+        return "collection"
+    if isinstance(value, dict):
+        return "object"
+    return "unknown"
+
+
+def _build_workflow_artifact_taxonomy(artifacts: dict[str, Any]) -> dict[str, Any]:
+    items = dict(artifacts or {})
+    kinds = {key: _classify_workflow_artifact(value) for key, value in items.items()}
+    return {
+        "schema_version": ARTIFACT_TAXONOMY_SCHEMA_VERSION,
+        "count": len(items),
+        "keys": sorted(items.keys()),
+        "kinds": kinds,
+        "path_keys": sorted([key for key, kind in kinds.items() if kind == "path"]),
+        "object_keys": sorted([key for key, kind in kinds.items() if kind == "object"]),
+        "collection_keys": sorted([key for key, kind in kinds.items() if kind == "collection"]),
+        "known_kinds": list(ARTIFACT_KINDS),
+    }
+
+
+def _build_workflow_coverage(*, workflow: list[str], phase_stats: dict[str, Any] | None = None, existing: dict[str, Any] | None = None) -> dict[str, Any]:
+    coverage = {
+        "schema_version": COVERAGE_SCHEMA_VERSION,
+        "coverage_kind": COVERAGE_KIND_WORKFLOW_PHASE,
+        "workflow_step_count": len(list(workflow or [])),
+        "completed_workflow_step_count": len(list(workflow or [])),
+        "workflow_step_coverage": 1.0 if workflow else 1.0,
+        "phase_stat_key_count": len(dict(phase_stats or {})),
+    }
+    if existing:
+        coverage.update(dict(existing))
+    coverage.setdefault("schema_version", COVERAGE_SCHEMA_VERSION)
+    coverage.setdefault("coverage_kind", COVERAGE_KIND_WORKFLOW_PHASE)
+    return coverage
 
 
 def _build_mock_provider() -> MockDataProvider:
@@ -1699,8 +1754,10 @@ class CommanderRuntime:
         orchestration["mode"] = str(orchestration.get("mode") or ("bounded_mutating_workflow" if writes_state else "bounded_readonly_workflow"))
         orchestration["available_tools"] = list(available_tools)
         orchestration["allowed_tools"] = list(orchestration.get("allowed_tools") or available_tools)
-        orchestration["workflow"] = list(workflow)
-        orchestration["phase_stats"] = _jsonable(dict(phase_stats or {}))
+        normalized_workflow = list(workflow)
+        normalized_phase_stats = _jsonable(dict(phase_stats or {}))
+        orchestration["workflow"] = normalized_workflow
+        orchestration["phase_stats"] = normalized_phase_stats
         policy = dict(orchestration.get("policy") or {})
         policy.update(
             {
@@ -1717,7 +1774,33 @@ class CommanderRuntime:
         if extra_policy:
             policy.update(_jsonable(dict(extra_policy)))
         orchestration["policy"] = policy
+        artifacts = {
+            "workspace": str(self.cfg.workspace),
+            "runtime_tool": runtime_tool,
+            "runtime_method": runtime_method,
+            "domain": domain,
+            "operation": operation,
+        }
+        if isinstance(body.get("artifacts"), dict):
+            artifacts.update(dict(body.get("artifacts") or {}))
+        coverage = _build_workflow_coverage(
+            workflow=normalized_workflow,
+            phase_stats=normalized_phase_stats,
+            existing=body.get("coverage") if isinstance(body.get("coverage"), dict) else None,
+        )
         body["orchestration"] = orchestration
+        body["protocol"] = {
+            "schema_version": BOUNDED_WORKFLOW_SCHEMA_VERSION,
+            "task_bus_schema_version": TASK_BUS_SCHEMA_VERSION,
+            "plan_schema_version": PLAN_SCHEMA_VERSION,
+            "coverage_schema_version": COVERAGE_SCHEMA_VERSION,
+            "artifact_taxonomy_schema_version": ARTIFACT_TAXONOMY_SCHEMA_VERSION,
+            "domain": domain,
+            "operation": operation,
+        }
+        body["artifacts"] = _jsonable(artifacts)
+        body["coverage"] = _jsonable(coverage)
+        body["artifact_taxonomy"] = _jsonable(_build_workflow_artifact_taxonomy(artifacts))
         return _jsonable(body)
 
     def _attach_mutating_workflow(

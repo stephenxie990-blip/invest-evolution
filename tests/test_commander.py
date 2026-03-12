@@ -8,6 +8,23 @@ from pathlib import Path
 from commander import StrategyGeneRegistry
 
 
+def _assert_bounded_workflow_protocol(payload: dict, *, domain: str, writes_state: bool):
+    assert payload["protocol"]["schema_version"] == "bounded_workflow.v2"
+    assert payload["protocol"]["task_bus_schema_version"] == "task_bus.v2"
+    assert payload["protocol"]["plan_schema_version"] == "task_plan.v2"
+    assert payload["protocol"]["coverage_schema_version"] == "task_coverage.v2"
+    assert payload["protocol"]["artifact_taxonomy_schema_version"] == "artifact_taxonomy.v2"
+    assert payload["protocol"]["domain"] == domain
+    assert payload["artifacts"]["domain"] == domain
+    assert payload["coverage"]["schema_version"] == "task_coverage.v2"
+    assert payload["coverage"]["coverage_kind"] == "workflow_phase_completion"
+    assert payload["coverage"]["workflow_step_count"] == len(payload["orchestration"]["workflow"])
+    assert payload["coverage"]["completed_workflow_step_count"] == len(payload["orchestration"]["workflow"])
+    assert payload["artifact_taxonomy"]["schema_version"] == "artifact_taxonomy.v2"
+    assert "workspace" in payload["artifact_taxonomy"]["keys"]
+    assert payload["orchestration"]["policy"]["writes_state"] is writes_state
+
+
 def test_strategy_registry_templates(tmp_path: Path):
     registry = StrategyGeneRegistry(tmp_path)
     registry.ensure_default_templates()
@@ -230,6 +247,7 @@ async def test_train_once_writes_plan_run_and_evaluation_artifacts(tmp_path):
     assert out["entrypoint"]["agent_kind"] == "bounded_training_agent"
     assert out["orchestration"]["phase_stats"]["rounds"] == 2
     assert out["orchestration"]["policy"]["fixed_boundary"] is True
+    _assert_bounded_workflow_protocol(out, domain="training", writes_state=True)
     assert len(list(cfg.training_plan_dir.glob("*.json"))) == 1
     assert len(list(cfg.training_run_dir.glob("*.json"))) == 1
     assert len(list(cfg.training_eval_dir.glob("*.json"))) == 1
@@ -570,9 +588,11 @@ def test_get_control_plane_and_data_status_expose_bounded_workflows(tmp_path):
 
     assert control_plane["entrypoint"]["agent_kind"] == "bounded_config_agent"
     assert control_plane["orchestration"]["workflow"] == ["config_scope_resolve", "control_plane_read", "finalize"]
+    _assert_bounded_workflow_protocol(control_plane, domain="config", writes_state=False)
     assert data_status["entrypoint"]["agent_kind"] == "bounded_data_agent"
     assert data_status["orchestration"]["workflow"][1] == "data_status_refresh"
     assert data_status["orchestration"]["policy"]["tool_catalog_scope"] == "data_domain"
+    _assert_bounded_workflow_protocol(data_status, domain="data", writes_state=False)
 
 
 def test_runtime_observability_memory_scheduler_and_analytics_expose_bounded_workflows(tmp_path):
@@ -607,15 +627,25 @@ def test_runtime_observability_memory_scheduler_and_analytics_expose_bounded_wor
     leaderboard = runtime.get_leaderboard()
 
     assert status["entrypoint"]["agent_kind"] == "bounded_runtime_agent"
+    _assert_bounded_workflow_protocol(status, domain="runtime", writes_state=False)
     assert events["entrypoint"]["agent_kind"] == "bounded_runtime_agent"
+    _assert_bounded_workflow_protocol(events, domain="runtime", writes_state=False)
     assert diagnostics["entrypoint"]["agent_kind"] == "bounded_runtime_agent"
+    _assert_bounded_workflow_protocol(diagnostics, domain="runtime", writes_state=False)
     assert memory_list["entrypoint"]["agent_kind"] == "bounded_memory_agent"
+    _assert_bounded_workflow_protocol(memory_list, domain="memory", writes_state=False)
     assert memory_detail["entrypoint"]["agent_kind"] == "bounded_memory_agent"
+    _assert_bounded_workflow_protocol(memory_detail, domain="memory", writes_state=False)
     assert cron_add["entrypoint"]["agent_kind"] == "bounded_scheduler_agent"
     assert cron_list["entrypoint"]["agent_kind"] == "bounded_scheduler_agent"
+    _assert_bounded_workflow_protocol(cron_add, domain="scheduler", writes_state=True)
+    _assert_bounded_workflow_protocol(cron_list, domain="scheduler", writes_state=False)
     assert cron_remove["entrypoint"]["agent_kind"] == "bounded_scheduler_agent"
+    _assert_bounded_workflow_protocol(cron_remove, domain="scheduler", writes_state=True)
     assert models["entrypoint"]["agent_kind"] == "bounded_analytics_agent"
+    _assert_bounded_workflow_protocol(models, domain="analytics", writes_state=False)
     assert leaderboard["entrypoint"]["agent_kind"] == "bounded_analytics_agent"
+    _assert_bounded_workflow_protocol(leaderboard, domain="analytics", writes_state=False)
     assert cron_list["orchestration"]["workflow"][1] == "cron_list"
     assert cron_remove["orchestration"]["workflow"][1] == "cron_remove"
 
@@ -645,10 +675,15 @@ def test_config_strategy_and_plugin_surfaces_expose_bounded_workflows(tmp_path):
     plugins = runtime.reload_plugins()
 
     assert prompts["entrypoint"]["agent_kind"] == "bounded_config_agent"
+    _assert_bounded_workflow_protocol(prompts, domain="config", writes_state=False)
     assert paths["entrypoint"]["agent_kind"] == "bounded_config_agent"
+    _assert_bounded_workflow_protocol(paths, domain="config", writes_state=False)
     assert stock_strategies["entrypoint"]["agent_kind"] == "bounded_strategy_agent"
     assert reloaded["entrypoint"]["agent_kind"] == "bounded_strategy_agent"
+    _assert_bounded_workflow_protocol(stock_strategies, domain="strategy", writes_state=False)
+    _assert_bounded_workflow_protocol(reloaded, domain="strategy", writes_state=True)
     assert plugins["entrypoint"]["agent_kind"] == "bounded_plugin_agent"
+    _assert_bounded_workflow_protocol(plugins, domain="plugin", writes_state=True)
     assert reloaded["orchestration"]["policy"]["fixed_boundary"] is True
     assert plugins["orchestration"]["workflow"][1] == "plugin_reload"
 
