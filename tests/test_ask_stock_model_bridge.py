@@ -177,3 +177,24 @@ def test_ask_stock_scenario_engine_switches_to_empirical_after_prior_case(tmp_pa
     assert second["research"]["status"] == "ok"
     assert second["research"]["scenario"]["engine"] == "case_similarity_v1"
     assert second["research"]["scenario"]["sample_count"] >= 1
+
+
+def test_ask_stock_canonical_dashboard_path_does_not_require_legacy_dashboard_builder(tmp_path: Path):
+    controller = SimpleNamespace(
+        model_name="momentum",
+        model_config_path=str(resolve_model_config_path("momentum")),
+        current_params={},
+        model_routing_enabled=False,
+        model_routing_mode="off",
+        model_routing_allowed_models=["momentum"],
+        experiment_allowed_models=[],
+        allocator_top_n=3,
+        output_dir=tmp_path / "runtime" / "outputs" / "training",
+    )
+    service = _build_service(tmp_path, controller=controller)
+    service._build_dashboard = lambda **kwargs: (_ for _ in ()).throw(AssertionError("legacy dashboard should not be used when research bridge is available"))
+
+    payload = service.ask_stock(question="请分析 Alpha", query="Alpha")
+
+    assert payload["research"]["status"] == "ok"
+    assert payload["dashboard"]["signal"] == payload["research"]["hypothesis"]["stance"]

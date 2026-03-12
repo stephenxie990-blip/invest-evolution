@@ -492,7 +492,6 @@ class StockAnalysisService:
             execution = self._run_react_executor(question=question, query=code, security=security, strategy=strat, days=resolved_days)
             coverage = self._build_execution_coverage(strategy=strat, execution=execution, recommended_plan=recommended_plan, allowed_tools=allowed_tools)
             derived = self._derive_signals(execution)
-        legacy_dashboard = self._build_dashboard(strategy=strat, derived=derived, execution=execution)
         research_bridge = self._build_research_bridge(
             code=code,
             security=security,
@@ -501,7 +500,7 @@ class StockAnalysisService:
             days=resolved_days,
             derived=derived,
         )
-        dashboard = legacy_dashboard
+        dashboard: dict[str, Any] = {}
         research_payload: dict[str, Any] = {
             "status": str(research_bridge.get("status") or "unavailable"),
             "requested_as_of_date": self._normalize_as_of_date(as_of_date),
@@ -532,7 +531,6 @@ class StockAnalysisService:
                 matched_signals=list(derived.get("matched_signals") or []),
                 core_rules=list(strat.core_rules),
                 entry_conditions=list(strat.entry_conditions),
-                legacy_reason=str(legacy_dashboard.get("reason") or ""),
             )
             case_record = None
             attribution_preview = None
@@ -603,6 +601,7 @@ class StockAnalysisService:
                 }
             )
         else:
+            dashboard = self._build_dashboard(strategy=strat, derived=derived, execution=execution)
             model_bridge_payload.update(
                 {
                     "error": str(research_bridge.get("error") or ""),
