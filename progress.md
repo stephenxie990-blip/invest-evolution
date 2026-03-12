@@ -306,3 +306,25 @@
   - 新增 snapshot builder 回归测试，防止整包 `derived` 再次泄入 research contracts
   - 回归通过：`./.venv/bin/python -m pytest -q tests/test_research_hypothesis_engine.py tests/test_ask_stock_model_bridge.py tests/test_research_runtime_assets.py`
   - 回归通过：`./.venv/bin/python -m pytest -q`
+- 2026-03-12 真实运行验证补充：
+  - 真实训练入口通过：`./.venv/bin/python train.py --cycles 1`
+  - 训练完整走通：数据加载 → 选股会议 → 回测模拟 → 评估 → 复盘会议 → 参数回写
+  - Commander 真人式问股通过：`./.venv/bin/python commander.py ask -m '请帮我分析一下平安银行，按最近60个交易日视角，给出结论、依据、风险点和操作建议。'`
+  - 问股在真实 LLM planner 超时后成功降级到 YAML 计划继续执行，最终正常返回分析结论
+  - 结构化问股通过：当前态 `平安银行` 返回 `research.status=ok`
+  - 历史时点问股通过：`as_of_date=20260220` 被安全收敛到 `effective_as_of_date=20260213`，且 `parameter_source=config_default_replay_safe`、`attribution_saved=true`
+  - Commander 训练入口通过：`./.venv/bin/python commander.py train-once --rounds 1`
+  - Commander 训练本轮返回 `insufficient_data/no_data`，原因是 `mean_reversion` 在 `20211123` 截面未产出可交易标的，但训练调度、路由、产物落盘均正常
+- 第五段进展：
+  - 已补上 `CommanderRuntime` 对 `state.json` 的只读恢复，解决“训练刚跑完但新实例 status 看起来像没跑过”的状态断层
+  - 新增 `tests/test_commander.py::test_runtime_restores_persisted_runtime_and_body_state`
+  - 已收敛 `app/web_server.py` 中 shell public path 的重复判断，统一为 `_is_shell_public_path()`
+  - 回归通过：`./.venv/bin/python -m pytest -q tests/test_commander.py tests/test_commander_unified_entry.py`
+  - 回归通过：`./.venv/bin/python -m pytest -q tests/test_web_ui_rollout.py tests/test_web_server_security.py tests/test_web_training_lab_api.py`
+  - 回归通过：`./.venv/bin/python -m pytest -q`
+- 第六段进展：
+  - 新增 `brain/tool_metadata.py`，集中维护 `invest_status` / `invest_quick_status` / `invest_deep_status` 及 runtime observability compat surface
+  - `brain/tools.py`、`brain/runtime.py`、`app/commander.py` 已改为复用共享 alias metadata，减少散落字符串
+  - `app/web_server.py` 已将 legacy/app shell route 常量化，并统一 legacy shell 响应入口
+  - 回归通过：`./.venv/bin/python -m pytest -q tests/test_commander.py tests/test_web_ui_rollout.py tests/test_web_server_security.py tests/test_web_training_lab_api.py`
+  - 回归通过：`./.venv/bin/python -m pytest -q`

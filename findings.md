@@ -263,3 +263,14 @@
 ## 2026-03-12 第四段清理补充发现
 - `legacy_signals` 当前在 research contract 中的剩余职责已经收缩为兼容桥，不再适合承载完整 derived payload。
 - 继续清理时，优先级更高的对象已经不是 `ask_stock()` 主流程，而是仓库范围内的 compat route / legacy shell / backward alias 面。
+## 2026-03-12 真实交互验证结论
+- 真实训练主链可用：不只是 smoke，已实际完成“加载数据 → 会议选股 → 回测 → 评估 → 复盘 → 参数调整”。
+- 真人式问股可用：自然语言入口在 LLM planner 超时时能自动降级到 YAML 计划，用户仍能拿到完整分析答复。
+- 历史时点问股可用：系统会将用户请求日期安全收敛到真实可用交易日，本次 `2026-02-20` 收敛为 `2026-02-13`，并成功写出 attribution。
+- 一个架构观察：`commander.py status` 新实例快照没有回放 `train.py` / `train-once` 刚执行过的 body summary，因此状态页更像“当前控制器内存态”而不是“最近训练持久态”。这不是本轮阻断项，但属于后续可收口的一致性问题。
+## 2026-03-12 第五段清理补充发现
+- `CommanderRuntime` 之前存在“写状态不读状态”的半截持久化，导致真实训练和 status 展示之间出现认知断层。
+- `web_server` 的 legacy/app shell public path 判断是重复逻辑，适合持续收口为显式 compat surface helper。
+## 2026-03-12 第六段清理补充发现
+- `invest_status` 的问题不在功能，而在“兼容说明、分类、提示语”分散在多个文件；集中到 shared metadata 后，compat surface 更可控。
+- `web_server` 的 legacy shell 现在已有明确常量和单一响应入口，后续如果决定正式下线 legacy route，会更容易做成一次性变更。

@@ -5,6 +5,12 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from .tool_metadata import (
+    INVEST_DEEP_STATUS_TOOL_NAME,
+    INVEST_QUICK_STATUS_TOOL_NAME,
+    INVEST_STATUS_ALIAS_DESCRIPTION,
+    INVEST_STATUS_TOOL_NAME,
+)
 from .runtime import BrainTool
 
 
@@ -18,11 +24,11 @@ class InvestStatusTool(BrainTool):
 
     @property
     def name(self) -> str:
-        return "invest_status"
+        return INVEST_STATUS_TOOL_NAME
 
     @property
     def description(self) -> str:
-        return "Deprecated compatibility alias for `invest_quick_status` (fast snapshot path). Prefer `invest_quick_status`."
+        return INVEST_STATUS_ALIAS_DESCRIPTION
 
     @property
     def parameters(self) -> dict[str, Any]:
@@ -38,7 +44,7 @@ class InvestQuickStatusTool(BrainTool):
 
     @property
     def name(self) -> str:
-        return "invest_quick_status"
+        return INVEST_QUICK_STATUS_TOOL_NAME
 
     @property
     def description(self) -> str:
@@ -58,7 +64,7 @@ class InvestDeepStatusTool(BrainTool):
 
     @property
     def name(self) -> str:
-        return "invest_deep_status"
+        return INVEST_DEEP_STATUS_TOOL_NAME
 
     @property
     def description(self) -> str:

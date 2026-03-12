@@ -21,6 +21,7 @@ from brain.schema_contract import (
     TRAINING_DEFAULT_REASON_CODES,
 )
 from brain.task_bus import build_bounded_entrypoint, build_bounded_orchestration, build_bounded_policy, build_mutating_task_bus, build_readonly_task_bus, build_protocol_response
+from brain.tool_metadata import RUNTIME_OBSERVABILITY_TOOL_NAMES
 
 logger = logging.getLogger(__name__)
 
@@ -508,7 +509,7 @@ class BrainRuntime:
             "invest_agent_prompts_update",
         } for name in names):
             return "config_management"
-        if any(name in {"invest_quick_status", "invest_deep_status", "invest_status", "invest_events_tail", "invest_events_summary", "invest_runtime_diagnostics"} for name in names):
+        if any(name in RUNTIME_OBSERVABILITY_TOOL_NAMES for name in names):
             return "runtime_observability"
         if any(name in {"invest_list_strategies", "invest_reload_strategies", "invest_stock_strategies"} for name in names):
             return "strategy_inventory"

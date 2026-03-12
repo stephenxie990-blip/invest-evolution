@@ -232,6 +232,9 @@ _FRONTEND_API_CONTRACT_V1_SCHEMA_PATH = _CONTRACTS_DIR / "frontend-api-contract.
 _FRONTEND_API_CONTRACT_V1_OPENAPI_PATH = _CONTRACTS_DIR / "frontend-api-contract.v1.openapi.json"
 _FRONTEND_DIST_DIR = Path(__file__).parent.parent / "frontend" / "dist"
 _FRONTEND_CANARY_HEADER = "X-Invest-Frontend-Canary"
+_LEGACY_UI_ROUTE = "/legacy"
+_FRONTEND_APP_ROUTE = "/app"
+_SHELL_PUBLIC_PATHS = frozenset({"/healthz", "/", _LEGACY_UI_ROUTE, _FRONTEND_APP_ROUTE})
 
 
 def _load_contract_document(path: Path) -> dict[str, Any]:
@@ -316,11 +319,16 @@ def _extract_request_token() -> str:
     return str(request.headers.get("X-Invest-Token", "") or "").strip()
 
 
+def _is_shell_public_path(path: str) -> bool:
+    normalized = str(path or "")
+    if normalized in _SHELL_PUBLIC_PATHS:
+        return True
+    return normalized.startswith("/static/") or normalized.startswith(f"{_FRONTEND_APP_ROUTE}/")
+
+
 def _request_requires_auth() -> bool:
     path = str(request.path or "")
-    if path == "/healthz" or path == "/" or path == "/legacy":
-        return False
-    if path.startswith("/static/") or path == "/app" or path.startswith("/app/"):
+    if _is_shell_public_path(path):
         return False
     if not path.startswith("/api/"):
         return False
@@ -389,9 +397,7 @@ def _rate_limit_bucket() -> tuple[str, int] | None:
     if not _web_rate_limit_enabled():
         return None
     path = str(request.path or "")
-    if path == "/healthz" or path == "/" or path == "/legacy":
-        return None
-    if path.startswith("/static/") or path == "/app" or path.startswith("/app/"):
+    if _is_shell_public_path(path):
         return None
     if not path.startswith("/api/"):
         return None
@@ -454,7 +460,7 @@ def _enforce_rate_limit():
     return response
 
 
-def _legacy_index_response():
+def _serve_legacy_shell():
     return send_from_directory(app.static_folder, "index.html")
 
 
@@ -483,20 +489,20 @@ def _request_prefers_frontend_app() -> bool:
     return header_value in (_TRUE_VALUES | {"app", "new", "frontend"})
 
 
-@app.route("/legacy")
+@app.route(_LEGACY_UI_ROUTE)
 def legacy_index():
-    return _legacy_index_response()
+    return _serve_legacy_shell()
 
 
 @app.route("/")
 def index():
     if _request_prefers_frontend_app() and _frontend_dist_available():
         return frontend_app()
-    return _legacy_index_response()
+    return _serve_legacy_shell()
 
 
-@app.route("/app")
-@app.route("/app/<path:asset_path>")
+@app.route(_FRONTEND_APP_ROUTE)
+@app.route(f"{_FRONTEND_APP_ROUTE}/<path:asset_path>")
 def frontend_app(asset_path: str = ""):
     if not _FRONTEND_DIST_DIR.exists():
         return jsonify({

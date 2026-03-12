@@ -40,6 +40,11 @@ from brain.schema_contract import (
     TASK_BUS_SCHEMA_VERSION,
 )
 from brain.scheduler import CronService, HeartbeatService
+from brain.tool_metadata import (
+    INVEST_DEEP_STATUS_TOOL_NAME,
+    INVEST_QUICK_STATUS_TOOL_NAME,
+    INVEST_STATUS_TOOL_NAME,
+)
 from brain.tools import build_commander_tools
 from brain.memory import MemoryStore
 from brain.bridge import BridgeHub, BridgeMessage
@@ -1146,6 +1151,7 @@ class CommanderRuntime:
         self._started = False
         self._notify_task: Optional[asyncio.Task] = None
         self._autopilot_task: Optional[asyncio.Task] = None
+        self._restore_persisted_state()
 
     def _on_body_event(self, event: str, payload: dict[str, Any]) -> None:
         self._append_runtime_event(event, payload, source="body")
@@ -1157,6 +1163,32 @@ class CommanderRuntime:
 
     def _append_runtime_event(self, event: str, payload: dict[str, Any], *, source: str = "runtime") -> dict[str, Any]:
         return append_event_row(self.cfg.runtime_events_path, event, payload, source=source)
+
+    def _restore_persisted_state(self) -> None:
+        if not self.cfg.state_file.exists():
+            return
+        try:
+            payload = json.loads(self.cfg.state_file.read_text(encoding="utf-8"))
+        except Exception:
+            logger.warning("Failed to restore persisted commander state from %s", self.cfg.state_file, exc_info=True)
+            return
+        runtime_payload = dict(payload.get("runtime") or {})
+        body_payload = dict(payload.get("body") or {})
+        self._update_runtime_fields(
+            state=runtime_payload.get("state", self.runtime_state),
+            current_task=runtime_payload.get("current_task"),
+            last_task=runtime_payload.get("last_task"),
+        )
+        self.body.total_cycles = int(body_payload.get("total_cycles") or 0)
+        self.body.success_cycles = int(body_payload.get("success_cycles") or 0)
+        self.body.no_data_cycles = int(body_payload.get("no_data_cycles") or 0)
+        self.body.failed_cycles = int(body_payload.get("failed_cycles") or 0)
+        self.body.last_result = dict(body_payload.get("last_result") or {}) or None
+        self.body.last_error = str(body_payload.get("last_error") or "")
+        self.body.last_run_at = str(body_payload.get("last_run_at") or "")
+        self.body.training_state = str(body_payload.get("training_state") or self.body.training_state)
+        self.body.current_task = dict(body_payload.get("current_task") or {}) or None
+        self.body.last_completed_task = dict(body_payload.get("last_completed_task") or {}) or None
 
     def _set_runtime_state(self, state: str) -> None:
         self._update_runtime_fields(state=state)
@@ -3229,7 +3261,7 @@ class CommanderRuntime:
             3. Never fabricate strategy state, training results, config values, or file changes.
 
             Tool operating policy:
-            1. For runtime inspection, prefer `invest_quick_status` by default; use `invest_deep_status` only when deeper freshness is required. `invest_status` is backward-compatible alias only.
+            1. For runtime inspection, prefer `{INVEST_QUICK_STATUS_TOOL_NAME}` by default; use `{INVEST_DEEP_STATUS_TOOL_NAME}` only when deeper freshness is required. `{INVEST_STATUS_TOOL_NAME}` is backward-compatible alias only.
             2. For observability and recent activity, use `invest_events_summary`, `invest_events_tail`, and `invest_runtime_diagnostics`.
             3. For strategy inventory, use `invest_list_strategies`; if strategy files changed, call `invest_reload_strategies` before analysis or training.
             4. For health checks, prefer `invest_quick_test` before heavier training.
@@ -3277,7 +3309,7 @@ class CommanderRuntime:
             Core rules:
             1. Every decision must serve investment evolution goals.
             2. Treat this Commander workspace as the primary human entrypoint for training, diagnostics, config management, data inspection, and stock-analysis workflows.
-            3. Prefer using `invest_quick_status`, `invest_runtime_diagnostics`, `invest_training_plan_create`, `invest_training_plan_execute`, `invest_leaderboard`, and `invest_list_strategies`; avoid `invest_status` except for backward compatibility.
+            3. Prefer using `{INVEST_QUICK_STATUS_TOOL_NAME}`, `invest_runtime_diagnostics`, `invest_training_plan_create`, `invest_training_plan_execute`, `invest_leaderboard`, and `invest_list_strategies`; avoid `{INVEST_STATUS_TOOL_NAME}` except for backward compatibility.
             4. If strategy files changed, call `invest_reload_strategies` before new cycle decisions.
             5. Keep risk under control, respect confirmation-required writes, and preserve reproducible logs.
 

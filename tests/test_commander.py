@@ -988,6 +988,49 @@ def test_reload_strategies_resets_runtime_to_idle_and_persists_last_task(tmp_pat
     assert payload["runtime"]["last_task"]["gene_count"] == out["count"]
 
 
+def test_runtime_restores_persisted_runtime_and_body_state(tmp_path):
+    cfg = CommanderConfig(
+        workspace=tmp_path / "workspace",
+        strategy_dir=tmp_path / "strategies",
+        state_file=tmp_path / "state" / "state.json",
+        cron_store=tmp_path / "state" / "cron.json",
+        memory_store=tmp_path / "memory" / "memory.jsonl",
+        plugin_dir=tmp_path / "plugins",
+        bridge_inbox=tmp_path / "inbox",
+        bridge_outbox=tmp_path / "outbox",
+        mock_mode=True,
+        autopilot_enabled=False,
+        heartbeat_enabled=False,
+        bridge_enabled=False,
+    )
+    runtime = CommanderRuntime(cfg)
+    runtime._update_runtime_fields(  # pylint: disable=protected-access
+        state="idle",
+        current_task=None,
+        last_task={"type": "training", "status": "ok", "source": "direct"},
+    )
+    runtime.body.total_cycles = 3
+    runtime.body.success_cycles = 1
+    runtime.body.no_data_cycles = 1
+    runtime.body.failed_cycles = 1
+    runtime.body.last_result = {"status": "no_data", "cycle_id": 3}
+    runtime.body.last_run_at = "2026-03-12T20:08:02"
+    runtime.body.training_state = "idle"
+    runtime.body.last_completed_task = {"type": "training", "last_status": "no_data"}
+    runtime._persist_state()  # pylint: disable=protected-access
+
+    restored = CommanderRuntime(cfg)
+    status = restored.status(detail="fast")
+
+    assert status["runtime"]["last_task"]["type"] == "training"
+    assert status["body"]["total_cycles"] == 3
+    assert status["body"]["success_cycles"] == 1
+    assert status["body"]["no_data_cycles"] == 1
+    assert status["body"]["failed_cycles"] == 1
+    assert status["body"]["last_result"]["status"] == "no_data"
+    assert status["body"]["last_completed_task"]["last_status"] == "no_data"
+
+
 @pytest.mark.asyncio
 async def test_mutating_workflow_gate_includes_coverage_gap_reasons(tmp_path):
     cfg = CommanderConfig(
