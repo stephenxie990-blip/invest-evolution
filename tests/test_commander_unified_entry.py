@@ -70,9 +70,13 @@ def test_runtime_exposes_analysis_config_data_and_observability(runtime_with_db)
 
     control_plane = runtime.get_control_plane()
     assert control_plane["status"] == "ok"
+    assert control_plane["entrypoint"]["agent_kind"] == "bounded_config_agent"
+    assert control_plane["orchestration"]["policy"]["fixed_boundary"] is True
 
     data_status = runtime.get_data_status(refresh=False)
     assert "quality" in data_status
+    assert data_status["entrypoint"]["agent_kind"] == "bounded_data_agent"
+    assert data_status["orchestration"]["phase_stats"]["requested_refresh"] is False
 
     events = runtime.get_events_summary(limit=20)
     assert events["status"] == "ok"
@@ -83,6 +87,10 @@ def test_runtime_high_risk_write_requires_confirmation(runtime_with_db):
     payload = runtime_with_db.update_control_plane({"llm": {"bindings": {"controller.main": "x"}}}, confirm=False)
     assert payload["status"] == "confirmation_required"
     assert payload["restart_required"] is True
+    assert payload["entrypoint"]["agent_kind"] == "bounded_config_agent"
+    assert payload["orchestration"]["workflow"] == ["config_scope_resolve", "gate_confirmation", "finalize"]
+    assert payload["orchestration"]["policy"]["confirmation_gate"] is True
+    assert payload["pending"]["patch"]["llm"]["bindings"]["controller.main"] == "x"
 
 
 @pytest.mark.asyncio
@@ -90,6 +98,8 @@ async def test_runtime_ask_routes_natural_language_without_llm(runtime_with_db):
     result = await runtime_with_db.ask("请看看系统状态", session_key="test:nl")
     payload = json.loads(result)
     assert payload["detail_mode"] == "fast"
+    assert payload["entrypoint"]["agent_kind"] == "bounded_runtime_agent"
+    assert payload["orchestration"]["workflow"] == ["runtime_scope_resolve", "status_read", "finalize"]
     assert payload["task_bus"]["planner"]["intent"] == "runtime_status"
     assert payload["task_bus"]["gate"]["writes_state"] is False
 
@@ -153,6 +163,8 @@ async def test_runtime_ask_control_plane_overview_via_natural_language(runtime_w
     assert payload["intent"] == "config_overview"
     assert "control_plane" in payload
     assert "evolution_config" in payload
+    assert payload["entrypoint"]["agent_kind"] == "bounded_config_agent"
+    assert payload["orchestration"]["workflow"] == ["config_scope_resolve", "control_plane_read", "evolution_config_read", "finalize"]
     assert payload["task_bus"]["planner"]["intent"] == "config_overview"
     assert payload["task_bus"]["gate"]["writes_state"] is False
     assert payload["task_bus"]["planner"]["recommended_plan"][0]["tool"] == "invest_control_plane_get"
@@ -166,8 +178,64 @@ async def test_runtime_ask_multi_round_real_training_requires_explicit_confirmat
     assert payload["status"] == "confirmation_required"
     assert payload["pending"]["rounds"] == 2
     assert payload["pending"]["mock"] is False
+    assert payload["task_bus"]["schema_version"] == "task_bus.v2"
     assert payload["task_bus"]["planner"]["intent"] == "training_execution"
+    assert payload["task_bus"]["planner"]["plan_summary"]["recommended_step_count"] >= 2
     assert payload["task_bus"]["gate"]["writes_state"] is True
     assert payload["task_bus"]["gate"]["requires_confirmation"] is True
+    assert payload["task_bus"]["gate"]["confirmation"]["required"] is True
+    assert payload["task_bus"]["gate"]["confirmation"]["state"] == "pending_confirmation"
+    assert "tool_grounded_execution" in payload["task_bus"]["gate"]["confirmation"]["reason_codes"]
+    assert payload["task_bus"]["gate"]["confirmation"]["reason_codes"]
+    assert payload["task_bus"]["planner"]["recommended_plan"][0]["step_id"] == "step_01"
     assert payload["task_bus"]["planner"]["recommended_plan"][0]["tool"] == "invest_quick_test"
     assert payload["task_bus"]["planner"]["recommended_plan"][1]["tool"] == "invest_training_plan_create"
+
+
+@pytest.mark.asyncio
+async def test_runtime_ask_data_status_preserves_bounded_workflow(runtime_with_db):
+    result = await runtime_with_db.ask("请帮我刷新数据状态", session_key="test:data-bounded")
+    payload = json.loads(result)
+    assert payload["entrypoint"]["agent_kind"] == "bounded_data_agent"
+    assert payload["orchestration"]["policy"]["fixed_workflow"] is True
+    assert payload["orchestration"]["phase_stats"]["requested_refresh"] is True
+
+
+@pytest.mark.asyncio
+async def test_runtime_ask_multi_round_training_confirmation_has_bounded_workflow(runtime_with_db):
+    result = await runtime_with_db.ask("请帮我真实训练2轮", session_key="test:train-bounded")
+    payload = json.loads(result)
+    assert payload["status"] == "confirmation_required"
+    assert payload["entrypoint"]["agent_kind"] == "bounded_training_agent"
+    assert payload["orchestration"]["policy"]["confirmation_gate"] is True
+    assert payload["orchestration"]["phase_stats"]["rounds"] == 2
+
+
+
+def test_update_evolution_config_bounded_workflow_on_confirm(runtime_with_db, monkeypatch):
+    import app.commander as commander_module
+
+    monkeypatch.setattr(
+        commander_module,
+        "update_evolution_config_payload",
+        lambda **kwargs: {"status": "ok", "updated": ["data_source"], "config": {"data_source": "mock"}},
+    )
+
+    payload = runtime_with_db.update_evolution_config({"data_source": "mock"}, confirm=True)
+
+    assert payload["status"] == "ok"
+    assert payload["entrypoint"]["agent_kind"] == "bounded_config_agent"
+    assert payload["entrypoint"]["runtime_tool"] == "invest_evolution_config_update"
+    assert payload["orchestration"]["workflow"] == ["config_scope_resolve", "evolution_config_write", "finalize"]
+    assert payload["orchestration"]["policy"]["writes_state"] is True
+    assert payload["orchestration"]["phase_stats"]["updated_count"] == 1
+
+
+def test_trigger_data_download_confirmation_is_bounded(runtime_with_db):
+    payload = runtime_with_db.trigger_data_download(confirm=False)
+
+    assert payload["status"] == "confirmation_required"
+    assert payload["entrypoint"]["agent_kind"] == "bounded_data_agent"
+    assert payload["orchestration"]["workflow"] == ["data_scope_resolve", "gate_confirmation", "finalize"]
+    assert payload["orchestration"]["policy"]["confirmation_gate"] is True
+    assert "job" in payload

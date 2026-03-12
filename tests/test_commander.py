@@ -227,6 +227,9 @@ async def test_train_once_writes_plan_run_and_evaluation_artifacts(tmp_path):
     out = await runtime.train_once(rounds=2, mock=True)
 
     assert "training_lab" in out
+    assert out["entrypoint"]["agent_kind"] == "bounded_training_agent"
+    assert out["orchestration"]["phase_stats"]["rounds"] == 2
+    assert out["orchestration"]["policy"]["fixed_boundary"] is True
     assert len(list(cfg.training_plan_dir.glob("*.json"))) == 1
     assert len(list(cfg.training_run_dir.glob("*.json"))) == 1
     assert len(list(cfg.training_eval_dir.glob("*.json"))) == 1
@@ -269,6 +272,8 @@ async def test_execute_training_plan_runs_persisted_plan(tmp_path):
 
     assert observed == {"rounds": 3, "force_mock": False, "task_source": "manual"}
     assert out["training_lab"]["plan"]["plan_id"] == plan["plan_id"]
+    assert out["entrypoint"]["runtime_tool"] == "invest_training_plan_execute"
+    assert out["orchestration"]["workflow"][2] == "training_cycles_execute"
     saved_plan = next(cfg.training_plan_dir.glob("*.json")).read_text(encoding="utf-8")
     assert '"status": "completed"' in saved_plan
 
@@ -541,3 +546,361 @@ def test_run_cycles_switches_back_to_real_data_manager_after_mock_run(tmp_path):
     asyncio.run(body.run_cycles(rounds=1, force_mock=False))
     assert body.controller.data_manager is real_manager
     assert body.controller.llm_mode == 'live'
+
+
+def test_get_control_plane_and_data_status_expose_bounded_workflows(tmp_path):
+    cfg = CommanderConfig(
+        workspace=tmp_path / "workspace",
+        strategy_dir=tmp_path / "strategies",
+        state_file=tmp_path / "state" / "state.json",
+        cron_store=tmp_path / "state" / "cron.json",
+        memory_store=tmp_path / "memory" / "memory.jsonl",
+        plugin_dir=tmp_path / "plugins",
+        bridge_inbox=tmp_path / "inbox",
+        bridge_outbox=tmp_path / "outbox",
+        mock_mode=True,
+        autopilot_enabled=False,
+        heartbeat_enabled=False,
+        bridge_enabled=False,
+    )
+    runtime = CommanderRuntime(cfg)
+
+    control_plane = runtime.get_control_plane()
+    data_status = runtime.get_data_status(refresh=True)
+
+    assert control_plane["entrypoint"]["agent_kind"] == "bounded_config_agent"
+    assert control_plane["orchestration"]["workflow"] == ["config_scope_resolve", "control_plane_read", "finalize"]
+    assert data_status["entrypoint"]["agent_kind"] == "bounded_data_agent"
+    assert data_status["orchestration"]["workflow"][1] == "data_status_refresh"
+    assert data_status["orchestration"]["policy"]["tool_catalog_scope"] == "data_domain"
+
+
+def test_runtime_observability_memory_scheduler_and_analytics_expose_bounded_workflows(tmp_path):
+    cfg = CommanderConfig(
+        workspace=tmp_path / "workspace",
+        strategy_dir=tmp_path / "strategies",
+        state_file=tmp_path / "state" / "state.json",
+        cron_store=tmp_path / "state" / "cron.json",
+        memory_store=tmp_path / "memory" / "memory.jsonl",
+        plugin_dir=tmp_path / "plugins",
+        bridge_inbox=tmp_path / "inbox",
+        bridge_outbox=tmp_path / "outbox",
+        mock_mode=True,
+        autopilot_enabled=False,
+        heartbeat_enabled=False,
+        bridge_enabled=False,
+    )
+    runtime = CommanderRuntime(cfg)
+    runtime._ensure_runtime_storage()
+    runtime.memory.append(kind="note", session_key="test", content="remember this", metadata={"tag": "x"})
+
+    status = runtime.status(detail="fast")
+    events = runtime.get_events_summary(limit=10)
+    diagnostics = runtime.get_runtime_diagnostics(event_limit=10, memory_limit=5)
+    memory_list = runtime.list_memory(query="remember", limit=5)
+    record_id = memory_list["items"][0]["id"]
+    memory_detail = runtime.get_memory_detail(record_id)
+    cron_add = runtime.add_cron_job(name="ping", message="看看系统状态", every_sec=60)
+    cron_list = runtime.list_cron_jobs()
+    cron_remove = runtime.remove_cron_job(cron_add["job"]["id"])
+    models = runtime.get_investment_models()
+    leaderboard = runtime.get_leaderboard()
+
+    assert status["entrypoint"]["agent_kind"] == "bounded_runtime_agent"
+    assert events["entrypoint"]["agent_kind"] == "bounded_runtime_agent"
+    assert diagnostics["entrypoint"]["agent_kind"] == "bounded_runtime_agent"
+    assert memory_list["entrypoint"]["agent_kind"] == "bounded_memory_agent"
+    assert memory_detail["entrypoint"]["agent_kind"] == "bounded_memory_agent"
+    assert cron_add["entrypoint"]["agent_kind"] == "bounded_scheduler_agent"
+    assert cron_list["entrypoint"]["agent_kind"] == "bounded_scheduler_agent"
+    assert cron_remove["entrypoint"]["agent_kind"] == "bounded_scheduler_agent"
+    assert models["entrypoint"]["agent_kind"] == "bounded_analytics_agent"
+    assert leaderboard["entrypoint"]["agent_kind"] == "bounded_analytics_agent"
+    assert cron_list["orchestration"]["workflow"][1] == "cron_list"
+    assert cron_remove["orchestration"]["workflow"][1] == "cron_remove"
+
+
+def test_config_strategy_and_plugin_surfaces_expose_bounded_workflows(tmp_path):
+    cfg = CommanderConfig(
+        workspace=tmp_path / "workspace",
+        strategy_dir=tmp_path / "strategies",
+        state_file=tmp_path / "state" / "state.json",
+        cron_store=tmp_path / "state" / "cron.json",
+        memory_store=tmp_path / "memory" / "memory.jsonl",
+        plugin_dir=tmp_path / "plugins",
+        bridge_inbox=tmp_path / "inbox",
+        bridge_outbox=tmp_path / "outbox",
+        mock_mode=True,
+        autopilot_enabled=False,
+        heartbeat_enabled=False,
+        bridge_enabled=False,
+    )
+    runtime = CommanderRuntime(cfg)
+    runtime._ensure_runtime_storage()
+
+    prompts = runtime.list_agent_prompts()
+    paths = runtime.get_runtime_paths()
+    stock_strategies = runtime.list_stock_strategies()
+    reloaded = runtime.reload_strategies()
+    plugins = runtime.reload_plugins()
+
+    assert prompts["entrypoint"]["agent_kind"] == "bounded_config_agent"
+    assert paths["entrypoint"]["agent_kind"] == "bounded_config_agent"
+    assert stock_strategies["entrypoint"]["agent_kind"] == "bounded_strategy_agent"
+    assert reloaded["entrypoint"]["agent_kind"] == "bounded_strategy_agent"
+    assert plugins["entrypoint"]["agent_kind"] == "bounded_plugin_agent"
+    assert reloaded["orchestration"]["policy"]["fixed_boundary"] is True
+    assert plugins["orchestration"]["workflow"][1] == "plugin_reload"
+
+
+def test_commander_config_relocates_state_relative_paths(tmp_path):
+    cfg = CommanderConfig(
+        state_file=tmp_path / "custom-state" / "state.json",
+        workspace=tmp_path / "workspace",
+        strategy_dir=tmp_path / "strategies",
+        cron_store=tmp_path / "cron.json",
+        memory_store=tmp_path / "memory.jsonl",
+        plugin_dir=tmp_path / "plugins",
+        bridge_inbox=tmp_path / "inbox",
+        bridge_outbox=tmp_path / "outbox",
+        mock_mode=True,
+        autopilot_enabled=False,
+        heartbeat_enabled=False,
+        bridge_enabled=False,
+    )
+
+    assert cfg.runtime_state_dir == tmp_path / "custom-state"
+    assert cfg.runtime_lock_file == tmp_path / "custom-state" / "commander.lock"
+    assert cfg.training_plan_dir == tmp_path / "custom-state" / "training_plans"
+    assert cfg.runtime_events_path == tmp_path / "custom-state" / "commander_events.jsonl"
+
+
+def test_run_cycles_returns_nodata_item_with_artifacts(tmp_path):
+    import asyncio
+
+    from app.commander import CommanderConfig, InvestmentBodyService
+
+    cfg = CommanderConfig(
+        workspace=tmp_path / 'workspace',
+        strategy_dir=tmp_path / 'strategies',
+        state_file=tmp_path / 'state' / 'state.json',
+        cron_store=tmp_path / 'state' / 'cron.json',
+        memory_store=tmp_path / 'memory' / 'memory.jsonl',
+        plugin_dir=tmp_path / 'plugins',
+        bridge_inbox=tmp_path / 'inbox',
+        bridge_outbox=tmp_path / 'outbox',
+        training_output_dir=tmp_path / 'training',
+        meeting_log_dir=tmp_path / 'meetings',
+        config_audit_log_path=tmp_path / 'audit' / 'changes.jsonl',
+        config_snapshot_dir=tmp_path / 'snapshots',
+        training_lock_file=tmp_path / 'state' / 'training.lock',
+        mock_mode=False,
+        autopilot_enabled=False,
+        heartbeat_enabled=False,
+        bridge_enabled=False,
+    )
+    body = InvestmentBodyService(cfg)
+    body.controller.last_cycle_meta = {
+        'cycle_id': 7,
+        'cutoff_date': '20240201',
+        'stage': 'selection',
+        'requested_data_mode': 'live',
+        'effective_data_mode': 'offline',
+        'llm_mode': 'live',
+        'degraded': False,
+    }
+    body.controller.run_training_cycle = lambda: None
+
+    payload = asyncio.run(body.run_cycles(rounds=1, force_mock=False))
+
+    assert payload['results'][0]['status'] == 'no_data'
+    assert payload['results'][0]['cycle_id'] == 7
+    assert payload['results'][0]['artifacts']['cycle_result_path'].endswith('cycle_7.json')
+
+
+@pytest.mark.asyncio
+async def test_execute_training_plan_rejects_invalid_json_artifact(tmp_path):
+    cfg = CommanderConfig(
+        workspace=tmp_path / "workspace",
+        strategy_dir=tmp_path / "strategies",
+        state_file=tmp_path / "state" / "state.json",
+        cron_store=tmp_path / "state" / "cron.json",
+        memory_store=tmp_path / "memory" / "memory.jsonl",
+        plugin_dir=tmp_path / "plugins",
+        bridge_inbox=tmp_path / "inbox",
+        bridge_outbox=tmp_path / "outbox",
+        mock_mode=True,
+        autopilot_enabled=False,
+        heartbeat_enabled=False,
+        bridge_enabled=False,
+    )
+    runtime = CommanderRuntime(cfg)
+    runtime._ensure_runtime_storage()
+    broken_path = runtime._training_plan_path("broken")
+    broken_path.write_text("{not-json}", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="invalid training plan json"):
+        await runtime.execute_training_plan("broken")
+
+
+
+def test_status_invalid_detail_falls_back_to_fast(tmp_path):
+    cfg = CommanderConfig(
+        workspace=tmp_path / "workspace",
+        strategy_dir=tmp_path / "strategies",
+        state_file=tmp_path / "state" / "state.json",
+        cron_store=tmp_path / "state" / "cron.json",
+        memory_store=tmp_path / "memory" / "memory.jsonl",
+        plugin_dir=tmp_path / "plugins",
+        bridge_inbox=tmp_path / "inbox",
+        bridge_outbox=tmp_path / "outbox",
+        mock_mode=True,
+        autopilot_enabled=False,
+        heartbeat_enabled=False,
+        bridge_enabled=False,
+    )
+    runtime = CommanderRuntime(cfg)
+
+    payload = runtime.status(detail="unexpected-mode")
+
+    assert payload["detail_mode"] == "fast"
+    assert payload["entrypoint"]["runtime_tool"] == "invest_quick_status"
+    assert payload["orchestration"]["workflow"][1] == "status_read"
+
+
+def test_read_runtime_lock_payload_handles_invalid_json_with_warning(tmp_path, caplog):
+    cfg = CommanderConfig(
+        workspace=tmp_path / "workspace",
+        strategy_dir=tmp_path / "strategies",
+        state_file=tmp_path / "state" / "state.json",
+        cron_store=tmp_path / "state" / "cron.json",
+        memory_store=tmp_path / "memory" / "memory.jsonl",
+        plugin_dir=tmp_path / "plugins",
+        bridge_inbox=tmp_path / "inbox",
+        bridge_outbox=tmp_path / "outbox",
+        mock_mode=True,
+        autopilot_enabled=False,
+        heartbeat_enabled=False,
+        bridge_enabled=False,
+    )
+    runtime = CommanderRuntime(cfg)
+    cfg.runtime_lock_file.parent.mkdir(parents=True, exist_ok=True)
+
+    cfg.runtime_lock_file.write_text('{broken', encoding='utf-8')
+    with caplog.at_level("WARNING"):
+        assert runtime._read_runtime_lock_payload() == {}
+    assert "Invalid runtime lock payload" in caplog.text
+
+    caplog.clear()
+    cfg.runtime_lock_file.write_text('[]', encoding='utf-8')
+    with caplog.at_level("WARNING"):
+        assert runtime._read_runtime_lock_payload() == {}
+    assert "Runtime lock payload must be a JSON object" in caplog.text
+
+
+def test_persist_state_uses_lightweight_snapshot(tmp_path, monkeypatch):
+    import app.commander as commander_module
+
+    cfg = CommanderConfig(
+        workspace=tmp_path / "workspace",
+        strategy_dir=tmp_path / "strategies",
+        state_file=tmp_path / "state" / "state.json",
+        cron_store=tmp_path / "state" / "cron.json",
+        memory_store=tmp_path / "memory" / "memory.jsonl",
+        plugin_dir=tmp_path / "plugins",
+        bridge_inbox=tmp_path / "inbox",
+        bridge_outbox=tmp_path / "outbox",
+        mock_mode=True,
+        autopilot_enabled=False,
+        heartbeat_enabled=False,
+        bridge_enabled=False,
+    )
+    runtime = CommanderRuntime(cfg)
+
+    def _boom(*args, **kwargs):
+        raise AssertionError("heavy status path should not run during persist")
+
+    monkeypatch.setattr(runtime, "status", _boom)
+    monkeypatch.setattr(runtime, "list_training_plans", _boom)
+    monkeypatch.setattr(runtime, "list_training_runs", _boom)
+    monkeypatch.setattr(runtime, "list_training_evaluations", _boom)
+    monkeypatch.setattr(commander_module, "read_event_rows", _boom)
+    monkeypatch.setattr(runtime, "_collect_data_status", lambda detail_mode: {"status": "ok", "detail_mode": detail_mode})
+
+    runtime._persist_state()
+
+    payload = json.loads(cfg.state_file.read_text(encoding="utf-8"))
+    assert payload["detail_mode"] == "fast"
+    assert payload["training_lab"]["latest_plans"] == []
+    assert payload["training_lab"]["latest_runs"] == []
+    assert payload["training_lab"]["latest_evaluations"] == []
+    assert payload["data"]["detail_mode"] == "fast"
+    assert "entrypoint" not in payload
+
+
+@pytest.mark.asyncio
+async def test_ask_failure_records_error_last_task(tmp_path, monkeypatch):
+    cfg = CommanderConfig(
+        workspace=tmp_path / "workspace",
+        strategy_dir=tmp_path / "strategies",
+        state_file=tmp_path / "state" / "state.json",
+        cron_store=tmp_path / "state" / "cron.json",
+        memory_store=tmp_path / "memory" / "memory.jsonl",
+        plugin_dir=tmp_path / "plugins",
+        bridge_inbox=tmp_path / "inbox",
+        bridge_outbox=tmp_path / "outbox",
+        mock_mode=True,
+        autopilot_enabled=False,
+        heartbeat_enabled=False,
+        bridge_enabled=False,
+    )
+    runtime = CommanderRuntime(cfg)
+
+    async def _boom(*args, **kwargs):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(runtime.brain, "process_direct", _boom)
+
+    with pytest.raises(RuntimeError, match="boom"):
+        await runtime.ask("hello", session_key="test:ask-fail")
+
+    state, current_task, last_task = runtime._snapshot_runtime_fields()
+    payload = json.loads(cfg.state_file.read_text(encoding="utf-8"))
+
+    assert state == "initialized"
+    assert current_task is None
+    assert last_task["type"] == "ask"
+    assert last_task["status"] == "error"
+    assert payload["runtime"]["current_task"] is None
+    assert payload["runtime"]["last_task"]["status"] == "error"
+
+
+def test_reload_strategies_resets_runtime_to_idle_and_persists_last_task(tmp_path):
+    cfg = CommanderConfig(
+        workspace=tmp_path / "workspace",
+        strategy_dir=tmp_path / "strategies",
+        state_file=tmp_path / "state" / "state.json",
+        cron_store=tmp_path / "state" / "cron.json",
+        memory_store=tmp_path / "memory" / "memory.jsonl",
+        plugin_dir=tmp_path / "plugins",
+        bridge_inbox=tmp_path / "inbox",
+        bridge_outbox=tmp_path / "outbox",
+        mock_mode=True,
+        autopilot_enabled=False,
+        heartbeat_enabled=False,
+        bridge_enabled=False,
+    )
+    runtime = CommanderRuntime(cfg)
+
+    out = runtime.reload_strategies()
+    state, current_task, last_task = runtime._snapshot_runtime_fields()
+    payload = json.loads(cfg.state_file.read_text(encoding="utf-8"))
+
+    assert out["status"] == "ok"
+    assert state == "idle"
+    assert current_task is None
+    assert last_task["type"] == "reload_strategies"
+    assert last_task["status"] == "ok"
+    assert last_task["gene_count"] == out["count"]
+    assert payload["runtime"]["state"] == "idle"
+    assert payload["runtime"]["last_task"]["gene_count"] == out["count"]

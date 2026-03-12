@@ -732,6 +732,73 @@ class BrainRuntime:
             ]
         return [{"tool": name, "args": {}} for name in tool_names]
 
+    @staticmethod
+    def _payload_coverage(payload: dict[str, Any]) -> dict[str, Any] | None:
+        direct = payload.get("coverage")
+        if isinstance(direct, dict):
+            return dict(direct)
+        orchestration = dict(payload.get("orchestration") or {})
+        coverage = orchestration.get("coverage")
+        if isinstance(coverage, dict):
+            return dict(coverage)
+        return None
+
+    @staticmethod
+    def _payload_artifacts(payload: dict[str, Any], *, base: dict[str, Any]) -> dict[str, Any]:
+        artifacts = dict(base)
+        direct = payload.get("artifacts")
+        if isinstance(direct, dict):
+            artifacts.update(direct)
+        training_lab = payload.get("training_lab")
+        if isinstance(training_lab, dict):
+            artifacts.setdefault("training_lab", training_lab)
+        return artifacts
+
+    def _build_task_bus_for_payload(
+        self,
+        *,
+        payload: dict[str, Any],
+        user_goal: str,
+        intent: str,
+        operation: str,
+        mode: str,
+        tool_names: list[str],
+        writes_state: bool,
+        risk_level: str,
+        recommended_plan: list[dict[str, Any]],
+        tool_calls: list[dict[str, Any]],
+        reasons: list[str] | None = None,
+        artifacts: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        status = str(payload.get("status", "ok"))
+        requires_confirmation = status == "confirmation_required"
+        decision = "confirm" if requires_confirmation else "allow"
+        normalized_artifacts = self._payload_artifacts(payload, base=dict(artifacts or {}))
+        coverage = self._payload_coverage(payload)
+        builder = build_mutating_task_bus if writes_state else build_readonly_task_bus
+        kwargs = {
+            "intent": intent,
+            "operation": operation,
+            "user_goal": user_goal,
+            "mode": mode,
+            "available_tools": self.tools.tool_names,
+            "recommended_plan": list(recommended_plan),
+            "tool_calls": list(tool_calls),
+            "artifacts": normalized_artifacts,
+            "coverage": coverage,
+            "status": status,
+        }
+        if writes_state:
+            kwargs.update(
+                {
+                    "risk_level": risk_level,
+                    "decision": decision,
+                    "requires_confirmation": requires_confirmation,
+                    "reasons": list(reasons or ["state_changing_request", "tool_grounded_execution"]),
+                }
+            )
+        return builder(**kwargs)
+
     def _wrap_tool_response(
         self,
         result: Any,
@@ -764,35 +831,19 @@ class BrainRuntime:
         if "task_bus" not in payload:
             plan = self._recommended_plan_for_intent(intent=inferred_intent, tool_names=names, writes_state=writes_state, user_goal=user_goal)
             calls = list(tool_calls or self._tool_trace(names))
-            artifacts = {"workspace": str(self.workspace), "tools": names, "mode": mode}
-            if writes_state:
-                payload["task_bus"] = build_mutating_task_bus(
-                    intent=inferred_intent,
-                    operation=mode,
-                    user_goal=user_goal,
-                    mode=mode,
-                    available_tools=self.tools.tool_names,
-                    recommended_plan=plan,
-                    tool_calls=calls,
-                    artifacts=artifacts,
-                    status=status,
-                    risk_level=risk_level,
-                    decision="confirm" if status == "confirmation_required" else "allow",
-                    requires_confirmation=status == "confirmation_required",
-                    reasons=["state_changing_request", "tool_grounded_execution"],
-                )
-            else:
-                payload["task_bus"] = build_readonly_task_bus(
-                    intent=inferred_intent,
-                    operation=mode,
-                    user_goal=user_goal,
-                    mode=mode,
-                    available_tools=self.tools.tool_names,
-                    recommended_plan=plan,
-                    tool_calls=calls,
-                    artifacts=artifacts,
-                    status=status,
-                )
+            payload["task_bus"] = self._build_task_bus_for_payload(
+                payload=payload,
+                user_goal=user_goal,
+                intent=inferred_intent,
+                operation=mode,
+                mode=mode,
+                tool_names=names,
+                writes_state=writes_state,
+                risk_level=risk_level,
+                recommended_plan=plan,
+                tool_calls=calls,
+                artifacts={"workspace": str(self.workspace), "tools": names, "mode": mode},
+            )
         return json.dumps(payload, ensure_ascii=False, indent=2)
 
     def _wrap_builtin_payload(
@@ -821,44 +872,8 @@ class BrainRuntime:
             }, ensure_ascii=False, indent=2)
         if "task_bus" in payload:
             return json.dumps(payload, ensure_ascii=False, indent=2)
-        status = str(payload.get("status", "ok"))
-        requires_confirmation = status == "confirmation_required"
-        decision = "confirm" if requires_confirmation else "allow"
         plan = list(recommended_plan or self._recommended_plan_for_intent(intent=intent, tool_names=tool_names, writes_state=writes_state, user_goal=user_goal))
         tool_calls = self._tool_trace(tool_names)
-        artifacts = {
-            "workspace": str(self.workspace),
-            "intent": intent,
-            "operation": operation,
-        }
-        if writes_state:
-            task_bus = build_mutating_task_bus(
-                intent=intent,
-                operation=operation,
-                user_goal=user_goal,
-                mode="builtin_intent",
-                available_tools=self.tools.tool_names,
-                recommended_plan=plan,
-                tool_calls=tool_calls,
-                artifacts=artifacts,
-                status=status,
-                risk_level=risk_level,
-                decision=decision,
-                requires_confirmation=requires_confirmation,
-                reasons=list(reasons or ["state_changing_request", "tool_grounded_execution"]),
-            )
-        else:
-            task_bus = build_readonly_task_bus(
-                intent=intent,
-                operation=operation,
-                user_goal=user_goal,
-                mode="builtin_intent",
-                available_tools=self.tools.tool_names,
-                recommended_plan=plan,
-                tool_calls=tool_calls,
-                artifacts=artifacts,
-                status=status,
-            )
         payload = dict(payload)
         payload.setdefault("entrypoint", {
             "kind": "commander_builtin_intent",
@@ -867,7 +882,24 @@ class BrainRuntime:
             "operation": operation,
             "meeting_path": False,
         })
-        payload["task_bus"] = task_bus
+        payload["task_bus"] = self._build_task_bus_for_payload(
+            payload=payload,
+            user_goal=user_goal,
+            intent=intent,
+            operation=operation,
+            mode="builtin_intent",
+            tool_names=tool_names,
+            writes_state=writes_state,
+            risk_level=risk_level,
+            recommended_plan=plan,
+            tool_calls=tool_calls,
+            reasons=reasons,
+            artifacts={
+                "workspace": str(self.workspace),
+                "intent": intent,
+                "operation": operation,
+            },
+        )
         return json.dumps(payload, ensure_ascii=False, indent=2)
 
 
@@ -949,6 +981,29 @@ class BrainRuntime:
                 "intent": "status_and_recent_training",
                 "quick_status": quick,
                 "training_lab": lab,
+                "entrypoint": {
+                    "kind": "commander_builtin_workflow",
+                    "resolver": "BrainRuntime._try_builtin_intent",
+                    "intent": "runtime_status_and_training",
+                    "operation": "status_and_recent_training",
+                    "meeting_path": False,
+                    "agent_kind": "bounded_runtime_agent",
+                },
+                "orchestration": {
+                    "mode": "builtin_bounded_readonly_workflow",
+                    "available_tools": ["invest_quick_status", "invest_training_lab_summary"],
+                    "allowed_tools": ["invest_quick_status", "invest_training_lab_summary"],
+                    "workflow": ["runtime_scope_resolve", "quick_status_read", "training_lab_read", "finalize"],
+                    "phase_stats": {"section_count": 2},
+                    "policy": {
+                        "source": "commander_builtin_intent",
+                        "agent_kind": "bounded_runtime_agent",
+                        "fixed_boundary": True,
+                        "fixed_workflow": True,
+                        "writes_state": False,
+                        "tool_catalog_scope": "runtime_training_combo",
+                    },
+                },
             }
             return self._wrap_builtin_payload(payload, user_goal=text, intent="runtime_status_and_training", operation="status_and_recent_training", tool_names=["invest_quick_status", "invest_training_lab_summary"])
 
@@ -989,6 +1044,29 @@ class BrainRuntime:
                 "intent": "config_overview",
                 "control_plane": control_plane,
                 "evolution_config": evolution_config,
+                "entrypoint": {
+                    "kind": "commander_builtin_workflow",
+                    "resolver": "BrainRuntime._try_builtin_intent",
+                    "intent": "config_overview",
+                    "operation": "config_overview",
+                    "meeting_path": False,
+                    "agent_kind": "bounded_config_agent",
+                },
+                "orchestration": {
+                    "mode": "builtin_bounded_readonly_workflow",
+                    "available_tools": ["invest_control_plane_get", "invest_evolution_config_get"],
+                    "allowed_tools": ["invest_control_plane_get", "invest_evolution_config_get"],
+                    "workflow": ["config_scope_resolve", "control_plane_read", "evolution_config_read", "finalize"],
+                    "phase_stats": {"section_count": 2},
+                    "policy": {
+                        "source": "commander_builtin_intent",
+                        "agent_kind": "bounded_config_agent",
+                        "fixed_boundary": True,
+                        "fixed_workflow": True,
+                        "writes_state": False,
+                        "tool_catalog_scope": "config_overview_combo",
+                    },
+                },
             }
             return self._wrap_builtin_payload(payload, user_goal=text, intent="config_overview", operation="config_overview", tool_names=["invest_control_plane_get", "invest_evolution_config_get"])
 

@@ -274,11 +274,19 @@ def test_llm_tool_loop_wraps_invest_tools_with_task_bus(tmp_path: Path):
     payload = json.loads(result)
     assert payload["status"] == "ok"
     assert payload["reply"] == "工具调用完成"
+    assert payload["task_bus"]["schema_version"] == "task_bus.v2"
     assert payload["task_bus"]["planner"]["mode"] == "llm_tool_loop"
+    assert payload["task_bus"]["planner"]["plan_summary"]["recommended_tool_count"] == 1
     assert payload["task_bus"]["audit"]["used_tools"] == ["invest_echo"]
+    assert payload["task_bus"]["audit"]["coverage"]["recommended_step_count"] == 1
+    assert payload["task_bus"]["audit"]["artifact_taxonomy"]["keys"] == ["mode", "tools", "workspace"]
+    assert payload["task_bus"]["gate"]["confirmation"]["state"] == "not_applicable"
     assert payload["entrypoint"]["mode"] == "llm_tool_loop"
     assert payload["entrypoint"]["intent"] == "runtime_tooling"
+    assert payload["task_bus"]["planner"]["recommended_plan"][0]["step_id"] == "step_01"
     assert payload["task_bus"]["planner"]["recommended_plan"][0]["tool"] == "invest_echo"
+    assert payload["task_bus"]["audit"]["coverage"]["schema_version"] == "task_coverage.v2"
+    assert payload["task_bus"]["audit"]["artifact_taxonomy"]["schema_version"] == "artifact_taxonomy.v2"
 
 
 def test_explicit_tool_keeps_non_invest_tools_raw(tmp_path: Path):

@@ -79,6 +79,40 @@ logger = logging.getLogger(__name__)
 
 _RUNTIME_FIELD_UNSET = object()
 
+STATUS_OK = "ok"
+STATUS_ERROR = "error"
+STATUS_BUSY = "busy"
+STATUS_IDLE = "idle"
+STATUS_TRAINING = "training"
+STATUS_COMPLETED = "completed"
+STATUS_NO_DATA = "no_data"
+STATUS_NOT_FOUND = "not_found"
+STATUS_CONFIRMATION_REQUIRED = "confirmation_required"
+
+RUNTIME_STATE_INITIALIZED = "initialized"
+RUNTIME_STATE_STARTING = "starting"
+RUNTIME_STATE_STOPPING = "stopping"
+RUNTIME_STATE_STOPPED = "stopped"
+RUNTIME_STATE_RELOADING_STRATEGIES = "reloading_strategies"
+
+EVENT_TASK_STARTED = "task_started"
+EVENT_TASK_FINISHED = "task_finished"
+EVENT_TRAINING_STARTED = "training_started"
+EVENT_TRAINING_FINISHED = "training_finished"
+EVENT_ASK_STARTED = "ask_started"
+EVENT_ASK_FINISHED = "ask_finished"
+
+_STATE_DIR_RELOCATIONS: dict[str, str] = {
+    "runtime_lock_file": "commander.lock",
+    "training_lock_file": "training.lock",
+    "config_audit_log_path": "config_changes.jsonl",
+    "config_snapshot_dir": "config_snapshots",
+    "training_plan_dir": "training_plans",
+    "training_run_dir": "training_runs",
+    "training_eval_dir": "training_evals",
+    "runtime_events_path": "commander_events.jsonl",
+}
+
 
 def _commander_llm_default(field_name: str, fallback: str = "") -> str:
     try:
@@ -98,9 +132,7 @@ def _commander_llm_default(field_name: str, fallback: str = "") -> str:
 def _jsonable(value: Any) -> Any:
     if isinstance(value, dict):
         return {k: _jsonable(v) for k, v in value.items()}
-    if isinstance(value, list):
-        return [_jsonable(v) for v in value]
-    if isinstance(value, tuple):
+    if isinstance(value, (list, tuple)):
         return [_jsonable(v) for v in value]
     if isinstance(value, Path):
         return str(value)
@@ -126,8 +158,7 @@ def _build_mock_provider() -> MockDataProvider:
 
 def _apply_runtime_path_overrides(cfg: "CommanderConfig", overrides: dict[str, Any]) -> "CommanderConfig":
     for key in RuntimePathConfigService.EDITABLE_KEYS:
-        value = overrides.get(key)
-        if value:
+        if value := overrides.get(key):
             setattr(cfg, key, Path(value).expanduser().resolve())
     cfg.__post_init__()
     return cfg
@@ -192,28 +223,16 @@ class CommanderConfig:
 
     def __post_init__(self):
         default_state_dir = RUNTIME_DIR / "state"
-        if self.runtime_state_dir == default_state_dir and self.state_file.parent != OUTPUT_DIR / "commander":
+        state_parent_changed = self.state_file.parent != OUTPUT_DIR / "commander"
+        if self.runtime_state_dir == default_state_dir and state_parent_changed:
             self.runtime_state_dir = self.state_file.parent
-        if self.runtime_lock_file == default_state_dir / "commander.lock":
-            self.runtime_lock_file = self.runtime_state_dir / "commander.lock"
-        if self.training_lock_file == default_state_dir / "training.lock":
-            self.training_lock_file = self.runtime_state_dir / "training.lock"
-        if self.training_output_dir == OUTPUT_DIR / "training" and self.state_file.parent != OUTPUT_DIR / "commander":
+        if self.training_output_dir == OUTPUT_DIR / "training" and state_parent_changed:
             self.training_output_dir = self.state_file.parent / "training"
-        if self.meeting_log_dir == LOGS_DIR / "meetings" and self.state_file.parent != OUTPUT_DIR / "commander":
+        if self.meeting_log_dir == LOGS_DIR / "meetings" and state_parent_changed:
             self.meeting_log_dir = self.state_file.parent / "meetings"
-        if self.config_audit_log_path == default_state_dir / "config_changes.jsonl":
-            self.config_audit_log_path = self.runtime_state_dir / "config_changes.jsonl"
-        if self.config_snapshot_dir == default_state_dir / "config_snapshots":
-            self.config_snapshot_dir = self.runtime_state_dir / "config_snapshots"
-        if self.training_plan_dir == default_state_dir / "training_plans":
-            self.training_plan_dir = self.runtime_state_dir / "training_plans"
-        if self.training_run_dir == default_state_dir / "training_runs":
-            self.training_run_dir = self.runtime_state_dir / "training_runs"
-        if self.training_eval_dir == default_state_dir / "training_evals":
-            self.training_eval_dir = self.runtime_state_dir / "training_evals"
-        if self.runtime_events_path == default_state_dir / "commander_events.jsonl":
-            self.runtime_events_path = self.runtime_state_dir / "commander_events.jsonl"
+        for attr, filename in _STATE_DIR_RELOCATIONS.items():
+            if getattr(self, attr) == default_state_dir / filename:
+                setattr(self, attr, self.runtime_state_dir / filename)
 
     @classmethod
     def from_args(cls, args: argparse.Namespace) -> "CommanderConfig":
@@ -221,17 +240,17 @@ class CommanderConfig:
         runtime_paths = RuntimePathConfigService(project_root=PROJECT_ROOT).load_overrides()
         _apply_runtime_path_overrides(cfg, runtime_paths)
 
-        if getattr(args, "workspace", None):
-            cfg.workspace = Path(args.workspace).expanduser().resolve()
-        if getattr(args, "strategy_dir", None):
-            cfg.strategy_dir = Path(args.strategy_dir).expanduser().resolve()
+        if workspace := getattr(args, "workspace", None):
+            cfg.workspace = Path(workspace).expanduser().resolve()
+        if strategy_dir := getattr(args, "strategy_dir", None):
+            cfg.strategy_dir = Path(strategy_dir).expanduser().resolve()
 
-        if getattr(args, "model", None):
-            cfg.model = args.model
-        if getattr(args, "api_key", None):
-            cfg.api_key = args.api_key
-        if getattr(args, "api_base", None):
-            cfg.api_base = args.api_base
+        if model := getattr(args, "model", None):
+            cfg.model = model
+        if api_key := getattr(args, "api_key", None):
+            cfg.api_key = api_key
+        if api_base := getattr(args, "api_base", None):
+            cfg.api_base = api_base
 
         if getattr(args, "mock", False):
             cfg.mock_mode = True
@@ -240,10 +259,10 @@ class CommanderConfig:
         if getattr(args, "no_heartbeat", False):
             cfg.heartbeat_enabled = False
 
-        if getattr(args, "train_interval_sec", None):
-            cfg.training_interval_sec = max(60, int(args.train_interval_sec))
-        if getattr(args, "heartbeat_interval_sec", None):
-            cfg.heartbeat_interval_sec = max(60, int(args.heartbeat_interval_sec))
+        if train_interval_sec := getattr(args, "train_interval_sec", None):
+            cfg.training_interval_sec = max(60, int(train_interval_sec))
+        if heartbeat_interval_sec := getattr(args, "heartbeat_interval_sec", None):
+            cfg.heartbeat_interval_sec = max(60, int(heartbeat_interval_sec))
 
         return cfg
 
@@ -405,15 +424,13 @@ class StrategyGeneRegistry:
             lines.append(f"- [{status}] {g.gene_id} ({g.kind}, P{g.priority}): {g.description}")
         return "\n".join(lines)
 
-    def _load_gene(self, path: Path) -> Optional[StrategyGene]:
-        suffix = path.suffix.lower()
-        if suffix == ".md":
-            return self._load_md_gene(path)
-        if suffix == ".json":
-            return self._load_json_gene(path)
-        if suffix == ".py":
-            return self._load_py_gene(path)
-        return None
+    def _load_gene(self, path: Path) -> StrategyGene | None:
+        loader = {
+            ".md": self._load_md_gene,
+            ".json": self._load_json_gene,
+            ".py": self._load_py_gene,
+        }.get(path.suffix.lower())
+        return loader(path) if loader else None
 
     def _load_md_gene(self, path: Path) -> StrategyGene:
         text = path.read_text(encoding="utf-8")
@@ -623,7 +640,7 @@ class InvestmentBodyService:
         self.last_result: Optional[dict[str, Any]] = None
         self.last_error: str = ""
         self.last_run_at: str = ""
-        self.training_state: str = "idle"
+        self.training_state: str = STATUS_IDLE
         self.current_task: Optional[dict[str, Any]] = None
         self.last_completed_task: Optional[dict[str, Any]] = None
 
@@ -645,9 +662,9 @@ class InvestmentBodyService:
     def _derive_run_status(results: list[dict[str, Any]]) -> str:
         if not results:
             return "empty"
-        ok_count = sum(1 for item in results if item.get("status") == "ok")
-        no_data_count = sum(1 for item in results if item.get("status") == "no_data")
-        error_count = sum(1 for item in results if item.get("status") == "error")
+        ok_count = sum(1 for item in results if item.get("status") == STATUS_OK)
+        no_data_count = sum(1 for item in results if item.get("status") == STATUS_NO_DATA)
+        error_count = sum(1 for item in results if item.get("status") == STATUS_ERROR)
         if error_count and ok_count == 0 and no_data_count == 0:
             return "failed"
         if error_count:
@@ -656,7 +673,7 @@ class InvestmentBodyService:
             return "insufficient_data"
         if no_data_count > 0:
             return "completed_with_skips"
-        return "completed"
+        return STATUS_COMPLETED
 
     def _get_mock_data_manager(self) -> DataManager:
         if self._mock_provider is None:
@@ -682,7 +699,7 @@ class InvestmentBodyService:
         results = list(payload.get("results") or [])
         if not results:
             return None
-        errors = [item for item in results if item.get("status") == "error" and item.get("error_code") == DataSourceUnavailableError.error_code]
+        errors = [item for item in results if item.get("status") == STATUS_ERROR and item.get("error_code") == DataSourceUnavailableError.error_code]
         if len(errors) != len(results):
             return None
         first = dict(errors[0])
@@ -703,16 +720,101 @@ class InvestmentBodyService:
             "allow_mock_fallback": first.get("allow_mock_fallback", False),
         }
 
+    def _last_cycle_meta(self) -> tuple[dict[str, Any], int]:
+        meta = dict(getattr(self.controller, "last_cycle_meta", {}) or {})
+        cycle_id = meta.get("cycle_id", self.controller.current_cycle_id + 1)
+        return meta, cycle_id
+
+    def _build_nodata_cycle_item(
+        self,
+        *,
+        cycle_meta: dict[str, Any],
+        cycle_id: int,
+        requested_data_mode: str,
+    ) -> dict[str, Any]:
+        return {
+            "status": STATUS_NO_DATA,
+            "cycle_id": cycle_id,
+            "cutoff_date": cycle_meta.get("cutoff_date"),
+            "stage": cycle_meta.get("stage"),
+            "reason": cycle_meta.get("reason"),
+            "requested_data_mode": cycle_meta.get("requested_data_mode", requested_data_mode),
+            "effective_data_mode": cycle_meta.get("effective_data_mode"),
+            "data_mode": cycle_meta.get("effective_data_mode") or cycle_meta.get("data_mode"),
+            "llm_mode": cycle_meta.get("llm_mode", getattr(self.controller, "llm_mode", "live")),
+            "degraded": bool(cycle_meta.get("degraded", False)),
+            "degrade_reason": cycle_meta.get("degrade_reason", ""),
+            "timestamp": cycle_meta.get("timestamp", self.last_run_at),
+            "artifacts": self._artifact_paths_for_cycle(cycle_id),
+        }
+
+    def _build_data_source_error_cycle_item(
+        self,
+        *,
+        error_payload: dict[str, Any],
+        cycle_meta: dict[str, Any],
+        cycle_id: int,
+        requested_data_mode: str,
+    ) -> dict[str, Any]:
+        return {
+            "status": STATUS_ERROR,
+            "cycle_id": cycle_id,
+            "cutoff_date": cycle_meta.get("cutoff_date") or error_payload.get("cutoff_date"),
+            "stage": cycle_meta.get("stage", "data_loading"),
+            "error": error_payload["error"],
+            "error_code": error_payload["error_code"],
+            "error_payload": error_payload,
+            "requested_data_mode": error_payload.get("requested_data_mode", requested_data_mode),
+            "effective_data_mode": "unavailable",
+            "data_mode": "unavailable",
+            "llm_mode": cycle_meta.get("llm_mode", getattr(self.controller, "llm_mode", "live")),
+            "degraded": True,
+            "degrade_reason": error_payload["error"],
+            "stock_count": error_payload.get("stock_count"),
+            "min_history_days": error_payload.get("min_history_days"),
+            "available_sources": error_payload.get("available_sources"),
+            "offline_diagnostics": error_payload.get("offline_diagnostics"),
+            "online_error": error_payload.get("online_error"),
+            "suggestions": error_payload.get("suggestions"),
+            "allow_mock_fallback": error_payload.get("allow_mock_fallback"),
+            "timestamp": self.last_run_at,
+            "artifacts": self._artifact_paths_for_cycle(cycle_id),
+        }
+
+    def _build_generic_error_cycle_item(
+        self,
+        *,
+        exc: Exception,
+        cycle_meta: dict[str, Any],
+        cycle_id: int,
+        requested_data_mode: str,
+    ) -> dict[str, Any]:
+        return {
+            "status": STATUS_ERROR,
+            "cycle_id": cycle_id,
+            "cutoff_date": cycle_meta.get("cutoff_date"),
+            "stage": cycle_meta.get("stage"),
+            "error": str(exc),
+            "requested_data_mode": cycle_meta.get("requested_data_mode", requested_data_mode),
+            "effective_data_mode": cycle_meta.get("effective_data_mode"),
+            "data_mode": cycle_meta.get("effective_data_mode") or cycle_meta.get("data_mode"),
+            "llm_mode": cycle_meta.get("llm_mode", getattr(self.controller, "llm_mode", "live")),
+            "degraded": bool(cycle_meta.get("degraded", False)),
+            "degrade_reason": cycle_meta.get("degrade_reason", ""),
+            "timestamp": self.last_run_at,
+            "artifacts": self._artifact_paths_for_cycle(cycle_id),
+        }
+
     async def run_cycles(
         self,
         rounds: int = 1,
         force_mock: bool = False,
         task_source: str = "direct",
-        experiment_spec: Optional[dict[str, Any]] = None,
+        experiment_spec: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         if self._lock.locked():
             return {
-                "status": "busy",
+                "status": STATUS_BUSY,
                 "error": "training already in progress",
                 "summary": self.snapshot(),
             }
@@ -721,7 +823,7 @@ class InvestmentBodyService:
         rounds = max(1, int(rounds))
         results: list[dict[str, Any]] = []
         task_started_at = datetime.now().isoformat()
-        self.training_state = "training"
+        self.training_state = STATUS_TRAINING
         self.current_task = {
             "type": "training",
             "source": task_source,
@@ -733,7 +835,7 @@ class InvestmentBodyService:
             "experiment_spec": _jsonable(dict(experiment_spec or {})),
         }
         self._write_training_lock(self.current_task)
-        self._emit_runtime_event("training_started", self.current_task)
+        self._emit_runtime_event(EVENT_TRAINING_STARTED, self.current_task)
 
         try:
             self.controller.configure_experiment(experiment_spec or {})
@@ -745,83 +847,42 @@ class InvestmentBodyService:
                         cycle_result = await asyncio.to_thread(self.controller.run_training_cycle)
                         if cycle_result is None:
                             self.no_data_cycles += 1
-                            meta = dict(getattr(self.controller, "last_cycle_meta", {}) or {})
-                            cycle_id = meta.get("cycle_id", self.controller.current_cycle_id + 1)
-                            item = {
-                                "status": "no_data",
-                                "cycle_id": cycle_id,
-                                "cutoff_date": meta.get("cutoff_date"),
-                                "stage": meta.get("stage"),
-                                "reason": meta.get("reason"),
-                                "requested_data_mode": meta.get("requested_data_mode", requested_data_mode),
-                                "effective_data_mode": meta.get("effective_data_mode"),
-                                "data_mode": meta.get("effective_data_mode") or meta.get("data_mode"),
-                                "llm_mode": meta.get("llm_mode", getattr(self.controller, "llm_mode", "live")),
-                                "degraded": bool(meta.get("degraded", False)),
-                                "degrade_reason": meta.get("degrade_reason", ""),
-                                "timestamp": meta.get("timestamp", self.last_run_at),
-                                "artifacts": self._artifact_paths_for_cycle(cycle_id),
-                            }
+                            cycle_meta, cycle_id = self._last_cycle_meta()
+                            item = self._build_nodata_cycle_item(
+                                cycle_meta=cycle_meta,
+                                cycle_id=cycle_id,
+                                requested_data_mode=requested_data_mode,
+                            )
                         else:
                             self.success_cycles += 1
                             item = self._to_result_dict(cycle_result)
-                        self.last_result = item
-                        results.append(item)
                     except Exception as exc:
                         self.failed_cycles += 1
-                        cycle_meta = dict(getattr(self.controller, "last_cycle_meta", {}) or {})
-                        cycle_id = cycle_meta.get("cycle_id", self.controller.current_cycle_id + 1)
+                        cycle_meta, cycle_id = self._last_cycle_meta()
                         if isinstance(exc, DataSourceUnavailableError):
                             error_payload = exc.to_dict()
                             self.last_error = error_payload["error"]
-                            item = {
-                                "status": "error",
-                                "cycle_id": cycle_id,
-                                "cutoff_date": cycle_meta.get("cutoff_date") or error_payload.get("cutoff_date"),
-                                "stage": cycle_meta.get("stage", "data_loading"),
-                                "error": error_payload["error"],
-                                "error_code": error_payload["error_code"],
-                                "error_payload": error_payload,
-                                "requested_data_mode": error_payload.get("requested_data_mode", requested_data_mode),
-                                "effective_data_mode": "unavailable",
-                                "data_mode": "unavailable",
-                                "llm_mode": cycle_meta.get("llm_mode", getattr(self.controller, "llm_mode", "live")),
-                                "degraded": True,
-                                "degrade_reason": error_payload["error"],
-                                "stock_count": error_payload.get("stock_count"),
-                                "min_history_days": error_payload.get("min_history_days"),
-                                "available_sources": error_payload.get("available_sources"),
-                                "offline_diagnostics": error_payload.get("offline_diagnostics"),
-                                "online_error": error_payload.get("online_error"),
-                                "suggestions": error_payload.get("suggestions"),
-                                "allow_mock_fallback": error_payload.get("allow_mock_fallback"),
-                                "timestamp": self.last_run_at,
-                                "artifacts": self._artifact_paths_for_cycle(cycle_id),
-                            }
+                            item = self._build_data_source_error_cycle_item(
+                                error_payload=error_payload,
+                                cycle_meta=cycle_meta,
+                                cycle_id=cycle_id,
+                                requested_data_mode=requested_data_mode,
+                            )
                             logger.warning("Commander body cycle failed due to unavailable data source")
                         else:
                             self.last_error = str(exc)
-                            item = {
-                                "status": "error",
-                                "cycle_id": cycle_id,
-                                "cutoff_date": cycle_meta.get("cutoff_date"),
-                                "stage": cycle_meta.get("stage"),
-                                "error": str(exc),
-                                "requested_data_mode": cycle_meta.get("requested_data_mode", requested_data_mode),
-                                "effective_data_mode": cycle_meta.get("effective_data_mode"),
-                                "data_mode": cycle_meta.get("effective_data_mode") or cycle_meta.get("data_mode"),
-                                "llm_mode": cycle_meta.get("llm_mode", getattr(self.controller, "llm_mode", "live")),
-                                "degraded": bool(cycle_meta.get("degraded", False)),
-                                "degrade_reason": cycle_meta.get("degrade_reason", ""),
-                                "timestamp": self.last_run_at,
-                                "artifacts": self._artifact_paths_for_cycle(cycle_id),
-                            }
+                            item = self._build_generic_error_cycle_item(
+                                exc=exc,
+                                cycle_meta=cycle_meta,
+                                cycle_id=cycle_id,
+                                requested_data_mode=requested_data_mode,
+                            )
                             logger.exception("Commander body cycle failed")
-                        self.last_result = item
-                        results.append(item)
+                    self.last_result = item
+                    results.append(item)
         finally:
             run_status = self._derive_run_status(results)
-            self.training_state = "idle"
+            self.training_state = STATUS_IDLE
             self.last_completed_task = {
                 **(self.current_task or {}),
                 "finished_at": datetime.now().isoformat(),
@@ -831,7 +892,7 @@ class InvestmentBodyService:
             }
             self.current_task = None
             self._clear_training_lock()
-            self._emit_runtime_event("training_finished", self.last_completed_task or {})
+            self._emit_runtime_event(EVENT_TRAINING_FINISHED, self.last_completed_task or {})
 
         return _jsonable({
             "status": run_status,
@@ -902,7 +963,7 @@ class InvestmentBodyService:
 
     def _to_result_dict(self, result: TrainingResult) -> dict[str, Any]:
         return _jsonable({
-            "status": "ok",
+            "status": STATUS_OK,
             "cycle_id": result.cycle_id,
             "cutoff_date": result.cutoff_date,
             "selected_count": len(result.selected_stocks),
@@ -949,7 +1010,7 @@ class CommanderRuntime:
         self.cfg = cfg
         self.config_service = EvolutionConfigService(project_root=PROJECT_ROOT, live_config=config)
         self.instance_id = f"{socket.gethostname()}:{os.getpid()}"
-        self.runtime_state = "initialized"
+        self.runtime_state = RUNTIME_STATE_INITIALIZED
         self.current_task: Optional[dict[str, Any]] = None
         self.last_task: Optional[dict[str, Any]] = None
         self._task_lock = threading.RLock()
@@ -1006,10 +1067,10 @@ class CommanderRuntime:
 
     def _on_body_event(self, event: str, payload: dict[str, Any]) -> None:
         self._append_runtime_event(event, payload, source="body")
-        if event == "training_started":
-            self._update_runtime_fields(state="training", current_task=payload)
-        elif event == "training_finished":
-            self._update_runtime_fields(state="idle", current_task=None, last_task=payload)
+        if event == EVENT_TRAINING_STARTED:
+            self._update_runtime_fields(state=STATUS_TRAINING, current_task=payload)
+        elif event == EVENT_TRAINING_FINISHED:
+            self._update_runtime_fields(state=STATUS_IDLE, current_task=None, last_task=payload)
         self._persist_state()
 
     def _append_runtime_event(self, event: str, payload: dict[str, Any], *, source: str = "runtime") -> dict[str, Any]:
@@ -1055,9 +1116,9 @@ class CommanderRuntime:
             **metadata,
         }
         self._update_runtime_fields(current_task=task)
-        self._append_runtime_event("task_started", task, source="runtime")
+        self._append_runtime_event(EVENT_TASK_STARTED, task, source="runtime")
 
-    def _end_task(self, status: str = "ok", **metadata: Any) -> None:
+    def _end_task(self, status: str = STATUS_OK, **metadata: Any) -> None:
         with self._task_lock:
             if self.current_task is None:
                 return
@@ -1067,15 +1128,39 @@ class CommanderRuntime:
                 "status": status,
                 **metadata,
             }
-            self._append_runtime_event("task_finished", self.last_task, source="runtime")
+            self._append_runtime_event(EVENT_TASK_FINISHED, self.last_task, source="runtime")
             self.current_task = None
+
+    def _complete_runtime_task(self, *, status: str = STATUS_OK, state: str | None = None, **metadata: Any) -> None:
+        if state is not None:
+            self._set_runtime_state(state)
+        self._end_task(status, **metadata)
+        self._persist_state()
+
+    def _record_ask_activity(self, event: str, *, session_key: str, channel: str, chat_id: str) -> None:
+        payload = {"session_key": session_key, "channel": channel, "chat_id": chat_id}
+        self.memory.append_audit(event, session_key, {"channel": channel, "chat_id": chat_id})
+        self._append_runtime_event(event, payload, source="brain")
 
     def _read_runtime_lock_payload(self) -> dict[str, Any]:
         try:
-            data = json.loads(self.cfg.runtime_lock_file.read_text(encoding="utf-8"))
-        except Exception:
+            raw = self.cfg.runtime_lock_file.read_text(encoding="utf-8")
+        except FileNotFoundError:
             return {}
-        return data if isinstance(data, dict) else {}
+        except OSError as exc:
+            logger.warning("Failed to read runtime lock payload %s: %s", self.cfg.runtime_lock_file, exc)
+            return {}
+
+        try:
+            data = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            logger.warning("Invalid runtime lock payload %s: %s", self.cfg.runtime_lock_file, exc)
+            return {}
+
+        if not isinstance(data, dict):
+            logger.warning("Runtime lock payload must be a JSON object: %s", self.cfg.runtime_lock_file)
+            return {}
+        return data
 
     def _is_pid_alive(self, pid: int) -> bool:
         if pid <= 0:
@@ -1147,7 +1232,7 @@ class CommanderRuntime:
             return
         self._ensure_runtime_storage()
         self._begin_task("start", "system")
-        self._set_runtime_state("starting")
+        self._set_runtime_state(RUNTIME_STATE_STARTING)
         try:
             self._acquire_runtime_lock()
             self.strategy_registry.ensure_default_templates()
@@ -1166,12 +1251,10 @@ class CommanderRuntime:
                 self._autopilot_task = asyncio.create_task(self.body.autopilot_loop(self.cfg.training_interval_sec))
 
             self._started = True
-            self._set_runtime_state("idle")
-            self._end_task("ok")
-            self._persist_state()
+            self._complete_runtime_task(state=STATUS_IDLE, status=STATUS_OK)
         except Exception:
-            self._set_runtime_state("error")
-            self._end_task("error")
+            self._set_runtime_state(STATUS_ERROR)
+            self._end_task(STATUS_ERROR)
             self._release_runtime_lock()
             self._persist_state()
             raise
@@ -1180,7 +1263,7 @@ class CommanderRuntime:
         if not self._started:
             return
         self._begin_task("stop", "system")
-        self._set_runtime_state("stopping")
+        self._set_runtime_state(RUNTIME_STATE_STOPPING)
 
         self.body.stop()
         if self._autopilot_task:
@@ -1198,9 +1281,7 @@ class CommanderRuntime:
         await self.brain.close()
         self._started = False
         self._release_runtime_lock()
-        self._set_runtime_state("stopped")
-        self._end_task("ok")
-        self._persist_state()
+        self._complete_runtime_task(state=RUNTIME_STATE_STOPPED, status=STATUS_OK)
 
     async def ask(
         self,
@@ -1217,8 +1298,7 @@ class CommanderRuntime:
             content=message,
             metadata={"channel": channel, "chat_id": chat_id},
         )
-        self.memory.append_audit("ask_started", session_key, {"channel": channel, "chat_id": chat_id})
-        self._append_runtime_event("ask_started", {"session_key": session_key, "channel": channel, "chat_id": chat_id}, source="brain")
+        self._record_ask_activity(EVENT_ASK_STARTED, session_key=session_key, channel=channel, chat_id=chat_id)
         try:
             response = await self.brain.process_direct(message, session_key=session_key)
             self.memory.append(
@@ -1227,14 +1307,11 @@ class CommanderRuntime:
                 content=response or "",
                 metadata={"channel": channel, "chat_id": chat_id},
             )
-            self.memory.append_audit("ask_finished", session_key, {"channel": channel, "chat_id": chat_id})
-            self._append_runtime_event("ask_finished", {"session_key": session_key, "channel": channel, "chat_id": chat_id}, source="brain")
-            self._end_task("ok")
-            self._persist_state()
+            self._record_ask_activity(EVENT_ASK_FINISHED, session_key=session_key, channel=channel, chat_id=chat_id)
+            self._complete_runtime_task(status=STATUS_OK)
             return response
         except Exception:
-            self._end_task("error")
-            self._persist_state()
+            self._complete_runtime_task(status=STATUS_ERROR)
             raise
 
     def _lab_counts(self) -> dict[str, int]:
@@ -1349,13 +1426,49 @@ class CommanderRuntime:
         return self.training_lab.list_json_artifacts(self.cfg.training_eval_dir, limit=limit)
 
     def get_investment_models(self) -> dict[str, Any]:
-        return get_investment_models_payload(self)
+        payload = get_investment_models_payload(self)
+        return self._attach_bounded_workflow(
+            payload,
+            domain="analytics",
+            operation="get_investment_models",
+            runtime_method="CommanderRuntime.get_investment_models",
+            runtime_tool="invest_investment_models",
+            agent_kind="bounded_analytics_agent",
+            writes_state=False,
+            available_tools=self._analytics_domain_tools(),
+            workflow=["analytics_scope_resolve", "investment_models_read", "finalize"],
+            phase_stats={"count": int(payload.get("count", len(list(payload.get("items") or []))))},
+        )
 
     def get_leaderboard(self) -> dict[str, Any]:
-        return get_leaderboard_payload(self)
+        payload = get_leaderboard_payload(self)
+        return self._attach_bounded_workflow(
+            payload,
+            domain="analytics",
+            operation="get_leaderboard",
+            runtime_method="CommanderRuntime.get_leaderboard",
+            runtime_tool="invest_leaderboard",
+            agent_kind="bounded_analytics_agent",
+            writes_state=False,
+            available_tools=self._analytics_domain_tools(),
+            workflow=["analytics_scope_resolve", "leaderboard_read", "finalize"],
+            phase_stats={"count": int(payload.get("count", len(list(payload.get("items") or []))))},
+        )
 
     def get_allocator_preview(self, *, regime: str = "oscillation", top_n: int = 3, as_of_date: str | None = None) -> dict[str, Any]:
-        return get_allocator_payload(self, regime=regime, top_n=top_n, as_of_date=as_of_date)
+        payload = get_allocator_payload(self, regime=regime, top_n=top_n, as_of_date=as_of_date)
+        return self._attach_bounded_workflow(
+            payload,
+            domain="analytics",
+            operation="get_allocator_preview",
+            runtime_method="CommanderRuntime.get_allocator_preview",
+            runtime_tool="invest_allocator",
+            agent_kind="bounded_analytics_agent",
+            writes_state=False,
+            available_tools=self._analytics_domain_tools(),
+            workflow=["analytics_scope_resolve", "allocator_preview_read", "finalize"],
+            phase_stats={"regime": regime, "top_n": int(top_n)},
+        )
 
     def get_model_routing_preview(
         self,
@@ -1365,32 +1478,90 @@ class CommanderRuntime:
         min_history_days: int | None = None,
         allowed_models: list[str] | None = None,
     ) -> dict[str, Any]:
-        return get_model_routing_preview_payload(
+        payload = get_model_routing_preview_payload(
             self,
             cutoff_date=cutoff_date,
             stock_count=stock_count,
             min_history_days=min_history_days,
             allowed_models=allowed_models,
         )
+        return self._attach_bounded_workflow(
+            payload,
+            domain="analytics",
+            operation="get_model_routing_preview",
+            runtime_method="CommanderRuntime.get_model_routing_preview",
+            runtime_tool="invest_model_routing_preview",
+            agent_kind="bounded_analytics_agent",
+            writes_state=False,
+            available_tools=self._analytics_domain_tools(),
+            workflow=["analytics_scope_resolve", "routing_preview_read", "finalize"],
+            phase_stats={
+                "cutoff_date": cutoff_date or "",
+                "stock_count": stock_count,
+                "min_history_days": min_history_days,
+                "allowed_model_count": len(list(allowed_models or [])),
+            },
+        )
 
     def list_agent_prompts(self) -> dict[str, Any]:
-        return list_agent_prompts_payload()
+        payload = list_agent_prompts_payload()
+        items = list(payload.get("items") or []) if isinstance(payload, dict) else []
+        return self._attach_bounded_workflow(
+            payload,
+            domain="config",
+            operation="list_agent_prompts",
+            runtime_method="CommanderRuntime.list_agent_prompts",
+            runtime_tool="invest_agent_prompts_list",
+            agent_kind="bounded_config_agent",
+            writes_state=False,
+            available_tools=self._config_domain_tools(),
+            workflow=["config_scope_resolve", "agent_prompts_read", "finalize"],
+            phase_stats={"count": len(items)},
+        )
 
     def update_agent_prompt(self, *, agent_name: str, system_prompt: str) -> dict[str, Any]:
         payload = update_agent_prompt_payload(agent_name=agent_name, system_prompt=system_prompt)
         self._append_runtime_event("agent_prompt_updated", {"agent_name": agent_name}, source="config")
-        return payload
+        return self._attach_mutating_workflow(
+            payload,
+            domain="config",
+            operation="update_agent_prompt",
+            runtime_method="CommanderRuntime.update_agent_prompt",
+            runtime_tool="invest_agent_prompts_update",
+            agent_kind="bounded_config_agent",
+            available_tools=self._config_domain_tools(),
+            workflow=["config_scope_resolve", "agent_prompt_write", "finalize"],
+            phase_stats={"agent_name": agent_name, "prompt_length": len(system_prompt)},
+        )
 
     def get_runtime_paths(self) -> dict[str, Any]:
-        return get_runtime_paths_payload(self, project_root=PROJECT_ROOT)
+        payload = get_runtime_paths_payload(self, project_root=PROJECT_ROOT)
+        return self._attach_bounded_workflow(
+            payload,
+            domain="config",
+            operation="get_runtime_paths",
+            runtime_method="CommanderRuntime.get_runtime_paths",
+            runtime_tool="invest_runtime_paths_get",
+            agent_kind="bounded_config_agent",
+            writes_state=False,
+            available_tools=self._config_domain_tools(),
+            workflow=["config_scope_resolve", "runtime_paths_read", "finalize"],
+            phase_stats={"path_count": len(dict(payload.get("paths") or {})) if isinstance(payload, dict) else 0},
+        )
 
     def update_runtime_paths(self, patch: dict[str, Any], *, confirm: bool = False) -> dict[str, Any]:
         if not confirm:
-            return {
-                "status": "confirmation_required",
-                "message": "runtime paths 更新会立即改变运行期产物目录，请用 confirm=true 再执行。",
-                "pending_patch": patch,
-            }
+            return self._build_confirmation_required_workflow(
+                domain="config",
+                operation="update_runtime_paths",
+                runtime_method="CommanderRuntime.update_runtime_paths",
+                runtime_tool="invest_runtime_paths_update",
+                agent_kind="bounded_config_agent",
+                available_tools=self._config_domain_tools(),
+                message="runtime paths 更新会立即改变运行期产物目录，请用 confirm=true 再执行。",
+                pending={"patch": patch},
+                phase_stats={"pending_key_count": len(dict(patch or {})), "requires_confirmation": True},
+            )
         payload = update_runtime_paths_payload(
             patch=patch,
             runtime=self,
@@ -1398,102 +1569,546 @@ class CommanderRuntime:
             sync_runtime=_sync_runtime_path_config,
         )
         self._append_runtime_event("runtime_paths_updated", {"updated": payload.get("updated", [])}, source="config")
-        return payload
+        return self._attach_mutating_workflow(
+            payload,
+            domain="config",
+            operation="update_runtime_paths",
+            runtime_method="CommanderRuntime.update_runtime_paths",
+            runtime_tool="invest_runtime_paths_update",
+            agent_kind="bounded_config_agent",
+            available_tools=self._config_domain_tools(),
+            workflow=["config_scope_resolve", "runtime_paths_write", "finalize"],
+            phase_stats={"updated_count": len(list(payload.get("updated") or [])), "confirmed": True},
+        )
+
+    @staticmethod
+    def _config_domain_tools() -> list[str]:
+        return [
+            "invest_control_plane_get",
+            "invest_control_plane_update",
+            "invest_evolution_config_get",
+            "invest_evolution_config_update",
+            "invest_runtime_paths_get",
+            "invest_runtime_paths_update",
+            "invest_agent_prompts_list",
+            "invest_agent_prompts_update",
+        ]
+
+    @staticmethod
+    def _data_domain_tools() -> list[str]:
+        return [
+            "invest_data_status",
+            "invest_data_download",
+            "invest_data_capital_flow",
+            "invest_data_dragon_tiger",
+            "invest_data_intraday_60m",
+        ]
+
+    @staticmethod
+    def _training_domain_tools() -> list[str]:
+        return [
+            "invest_train",
+            "invest_quick_test",
+            "invest_training_plan_create",
+            "invest_training_plan_list",
+            "invest_training_plan_execute",
+            "invest_training_runs_list",
+            "invest_training_evaluations_list",
+            "invest_training_lab_summary",
+        ]
+
+    @staticmethod
+    def _runtime_domain_tools() -> list[str]:
+        return [
+            "invest_quick_status",
+            "invest_deep_status",
+            "invest_events_tail",
+            "invest_events_summary",
+            "invest_runtime_diagnostics",
+        ]
+
+    @staticmethod
+    def _memory_domain_tools() -> list[str]:
+        return [
+            "invest_memory_search",
+            "invest_memory_list",
+            "invest_memory_get",
+        ]
+
+    @staticmethod
+    def _scheduler_domain_tools() -> list[str]:
+        return [
+            "invest_cron_add",
+            "invest_cron_list",
+            "invest_cron_remove",
+        ]
+
+    @staticmethod
+    def _analytics_domain_tools() -> list[str]:
+        return [
+            "invest_investment_models",
+            "invest_leaderboard",
+            "invest_allocator",
+            "invest_model_routing_preview",
+        ]
+
+    @staticmethod
+    def _strategy_domain_tools() -> list[str]:
+        return [
+            "invest_list_strategies",
+            "invest_reload_strategies",
+            "invest_stock_strategies",
+        ]
+
+    @staticmethod
+    def _plugin_domain_tools() -> list[str]:
+        return [
+            "invest_plugins_reload",
+        ]
+
+
+    def _attach_bounded_workflow(
+        self,
+        payload: Any,
+        *,
+        domain: str,
+        operation: str,
+        runtime_method: str,
+        runtime_tool: str,
+        agent_kind: str,
+        writes_state: bool,
+        available_tools: list[str],
+        workflow: list[str],
+        phase_stats: dict[str, Any] | None = None,
+        extra_policy: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        body = dict(payload) if isinstance(payload, dict) else {"status": STATUS_OK, "content": payload}
+        body.setdefault(
+            "entrypoint",
+            {
+                "kind": "commander_bounded_workflow",
+                "domain": domain,
+                "runtime_method": runtime_method,
+                "runtime_tool": runtime_tool,
+                "meeting_path": False,
+                "agent_kind": agent_kind,
+                "agent_system": "commander_bounded_workflows",
+            },
+        )
+        orchestration = dict(body.get("orchestration") or {})
+        orchestration["mode"] = str(orchestration.get("mode") or ("bounded_mutating_workflow" if writes_state else "bounded_readonly_workflow"))
+        orchestration["available_tools"] = list(available_tools)
+        orchestration["allowed_tools"] = list(orchestration.get("allowed_tools") or available_tools)
+        orchestration["workflow"] = list(workflow)
+        orchestration["phase_stats"] = _jsonable(dict(phase_stats or {}))
+        policy = dict(orchestration.get("policy") or {})
+        policy.update(
+            {
+                "source": "commander_runtime",
+                "domain": domain,
+                "agent_kind": agent_kind,
+                "runtime_tool": runtime_tool,
+                "fixed_boundary": True,
+                "fixed_workflow": True,
+                "writes_state": writes_state,
+                "tool_catalog_scope": f"{domain}_domain",
+            }
+        )
+        if extra_policy:
+            policy.update(_jsonable(dict(extra_policy)))
+        orchestration["policy"] = policy
+        body["orchestration"] = orchestration
+        return _jsonable(body)
+
+    def _attach_mutating_workflow(
+        self,
+        payload: Any,
+        *,
+        domain: str,
+        operation: str,
+        runtime_method: str,
+        runtime_tool: str,
+        agent_kind: str,
+        available_tools: list[str],
+        workflow: list[str],
+        phase_stats: dict[str, Any] | None = None,
+        extra_policy: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        return self._attach_bounded_workflow(
+            payload,
+            domain=domain,
+            operation=operation,
+            runtime_method=runtime_method,
+            runtime_tool=runtime_tool,
+            agent_kind=agent_kind,
+            writes_state=True,
+            available_tools=available_tools,
+            workflow=workflow,
+            phase_stats=phase_stats,
+            extra_policy=extra_policy,
+        )
+
+    def _build_confirmation_required_workflow(
+        self,
+        *,
+        domain: str,
+        operation: str,
+        runtime_method: str,
+        runtime_tool: str,
+        agent_kind: str,
+        available_tools: list[str],
+        message: str,
+        pending: dict[str, Any] | None = None,
+        extra_payload: dict[str, Any] | None = None,
+        phase_stats: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        payload = {"status": STATUS_CONFIRMATION_REQUIRED, "message": message}
+        if pending:
+            payload["pending"] = _jsonable(dict(pending))
+        if extra_payload:
+            payload.update(_jsonable(dict(extra_payload)))
+        return self._attach_mutating_workflow(
+            payload,
+            domain=domain,
+            operation=operation,
+            runtime_method=runtime_method,
+            runtime_tool=runtime_tool,
+            agent_kind=agent_kind,
+            available_tools=available_tools,
+            workflow=[f"{domain}_scope_resolve", "gate_confirmation", "finalize"],
+            phase_stats=phase_stats,
+            extra_policy={"confirmation_gate": True},
+        )
+
+    def build_training_confirmation_required(self, *, rounds: int, mock: bool) -> dict[str, Any]:
+        return self._build_confirmation_required_workflow(
+            domain="training",
+            operation="train_once",
+            runtime_method="CommanderRuntime.train_once",
+            runtime_tool="invest_train",
+            agent_kind="bounded_training_agent",
+            available_tools=self._training_domain_tools(),
+            message="多轮真实训练属于高风险操作，请使用 confirm=true 再执行。",
+            pending={"rounds": int(rounds), "mock": bool(mock)},
+            phase_stats={"rounds": int(rounds), "mock": bool(mock), "requires_confirmation": True},
+        )
 
     def get_evolution_config(self) -> dict[str, Any]:
-        return get_evolution_config_payload(project_root=PROJECT_ROOT, live_config=config)
+        payload = get_evolution_config_payload(project_root=PROJECT_ROOT, live_config=config)
+        config_payload = dict(payload.get("config") or {}) if isinstance(payload, dict) else {}
+        return self._attach_bounded_workflow(
+            payload,
+            domain="config",
+            operation="get_evolution_config",
+            runtime_method="CommanderRuntime.get_evolution_config",
+            runtime_tool="invest_evolution_config_get",
+            agent_kind="bounded_config_agent",
+            writes_state=False,
+            available_tools=self._config_domain_tools(),
+            workflow=["config_scope_resolve", "evolution_config_read", "finalize"],
+            phase_stats={"config_key_count": len(config_payload)},
+        )
 
     def update_evolution_config(self, patch: dict[str, Any], *, confirm: bool = False) -> dict[str, Any]:
         if not confirm and any(key in patch for key in ("investment_model", "investment_model_config", "data_source", "model_routing_enabled", "model_routing_mode")):
-            return {
-                "status": "confirmation_required",
-                "message": "当前 patch 会影响训练主链路，请用 confirm=true 再执行。",
-                "pending_patch": patch,
-            }
+            return self._build_confirmation_required_workflow(
+                domain="config",
+                operation="update_evolution_config",
+                runtime_method="CommanderRuntime.update_evolution_config",
+                runtime_tool="invest_evolution_config_update",
+                agent_kind="bounded_config_agent",
+                available_tools=self._config_domain_tools(),
+                message="当前 patch 会影响训练主链路，请用 confirm=true 再执行。",
+                pending={"patch": patch},
+                phase_stats={"pending_key_count": len(dict(patch or {})), "requires_confirmation": True},
+            )
         payload = update_evolution_config_payload(patch=patch, project_root=PROJECT_ROOT, live_config=config, source="commander")
         controller = getattr(getattr(self, "body", None), "controller", None)
         if controller is not None and hasattr(controller, "refresh_runtime_from_config"):
             controller.refresh_runtime_from_config()
         self._append_runtime_event("evolution_config_updated", {"updated": payload.get("updated", [])}, source="config")
-        return payload
+        return self._attach_mutating_workflow(
+            payload,
+            domain="config",
+            operation="update_evolution_config",
+            runtime_method="CommanderRuntime.update_evolution_config",
+            runtime_tool="invest_evolution_config_update",
+            agent_kind="bounded_config_agent",
+            available_tools=self._config_domain_tools(),
+            workflow=["config_scope_resolve", "evolution_config_write", "finalize"],
+            phase_stats={"updated_count": len(list(payload.get("updated") or [])), "confirmed": bool(confirm)},
+        )
 
     def get_control_plane(self) -> dict[str, Any]:
-        return get_control_plane_payload(project_root=PROJECT_ROOT)
+        payload = get_control_plane_payload(project_root=PROJECT_ROOT)
+        config_payload = dict(payload.get("config") or {}) if isinstance(payload, dict) else {}
+        return self._attach_bounded_workflow(
+            payload,
+            domain="config",
+            operation="get_control_plane",
+            runtime_method="CommanderRuntime.get_control_plane",
+            runtime_tool="invest_control_plane_get",
+            agent_kind="bounded_config_agent",
+            writes_state=False,
+            available_tools=self._config_domain_tools(),
+            workflow=["config_scope_resolve", "control_plane_read", "finalize"],
+            phase_stats={"config_section_count": len(config_payload)},
+        )
 
     def update_control_plane(self, patch: dict[str, Any], *, confirm: bool = False) -> dict[str, Any]:
         if not confirm:
-            return {
-                "status": "confirmation_required",
-                "message": "control plane 更新需要重启才能全局生效，请用 confirm=true 再执行。",
-                "pending_patch": patch,
-                "restart_required": True,
-            }
+            return self._build_confirmation_required_workflow(
+                domain="config",
+                operation="update_control_plane",
+                runtime_method="CommanderRuntime.update_control_plane",
+                runtime_tool="invest_control_plane_update",
+                agent_kind="bounded_config_agent",
+                available_tools=self._config_domain_tools(),
+                message="control plane 更新需要重启才能全局生效，请用 confirm=true 再执行。",
+                pending={"patch": patch},
+                extra_payload={"restart_required": True},
+                phase_stats={"pending_key_count": len(dict(patch or {})), "requires_confirmation": True, "restart_required": True},
+            )
         payload = update_control_plane_payload(patch=patch, project_root=PROJECT_ROOT, source="commander")
         self._append_runtime_event("control_plane_updated", {"updated": payload.get("updated", [])}, source="config")
-        return payload
+        return self._attach_mutating_workflow(
+            payload,
+            domain="config",
+            operation="update_control_plane",
+            runtime_method="CommanderRuntime.update_control_plane",
+            runtime_tool="invest_control_plane_update",
+            agent_kind="bounded_config_agent",
+            available_tools=self._config_domain_tools(),
+            workflow=["config_scope_resolve", "control_plane_write", "finalize"],
+            phase_stats={"updated_count": len(list(payload.get("updated") or [])), "confirmed": bool(confirm), "restart_required": True},
+        )
 
     def get_data_status(self, *, refresh: bool = False) -> dict[str, Any]:
-        return get_data_status_payload(refresh=refresh)
+        payload = get_data_status_payload(refresh=refresh)
+        quality = dict(payload.get("quality") or {}) if isinstance(payload, dict) else {}
+        return self._attach_bounded_workflow(
+            payload,
+            domain="data",
+            operation="get_data_status",
+            runtime_method="CommanderRuntime.get_data_status",
+            runtime_tool="invest_data_status",
+            agent_kind="bounded_data_agent",
+            writes_state=False,
+            available_tools=self._data_domain_tools(),
+            workflow=["data_scope_resolve", "data_status_refresh" if refresh else "data_status_read", "finalize"],
+            phase_stats={"requested_refresh": bool(refresh), "health_status": quality.get("health_status", "unknown")},
+        )
 
     def get_capital_flow(self, *, codes: list[str] | None = None, start_date: str | None = None, end_date: str | None = None, limit: int = 200) -> dict[str, Any]:
-        return get_capital_flow_payload(codes=codes, start_date=start_date, end_date=end_date, limit=limit)
+        payload = get_capital_flow_payload(codes=codes, start_date=start_date, end_date=end_date, limit=limit)
+        return self._attach_bounded_workflow(
+            payload,
+            domain="data",
+            operation="get_capital_flow",
+            runtime_method="CommanderRuntime.get_capital_flow",
+            runtime_tool="invest_data_capital_flow",
+            agent_kind="bounded_data_agent",
+            writes_state=False,
+            available_tools=self._data_domain_tools(),
+            workflow=["data_scope_resolve", "capital_flow_query", "finalize"],
+            phase_stats={"count": int(payload.get("count", 0)), "limit": int(limit)},
+        )
 
     def get_dragon_tiger(self, *, codes: list[str] | None = None, start_date: str | None = None, end_date: str | None = None, limit: int = 200) -> dict[str, Any]:
-        return get_dragon_tiger_payload(codes=codes, start_date=start_date, end_date=end_date, limit=limit)
+        payload = get_dragon_tiger_payload(codes=codes, start_date=start_date, end_date=end_date, limit=limit)
+        return self._attach_bounded_workflow(
+            payload,
+            domain="data",
+            operation="get_dragon_tiger",
+            runtime_method="CommanderRuntime.get_dragon_tiger",
+            runtime_tool="invest_data_dragon_tiger",
+            agent_kind="bounded_data_agent",
+            writes_state=False,
+            available_tools=self._data_domain_tools(),
+            workflow=["data_scope_resolve", "dragon_tiger_query", "finalize"],
+            phase_stats={"count": int(payload.get("count", 0)), "limit": int(limit)},
+        )
 
     def get_intraday_60m(self, *, codes: list[str] | None = None, start_date: str | None = None, end_date: str | None = None, limit: int = 500) -> dict[str, Any]:
-        return get_intraday_60m_payload(codes=codes, start_date=start_date, end_date=end_date, limit=limit)
+        payload = get_intraday_60m_payload(codes=codes, start_date=start_date, end_date=end_date, limit=limit)
+        return self._attach_bounded_workflow(
+            payload,
+            domain="data",
+            operation="get_intraday_60m",
+            runtime_method="CommanderRuntime.get_intraday_60m",
+            runtime_tool="invest_data_intraday_60m",
+            agent_kind="bounded_data_agent",
+            writes_state=False,
+            available_tools=self._data_domain_tools(),
+            workflow=["data_scope_resolve", "intraday_60m_query", "finalize"],
+            phase_stats={"count": int(payload.get("count", 0)), "limit": int(limit)},
+        )
 
     def get_data_download_status(self) -> dict[str, Any]:
-        return get_data_download_status_payload()
+        payload = get_data_download_status_payload()
+        return self._attach_bounded_workflow(
+            payload,
+            domain="data",
+            operation="get_data_download_status",
+            runtime_method="CommanderRuntime.get_data_download_status",
+            runtime_tool="invest_data_download",
+            agent_kind="bounded_data_agent",
+            writes_state=False,
+            available_tools=self._data_domain_tools(),
+            workflow=["data_scope_resolve", "download_job_read", "finalize"],
+            phase_stats={"job_status": str(payload.get("status", "unknown"))},
+        )
 
     def trigger_data_download(self, *, confirm: bool = False) -> dict[str, Any]:
         if not confirm:
-            return {
-                "status": "confirmation_required",
-                "message": "后台数据同步会访问外部数据源，请用 confirm=true 再执行。",
-                "job": get_data_download_status_payload(),
-            }
+            return self._build_confirmation_required_workflow(
+                domain="data",
+                operation="trigger_data_download",
+                runtime_method="CommanderRuntime.trigger_data_download",
+                runtime_tool="invest_data_download",
+                agent_kind="bounded_data_agent",
+                available_tools=self._data_domain_tools(),
+                message="后台数据同步会访问外部数据源，请用 confirm=true 再执行。",
+                extra_payload={"job": get_data_download_status_payload()},
+                phase_stats={"requires_confirmation": True},
+            )
         payload = trigger_data_download()
         self._append_runtime_event("data_download_triggered", payload, source="data")
-        return payload
+        return self._attach_mutating_workflow(
+            payload,
+            domain="data",
+            operation="trigger_data_download",
+            runtime_method="CommanderRuntime.trigger_data_download",
+            runtime_tool="invest_data_download",
+            agent_kind="bounded_data_agent",
+            available_tools=self._data_domain_tools(),
+            workflow=["data_scope_resolve", "download_job_trigger", "finalize"],
+            phase_stats={"job_status": str(payload.get("status", "unknown")), "confirmed": True},
+        )
 
     def list_memory(self, *, query: str = "", limit: int = 20) -> dict[str, Any]:
         rows = self.memory.search(query=query, limit=limit)
         items = [memory_brief_row(row) for row in rows]
-        return {"count": len(items), "items": items}
+        return self._attach_bounded_workflow(
+            {"count": len(items), "items": items},
+            domain="memory",
+            operation="list_memory",
+            runtime_method="CommanderRuntime.list_memory",
+            runtime_tool="invest_memory_list",
+            agent_kind="bounded_memory_agent",
+            writes_state=False,
+            available_tools=self._memory_domain_tools(),
+            workflow=["memory_scope_resolve", "memory_query", "finalize"],
+            phase_stats={"query": query, "count": len(items), "limit": int(limit)},
+        )
 
     def get_memory_detail(self, record_id: str) -> dict[str, Any]:
         row = self.memory.get(record_id)
         if row is None:
             raise FileNotFoundError("memory record not found")
-        return build_memory_detail(self, row)
+        payload = build_memory_detail(self, row)
+        return self._attach_bounded_workflow(
+            payload,
+            domain="memory",
+            operation="get_memory_detail",
+            runtime_method="CommanderRuntime.get_memory_detail",
+            runtime_tool="invest_memory_get",
+            agent_kind="bounded_memory_agent",
+            writes_state=False,
+            available_tools=self._memory_domain_tools(),
+            workflow=["memory_scope_resolve", "memory_detail_read", "finalize"],
+            phase_stats={"record_id": str(record_id)},
+        )
 
     def get_events_tail(self, *, limit: int = 50) -> dict[str, Any]:
         rows = read_event_rows(self.cfg.runtime_events_path, limit=limit)
-        return {"count": len(rows), "items": rows}
+        return self._attach_bounded_workflow(
+            {"count": len(rows), "items": rows},
+            domain="runtime",
+            operation="get_events_tail",
+            runtime_method="CommanderRuntime.get_events_tail",
+            runtime_tool="invest_events_tail",
+            agent_kind="bounded_runtime_agent",
+            writes_state=False,
+            available_tools=self._runtime_domain_tools(),
+            workflow=["runtime_scope_resolve", "events_tail_read", "finalize"],
+            phase_stats={"count": len(rows), "limit": int(limit)},
+        )
 
     def get_events_summary(self, *, limit: int = 100) -> dict[str, Any]:
         rows = read_event_rows(self.cfg.runtime_events_path, limit=limit)
-        return {"status": "ok", "summary": summarize_event_rows(rows), "items": rows}
+        payload = {"status": STATUS_OK, "summary": summarize_event_rows(rows), "items": rows}
+        return self._attach_bounded_workflow(
+            payload,
+            domain="runtime",
+            operation="get_events_summary",
+            runtime_method="CommanderRuntime.get_events_summary",
+            runtime_tool="invest_events_summary",
+            agent_kind="bounded_runtime_agent",
+            writes_state=False,
+            available_tools=self._runtime_domain_tools(),
+            workflow=["runtime_scope_resolve", "events_summary_read", "finalize"],
+            phase_stats={"count": len(rows), "limit": int(limit)},
+        )
 
     def get_runtime_diagnostics(self, *, event_limit: int = 50, memory_limit: int = 20) -> dict[str, Any]:
-        return build_runtime_diagnostics(self, event_limit=event_limit, memory_limit=memory_limit)
+        payload = build_runtime_diagnostics(self, event_limit=event_limit, memory_limit=memory_limit)
+        return self._attach_bounded_workflow(
+            payload,
+            domain="runtime",
+            operation="get_runtime_diagnostics",
+            runtime_method="CommanderRuntime.get_runtime_diagnostics",
+            runtime_tool="invest_runtime_diagnostics",
+            agent_kind="bounded_runtime_agent",
+            writes_state=False,
+            available_tools=self._runtime_domain_tools(),
+            workflow=["runtime_scope_resolve", "diagnostics_build", "finalize"],
+            phase_stats={"event_limit": int(event_limit), "memory_limit": int(memory_limit)},
+        )
 
     def get_training_lab_summary(self, *, limit: int = 5) -> dict[str, Any]:
-        return {
-            "status": "ok",
+        payload = {
+            "status": STATUS_OK,
             **self._lab_counts(),
             "latest_plans": self.list_training_plans(limit=limit).get("items", []),
             "latest_runs": self.list_training_runs(limit=limit).get("items", []),
             "latest_evaluations": self.list_training_evaluations(limit=limit).get("items", []),
         }
+        return self._attach_bounded_workflow(
+            payload,
+            domain="training",
+            operation="get_training_lab_summary",
+            runtime_method="CommanderRuntime.get_training_lab_summary",
+            runtime_tool="invest_training_lab_summary",
+            agent_kind="bounded_training_agent",
+            writes_state=False,
+            available_tools=self._training_domain_tools(),
+            workflow=["training_scope_resolve", "lab_summary_read", "finalize"],
+            phase_stats={
+                "limit": int(limit),
+                "plan_count": int(payload.get("plan_count", 0)),
+                "run_count": int(payload.get("run_count", 0)),
+                "evaluation_count": int(payload.get("evaluation_count", 0)),
+            },
+        )
 
     def ask_stock(self, *, question: str, query: str, strategy: str = "chan_theory", days: int = 60) -> dict[str, Any]:
         return self.stock_analysis.ask_stock(question=question, query=query, strategy=strategy, days=days)
 
     def list_stock_strategies(self) -> dict[str, Any]:
-        return {"status": "ok", "items": self.stock_analysis.list_strategies()}
+        payload = {"status": STATUS_OK, "items": self.stock_analysis.list_strategies()}
+        return self._attach_bounded_workflow(
+            payload,
+            domain="strategy",
+            operation="list_stock_strategies",
+            runtime_method="CommanderRuntime.list_stock_strategies",
+            runtime_tool="invest_stock_strategies",
+            agent_kind="bounded_strategy_agent",
+            writes_state=False,
+            available_tools=self._strategy_domain_tools(),
+            workflow=["strategy_scope_resolve", "stock_strategy_inventory_read", "finalize"],
+            phase_stats={"count": len(list(payload.get("items") or []))},
+        )
 
     def _load_leaderboard_snapshot(self) -> dict[str, Any]:
         path = Path(self.cfg.training_output_dir).parent / "leaderboard.json"
@@ -1528,7 +2143,7 @@ class CommanderRuntime:
 
     def _build_training_evaluation_summary(self, payload: dict[str, Any], *, plan: dict[str, Any], run_id: str, error: str = "") -> dict[str, Any]:
         results = list(payload.get("results") or [])
-        ok_results = [item for item in results if item.get("status") == "ok"]
+        ok_results = [item for item in results if item.get("status") == STATUS_OK]
         returns = [float(item.get("return_pct") or 0.0) for item in ok_results]
         strategy_scores = [float((item.get("strategy_scores") or {}).get("overall_score", 0.0) or 0.0) for item in ok_results]
         benchmark_passes = sum(1 for item in ok_results if bool(item.get("benchmark_passed", False)))
@@ -1603,6 +2218,91 @@ class CommanderRuntime:
             },
         )
 
+    def _load_training_plan_artifact(self, plan_id: str) -> tuple[Path, dict[str, Any]]:
+        plan_path = self._training_plan_path(str(plan_id))
+        if not plan_path.exists():
+            raise FileNotFoundError(f"training plan not found: {plan_id}")
+        try:
+            payload = json.loads(plan_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"invalid training plan json: {plan_id}") from exc
+        if not isinstance(payload, dict):
+            raise ValueError(f"training plan must decode to an object: {plan_id}")
+        return plan_path, payload
+
+    @staticmethod
+    def _build_experiment_spec_from_plan(plan: dict[str, Any]) -> tuple[dict[str, Any], int, bool]:
+        spec = dict(plan.get("spec") or {})
+        rounds = int(spec.get("rounds", 1) or 1)
+        mock = bool(spec.get("mock", False))
+        experiment_spec = {
+            "spec": spec,
+            "protocol": dict(plan.get("protocol") or {}),
+            "dataset": dict(plan.get("dataset") or {}),
+            "model_scope": dict(plan.get("model_scope") or {}),
+            "optimization": dict(plan.get("optimization") or {}),
+            "llm": dict(plan.get("llm") or {}),
+        }
+        return experiment_spec, rounds, mock
+
+    def _build_run_cycles_kwargs(
+        self,
+        *,
+        plan: dict[str, Any],
+        rounds: int,
+        mock: bool,
+        experiment_spec: dict[str, Any],
+    ) -> dict[str, Any]:
+        run_cycles_kwargs = {
+            "rounds": rounds,
+            "force_mock": mock,
+            "task_source": str(plan.get("source", "manual")),
+        }
+        try:
+            run_cycles_signature = inspect.signature(self.body.run_cycles)
+            if "experiment_spec" in run_cycles_signature.parameters:
+                run_cycles_kwargs["experiment_spec"] = experiment_spec
+        except (TypeError, ValueError):
+            run_cycles_kwargs["experiment_spec"] = experiment_spec
+        return run_cycles_kwargs
+
+    @staticmethod
+    def _attach_training_lab_paths(payload: dict[str, Any], lab: dict[str, Any]) -> None:
+        payload["training_lab"] = {
+            "plan": {"plan_id": lab["plan"]["plan_id"], "path": lab["plan"]["artifacts"]["plan_path"]},
+            "run": {"run_id": lab["run"]["run_id"], "path": lab["evaluation"]["artifacts"]["run_path"]},
+            "evaluation": {"run_id": lab["evaluation"]["run_id"], "path": lab["evaluation"]["artifacts"]["evaluation_path"]},
+        }
+
+    def _wrap_training_execution_payload(
+        self,
+        payload: dict[str, Any],
+        *,
+        plan_id: str,
+        rounds: int,
+        mock: bool,
+    ) -> dict[str, Any]:
+        result_count = len(list(payload.get("results") or []))
+        total_cycles = dict(payload.get("summary") or {}).get("total_cycles")
+        return self._attach_bounded_workflow(
+            payload,
+            domain="training",
+            operation="execute_training_plan",
+            runtime_method="CommanderRuntime.execute_training_plan",
+            runtime_tool="invest_training_plan_execute",
+            agent_kind="bounded_training_agent",
+            writes_state=True,
+            available_tools=self._training_domain_tools(),
+            workflow=["training_scope_resolve", "training_plan_load", "training_cycles_execute", "training_artifacts_record", "finalize"],
+            phase_stats={
+                "plan_id": str(plan_id),
+                "rounds": int(rounds),
+                "mock": bool(mock),
+                "result_count": int(result_count),
+                "total_cycles": total_cycles,
+            },
+        )
+
     async def train_once(self, rounds: int = 1, mock: bool = False) -> dict[str, Any]:
         plan = self.create_training_plan(
             rounds=rounds,
@@ -1617,142 +2317,240 @@ class CommanderRuntime:
 
     async def execute_training_plan(self, plan_id: str) -> dict[str, Any]:
         self._ensure_runtime_storage()
-        plan_path = self._training_plan_path(str(plan_id))
-        if not plan_path.exists():
-            raise FileNotFoundError(f"training plan not found: {plan_id}")
-        plan = json.loads(plan_path.read_text(encoding="utf-8"))
-        spec = dict(plan.get("spec") or {})
-        rounds = int(spec.get("rounds", 1) or 1)
-        mock = bool(spec.get("mock", False))
-        experiment_spec = {
-            "spec": spec,
-            "protocol": dict(plan.get("protocol") or {}),
-            "dataset": dict(plan.get("dataset") or {}),
-            "model_scope": dict(plan.get("model_scope") or {}),
-            "optimization": dict(plan.get("optimization") or {}),
-            "llm": dict(plan.get("llm") or {}),
-        }
+        plan_path, plan = self._load_training_plan_artifact(str(plan_id))
+        experiment_spec, rounds, mock = self._build_experiment_spec_from_plan(plan)
 
         plan["status"] = "running"
         plan["started_at"] = datetime.now().isoformat()
         self._write_json_artifact(plan_path, plan)
         self._begin_task("train_plan", str(plan.get("source", "manual")), rounds=rounds, mock=mock, plan_id=plan_id)
-        self._set_runtime_state("training")
+        self._set_runtime_state(STATUS_TRAINING)
         self.memory.append_audit("train_requested", "runtime:train", {"rounds": rounds, "mock": mock, "plan_id": plan_id})
         try:
-            run_cycles_kwargs = {
-                "rounds": rounds,
-                "force_mock": mock,
-                "task_source": str(plan.get("source", "manual")),
-            }
-            try:
-                run_cycles_signature = inspect.signature(self.body.run_cycles)
-                if "experiment_spec" in run_cycles_signature.parameters:
-                    run_cycles_kwargs["experiment_spec"] = experiment_spec
-            except (TypeError, ValueError):
-                run_cycles_kwargs["experiment_spec"] = experiment_spec
+            run_cycles_kwargs = self._build_run_cycles_kwargs(
+                plan=plan,
+                rounds=rounds,
+                mock=mock,
+                experiment_spec=experiment_spec,
+            )
             out = await self.body.run_cycles(**run_cycles_kwargs)
-            data_error = self.body._extract_data_source_error(out)
-            if data_error is not None:
+            if data_error := self.body._extract_data_source_error(out):
                 raise DataSourceUnavailableError.from_payload(data_error)
-            status = str(out.get("status", "ok"))
+            status = str(out.get("status", STATUS_OK))
             lab = self._record_training_lab_artifacts(plan=plan, payload=out, status=status)
-            out["training_lab"] = {
-                "plan": {"plan_id": lab["plan"]["plan_id"], "path": lab["plan"]["artifacts"]["plan_path"]},
-                "run": {"run_id": lab["run"]["run_id"], "path": lab["evaluation"]["artifacts"]["run_path"]},
-                "evaluation": {"run_id": lab["evaluation"]["run_id"], "path": lab["evaluation"]["artifacts"]["evaluation_path"]},
-            }
+            self._attach_training_lab_paths(out, lab)
             self._append_training_memory(out, rounds=rounds, mock=mock, status=status)
-            self._set_runtime_state("idle" if status != "busy" else "busy")
-            self._end_task(status, rounds=rounds, mock=mock, plan_id=plan_id)
-            self._persist_state()
-            return out
+            self._complete_runtime_task(
+                state=STATUS_IDLE if status != STATUS_BUSY else STATUS_BUSY,
+                status=status,
+                rounds=rounds,
+                mock=mock,
+                plan_id=plan_id,
+            )
+            return self._wrap_training_execution_payload(out, plan_id=str(plan_id), rounds=rounds, mock=mock)
         except Exception as exc:
             error_payload = {"results": [], "summary": self.body.snapshot()}
-            lab = self._record_training_lab_artifacts(plan=plan, payload=error_payload, status="error", error=str(exc))
-            error_payload["training_lab"] = {
-                "plan": {"plan_id": lab["plan"]["plan_id"], "path": lab["plan"]["artifacts"]["plan_path"]},
-                "run": {"run_id": lab["run"]["run_id"], "path": lab["evaluation"]["artifacts"]["run_path"]},
-                "evaluation": {"run_id": lab["evaluation"]["run_id"], "path": lab["evaluation"]["artifacts"]["evaluation_path"]},
-            }
-            self._append_training_memory(error_payload, rounds=rounds, mock=mock, status="error", error=str(exc))
-            self._set_runtime_state("error")
-            self._end_task("error", rounds=rounds, mock=mock, plan_id=plan_id)
-            self._persist_state()
+            lab = self._record_training_lab_artifacts(plan=plan, payload=error_payload, status=STATUS_ERROR, error=str(exc))
+            self._attach_training_lab_paths(error_payload, lab)
+            self._append_training_memory(error_payload, rounds=rounds, mock=mock, status=STATUS_ERROR, error=str(exc))
+            self._complete_runtime_task(
+                state=STATUS_ERROR,
+                status=STATUS_ERROR,
+                rounds=rounds,
+                mock=mock,
+                plan_id=plan_id,
+            )
             raise
 
     def reload_strategies(self) -> dict[str, Any]:
         self._ensure_runtime_storage()
         self._begin_task("reload_strategies", "direct")
-        self._set_runtime_state("reloading_strategies")
+        self._set_runtime_state(RUNTIME_STATE_RELOADING_STRATEGIES)
         self.strategy_registry.ensure_default_templates()
         genes = self.strategy_registry.reload()
         self._write_commander_identity()
-        self._set_runtime_state("idle")
-        self._end_task("ok", gene_count=len(genes))
-        self._persist_state()
-        return {
-            "count": len(genes),
-            "genes": [g.to_dict() for g in genes],
-        }
+        self._complete_runtime_task(state=STATUS_IDLE, status=STATUS_OK, gene_count=len(genes))
+        return self._attach_bounded_workflow(
+            {
+                "status": STATUS_OK,
+                "count": len(genes),
+                "genes": [g.to_dict() for g in genes],
+            },
+            domain="strategy",
+            operation="reload_strategies",
+            runtime_method="CommanderRuntime.reload_strategies",
+            runtime_tool="invest_reload_strategies",
+            agent_kind="bounded_strategy_agent",
+            writes_state=True,
+            available_tools=self._strategy_domain_tools(),
+            workflow=["strategy_scope_resolve", "strategy_reload", "finalize"],
+            phase_stats={"gene_count": len(genes)},
+        )
 
-    def status(self, *, detail: str = "fast") -> dict[str, Any]:
-        runtime_state, current_task, last_task = self._snapshot_runtime_fields()
+    @staticmethod
+    def _normalize_status_detail(detail: str) -> str:
         detail_mode = str(detail or "fast").strip().lower()
-        if detail_mode not in {"fast", "slow"}:
-            detail_mode = "fast"
-        data_status = {}
+        return detail_mode if detail_mode in {"fast", "slow"} else "fast"
+
+    def _collect_data_status(self, detail_mode: str) -> dict[str, Any]:
         try:
             from market_data.datasets import WebDatasetService
-            data_status = WebDatasetService().get_status_summary(refresh=(detail_mode == "slow"))
+            return WebDatasetService().get_status_summary(refresh=(detail_mode == "slow"))
         except Exception as exc:
-            data_status = {"status": "error", "error": str(exc), "detail_mode": detail_mode}
-        event_rows = read_event_rows(self.cfg.runtime_events_path, limit=20)
-        return _jsonable({
-            "ts": datetime.now().isoformat(),
-            "detail_mode": detail_mode,
-            "instance_id": self.instance_id,
-            "workspace": str(self.cfg.workspace),
-            "strategy_dir": str(self.cfg.strategy_dir),
-            "model": self.cfg.model,
-            "autopilot_enabled": self.cfg.autopilot_enabled,
-            "heartbeat_enabled": self.cfg.heartbeat_enabled,
-            "training_interval_sec": self.cfg.training_interval_sec,
-            "heartbeat_interval_sec": self.cfg.heartbeat_interval_sec,
-            "runtime": {
-                "state": runtime_state,
-                "started": self._started,
-                "current_task": current_task,
-                "last_task": last_task,
-                "runtime_lock_file": str(self.cfg.runtime_lock_file),
-                "runtime_lock_active": self.cfg.runtime_lock_file.exists(),
-                "training_lock_file": str(self.cfg.training_lock_file),
-                "training_lock_active": self.cfg.training_lock_file.exists(),
-            },
-            "brain": {
-                "tool_count": len(self.brain.tools),
-                "session_count": self.brain.session_count,
-                "cron": self.cron.status(),
-            },
-            "body": self.body.snapshot(),
-            "memory": self.memory.stats(),
-            "bridge": self.bridge.status(),
-            "plugins": {"count": len(self._plugin_tool_names), "items": sorted(self._plugin_tool_names)},
-            "strategies": {
-                "total": len(self.strategy_registry.genes),
-                "enabled": len(self.strategy_registry.list_genes(only_enabled=True)),
-                "items": [g.to_dict() for g in self.strategy_registry.genes],
-            },
-            "config": self.config_service.get_masked_payload(),
-            "data": data_status,
-            "events": summarize_event_rows(event_rows),
-            "training_lab": {
-                **self._lab_counts(),
-                "latest_plans": self.list_training_plans(limit=3).get("items", []),
-                "latest_runs": self.list_training_runs(limit=3).get("items", []),
-                "latest_evaluations": self.list_training_evaluations(limit=3).get("items", []),
-            },
-        })
+            return {"status": STATUS_ERROR, "error": str(exc), "detail_mode": detail_mode}
+
+    def _collect_status_event_rows(self, *, limit: int = 20) -> list[dict[str, Any]]:
+        return read_event_rows(self.cfg.runtime_events_path, limit=limit)
+
+    def _collect_training_lab_status(self, *, include_recent: bool) -> dict[str, Any]:
+        payload = {**self._lab_counts()}
+        if include_recent:
+            payload.update(
+                {
+                    "latest_plans": self.list_training_plans(limit=3).get("items", []),
+                    "latest_runs": self.list_training_runs(limit=3).get("items", []),
+                    "latest_evaluations": self.list_training_evaluations(limit=3).get("items", []),
+                }
+            )
+        else:
+            payload.update({"latest_plans": [], "latest_runs": [], "latest_evaluations": []})
+        return payload
+
+    def _build_status_payload(
+        self,
+        *,
+        detail_mode: str,
+        event_rows: list[dict[str, Any]] | None = None,
+        include_recent_training_lab: bool = True,
+    ) -> dict[str, Any]:
+        runtime_state, current_task, last_task = self._snapshot_runtime_fields()
+        rows = list(event_rows or [])
+        return _jsonable(
+            {
+                "ts": datetime.now().isoformat(),
+                "detail_mode": detail_mode,
+                "instance_id": self.instance_id,
+                "workspace": str(self.cfg.workspace),
+                "strategy_dir": str(self.cfg.strategy_dir),
+                "model": self.cfg.model,
+                "autopilot_enabled": self.cfg.autopilot_enabled,
+                "heartbeat_enabled": self.cfg.heartbeat_enabled,
+                "training_interval_sec": self.cfg.training_interval_sec,
+                "heartbeat_interval_sec": self.cfg.heartbeat_interval_sec,
+                "runtime": {
+                    "state": runtime_state,
+                    "started": self._started,
+                    "current_task": current_task,
+                    "last_task": last_task,
+                    "runtime_lock_file": str(self.cfg.runtime_lock_file),
+                    "runtime_lock_active": self.cfg.runtime_lock_file.exists(),
+                    "training_lock_file": str(self.cfg.training_lock_file),
+                    "training_lock_active": self.cfg.training_lock_file.exists(),
+                },
+                "brain": {
+                    "tool_count": len(self.brain.tools),
+                    "session_count": self.brain.session_count,
+                    "cron": self.cron.status(),
+                },
+                "body": self.body.snapshot(),
+                "memory": self.memory.stats(),
+                "bridge": self.bridge.status(),
+                "plugins": {"count": len(self._plugin_tool_names), "items": sorted(self._plugin_tool_names)},
+                "strategies": {
+                    "total": len(self.strategy_registry.genes),
+                    "enabled": len(self.strategy_registry.list_genes(only_enabled=True)),
+                    "items": [g.to_dict() for g in self.strategy_registry.genes],
+                },
+                "config": self.config_service.get_masked_payload(),
+                "data": self._collect_data_status(detail_mode),
+                "events": summarize_event_rows(rows),
+                "training_lab": self._collect_training_lab_status(include_recent=include_recent_training_lab),
+            }
+        )
+
+    def _build_persisted_state_payload(self) -> dict[str, Any]:
+        return self._build_status_payload(
+            detail_mode=self._normalize_status_detail("fast"),
+            event_rows=[],
+            include_recent_training_lab=False,
+        )
+
+    def status(self, *, detail: str = "fast") -> dict[str, Any]:
+        detail_mode = self._normalize_status_detail(detail)
+        event_rows = self._collect_status_event_rows(limit=20)
+        payload = self._build_status_payload(
+            detail_mode=detail_mode,
+            event_rows=event_rows,
+            include_recent_training_lab=True,
+        )
+        return self._attach_bounded_workflow(
+            payload,
+            domain="runtime",
+            operation="status",
+            runtime_method="CommanderRuntime.status",
+            runtime_tool="invest_deep_status" if detail_mode == "slow" else "invest_quick_status",
+            agent_kind="bounded_runtime_agent",
+            writes_state=False,
+            available_tools=self._runtime_domain_tools(),
+            workflow=["runtime_scope_resolve", "status_refresh" if detail_mode == "slow" else "status_read", "finalize"],
+            phase_stats={"detail_mode": detail_mode, "event_count": len(event_rows)},
+        )
+
+    def add_cron_job(
+        self,
+        *,
+        name: str,
+        message: str,
+        every_sec: int,
+        deliver: bool = False,
+        channel: str = "cli",
+        to: str = "commander",
+    ) -> dict[str, Any]:
+        job = self.cron.add_job(name=name, message=message, every_sec=int(every_sec), deliver=bool(deliver), channel=str(channel), to=str(to))
+        self._persist_state()
+        return self._attach_bounded_workflow(
+            {"status": STATUS_OK, "job": job.to_dict()},
+            domain="scheduler",
+            operation="add_cron_job",
+            runtime_method="CommanderRuntime.add_cron_job",
+            runtime_tool="invest_cron_add",
+            agent_kind="bounded_scheduler_agent",
+            writes_state=True,
+            available_tools=self._scheduler_domain_tools(),
+            workflow=["scheduler_scope_resolve", "cron_add", "finalize"],
+            phase_stats={"job_id": getattr(job, 'id', ''), "every_sec": int(every_sec)},
+        )
+
+    def list_cron_jobs(self) -> dict[str, Any]:
+        rows = [j.to_dict() for j in self.cron.list_jobs()]
+        return self._attach_bounded_workflow(
+            {"count": len(rows), "items": rows},
+            domain="scheduler",
+            operation="list_cron_jobs",
+            runtime_method="CommanderRuntime.list_cron_jobs",
+            runtime_tool="invest_cron_list",
+            agent_kind="bounded_scheduler_agent",
+            writes_state=False,
+            available_tools=self._scheduler_domain_tools(),
+            workflow=["scheduler_scope_resolve", "cron_list", "finalize"],
+            phase_stats={"count": len(rows)},
+        )
+
+    def remove_cron_job(self, job_id: str) -> dict[str, Any]:
+        ok = self.cron.remove_job(str(job_id))
+        self._persist_state()
+        return self._attach_bounded_workflow(
+            {"status": STATUS_OK if ok else STATUS_NOT_FOUND, "job_id": str(job_id)},
+            domain="scheduler",
+            operation="remove_cron_job",
+            runtime_method="CommanderRuntime.remove_cron_job",
+            runtime_tool="invest_cron_remove",
+            agent_kind="bounded_scheduler_agent",
+            writes_state=True,
+            available_tools=self._scheduler_domain_tools(),
+            workflow=["scheduler_scope_resolve", "cron_remove", "finalize"],
+            phase_stats={"job_id": str(job_id), "removed": bool(ok)},
+        )
 
     async def serve_forever(self, interactive: bool = False) -> None:
         await self.start()
@@ -1795,19 +2593,35 @@ class CommanderRuntime:
 
     def reload_plugins(self) -> dict[str, Any]:
         self._ensure_runtime_storage()
-        return self._load_plugins(persist=True)
+        payload = self._load_plugins(persist=True)
+        return self._attach_bounded_workflow(
+            {"status": STATUS_OK, **payload},
+            domain="plugin",
+            operation="reload_plugins",
+            runtime_method="CommanderRuntime.reload_plugins",
+            runtime_tool="invest_plugins_reload",
+            agent_kind="bounded_plugin_agent",
+            writes_state=True,
+            available_tools=self._plugin_domain_tools(),
+            workflow=["plugin_scope_resolve", "plugin_reload", "finalize"],
+            phase_stats={"plugin_count": int(payload.get("count", 0))},
+        )
 
     def _ensure_runtime_storage(self) -> None:
-        self.cfg.workspace.mkdir(parents=True, exist_ok=True)
-        self.cfg.strategy_dir.mkdir(parents=True, exist_ok=True)
-        self.cfg.stock_strategy_dir.mkdir(parents=True, exist_ok=True)
-        self.cfg.state_file.parent.mkdir(parents=True, exist_ok=True)
-        self.cfg.memory_store.parent.mkdir(parents=True, exist_ok=True)
-        self.cfg.plugin_dir.mkdir(parents=True, exist_ok=True)
-        self.cfg.bridge_inbox.mkdir(parents=True, exist_ok=True)
-        self.cfg.bridge_outbox.mkdir(parents=True, exist_ok=True)
-        self.cfg.runtime_state_dir.mkdir(parents=True, exist_ok=True)
-        self.cfg.runtime_events_path.parent.mkdir(parents=True, exist_ok=True)
+        directories = {
+            self.cfg.workspace,
+            self.cfg.strategy_dir,
+            self.cfg.stock_strategy_dir,
+            self.cfg.state_file.parent,
+            self.cfg.memory_store.parent,
+            self.cfg.plugin_dir,
+            self.cfg.bridge_inbox,
+            self.cfg.bridge_outbox,
+            self.cfg.runtime_state_dir,
+            self.cfg.runtime_events_path.parent,
+        }
+        for directory in directories:
+            directory.mkdir(parents=True, exist_ok=True)
         self.training_lab.ensure_storage()
         self.memory.ensure_storage()
 
@@ -1887,7 +2701,7 @@ class CommanderRuntime:
         )
 
     def _persist_state(self) -> None:
-        payload = _jsonable(self.status())
+        payload = self._build_persisted_state_payload()
         self.cfg.state_file.parent.mkdir(parents=True, exist_ok=True)
         self.cfg.state_file.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 

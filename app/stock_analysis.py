@@ -460,11 +460,11 @@ class StockAnalysisService:
             artifacts={
                 "code": code,
                 "strategy": strat.name,
+                "strategy_source": strategy_source,
                 "latest_close": derived.get("latest_close"),
-                "required_tool_coverage": coverage.get("required_tool_coverage"),
-                "planned_step_coverage": coverage.get("planned_step_coverage"),
                 "gap_fill_applied": bool(dict(execution.get("gap_fill") or {}).get("applied")),
             },
+            coverage=coverage,
             status="ok",
         )
         return {

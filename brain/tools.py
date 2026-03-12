@@ -101,11 +101,7 @@ class InvestTrainTool(BrainTool):
         mock = bool(kwargs.get("mock", False))
         confirm = bool(kwargs.get("confirm", False))
         if rounds > 1 and not mock and not confirm:
-            return _json({
-                "status": "confirmation_required",
-                "message": "多轮真实训练属于高风险操作，请使用 confirm=true 再执行。",
-                "pending": {"rounds": rounds, "mock": mock},
-            })
+            return _json(self.runtime.build_training_confirmation_required(rounds=rounds, mock=mock))
         out = await self.runtime.train_once(rounds=rounds, mock=mock)
         return _json(out)
 
@@ -418,16 +414,14 @@ class InvestCronAddTool(BrainTool):
             "required": ["name", "message", "every_sec"],
         }
     async def execute(self, **kwargs: Any) -> str:
-        job = self.runtime.cron.add_job(
-            name=kwargs["name"],
-            message=kwargs["message"],
+        return _json(self.runtime.add_cron_job(
+            name=str(kwargs["name"]),
+            message=str(kwargs["message"]),
             every_sec=int(kwargs["every_sec"]),
             deliver=bool(kwargs.get("deliver", False)),
             channel=str(kwargs.get("channel", "cli")),
             to=str(kwargs.get("to", "commander")),
-        )
-        self.runtime._persist_state()
-        return _json({"status": "ok", "job": job.to_dict()})
+        ))
 
 
 class InvestCronListTool(BrainTool):
@@ -443,8 +437,7 @@ class InvestCronListTool(BrainTool):
     def parameters(self) -> dict[str, Any]:
         return {"type": "object", "properties": {}, "required": []}
     async def execute(self, **kwargs: Any) -> str:
-        rows = [j.to_dict() for j in self.runtime.cron.list_jobs()]
-        return _json({"count": len(rows), "items": rows})
+        return _json(self.runtime.list_cron_jobs())
 
 
 class InvestCronRemoveTool(BrainTool):
@@ -460,9 +453,7 @@ class InvestCronRemoveTool(BrainTool):
     def parameters(self) -> dict[str, Any]:
         return {"type": "object", "properties": {"job_id": {"type": "string"}}, "required": ["job_id"]}
     async def execute(self, **kwargs: Any) -> str:
-        ok = self.runtime.cron.remove_job(str(kwargs["job_id"]))
-        self.runtime._persist_state()
-        return _json({"status": "ok" if ok else "not_found", "job_id": kwargs["job_id"]})
+        return _json(self.runtime.remove_cron_job(str(kwargs["job_id"])))
 
 
 class InvestMemorySearchTool(BrainTool):
@@ -478,10 +469,7 @@ class InvestMemorySearchTool(BrainTool):
     def parameters(self) -> dict[str, Any]:
         return {"type": "object", "properties": {"query": {"type": "string"}, "limit": {"type": "integer", "minimum": 1, "maximum": 200, "default": 20}}, "required": []}
     async def execute(self, **kwargs: Any) -> str:
-        query = str(kwargs.get("query", ""))
-        limit = int(kwargs.get("limit", 20))
-        rows = self.runtime.memory.search(query=query, limit=limit)
-        return _json({"count": len(rows), "items": rows})
+        return _json(self.runtime.list_memory(query=str(kwargs.get("query", "") or ""), limit=int(kwargs.get("limit", 20))))
 
 
 class InvestMemoryListTool(BrainTool):

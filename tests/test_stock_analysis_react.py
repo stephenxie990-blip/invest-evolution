@@ -66,8 +66,17 @@ def test_stock_analysis_returns_yaml_react_trace(tmp_path: Path):
     assert payload["dashboard"]["signal"]
     assert payload["entrypoint"]["standalone_agent"] is False
     assert payload["entrypoint"]["meeting_path"] is False
+    assert payload["task_bus"]["schema_version"] == "task_bus.v2"
+    assert payload["task_bus"]["planner"]["plan_summary"]["schema_version"] == "task_plan.v2"
+    assert payload["task_bus"]["planner"]["plan_summary"]["recommended_step_count"] == len(payload["orchestration"]["recommended_plan"])
+    assert payload["task_bus"]["planner"]["recommended_plan"][0]["step_id"] == "step_01"
     assert payload["task_bus"]["gate"]["decision"] == "allow"
+    assert payload["task_bus"]["gate"]["confirmation"]["state"] == "not_applicable"
     assert payload["task_bus"]["audit"]["tool_count"] == payload["orchestration"]["step_count"]
+    assert payload["task_bus"]["audit"]["coverage"]["schema_version"] == "task_coverage.v2"
+    assert payload["task_bus"]["audit"]["coverage"]["required_tool_coverage"] == payload["orchestration"]["coverage"]["required_tool_coverage"]
+    assert payload["task_bus"]["audit"]["artifact_taxonomy"]["schema_version"] == "artifact_taxonomy.v2"
+    assert payload["task_bus"]["audit"]["artifact_taxonomy"]["keys"] == ["code", "gap_fill_applied", "latest_close", "strategy", "strategy_source"]
     assert payload["orchestration"]["allowed_tools"] == payload["orchestration"]["required_tools"]
     assert payload["orchestration"]["coverage"]["required_tool_coverage"] == 1.0
     assert payload["orchestration"]["coverage"]["missing_required_tools"] == []
