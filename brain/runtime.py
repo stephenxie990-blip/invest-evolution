@@ -20,7 +20,7 @@ from brain.schema_contract import (
     RISK_LEVEL_MEDIUM,
     TRAINING_DEFAULT_REASON_CODES,
 )
-from brain.task_bus import build_gate_feedback, build_mutating_task_bus, build_next_action, build_readonly_task_bus
+from brain.task_bus import build_bounded_entrypoint, build_bounded_orchestration, build_bounded_policy, build_mutating_task_bus, build_readonly_task_bus, build_protocol_response
 
 logger = logging.getLogger(__name__)
 
@@ -827,18 +827,19 @@ class BrainRuntime:
         elif "reply" not in payload and not payload.get("message") and isinstance(result, str) and not result.strip().startswith("{"):
             payload["reply"] = str(result)
         inferred_intent = self._intent_for_tools(names)
-        payload.setdefault("entrypoint", {
+        entrypoint = {
             "kind": "commander_tool_runtime",
             "resolver": f"BrainRuntime.{mode}",
             "mode": mode,
             "meeting_path": False,
             "tools": names,
             "intent": inferred_intent,
-        })
-        if "task_bus" not in payload:
+        }
+        task_bus = dict(payload.get("task_bus") or {})
+        if not task_bus:
             plan = self._recommended_plan_for_intent(intent=inferred_intent, tool_names=names, writes_state=writes_state, user_goal=user_goal)
             calls = list(tool_calls or self._tool_trace(names))
-            payload["task_bus"] = self._build_task_bus_for_payload(
+            task_bus = self._build_task_bus_for_payload(
                 payload=payload,
                 user_goal=user_goal,
                 intent=inferred_intent,
@@ -851,11 +852,13 @@ class BrainRuntime:
                 tool_calls=calls,
                 artifacts={"workspace": str(self.workspace), "tools": names, "mode": mode},
             )
-        feedback = build_gate_feedback(task_bus=dict(payload.get("task_bus") or {}), default_message=str(payload.get("message") or payload.get("reply") or ""))
-        payload["feedback"] = feedback
-        payload["next_action"] = build_next_action(task_bus=dict(payload.get("task_bus") or {}), feedback=feedback)
-        payload["message"] = str(feedback.get("message") or payload.get("message") or payload.get("reply") or "")
-        payload.setdefault("reply", str(payload.get("message") or ""))
+        payload = build_protocol_response(
+            payload=payload,
+            entrypoint=entrypoint,
+            task_bus=task_bus,
+            default_message=str(payload.get("message") or payload.get("reply") or ""),
+            default_reply=str(payload.get("message") or payload.get("reply") or ""),
+        )
         return json.dumps(payload, ensure_ascii=False, indent=2)
 
     def _wrap_builtin_payload(
@@ -885,14 +888,14 @@ class BrainRuntime:
         plan = list(recommended_plan or self._recommended_plan_for_intent(intent=intent, tool_names=tool_names, writes_state=writes_state, user_goal=user_goal))
         tool_calls = self._tool_trace(tool_names)
         payload = dict(payload)
-        payload.setdefault("entrypoint", {
+        entrypoint = {
             "kind": "commander_builtin_intent",
             "resolver": "BrainRuntime._try_builtin_intent",
             "intent": intent,
             "operation": operation,
             "meeting_path": False,
-        })
-        payload["task_bus"] = self._build_task_bus_for_payload(
+        }
+        task_bus = self._build_task_bus_for_payload(
             payload=payload,
             user_goal=user_goal,
             intent=intent,
@@ -910,11 +913,13 @@ class BrainRuntime:
                 "operation": operation,
             },
         )
-        feedback = build_gate_feedback(task_bus=dict(payload.get("task_bus") or {}), default_message=str(payload.get("message") or payload.get("reply") or ""))
-        payload["feedback"] = feedback
-        payload["next_action"] = build_next_action(task_bus=dict(payload.get("task_bus") or {}), feedback=feedback)
-        payload["message"] = str(feedback.get("message") or payload.get("message") or payload.get("reply") or "")
-        payload.setdefault("reply", str(payload.get("message") or ""))
+        payload = build_protocol_response(
+            payload=payload,
+            entrypoint=entrypoint,
+            task_bus=task_bus,
+            default_message=str(payload.get("message") or payload.get("reply") or ""),
+            default_reply=str(payload.get("message") or payload.get("reply") or ""),
+        )
         return json.dumps(payload, ensure_ascii=False, indent=2)
 
 
@@ -996,29 +1001,29 @@ class BrainRuntime:
                 "intent": "status_and_recent_training",
                 "quick_status": quick,
                 "training_lab": lab,
-                "entrypoint": {
-                    "kind": "commander_builtin_workflow",
-                    "resolver": "BrainRuntime._try_builtin_intent",
-                    "intent": "runtime_status_and_training",
-                    "operation": "status_and_recent_training",
-                    "meeting_path": False,
-                    "agent_kind": "bounded_runtime_agent",
-                },
-                "orchestration": {
-                    "mode": "builtin_bounded_readonly_workflow",
-                    "available_tools": ["invest_quick_status", "invest_training_lab_summary"],
-                    "allowed_tools": ["invest_quick_status", "invest_training_lab_summary"],
-                    "workflow": ["runtime_scope_resolve", "quick_status_read", "training_lab_read", "finalize"],
-                    "phase_stats": {"section_count": 2},
-                    "policy": {
-                        "source": "commander_builtin_intent",
-                        "agent_kind": "bounded_runtime_agent",
-                        "fixed_boundary": True,
-                        "fixed_workflow": True,
-                        "writes_state": False,
-                        "tool_catalog_scope": "runtime_training_combo",
-                    },
-                },
+                "entrypoint": build_bounded_entrypoint(
+                    kind="commander_builtin_workflow",
+                    resolver="BrainRuntime._try_builtin_intent",
+                    intent="runtime_status_and_training",
+                    operation="status_and_recent_training",
+                    meeting_path=False,
+                    agent_kind="bounded_runtime_agent",
+                ),
+                "orchestration": build_bounded_orchestration(
+                    mode="builtin_bounded_readonly_workflow",
+                    available_tools=["invest_quick_status", "invest_training_lab_summary"],
+                    allowed_tools=["invest_quick_status", "invest_training_lab_summary"],
+                    workflow=["runtime_scope_resolve", "quick_status_read", "training_lab_read", "finalize"],
+                    phase_stats={"section_count": 2},
+                    policy=build_bounded_policy(
+                        source="commander_builtin_intent",
+                        agent_kind="bounded_runtime_agent",
+                        fixed_boundary=True,
+                        fixed_workflow=True,
+                        writes_state=False,
+                        tool_catalog_scope="runtime_training_combo",
+                    ),
+                ),
             }
             return self._wrap_builtin_payload(payload, user_goal=text, intent="runtime_status_and_training", operation="status_and_recent_training", tool_names=["invest_quick_status", "invest_training_lab_summary"])
 
@@ -1059,29 +1064,29 @@ class BrainRuntime:
                 "intent": "config_overview",
                 "control_plane": control_plane,
                 "evolution_config": evolution_config,
-                "entrypoint": {
-                    "kind": "commander_builtin_workflow",
-                    "resolver": "BrainRuntime._try_builtin_intent",
-                    "intent": "config_overview",
-                    "operation": "config_overview",
-                    "meeting_path": False,
-                    "agent_kind": "bounded_config_agent",
-                },
-                "orchestration": {
-                    "mode": "builtin_bounded_readonly_workflow",
-                    "available_tools": ["invest_control_plane_get", "invest_evolution_config_get"],
-                    "allowed_tools": ["invest_control_plane_get", "invest_evolution_config_get"],
-                    "workflow": ["config_scope_resolve", "control_plane_read", "evolution_config_read", "finalize"],
-                    "phase_stats": {"section_count": 2},
-                    "policy": {
-                        "source": "commander_builtin_intent",
-                        "agent_kind": "bounded_config_agent",
-                        "fixed_boundary": True,
-                        "fixed_workflow": True,
-                        "writes_state": False,
-                        "tool_catalog_scope": "config_overview_combo",
-                    },
-                },
+                "entrypoint": build_bounded_entrypoint(
+                    kind="commander_builtin_workflow",
+                    resolver="BrainRuntime._try_builtin_intent",
+                    intent="config_overview",
+                    operation="config_overview",
+                    meeting_path=False,
+                    agent_kind="bounded_config_agent",
+                ),
+                "orchestration": build_bounded_orchestration(
+                    mode="builtin_bounded_readonly_workflow",
+                    available_tools=["invest_control_plane_get", "invest_evolution_config_get"],
+                    allowed_tools=["invest_control_plane_get", "invest_evolution_config_get"],
+                    workflow=["config_scope_resolve", "control_plane_read", "evolution_config_read", "finalize"],
+                    phase_stats={"section_count": 2},
+                    policy=build_bounded_policy(
+                        source="commander_builtin_intent",
+                        agent_kind="bounded_config_agent",
+                        fixed_boundary=True,
+                        fixed_workflow=True,
+                        writes_state=False,
+                        tool_catalog_scope="config_overview_combo",
+                    ),
+                ),
             }
             return self._wrap_builtin_payload(payload, user_goal=text, intent="config_overview", operation="config_overview", tool_names=["invest_control_plane_get", "invest_evolution_config_get"])
 

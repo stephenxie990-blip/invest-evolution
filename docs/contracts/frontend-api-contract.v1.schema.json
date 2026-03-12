@@ -74,6 +74,9 @@
             },
             "responseNextAction": {
               "type": "object"
+            },
+            "responseEnvelope": {
+              "type": "object"
             }
           }
         },

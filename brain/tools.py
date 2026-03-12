@@ -777,6 +777,54 @@ class InvestPluginReloadTool(BrainTool):
         return _json(self.runtime.reload_plugins())
 
 
+class InvestResearchCasesTool(BrainTool):
+    def __init__(self, runtime: Any):
+        self.runtime = runtime
+    @property
+    def name(self) -> str:
+        return "invest_research_cases"
+    @property
+    def description(self) -> str:
+        return "List research cases captured by the unified research engine."
+    @property
+    def parameters(self) -> dict[str, Any]:
+        return {"type": "object", "properties": {"limit": {"type": "integer", "minimum": 1, "maximum": 200, "default": 20}, "policy_id": {"type": "string", "default": ""}, "symbol": {"type": "string", "default": ""}, "as_of_date": {"type": "string", "default": ""}, "horizon": {"type": "string", "default": ""}}, "required": []}
+    async def execute(self, **kwargs: Any) -> str:
+        return _json(self.runtime.list_research_cases(limit=int(kwargs.get("limit", 20)), policy_id=str(kwargs.get("policy_id", "") or ""), symbol=str(kwargs.get("symbol", "") or ""), as_of_date=str(kwargs.get("as_of_date", "") or ""), horizon=str(kwargs.get("horizon", "") or "")))
+
+
+class InvestResearchAttributionsTool(BrainTool):
+    def __init__(self, runtime: Any):
+        self.runtime = runtime
+    @property
+    def name(self) -> str:
+        return "invest_research_attributions"
+    @property
+    def description(self) -> str:
+        return "List scored research attributions for replay and audit."
+    @property
+    def parameters(self) -> dict[str, Any]:
+        return {"type": "object", "properties": {"limit": {"type": "integer", "minimum": 1, "maximum": 200, "default": 20}}, "required": []}
+    async def execute(self, **kwargs: Any) -> str:
+        return _json(self.runtime.list_research_attributions(limit=int(kwargs.get("limit", 20))))
+
+
+class InvestResearchCalibrationTool(BrainTool):
+    def __init__(self, runtime: Any):
+        self.runtime = runtime
+    @property
+    def name(self) -> str:
+        return "invest_research_calibration"
+    @property
+    def description(self) -> str:
+        return "Read calibration summary aggregated from research cases and attributions."
+    @property
+    def parameters(self) -> dict[str, Any]:
+        return {"type": "object", "properties": {"policy_id": {"type": "string", "default": ""}}, "required": []}
+    async def execute(self, **kwargs: Any) -> str:
+        return _json(self.runtime.get_research_calibration(policy_id=str(kwargs.get("policy_id", "") or "")))
+
+
 class InvestStockStrategiesTool(BrainTool):
     def __init__(self, runtime: Any):
         self.runtime = runtime
@@ -866,6 +914,9 @@ def build_commander_tools(runtime: Any) -> list[BrainTool]:
         InvestMemorySearchTool(runtime),
         InvestMemoryListTool(runtime),
         InvestMemoryGetTool(runtime),
+        InvestResearchCasesTool(runtime),
+        InvestResearchAttributionsTool(runtime),
+        InvestResearchCalibrationTool(runtime),
         InvestStockStrategiesTool(runtime),
         InvestAskStockTool(runtime),
         InvestPluginReloadTool(runtime),

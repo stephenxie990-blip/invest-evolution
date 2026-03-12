@@ -11,6 +11,7 @@ from brain.schema_contract import (
     CONFIRMATION_STATE_NOT_APPLICABLE,
     CONFIRMATION_STATE_PENDING,
     COVERAGE_KIND_PLAN_EXECUTION,
+    COVERAGE_KIND_WORKFLOW_PHASE,
     COVERAGE_SCHEMA_VERSION,
     MUTATING_DEFAULT_REASON_CODES,
     PLAN_SCHEMA_VERSION,
@@ -259,6 +260,86 @@ def _reason_human_text(reason_code: str) -> str:
     return mapping.get(str(reason_code or ""), str(reason_code or "").replace("_", " "))
 
 
+def _merge_response_context(
+    *,
+    payload: dict[str, Any],
+    entrypoint: dict[str, Any] | None = None,
+    protocol: dict[str, Any] | None = None,
+    task_bus: dict[str, Any] | None = None,
+    artifacts: dict[str, Any] | None = None,
+    coverage: dict[str, Any] | None = None,
+    artifact_taxonomy: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    body = dict(payload or {})
+    for key, extra in (
+        ("entrypoint", entrypoint),
+        ("protocol", protocol),
+        ("artifacts", artifacts),
+        ("coverage", coverage),
+        ("artifact_taxonomy", artifact_taxonomy),
+    ):
+        if not isinstance(extra, dict):
+            continue
+        merged = dict(body.get(key) or {})
+        merged.update(dict(extra))
+        body[key] = merged
+    if isinstance(task_bus, dict):
+        existing_task_bus = body.get("task_bus")
+        if isinstance(existing_task_bus, dict):
+            merged_task_bus = dict(existing_task_bus)
+            merged_task_bus.update(dict(task_bus))
+            body["task_bus"] = merged_task_bus
+        else:
+            body["task_bus"] = dict(task_bus)
+    return body
+
+
+def build_protocol_response(
+    *,
+    payload: dict[str, Any],
+    entrypoint: dict[str, Any] | None = None,
+    protocol: dict[str, Any] | None = None,
+    task_bus: dict[str, Any] | None = None,
+    artifacts: dict[str, Any] | None = None,
+    coverage: dict[str, Any] | None = None,
+    artifact_taxonomy: dict[str, Any] | None = None,
+    default_message: str = "",
+    default_reply: str = "",
+) -> dict[str, Any]:
+    body = _merge_response_context(
+        payload=dict(payload or {}),
+        entrypoint=entrypoint,
+        protocol=protocol,
+        task_bus=task_bus,
+        artifacts=artifacts,
+        coverage=coverage,
+        artifact_taxonomy=artifact_taxonomy,
+    )
+    task_bus_payload = dict(body.get("task_bus") or {})
+    fallback_message = str(body.get("message") or body.get("reply") or default_message or default_reply or "")
+    feedback = dict(body.get("feedback") or build_gate_feedback(task_bus=task_bus_payload, default_message=fallback_message))
+    next_action = dict(body.get("next_action") or build_next_action(task_bus=task_bus_payload, feedback=feedback))
+    body["feedback"] = feedback
+    body["next_action"] = next_action
+    return build_response_envelope(payload=body, default_reply=str(default_reply or default_message or feedback.get("summary") or ""))
+
+
+def build_response_envelope(*, payload: dict[str, Any], default_reply: str = "") -> dict[str, Any]:
+    body = dict(payload or {})
+    task_bus = dict(body.get("task_bus") or {})
+    feedback = dict(body.get("feedback") or build_gate_feedback(task_bus=task_bus, default_message=str(body.get("message") or body.get("reply") or default_reply or "")))
+    next_action = dict(body.get("next_action") or build_next_action(task_bus=task_bus, feedback=feedback))
+    message = str(body.get("message") or feedback.get("message") or body.get("reply") or default_reply or feedback.get("summary") or "")
+    reply = str(body.get("reply") or message)
+    body["feedback"] = feedback
+    body["next_action"] = next_action
+    body["message"] = message
+    body["reply"] = reply
+    if "status" not in body:
+        body["status"] = str(dict(task_bus.get("audit") or {}).get("status") or "ok")
+    return body
+
+
 def build_next_action(*, task_bus: dict[str, Any], feedback: dict[str, Any] | None = None) -> dict[str, Any]:
     gate = dict(task_bus.get("gate") or {})
     planner = dict(task_bus.get("planner") or {})
@@ -422,6 +503,176 @@ def _classify_artifact_value(value: Any) -> str:
     if isinstance(value, dict):
         return "object"
     return "unknown"
+
+
+def build_artifact_taxonomy(artifacts: dict[str, Any] | None = None) -> dict[str, Any]:
+    return _build_artifact_taxonomy(dict(artifacts or {}))
+
+
+def build_workflow_phase_coverage(
+    *,
+    workflow: list[str],
+    phase_stats: dict[str, Any] | None = None,
+    existing: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    coverage = {
+        "schema_version": COVERAGE_SCHEMA_VERSION,
+        "coverage_kind": COVERAGE_KIND_WORKFLOW_PHASE,
+        "workflow_step_count": len(list(workflow or [])),
+        "completed_workflow_step_count": len(list(workflow or [])),
+        "workflow_step_coverage": 1.0 if workflow else 1.0,
+        "phase_stat_key_count": len(dict(phase_stats or {})),
+    }
+    if existing:
+        coverage.update(dict(existing))
+    coverage.setdefault("schema_version", COVERAGE_SCHEMA_VERSION)
+    coverage.setdefault("coverage_kind", COVERAGE_KIND_WORKFLOW_PHASE)
+    return coverage
+
+
+def build_bounded_entrypoint(
+    *,
+    kind: str,
+    meeting_path: bool = False,
+    agent_kind: str | None = None,
+    agent_system: str | None = None,
+    domain: str | None = None,
+    runtime_method: str | None = None,
+    runtime_tool: str | None = None,
+    resolver: str | None = None,
+    service: str | None = None,
+    intent: str | None = None,
+    operation: str | None = None,
+    standalone_agent: bool | None = None,
+    extra: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "kind": str(kind),
+        "meeting_path": bool(meeting_path),
+    }
+    optional_values = {
+        "agent_kind": agent_kind,
+        "agent_system": agent_system,
+        "domain": domain,
+        "runtime_method": runtime_method,
+        "runtime_tool": runtime_tool,
+        "resolver": resolver,
+        "service": service,
+        "intent": intent,
+        "operation": operation,
+    }
+    for key, value in optional_values.items():
+        if value is None or value == "":
+            continue
+        payload[key] = value
+    if standalone_agent is not None:
+        payload["standalone_agent"] = bool(standalone_agent)
+    if extra:
+        payload.update(dict(extra))
+    return payload
+
+
+def build_bounded_policy(
+    *,
+    source: str,
+    agent_kind: str,
+    fixed_boundary: bool = True,
+    fixed_workflow: bool = True,
+    writes_state: bool | None = None,
+    tool_catalog_scope: str | None = None,
+    domain: str | None = None,
+    runtime_tool: str | None = None,
+    workflow_mode: str | None = None,
+    react_enabled: bool | None = None,
+    confirmation_gate: bool | None = None,
+    extra: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "source": str(source),
+        "agent_kind": str(agent_kind),
+        "fixed_boundary": bool(fixed_boundary),
+        "fixed_workflow": bool(fixed_workflow),
+    }
+    optional_values = {
+        "writes_state": writes_state,
+        "tool_catalog_scope": tool_catalog_scope,
+        "domain": domain,
+        "runtime_tool": runtime_tool,
+        "workflow_mode": workflow_mode,
+        "react_enabled": react_enabled,
+        "confirmation_gate": confirmation_gate,
+    }
+    for key, value in optional_values.items():
+        if value is None or value == "":
+            continue
+        payload[key] = value
+    if extra:
+        payload.update(dict(extra))
+    return payload
+
+
+def build_bounded_orchestration(
+    *,
+    mode: str,
+    available_tools: list[str] | None = None,
+    allowed_tools: list[str] | None = None,
+    workflow: list[str] | None = None,
+    phase_stats: dict[str, Any] | None = None,
+    policy: dict[str, Any] | None = None,
+    extra: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    payload = {
+        "mode": str(mode),
+        "available_tools": list(available_tools or []),
+        "allowed_tools": list(allowed_tools or available_tools or []),
+        "workflow": list(workflow or []),
+        "phase_stats": dict(phase_stats or {}),
+        "policy": dict(policy or {}),
+    }
+    if extra:
+        payload.update(dict(extra))
+    return payload
+
+
+def build_bounded_response_context(
+    *,
+    schema_version: str,
+    domain: str,
+    operation: str,
+    artifacts: dict[str, Any] | None = None,
+    workflow: list[str] | None = None,
+    phase_stats: dict[str, Any] | None = None,
+    coverage: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    normalized_artifacts = dict(artifacts or {})
+    normalized_workflow = list(workflow or [])
+    normalized_phase_stats = dict(phase_stats or {})
+    return {
+        "protocol": build_bounded_workflow_protocol(
+            schema_version=schema_version,
+            domain=domain,
+            operation=operation,
+        ),
+        "artifacts": normalized_artifacts,
+        "coverage": build_workflow_phase_coverage(
+            workflow=normalized_workflow,
+            phase_stats=normalized_phase_stats,
+            existing=coverage,
+        ),
+        "artifact_taxonomy": build_artifact_taxonomy(normalized_artifacts),
+    }
+
+
+def build_bounded_workflow_protocol(*, schema_version: str, domain: str, operation: str) -> dict[str, Any]:
+    return {
+        "schema_version": str(schema_version),
+        "task_bus_schema_version": TASK_BUS_SCHEMA_VERSION,
+        "plan_schema_version": PLAN_SCHEMA_VERSION,
+        "coverage_schema_version": COVERAGE_SCHEMA_VERSION,
+        "artifact_taxonomy_schema_version": ARTIFACT_TAXONOMY_SCHEMA_VERSION,
+        "domain": str(domain),
+        "operation": str(operation),
+    }
 
 
 def _build_artifact_taxonomy(artifacts: dict[str, Any]) -> dict[str, Any]:

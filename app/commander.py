@@ -29,7 +29,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from brain.runtime import BrainRuntime
-from brain.task_bus import build_gate_feedback, build_mutating_task_bus, build_next_action, build_readonly_task_bus
+from brain.task_bus import build_bounded_entrypoint, build_bounded_orchestration, build_bounded_policy, build_bounded_response_context, build_mutating_task_bus, build_readonly_task_bus, build_protocol_response
 from brain.schema_contract import (
     ARTIFACT_KINDS,
     ARTIFACT_TAXONOMY_SCHEMA_VERSION,
@@ -84,7 +84,13 @@ from app.commander_observability import (
     read_event_rows,
     summarize_event_rows,
 )
+from app.research_services import (
+    get_research_attributions_payload,
+    get_research_calibration_payload,
+    get_research_cases_payload,
+)
 from app.stock_analysis import StockAnalysisService
+from invest.research.case_store import ResearchCaseStore
 
 logger = logging.getLogger(__name__)
 
@@ -1124,6 +1130,7 @@ class CommanderRuntime:
         self.memory = MemoryStore(self.cfg.memory_store, create=False)
         self.plugin_loader = PluginLoader(self.cfg.plugin_dir, create_dir=False)
         self.stock_analysis = StockAnalysisService(strategy_dir=self.cfg.stock_strategy_dir, model=self.cfg.model, api_key=self.cfg.api_key, api_base=self.cfg.api_base, enable_llm_react=not self.cfg.mock_mode, controller_provider=lambda: self.body.controller)
+        self.research_case_store = ResearchCaseStore(self.cfg.runtime_state_dir)
         self._plugin_tool_names: set[str] = set()
         self.bridge = BridgeHub(
             inbox_dir=self.cfg.bridge_inbox,
@@ -1736,6 +1743,14 @@ class CommanderRuntime:
         ]
 
     @staticmethod
+    def _research_domain_tools() -> list[str]:
+        return [
+            "invest_research_cases",
+            "invest_research_attributions",
+            "invest_research_calibration",
+        ]
+
+    @staticmethod
     def _plugin_domain_tools() -> list[str]:
         return [
             "invest_plugins_reload",
@@ -1944,6 +1959,22 @@ class CommanderRuntime:
                     {"tool": "invest_reload_strategies", "args": {}},
                     {"tool": "invest_stock_strategies", "args": {}},
                 ]
+        if domain == "research":
+            if operation == "list_research_cases":
+                return [
+                    {"tool": "invest_research_cases", "args": self._planner_args(phase_stats=phase_stats, payload=payload, keys=["limit", "policy_id", "symbol", "as_of_date", "horizon"])},
+                    {"tool": "invest_research_calibration", "args": self._planner_args(phase_stats=phase_stats, payload=payload, keys=["policy_id"])},
+                ]
+            if operation == "list_research_attributions":
+                return [
+                    {"tool": "invest_research_attributions", "args": self._planner_args(phase_stats=phase_stats, payload=payload, keys=["limit"])},
+                    {"tool": "invest_research_cases", "args": {"limit": int(phase_stats.get("limit", 20) or 20)}},
+                ]
+            if operation == "get_research_calibration":
+                return [
+                    {"tool": "invest_research_calibration", "args": self._planner_args(phase_stats=phase_stats, payload=payload, keys=["policy_id"])},
+                    {"tool": "invest_research_cases", "args": {"limit": int(phase_stats.get("limit", 20) or 20), **self._planner_args(phase_stats=phase_stats, payload=payload, keys=["policy_id"]) }},
+                ]
         if domain == "plugin" and operation == "reload_plugins":
             return [{"tool": "invest_plugins_reload", "args": {}}]
 
@@ -2026,40 +2057,42 @@ class CommanderRuntime:
         body = dict(payload) if isinstance(payload, dict) else {"status": STATUS_OK, "content": payload}
         body.setdefault(
             "entrypoint",
-            {
-                "kind": "commander_bounded_workflow",
-                "domain": domain,
-                "runtime_method": runtime_method,
-                "runtime_tool": runtime_tool,
-                "meeting_path": False,
-                "agent_kind": agent_kind,
-                "agent_system": "commander_bounded_workflows",
-            },
+            build_bounded_entrypoint(
+                kind="commander_bounded_workflow",
+                domain=domain,
+                runtime_method=runtime_method,
+                runtime_tool=runtime_tool,
+                meeting_path=False,
+                agent_kind=agent_kind,
+                agent_system="commander_bounded_workflows",
+            ),
         )
         orchestration = dict(body.get("orchestration") or {})
-        orchestration["mode"] = str(orchestration.get("mode") or ("bounded_mutating_workflow" if writes_state else "bounded_readonly_workflow"))
-        orchestration["available_tools"] = list(available_tools)
-        orchestration["allowed_tools"] = list(orchestration.get("allowed_tools") or available_tools)
         normalized_workflow = list(workflow)
         normalized_phase_stats = _jsonable(dict(phase_stats or {}))
-        orchestration["workflow"] = normalized_workflow
-        orchestration["phase_stats"] = normalized_phase_stats
         policy = dict(orchestration.get("policy") or {})
         policy.update(
-            {
-                "source": "commander_runtime",
-                "domain": domain,
-                "agent_kind": agent_kind,
-                "runtime_tool": runtime_tool,
-                "fixed_boundary": True,
-                "fixed_workflow": True,
-                "writes_state": writes_state,
-                "tool_catalog_scope": f"{domain}_domain",
-            }
+            build_bounded_policy(
+                source="commander_runtime",
+                domain=domain,
+                agent_kind=agent_kind,
+                runtime_tool=runtime_tool,
+                fixed_boundary=True,
+                fixed_workflow=True,
+                writes_state=writes_state,
+                tool_catalog_scope=f"{domain}_domain",
+                extra=_jsonable(dict(extra_policy or {})) if extra_policy else None,
+            )
         )
-        if extra_policy:
-            policy.update(_jsonable(dict(extra_policy)))
-        orchestration["policy"] = policy
+        orchestration = build_bounded_orchestration(
+            mode=str(orchestration.get("mode") or ("bounded_mutating_workflow" if writes_state else "bounded_readonly_workflow")),
+            available_tools=list(available_tools),
+            allowed_tools=list(orchestration.get("allowed_tools") or available_tools),
+            workflow=normalized_workflow,
+            phase_stats=normalized_phase_stats,
+            policy=policy,
+            extra={key: value for key, value in orchestration.items() if key not in {"mode", "available_tools", "allowed_tools", "workflow", "phase_stats", "policy"}},
+        )
         artifacts = {
             "workspace": str(self.cfg.workspace),
             "runtime_tool": runtime_tool,
@@ -2075,19 +2108,17 @@ class CommanderRuntime:
             existing=body.get("coverage") if isinstance(body.get("coverage"), dict) else None,
         )
         body["orchestration"] = orchestration
-        body["protocol"] = {
-            "schema_version": BOUNDED_WORKFLOW_SCHEMA_VERSION,
-            "task_bus_schema_version": TASK_BUS_SCHEMA_VERSION,
-            "plan_schema_version": PLAN_SCHEMA_VERSION,
-            "coverage_schema_version": COVERAGE_SCHEMA_VERSION,
-            "artifact_taxonomy_schema_version": ARTIFACT_TAXONOMY_SCHEMA_VERSION,
-            "domain": domain,
-            "operation": operation,
-        }
-        body["artifacts"] = _jsonable(artifacts)
-        body["coverage"] = _jsonable(coverage)
-        body["artifact_taxonomy"] = _jsonable(_build_workflow_artifact_taxonomy(artifacts))
-        if not isinstance(body.get("task_bus"), dict):
+        bounded_context = build_bounded_response_context(
+            schema_version=BOUNDED_WORKFLOW_SCHEMA_VERSION,
+            domain=domain,
+            operation=operation,
+            artifacts=artifacts,
+            workflow=normalized_workflow,
+            phase_stats=normalized_phase_stats,
+            coverage=coverage,
+        )
+        task_bus = dict(body.get("task_bus") or {})
+        if not task_bus:
             task_bus = _jsonable(
                 self._build_bounded_workflow_task_bus(
                     payload=body,
@@ -2100,14 +2131,21 @@ class CommanderRuntime:
                     phase_stats=normalized_phase_stats,
                 )
             )
-            body["task_bus"] = task_bus
-            gate_requires_confirmation = bool(dict(task_bus.get("gate") or {}).get("requires_confirmation"))
-            feedback = build_gate_feedback(task_bus=task_bus, default_message=str(body.get("message") or ""))
-            body["feedback"] = _jsonable(feedback)
-            body["next_action"] = _jsonable(build_next_action(task_bus=task_bus, feedback=feedback))
-            body["message"] = str(feedback.get("message") or body.get("message") or "")
-            if writes_state:
-                body["orchestration"]["policy"]["confirmation_gate"] = gate_requires_confirmation or body["orchestration"]["policy"].get("confirmation_gate")
+        gate_requires_confirmation = bool(dict(task_bus.get("gate") or {}).get("requires_confirmation"))
+        body = _jsonable(
+            build_protocol_response(
+                payload=body,
+                protocol=bounded_context["protocol"],
+                task_bus=task_bus,
+                artifacts=bounded_context["artifacts"],
+                coverage=bounded_context["coverage"],
+                artifact_taxonomy=bounded_context["artifact_taxonomy"],
+                default_message=str(body.get("message") or ""),
+                default_reply=str(body.get("message") or ""),
+            )
+        )
+        if writes_state:
+            body["orchestration"]["policy"]["confirmation_gate"] = gate_requires_confirmation or body["orchestration"]["policy"].get("confirmation_gate")
         return _jsonable(body)
 
     def _attach_mutating_workflow(
@@ -2480,6 +2518,65 @@ class CommanderRuntime:
                 "run_count": int(payload.get("run_count", 0)),
                 "evaluation_count": int(payload.get("evaluation_count", 0)),
             },
+        )
+
+    def list_research_cases(self, *, limit: int = 20, policy_id: str = '', symbol: str = '', as_of_date: str = '', horizon: str = '') -> dict[str, Any]:
+        payload = get_research_cases_payload(
+            case_store=self.research_case_store,
+            limit=limit,
+            policy_id=policy_id,
+            symbol=symbol,
+            as_of_date=as_of_date,
+            horizon=horizon,
+        )
+        return self._attach_bounded_workflow(
+            payload,
+            domain="research",
+            operation="list_research_cases",
+            runtime_method="CommanderRuntime.list_research_cases",
+            runtime_tool="invest_research_cases",
+            agent_kind="bounded_research_agent",
+            writes_state=False,
+            available_tools=self._research_domain_tools(),
+            workflow=["research_scope_resolve", "research_cases_read", "research_calibration_read", "finalize"],
+            phase_stats={
+                "limit": int(limit),
+                "policy_id": str(policy_id or ''),
+                "symbol": str(symbol or ''),
+                "as_of_date": str(as_of_date or ''),
+                "horizon": str(horizon or ''),
+                "count": int(payload.get('count', 0) or 0),
+            },
+        )
+
+    def list_research_attributions(self, *, limit: int = 20) -> dict[str, Any]:
+        payload = get_research_attributions_payload(case_store=self.research_case_store, limit=limit)
+        return self._attach_bounded_workflow(
+            payload,
+            domain="research",
+            operation="list_research_attributions",
+            runtime_method="CommanderRuntime.list_research_attributions",
+            runtime_tool="invest_research_attributions",
+            agent_kind="bounded_research_agent",
+            writes_state=False,
+            available_tools=self._research_domain_tools(),
+            workflow=["research_scope_resolve", "research_attributions_read", "finalize"],
+            phase_stats={"limit": int(limit), "count": int(payload.get('count', 0) or 0)},
+        )
+
+    def get_research_calibration(self, *, policy_id: str = '') -> dict[str, Any]:
+        payload = get_research_calibration_payload(case_store=self.research_case_store, policy_id=policy_id)
+        return self._attach_bounded_workflow(
+            payload,
+            domain="research",
+            operation="get_research_calibration",
+            runtime_method="CommanderRuntime.get_research_calibration",
+            runtime_tool="invest_research_calibration",
+            agent_kind="bounded_research_agent",
+            writes_state=False,
+            available_tools=self._research_domain_tools(),
+            workflow=["research_scope_resolve", "research_calibration_read", "finalize"],
+            phase_stats={"policy_id": str(policy_id or ''), "sample_count": int(dict(payload.get('report') or {}).get('sample_count') or 0)},
         )
 
     def ask_stock(

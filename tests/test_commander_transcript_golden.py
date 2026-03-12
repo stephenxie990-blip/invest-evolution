@@ -117,6 +117,7 @@ def _normalize_payload(payload):
         (
             '请看看系统状态',
             {
+                'status': 'ok',
                 'detail_mode': 'fast',
                 'entrypoint': {
                     'agent_kind': 'bounded_runtime_agent',
@@ -166,8 +167,8 @@ def _normalize_payload(payload):
             {
                 'status': 'ok',
                 'entrypoint': {
-                    'agent_kind': None,
-                    'domain': None,
+                    'agent_kind': 'bounded_stock_agent',
+                    'domain': 'stock',
                     'runtime_tool': 'invest_ask_stock',
                     'service': 'StockAnalysisService',
                 },
@@ -200,7 +201,15 @@ def _normalize_payload(payload):
                     'requires_confirmation': False,
                     'confirmation_state': 'not_applicable',
                 },
-                'protocol': None,
+                'protocol': {
+                    'schema_version': BOUNDED_WORKFLOW_SCHEMA_VERSION,
+                    'task_bus_schema_version': TASK_BUS_SCHEMA_VERSION,
+                    'plan_schema_version': 'task_plan.v2',
+                    'coverage_schema_version': 'task_coverage.v2',
+                    'artifact_taxonomy_schema_version': 'artifact_taxonomy.v2',
+                    'domain': 'stock',
+                    'operation': 'ask_stock',
+                },
                 'feedback': {'summary': '当前任务已完成，计划与参数覆盖满足预期。'},
                 'next_action': {'kind': 'continue', 'requires_confirmation': False},
                 'strategy': {

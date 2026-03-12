@@ -1187,7 +1187,8 @@ def test_confirmation_workflow_message_includes_human_readable_gate_reasons(tmp_
 
     assert payload["status"] == "confirmation_required"
     assert payload["feedback"]["requires_confirmation"] is True
-    assert "当前操作仍需要人工确认" in payload["message"]
+    assert "confirm=true" in payload["message"]
+    assert "当前操作仍需要人工确认" in payload["feedback"]["reason_texts"]
     assert "confirmation_required" in payload["feedback"]["reason_codes"]
 
 

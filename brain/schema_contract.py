@@ -69,6 +69,7 @@ TASK_AUDIT_KEYS = ["status", "started_at", "completed_at", "tool_count", "used_t
 FEEDBACK_COVERAGE_KEYS = ["planned_step_coverage", "parameter_coverage"]
 FEEDBACK_KEYS = ["message", "summary", "reason_codes", "reason_texts", "requires_confirmation", "decision", "coverage"]
 NEXT_ACTION_KEYS = ["kind", "label", "description", "requires_confirmation", "suggested_params"]
+RESPONSE_ENVELOPE_KEYS = ["status", "reply", "message", "feedback", "next_action", "task_bus"]
 TASK_COVERAGE_KEYS = [
     "schema_version",
     "coverage_kind",
@@ -147,6 +148,9 @@ def task_bus_contract() -> dict[str, Any]:
         "next_action": {
             "keys": list(NEXT_ACTION_KEYS),
         },
+        "response_envelope": {
+            "keys": list(RESPONSE_ENVELOPE_KEYS),
+        },
     }
 
 
@@ -171,6 +175,9 @@ def bounded_workflow_contract() -> dict[str, Any]:
         },
         "next_action": {
             "keys": list(NEXT_ACTION_KEYS),
+        },
+        "response_envelope": {
+            "keys": list(RESPONSE_ENVELOPE_KEYS),
         },
     }
 

@@ -275,6 +275,13 @@
           },
           "feedback": {
             "$ref": "#/components/schemas/responseFeedback"
+          },
+          "message": {
+            "type": "string"
+          },
+          "task_bus": {
+            "type": "object",
+            "additionalProperties": true
           }
         },
         "required": [
@@ -1222,6 +1229,39 @@
           "description",
           "requires_confirmation",
           "suggested_params"
+        ],
+        "additionalProperties": true
+      },
+      "responseEnvelope": {
+        "type": "object",
+        "description": "Unified response envelope for Commander natural-language and bounded workflow responses.",
+        "properties": {
+          "status": {
+            "type": "string"
+          },
+          "reply": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "feedback": {
+            "$ref": "#/components/schemas/responseFeedback"
+          },
+          "next_action": {
+            "$ref": "#/components/schemas/responseNextAction"
+          },
+          "task_bus": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        },
+        "required": [
+          "status",
+          "reply",
+          "message",
+          "feedback",
+          "next_action"
         ],
         "additionalProperties": true
       }

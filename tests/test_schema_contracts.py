@@ -8,7 +8,7 @@ from brain.schema_contract import (
     bounded_workflow_contract,
     task_bus_contract,
 )
-from brain.task_bus import build_mutating_task_bus
+from brain.task_bus import build_bounded_entrypoint, build_bounded_orchestration, build_bounded_policy, build_bounded_workflow_protocol, build_mutating_task_bus, build_protocol_response
 from commander import CommanderConfig, CommanderRuntime
 from app.stock_analysis import StockAnalysisService
 from market_data.repository import MarketDataRepository
@@ -113,8 +113,14 @@ def test_task_bus_contract_golden_snapshot():
         "next_action": {
             "keys": ["kind", "label", "description", "requires_confirmation", "suggested_params"],
         },
+        "response_envelope": {
+            "keys": ["status", "reply", "message", "feedback", "next_action", "task_bus"],
+        },
         "next_action": {
             "keys": ["kind", "label", "description", "requires_confirmation", "suggested_params"],
+        },
+        "response_envelope": {
+            "keys": ["status", "reply", "message", "feedback", "next_action", "task_bus"],
         },
     }
     assert task_bus_contract() == expected
@@ -157,8 +163,113 @@ def test_bounded_workflow_contract_golden_snapshot():
         "next_action": {
             "keys": ["kind", "label", "description", "requires_confirmation", "suggested_params"],
         },
+        "response_envelope": {
+            "keys": ["status", "reply", "message", "feedback", "next_action", "task_bus"],
+        },
     }
     assert bounded_workflow_contract() == expected
+
+
+def test_bounded_entrypoint_and_policy_helpers_omit_empty_optionals():
+    entrypoint = build_bounded_entrypoint(
+        kind="commander_tool_service",
+        runtime_tool="invest_ask_stock",
+        runtime_method="CommanderRuntime.ask_stock",
+        meeting_path=False,
+        agent_kind="bounded_stock_agent",
+        standalone_agent=False,
+    )
+    policy = build_bounded_policy(
+        source="yaml_strategy",
+        agent_kind="bounded_stock_agent",
+        tool_catalog_scope="strategy_restricted",
+        workflow_mode="llm_react_with_yaml_gap_fill",
+    )
+
+    assert entrypoint == {
+        "kind": "commander_tool_service",
+        "meeting_path": False,
+        "agent_kind": "bounded_stock_agent",
+        "runtime_method": "CommanderRuntime.ask_stock",
+        "runtime_tool": "invest_ask_stock",
+        "standalone_agent": False,
+    }
+    assert policy == {
+        "source": "yaml_strategy",
+        "agent_kind": "bounded_stock_agent",
+        "fixed_boundary": True,
+        "fixed_workflow": True,
+        "tool_catalog_scope": "strategy_restricted",
+        "workflow_mode": "llm_react_with_yaml_gap_fill",
+    }
+
+def test_bounded_orchestration_helper_normalizes_core_fields():
+    orchestration = build_bounded_orchestration(
+        mode="yaml_react_like",
+        available_tools=["get_daily_history", "get_realtime_quote"],
+        workflow=["yaml_strategy_loaded", "finalize"],
+        phase_stats={"total_steps": 2},
+        policy=build_bounded_policy(
+            source="yaml_strategy",
+            agent_kind="bounded_stock_agent",
+            tool_catalog_scope="strategy_restricted",
+        ),
+        extra={"step_count": 2},
+    )
+
+    assert orchestration == {
+        "mode": "yaml_react_like",
+        "available_tools": ["get_daily_history", "get_realtime_quote"],
+        "allowed_tools": ["get_daily_history", "get_realtime_quote"],
+        "workflow": ["yaml_strategy_loaded", "finalize"],
+        "phase_stats": {"total_steps": 2},
+        "policy": {
+            "source": "yaml_strategy",
+            "agent_kind": "bounded_stock_agent",
+            "fixed_boundary": True,
+            "fixed_workflow": True,
+            "tool_catalog_scope": "strategy_restricted",
+        },
+        "step_count": 2,
+    }
+
+
+
+def test_build_protocol_response_merges_shared_context():
+    task_bus = build_mutating_task_bus(
+        intent="config_management",
+        operation="update_runtime_paths",
+        user_goal="更新 runtime path",
+        mode="builtin_intent",
+        available_tools=["invest_runtime_paths_update"],
+        recommended_plan=[{"tool": "invest_runtime_paths_update", "args": {"patch": {"workspace": "/tmp/new"}, "confirm": False}}],
+        tool_calls=[],
+        status="confirmation_required",
+        requires_confirmation=True,
+    )
+    payload = build_protocol_response(
+        payload={"status": "confirmation_required", "message": "请确认路径更新。"},
+        entrypoint={"kind": "commander_builtin_intent", "intent": "config_management"},
+        protocol=build_bounded_workflow_protocol(
+            schema_version="bounded_workflow.v2",
+            domain="config",
+            operation="update_runtime_paths",
+        ),
+        task_bus=task_bus,
+        artifacts={"workspace": "/tmp/project"},
+        coverage={"workflow_step_coverage": 1.0},
+        artifact_taxonomy={"schema_version": "artifact_taxonomy.v2", "count": 1},
+        default_reply="请确认路径更新。",
+    )
+
+    assert payload["entrypoint"]["kind"] == "commander_builtin_intent"
+    assert payload["protocol"]["domain"] == "config"
+    assert payload["task_bus"]["gate"]["requires_confirmation"] is True
+    assert payload["feedback"]["requires_confirmation"] is True
+    assert payload["next_action"]["kind"] == "confirm"
+    assert payload["artifacts"]["workspace"] == "/tmp/project"
+    assert payload["coverage"]["workflow_step_coverage"] == 1.0
+    assert payload["artifact_taxonomy"]["count"] == 1
 
 
 def test_runtime_bounded_workflow_matches_contract_keys(tmp_path: Path):
@@ -188,6 +299,23 @@ def test_runtime_bounded_workflow_matches_contract_keys(tmp_path: Path):
         assert key in payload["coverage"]
     for key in contract["artifact_taxonomy_keys"]:
         assert key in payload["artifact_taxonomy"]
+
+
+def test_stock_payload_matches_bounded_workflow_contract_keys(tmp_path: Path):
+    service = _build_stock_service(tmp_path)
+    payload = service.ask_stock(question="用缠论分析 FooBank", query="FooBank")
+    contract = bounded_workflow_contract()
+
+    for key in contract["top_level_keys"]:
+        assert key in payload
+    for key in contract["protocol_keys"]:
+        assert key in payload["protocol"]
+    for key in contract["coverage_keys"]:
+        assert key in payload["coverage"]
+    for key in contract["artifact_taxonomy_keys"]:
+        assert key in payload["artifact_taxonomy"]
+    assert payload["protocol"]["domain"] == "stock"
+    assert payload["protocol"]["operation"] == "ask_stock"
 
 
 def test_stock_task_bus_matches_contract_keys(tmp_path: Path):

@@ -66,6 +66,15 @@ def test_stock_analysis_returns_yaml_react_trace(tmp_path: Path):
     assert payload["dashboard"]["signal"]
     assert payload["entrypoint"]["standalone_agent"] is False
     assert payload["entrypoint"]["meeting_path"] is False
+    assert payload["entrypoint"]["domain"] == "stock"
+    assert payload["entrypoint"]["agent_kind"] == "bounded_stock_agent"
+    assert payload["protocol"]["schema_version"] == "bounded_workflow.v2"
+    assert payload["protocol"]["domain"] == "stock"
+    assert payload["protocol"]["operation"] == "ask_stock"
+    assert payload["artifacts"]["code"] == "sh.600001"
+    assert payload["coverage"]["coverage_kind"] == "workflow_phase_completion"
+    assert payload["artifact_taxonomy"]["schema_version"] == "artifact_taxonomy.v2"
+    assert payload["artifact_taxonomy"]["keys"] == ["attribution_id", "code", "gap_fill_applied", "latest_close", "policy_id", "research_case_id", "strategy", "strategy_source"]
     assert payload["message"]
     assert payload["feedback"]["summary"] == "当前任务已完成，计划与参数覆盖满足预期。"
     assert payload["next_action"]["kind"] == "continue"

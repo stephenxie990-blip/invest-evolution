@@ -33,6 +33,7 @@ def test_frontend_contract_endpoint_returns_machine_readable_contract():
     assert payload['frontend_shell_mount'] == '/app'
     assert payload['components']['schemas']['responseFeedback']['properties']['summary']['type'] == 'string'
     assert payload['components']['schemas']['responseNextAction']['properties']['kind']['type'] == 'string'
+    assert payload['components']['schemas']['responseEnvelope']['properties']['feedback']['$ref'] == '#/components/schemas/responseFeedback'
     assert payload['components']['schemas']['statusWrappedConfig']['properties']['feedback']['$ref'] == '#/components/schemas/responseFeedback'
     assert payload['components']['schemas']['chatReply']['properties']['next_action']['$ref'] == '#/components/schemas/responseNextAction'
     assert any(endpoint['path'] == '/api/train' and endpoint['method'] == 'POST' for endpoint in payload['endpoints'])

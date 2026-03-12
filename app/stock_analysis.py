@@ -18,7 +18,8 @@ import pandas as pd
 from app.llm_gateway import LLMGateway, LLMGatewayError, LLMUnavailableError
 from config import OUTPUT_DIR, PROJECT_ROOT, config, normalize_date
 from config.control_plane import resolve_default_llm
-from brain.task_bus import build_gate_feedback, build_next_action, build_readonly_task_bus
+from brain.schema_contract import BOUNDED_WORKFLOW_SCHEMA_VERSION
+from brain.task_bus import build_bounded_entrypoint, build_bounded_orchestration, build_bounded_policy, build_bounded_response_context, build_readonly_task_bus, build_protocol_response
 from invest.leaderboard import write_leaderboard
 from invest.models import create_investment_model, resolve_model_config_path
 from invest.research import (
@@ -634,13 +635,26 @@ class StockAnalysisService:
             coverage=coverage,
             status="ok",
         )
-        feedback = build_gate_feedback(task_bus=task_bus, default_message="已完成问股分析。")
-        next_action = build_next_action(task_bus=task_bus, feedback=feedback)
-        return {
+        bounded_context = build_bounded_response_context(
+            schema_version=BOUNDED_WORKFLOW_SCHEMA_VERSION,
+            domain="stock",
+            operation="ask_stock",
+            artifacts={
+                "code": code,
+                "strategy": strat.name,
+                "strategy_source": strategy_source,
+                "latest_close": derived.get("latest_close"),
+                "gap_fill_applied": bool(dict(execution.get("gap_fill") or {}).get("applied")),
+                "policy_id": policy_id,
+                "research_case_id": research_case_id,
+                "attribution_id": attribution_id,
+            },
+            workflow=list(execution.get("workflow") or []),
+            phase_stats=dict(execution.get("phase_stats") or {}),
+            coverage=coverage,
+        )
+        payload = {
             "status": "ok",
-            "message": feedback["message"],
-            "feedback": feedback,
-            "next_action": next_action,
             "question": question,
             "query": query,
             "normalized_query": code,
@@ -651,44 +665,48 @@ class StockAnalysisService:
             "attribution_id": attribution_id,
             "resolved": security,
             "resolved_security": security,
-            "entrypoint": {
-                "kind": "commander_tool_service",
-                "runtime_tool": "invest_ask_stock",
-                "runtime_method": "CommanderRuntime.ask_stock",
-                "service": "StockAnalysisService",
-                "standalone_agent": False,
-                "meeting_path": False,
-                "agent_system": "commander_brain_tooling",
-            },
+            "entrypoint": build_bounded_entrypoint(
+                kind="commander_tool_service",
+                runtime_tool="invest_ask_stock",
+                runtime_method="CommanderRuntime.ask_stock",
+                service="StockAnalysisService",
+                domain="stock",
+                agent_kind="bounded_stock_agent",
+                standalone_agent=False,
+                meeting_path=False,
+                agent_system="commander_brain_tooling",
+            ),
             "strategy": strat.to_dict(),
             "strategy_source": strategy_source,
             "days": resolved_days,
             "task_bus": task_bus,
-            "orchestration": {
-                "mode": execution["mode"],
-                "available_tools": sorted(self._tool_registry.keys()),
-                "allowed_tools": allowed_tools,
-                "required_tools": list(strat.required_tools),
-                "recommended_plan": recommended_plan,
-                "tool_plan": execution["plan"],
-                "tool_calls": execution["tool_calls"],
-                "step_count": len(execution["tool_calls"]),
-                "llm_reasoning": execution.get("final_reasoning", ""),
-                "fallback_used": bool(execution.get("fallback_used", execution["mode"] == "yaml_react_like")),
-                "workflow": list(execution.get("workflow") or []),
-                "phase_stats": dict(execution.get("phase_stats") or {}),
-                "gap_fill": dict(execution.get("gap_fill") or {}),
-                "policy": {
-                    "source": "yaml_strategy",
-                    "agent_kind": "bounded_stock_agent",
-                    "workflow_mode": "llm_react_with_yaml_gap_fill",
-                    "react_enabled": bool(strat.react_enabled),
-                    "tool_catalog_scope": "strategy_restricted",
-                    "fixed_boundary": True,
-                    "fixed_workflow": True,
+            "orchestration": build_bounded_orchestration(
+                mode=execution["mode"],
+                available_tools=sorted(self._tool_registry.keys()),
+                allowed_tools=allowed_tools,
+                workflow=list(execution.get("workflow") or []),
+                phase_stats=dict(execution.get("phase_stats") or {}),
+                policy=build_bounded_policy(
+                    source="yaml_strategy",
+                    agent_kind="bounded_stock_agent",
+                    workflow_mode="llm_react_with_yaml_gap_fill",
+                    react_enabled=bool(strat.react_enabled),
+                    tool_catalog_scope="strategy_restricted",
+                    fixed_boundary=True,
+                    fixed_workflow=True,
+                ),
+                extra={
+                    "required_tools": list(strat.required_tools),
+                    "recommended_plan": recommended_plan,
+                    "tool_plan": execution["plan"],
+                    "tool_calls": execution["tool_calls"],
+                    "step_count": len(execution["tool_calls"]),
+                    "llm_reasoning": execution.get("final_reasoning", ""),
+                    "fallback_used": bool(execution.get("fallback_used", execution["mode"] == "yaml_react_like")),
+                    "gap_fill": dict(execution.get("gap_fill") or {}),
+                    "coverage": coverage,
                 },
-                "coverage": coverage,
-            },
+            ),
             "analysis": {
                 "tool_results": execution["results"],
                 "result_sequence": execution["result_sequence"],
@@ -698,6 +716,15 @@ class StockAnalysisService:
             "research": research_payload,
             "dashboard": dashboard,
         }
+        return build_protocol_response(
+            payload=payload,
+            protocol=bounded_context["protocol"],
+            task_bus=task_bus,
+            artifacts=bounded_context["artifacts"],
+            coverage=bounded_context["coverage"],
+            artifact_taxonomy=bounded_context["artifact_taxonomy"],
+            default_reply="已完成问股分析。",
+        )
 
     @staticmethod
     def _normalize_as_of_date(value: str | None = None) -> str:
