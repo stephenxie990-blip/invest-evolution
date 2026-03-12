@@ -3,6 +3,7 @@ from pathlib import Path
 
 import jsonschema
 import web_server
+from app.frontend_contract_catalog import FRONTEND_CONTRACT_DOCUMENTS
 
 
 CONTRACT_PATH = Path('docs/contracts/frontend-api-contract.v1.json')
@@ -17,9 +18,20 @@ def test_contract_catalog_endpoint_available_without_runtime():
 
     assert res.status_code == 200
     payload = res.get_json()
-    assert payload['count'] >= 3
-    ids = {item['id'] for item in payload['items']}
-    assert {'frontend-v1', 'frontend-v1-schema', 'frontend-v1-openapi'} <= ids
+    expected = {
+        item.id: {
+            'format': item.format,
+            'kind': item.kind,
+            'path': item.path,
+            'source_path': str(item.source_path),
+            'shell_mount': item.shell_mount,
+        }
+        for item in FRONTEND_CONTRACT_DOCUMENTS
+        if item.source_path.exists()
+    }
+    assert payload['count'] == len(expected)
+    actual = {item['id']: {k: v for k, v in item.items() if k != 'id'} for item in payload['items']}
+    assert actual == expected
 
 
 def test_frontend_contract_endpoint_returns_machine_readable_contract():

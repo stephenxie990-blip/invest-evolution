@@ -27,6 +27,12 @@ from typing import Any
 from flask import Flask, jsonify, request, send_from_directory, Response, stream_with_context
 
 from app.commander import CommanderConfig, CommanderRuntime, _apply_runtime_path_overrides
+from app.frontend_contract_catalog import (
+    FRONTEND_CONTRACT_DOCUMENTS_BY_ID,
+    FRONTEND_CONTRACT_PUBLIC_PATHS,
+    build_frontend_contract_catalog_items,
+    load_frontend_contract_document,
+)
 from app.web_ui_metadata import (
     FRONTEND_APP_ROUTE,
     LEGACY_UI_ROUTE,
@@ -236,21 +242,7 @@ def _parse_limit_arg(default: int = 20, maximum: int = 200) -> int:
         raise ValueError("limit must be an integer")
     return max(1, min(maximum, value))
 
-
-_CONTRACTS_DIR = Path(__file__).parent.parent / "docs" / "contracts"
-_FRONTEND_API_CONTRACT_V1_PATH = _CONTRACTS_DIR / "frontend-api-contract.v1.json"
-_FRONTEND_API_CONTRACT_V1_SCHEMA_PATH = _CONTRACTS_DIR / "frontend-api-contract.v1.schema.json"
-_FRONTEND_API_CONTRACT_V1_OPENAPI_PATH = _CONTRACTS_DIR / "frontend-api-contract.v1.openapi.json"
 _FRONTEND_DIST_DIR = Path(__file__).parent.parent / "frontend" / "dist"
-
-
-def _load_contract_document(path: Path) -> dict[str, Any]:
-    if not path.exists() or not path.is_file():
-        raise FileNotFoundError(path)
-    payload = json.loads(path.read_text(encoding="utf-8"))
-    if not isinstance(payload, dict):
-        raise ValueError("contract document must be a JSON object")
-    return payload
 
 
 # ---------------------------------------------------------------------------
@@ -263,12 +255,7 @@ app = Flask(
     static_url_path="/static",
 )
 
-_PUBLIC_API_PATHS = {
-    "/api/contracts",
-    "/api/contracts/frontend-v1",
-    "/api/contracts/frontend-v1/schema",
-    "/api/contracts/frontend-v1/openapi",
-}
+_PUBLIC_API_PATHS = set(FRONTEND_CONTRACT_PUBLIC_PATHS)
 _OPTIONALLY_PUBLIC_READ_PATHS = {
     "/api/status",
     "/api/lab/status/quick",
@@ -517,41 +504,14 @@ def frontend_app(asset_path: str = ""):
 
 @app.route("/api/contracts")
 def api_contracts():
-    items = []
-    if _FRONTEND_API_CONTRACT_V1_PATH.exists():
-        items.append({
-            "id": "frontend-v1",
-            "format": "json",
-            "kind": "frontend-api-contract",
-            "path": "/api/contracts/frontend-v1",
-            "source_path": str(_FRONTEND_API_CONTRACT_V1_PATH),
-            "shell_mount": FRONTEND_APP_ROUTE,
-        })
-    if _FRONTEND_API_CONTRACT_V1_SCHEMA_PATH.exists():
-        items.append({
-            "id": "frontend-v1-schema",
-            "format": "json-schema",
-            "kind": "frontend-api-contract-derivative",
-            "path": "/api/contracts/frontend-v1/schema",
-            "source_path": str(_FRONTEND_API_CONTRACT_V1_SCHEMA_PATH),
-            "shell_mount": FRONTEND_APP_ROUTE,
-        })
-    if _FRONTEND_API_CONTRACT_V1_OPENAPI_PATH.exists():
-        items.append({
-            "id": "frontend-v1-openapi",
-            "format": "openapi+json",
-            "kind": "frontend-api-contract-derivative",
-            "path": "/api/contracts/frontend-v1/openapi",
-            "source_path": str(_FRONTEND_API_CONTRACT_V1_OPENAPI_PATH),
-            "shell_mount": FRONTEND_APP_ROUTE,
-        })
+    items = build_frontend_contract_catalog_items()
     return jsonify({"count": len(items), "items": items})
 
 
 @app.route("/api/contracts/frontend-v1")
 def api_contract_frontend_v1():
     try:
-        return jsonify(_load_contract_document(_FRONTEND_API_CONTRACT_V1_PATH))
+        return jsonify(load_frontend_contract_document(FRONTEND_CONTRACT_DOCUMENTS_BY_ID["frontend-v1"]))
     except FileNotFoundError:
         return jsonify({"error": "frontend contract not found"}), 404
     except Exception as exc:
@@ -562,7 +522,7 @@ def api_contract_frontend_v1():
 @app.route("/api/contracts/frontend-v1/schema")
 def api_contract_frontend_v1_schema():
     try:
-        return jsonify(_load_contract_document(_FRONTEND_API_CONTRACT_V1_SCHEMA_PATH))
+        return jsonify(load_frontend_contract_document(FRONTEND_CONTRACT_DOCUMENTS_BY_ID["frontend-v1-schema"]))
     except FileNotFoundError:
         return jsonify({"error": "frontend contract schema not found"}), 404
     except Exception as exc:
@@ -573,7 +533,7 @@ def api_contract_frontend_v1_schema():
 @app.route("/api/contracts/frontend-v1/openapi")
 def api_contract_frontend_v1_openapi():
     try:
-        return jsonify(_load_contract_document(_FRONTEND_API_CONTRACT_V1_OPENAPI_PATH))
+        return jsonify(load_frontend_contract_document(FRONTEND_CONTRACT_DOCUMENTS_BY_ID["frontend-v1-openapi"]))
     except FileNotFoundError:
         return jsonify({"error": "frontend contract openapi not found"}), 404
     except Exception as exc:

@@ -352,3 +352,10 @@
   - 回归通过：`./.venv/bin/python -m pytest -q tests/test_data_unification.py -k web_data_status_refresh_query_switches_detail_mode tests/test_web_ui_rollout.py tests/test_web_server_security.py`
   - 回归通过：`./.venv/bin/python -m pytest -q tests/test_web_ui_rollout.py tests/test_web_server_security.py tests/test_frontend_api_contract.py tests/test_frontend_contract_generation.py`
   - 回归通过：`./.venv/bin/python -m pytest -q`
+- 第十段进展：
+  - 新增 `/Users/zhangsan/Desktop/投资进化系统v1.0/app/frontend_contract_catalog.py`，集中维护 frontend contract 文档目录元数据、公开路径集合与文档读盘逻辑
+  - `/Users/zhangsan/Desktop/投资进化系统v1.0/app/web_server.py` 已移除本地 contract 路径常量与重复 catalog 拼装，改为直接复用共享 catalog
+  - `/Users/zhangsan/Desktop/投资进化系统v1.0/tests/test_frontend_api_contract.py` 已升级为对照共享 catalog 校验 `/api/contracts` 返回值，而不再只做松散的 id 存在性断言
+  - 回归通过：`./.venv/bin/python -m py_compile app/frontend_contract_catalog.py app/web_server.py tests/test_frontend_api_contract.py`
+  - 回归通过：`./.venv/bin/python -m pytest -q tests/test_frontend_api_contract.py tests/test_frontend_contract_generation.py tests/test_web_server_security.py tests/test_web_ui_rollout.py`
+  - 回归通过：`./.venv/bin/python -m pytest -q`

@@ -285,3 +285,7 @@
 - `web_server` 壳层剩余复杂度，主要来自“公开路径判定”“根路径该回 legacy 还是 app”“Header / Query 灰度判定”三件事散落在路由函数与安全判断之间。
 - 把这些逻辑抽成纯函数 helper 后，`/`、`/legacy`、`/app` 的职责边界更清楚：路由只负责响应，判定规则由单一适配层决定。
 - 本轮抽取时暴露出一个真实脆弱点：`_parse_bool()` 仍依赖模块级 `_TRUE_VALUES`。这说明旧 `web_server.py` 里“通用解析常量”和“UI rollout 常量”之前耦得比较紧；修复后这两类语义已经重新分层。
+## 2026-03-12 第十段清理补充发现
+- `/api/contracts` 的问题不在功能，而在 catalog 元数据、公开路径白名单、文档文件路径、读盘逻辑分散在 `web_server.py` 和 contract 工具之间，维护成本偏高。
+- 将 frontend contract catalog 收成共享模块后，`web_server` 不再需要自己维护 `frontend-v1/schema/openapi` 三份描述字典，也不再重复声明 doc 路径常量。
+- 这一步把“前端契约是什么”和“Web 如何暴露它”分开了：前者沉到 catalog，后者只做 HTTP 转发，后续如果新增 v2 契约或别的派生文档，扩展面会更稳。
