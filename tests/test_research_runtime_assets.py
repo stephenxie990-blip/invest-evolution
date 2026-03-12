@@ -29,7 +29,7 @@ def _seed_case(runtime):
         universe={'size': 1, 'available_codes': ['sh.600001'], 'summary_top5': []},
         market_context={'regime': 'bull', 'cash_reserve': 0.2, 'model_name': 'momentum', 'config_name': 'default', 'market_stats': {}, 'routing_context': {}},
         cross_section_context={'selected_by_policy': True, 'rank': 1, 'percentile': 1.0, 'threshold_score': 0.1, 'threshold_gap': 0.1, 'threshold_gap_is_approximate': False, 'selected_count': 1, 'universe_size': 1, 'top_selected_codes': ['sh.600001']},
-        feature_snapshot={'summary': {}, 'signal': {}, 'legacy_signals': {}, 'evidence': [], 'factor_values': {}, 'metadata': {}},
+        feature_snapshot={'summary': {}, 'signal': {}, 'evidence': [], 'factor_values': {}, 'metadata': {}},
         data_lineage={},
         readiness={'has_model_output': True},
         metadata={'query_code': 'sh.600001'},

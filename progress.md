@@ -366,3 +366,33 @@
   - 回归通过：`./.venv/bin/python -m py_compile app/web_server.py tests/test_frontend_api_contract.py`
   - 回归通过：`./.venv/bin/python -m pytest -q tests/test_frontend_api_contract.py tests/test_frontend_contract_generation.py tests/test_web_server_security.py`
   - 回归通过：`./.venv/bin/python -m pytest -q`
+- 第十二段进展：
+  - 新增 `/Users/zhangsan/Desktop/投资进化系统v1.0/docs/plans/BACKEND_CLEANUP_CHECKLIST_20260312.md`，把后端遗留面按 P0/P1/P2/P3 明确成可执行清单
+  - 已删除 `invest_status` alias tool、`_REVIEW_COMMANDER_SYSTEM` 旧 prompt alias、`app/train.py::_call_with_compatible_signature` 兼容签名桥
+  - `ask_stock` fallback 已从 `legacy_yaml_dashboard` 切换为 `canonical_dashboard_fallback`，并删除 `_build_dashboard()` 旧包装层
+  - `build_research_snapshot(...)` 已删除 `legacy_signals` 输出面，问股 / hypothesis / runtime asset 测试统一改为 canonical `metadata` / `factor_values`
+  - `config/control_plane.py` 与 `/Users/zhangsan/Desktop/投资进化系统v1.0/config/control_plane.yaml` 已去除 `legacy_default` / `legacy_fast` / `legacy_deep` 命名，并删除死代码 `legacy_model_setting_from_control_plane(...)`
+  - 回归通过：`./.venv/bin/python -m pytest -q tests/test_commander.py tests/test_meeting_refinement.py tests/test_train_cycle.py tests/test_train_event_stream.py tests/test_brain_runtime.py tests/test_commander_agent_validation.py tests/test_data_unification.py -k 'not real'`
+  - 回归通过：`./.venv/bin/python -m pytest -q tests/test_control_plane.py tests/test_agent_model_resolution.py tests/test_ask_stock_model_bridge.py tests/test_research_hypothesis_engine.py tests/test_research_runtime_assets.py tests/test_commander.py tests/test_meeting_refinement.py tests/test_train_cycle.py tests/test_train_event_stream.py`
+  - 回归通过：`./.venv/bin/python -m pytest -q`
+- 第十三段进展：
+  - 新增 `/Users/zhangsan/Desktop/投资进化系统v1.0/app/runtime_artifact_reader.py`，统一运行时 artifact 根目录约束、路径解析与 JSON/JSONL/文本安全读盘 helper
+  - `/Users/zhangsan/Desktop/投资进化系统v1.0/app/commander_observability.py` 已改为复用共享 artifact reader，删除本地重复实现
+  - `/Users/zhangsan/Desktop/投资进化系统v1.0/app/web_server.py` 已统一 `status` / `lab status` responder，并收口 `detail_mode` 解析 helper
+  - `/Users/zhangsan/Desktop/投资进化系统v1.0/app/web_server.py` memory detail 读盘已改为走共享 artifact reader，继续保留运行时白名单约束
+  - 回归通过：`./.venv/bin/python -m py_compile app/runtime_artifact_reader.py app/commander_observability.py app/web_server.py`
+  - 回归通过：`./.venv/bin/python -m pytest -q tests/test_web_training_lab_api.py tests/test_web_server_memory_api.py tests/test_web_server_security.py tests/test_commander.py -k 'memory or lab_status or training_lab or get_memory_detail'`
+- 第十四段进展：
+  - 全量回归通过：`./.venv/bin/python -m pytest -q`
+  - 真实 Commander 状态烟测通过：`./.venv/bin/python commander.py status --detail fast`
+  - 真实训练复验通过：`./.venv/bin/python train.py --cycles 1`
+  - 真实问股复验通过：`./.venv/bin/python commander.py ask -m '请帮我分析一下平安银行，按最近60个交易日视角，给出结论、依据、风险点和操作建议。'`
+  - 当前阶段判断：后端主链与结构层已基本收口，剩余最高优先级残留已集中到 Web 壳双轨兼容面
+- 第十五段进展：
+  - 已删除 `frontend/` 前端工作区、`static/index.html` 旧壳、`docs/frontend/*`、前端重构专项蓝图与相关壳层测试
+  - 已删除 `app/web_ui_metadata.py`、`app/web_ui_runtime.py`、`config/web_ui.py`，并从 `config/__init__.py` / `config/services.py` 移除 `web_ui_shell_mode`、`frontend_canary_enabled`、`frontend_canary_query_param`
+  - `app/web_server.py` 已改为纯 API 服务：根路径返回 API 入口说明，`/app` 与 `/legacy` 返回 410 tombstone，`/api/chat` / `/api/status` / `/api/events` 保持可用
+  - 事件/监控/契约能力保留：`/api/events`、`/api/status`、`/api/contracts/frontend-v1` 继续存在，相关测试保留并通过
+  - 贴边回归通过：`./.venv/bin/python -m pytest -q tests/test_web_server_security.py tests/test_frontend_api_contract.py tests/test_frontend_contract_generation.py tests/test_config_layering.py tests/test_config_service_security.py tests/test_train_ui_semantics.py tests/test_web_server_contract_headers.py tests/test_web_server_memory_api.py tests/test_web_training_lab_api.py`
+  - 全量回归再次通过：`./.venv/bin/python -m pytest -q`
+  - 真实 commander 状态/自然语言调度复验通过：`./.venv/bin/python commander.py status --detail fast`、`./.venv/bin/python commander.py ask -m '请总结当前系统运行状态、最近事件和可用调度入口。'`

@@ -3,12 +3,12 @@ from pathlib import Path
 
 import jsonschema
 import web_server
-from app.frontend_contract_catalog import FRONTEND_CONTRACT_DOCUMENTS
+from app.runtime_contract_catalog import RUNTIME_CONTRACT_DOCUMENTS
 
 
-CONTRACT_PATH = Path('docs/contracts/frontend-api-contract.v1.json')
-CONTRACT_SCHEMA_PATH = Path('docs/contracts/frontend-api-contract.v1.schema.json')
-CONTRACT_OPENAPI_PATH = Path('docs/contracts/frontend-api-contract.v1.openapi.json')
+CONTRACT_PATH = Path('docs/contracts/runtime-api-contract.v1.json')
+CONTRACT_SCHEMA_PATH = Path('docs/contracts/runtime-api-contract.v1.schema.json')
+CONTRACT_OPENAPI_PATH = Path('docs/contracts/runtime-api-contract.v1.openapi.json')
 
 
 def test_contract_catalog_endpoint_available_without_runtime():
@@ -26,7 +26,7 @@ def test_contract_catalog_endpoint_available_without_runtime():
             'source_path': str(item.source_path),
             'shell_mount': item.shell_mount,
         }
-        for item in FRONTEND_CONTRACT_DOCUMENTS
+        for item in RUNTIME_CONTRACT_DOCUMENTS
         if item.source_path.exists()
     }
     assert payload['count'] == len(expected)
@@ -34,15 +34,15 @@ def test_contract_catalog_endpoint_available_without_runtime():
     assert actual == expected
 
 
-def test_frontend_contract_endpoint_returns_machine_readable_contract():
+def test_runtime_contract_endpoint_returns_machine_readable_contract():
     client = web_server.app.test_client()
 
-    res = client.get('/api/contracts/frontend-v1')
+    res = client.get('/api/contracts/runtime-v1')
 
     assert res.status_code == 200
     payload = res.get_json()
-    assert payload['contract_id'] == 'frontend-v1'
-    assert payload['frontend_shell_mount'] == '/app'
+    assert payload['contract_id'] == 'runtime-v1'
+    assert payload['frontend_shell_mount'] == '/api/chat'
     assert payload['components']['schemas']['responseFeedback']['properties']['summary']['type'] == 'string'
     assert payload['components']['schemas']['responseNextAction']['properties']['kind']['type'] == 'string'
     assert payload['components']['schemas']['responseEnvelope']['properties']['feedback']['$ref'] == '#/components/schemas/responseFeedback'
@@ -63,21 +63,21 @@ def test_frontend_contract_endpoint_returns_machine_readable_contract():
     assert payload['sse']['path'] == '/api/events'
 
 
-def test_frontend_contract_schema_endpoint_returns_json_schema():
+def test_runtime_contract_schema_endpoint_returns_json_schema():
     client = web_server.app.test_client()
 
-    res = client.get('/api/contracts/frontend-v1/schema')
+    res = client.get('/api/contracts/runtime-v1/schema')
 
     assert res.status_code == 200
     payload = res.get_json()
     assert payload['$schema'].startswith('https://json-schema.org/')
-    assert payload['title'] == 'Frontend API Contract V1'
+    assert payload['title'] == 'Runtime API Contract V1'
 
 
-def test_frontend_contract_openapi_endpoint_returns_openapi_document():
+def test_runtime_contract_openapi_endpoint_returns_openapi_document():
     client = web_server.app.test_client()
 
-    res = client.get('/api/contracts/frontend-v1/openapi')
+    res = client.get('/api/contracts/runtime-v1/openapi')
 
     assert res.status_code == 200
     payload = res.get_json()
@@ -89,29 +89,29 @@ def test_frontend_contract_openapi_endpoint_returns_openapi_document():
     assert 'runtime_status' in payload['x-transcript-snapshots']['examples']
 
 
-def test_frontend_contract_endpoint_returns_404_when_document_missing(monkeypatch):
+def test_runtime_contract_endpoint_returns_404_when_document_missing(monkeypatch):
     client = web_server.app.test_client()
 
     def fake_load(document):
         raise FileNotFoundError(document.source_path)
 
-    monkeypatch.setattr(web_server, 'load_frontend_contract_document', fake_load)
+    monkeypatch.setattr(web_server, 'load_runtime_contract_document', fake_load)
 
-    res = client.get('/api/contracts/frontend-v1/schema')
+    res = client.get('/api/contracts/runtime-v1/schema')
 
     assert res.status_code == 404
-    assert res.get_json()['error'] == 'frontend contract schema not found'
+    assert res.get_json()['error'] == 'runtime contract schema not found'
 
 
-def test_frontend_contract_endpoint_returns_500_for_invalid_document(monkeypatch):
+def test_runtime_contract_endpoint_returns_500_for_invalid_document(monkeypatch):
     client = web_server.app.test_client()
 
     def fake_load(document):
         raise ValueError('broken contract payload')
 
-    monkeypatch.setattr(web_server, 'load_frontend_contract_document', fake_load)
+    monkeypatch.setattr(web_server, 'load_runtime_contract_document', fake_load)
 
-    res = client.get('/api/contracts/frontend-v1/openapi')
+    res = client.get('/api/contracts/runtime-v1/openapi')
 
     assert res.status_code == 500
     assert res.get_json()['error'] == 'broken contract payload'
@@ -130,16 +130,3 @@ def test_generated_contract_derivatives_validate_against_main_contract():
     for endpoint in contract['endpoints']:
         path_item = openapi['paths'][endpoint['path']]
         assert endpoint['method'].lower() in path_item
-
-
-def test_app_shell_returns_helpful_404_when_frontend_dist_missing(monkeypatch, tmp_path):
-    missing_dist = tmp_path / 'frontend-dist-missing'
-    monkeypatch.setattr(web_server, '_FRONTEND_DIST_DIR', missing_dist)
-
-    client = web_server.app.test_client()
-    res = client.get('/app')
-
-    assert res.status_code == 404
-    payload = res.get_json()
-    assert 'frontend dist is not available' in payload['error']
-    assert payload['expected_path'].endswith('frontend-dist-missing')

@@ -12,7 +12,7 @@ _MODEL_SCORE_KEYS = {
     "value_quality": ["value_quality_score", "algo_score"],
     "defensive_low_vol": ["defensive_score", "algo_score"],
 }
-_LEGACY_SIGNAL_COMPAT_KEYS = {
+_DERIVED_SIGNAL_KEYS = {
     "flags",
     "matched_signals",
     "latest_close",
@@ -54,12 +54,12 @@ def _normalize_universe(model_name: str, stock_summaries: Iterable[Dict[str, Any
     return ranked
 
 
-def _compact_legacy_signals(payload: Dict[str, Any] | None) -> Dict[str, Any]:
-    compacted: Dict[str, Any] = {}
+def _normalize_derived_signals(payload: Dict[str, Any] | None) -> Dict[str, Any]:
+    normalized: Dict[str, Any] = {}
     for key, value in dict(payload or {}).items():
-        if key in _LEGACY_SIGNAL_COMPAT_KEYS and value not in (None, "", [], {}):
-            compacted[key] = value
-    return compacted
+        if key in _DERIVED_SIGNAL_KEYS and value not in (None, "", [], {}):
+            normalized[key] = value
+    return normalized
 
 
 def build_research_snapshot(
@@ -70,7 +70,7 @@ def build_research_snapshot(
     stock_data: Dict[str, Any],
     routing_context: Dict[str, Any] | None = None,
     data_lineage: Dict[str, Any] | None = None,
-    legacy_signals: Dict[str, Any] | None = None,
+    derived_signals: Dict[str, Any] | None = None,
 ) -> ResearchSnapshot:
     signal_packet = model_output.signal_packet
     metadata = dict(signal_packet.metadata or {})
@@ -125,22 +125,21 @@ def build_research_snapshot(
     }
     factor_values = dict(selected_signal.get("factor_values") or {})
     signal_metadata = dict(selected_signal.get("metadata") or {})
-    legacy_payload = _compact_legacy_signals(legacy_signals)
-    legacy_flags = dict(legacy_payload.get("flags") or {})
-    if legacy_flags and "flags" not in signal_metadata:
-        signal_metadata["flags"] = legacy_flags
-    if legacy_payload.get("matched_signals") and "matched_signals" not in signal_metadata:
-        signal_metadata["matched_signals"] = list(legacy_payload.get("matched_signals") or [])
-    if legacy_payload.get("latest_close") is not None and "latest_close" not in signal_metadata:
-        signal_metadata["latest_close"] = legacy_payload.get("latest_close")
-    if legacy_payload.get("ma20") is not None and factor_values.get("ma20") is None:
-        factor_values["ma20"] = legacy_payload.get("ma20")
-    if legacy_payload.get("rsi") is not None and factor_values.get("rsi") is None:
-        factor_values["rsi"] = legacy_payload.get("rsi")
+    derived_payload = _normalize_derived_signals(derived_signals)
+    derived_flags = dict(derived_payload.get("flags") or {})
+    if derived_flags and "flags" not in signal_metadata:
+        signal_metadata["flags"] = derived_flags
+    if derived_payload.get("matched_signals") and "matched_signals" not in signal_metadata:
+        signal_metadata["matched_signals"] = list(derived_payload.get("matched_signals") or [])
+    if derived_payload.get("latest_close") is not None and "latest_close" not in signal_metadata:
+        signal_metadata["latest_close"] = derived_payload.get("latest_close")
+    if derived_payload.get("ma20") is not None and factor_values.get("ma20") is None:
+        factor_values["ma20"] = derived_payload.get("ma20")
+    if derived_payload.get("rsi") is not None and factor_values.get("rsi") is None:
+        factor_values["rsi"] = derived_payload.get("rsi")
     feature_snapshot = {
         "summary": dict(summary or {}),
         "signal": selected_signal,
-        "legacy_signals": legacy_payload,
         "evidence": list(selected_signal.get("evidence") or []),
         "factor_values": factor_values,
         "metadata": signal_metadata,

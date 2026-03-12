@@ -214,27 +214,6 @@ def test_selection_meeting_progress_callback_emits():
     assert events and events[0]['agent'] == 'TrendHunter'
 
 
-def test_train_center_shell_contract_present():
-    html = Path('static/index.html').read_text(encoding='utf-8')
-    assert 'id="panel-train"' in html
-    assert 'id="train-shell-contract-card"' in html
-    assert 'id="frontend-app-link"' in html
-    assert 'href="/app"' in html
-    assert 'id="frontend-contract-link"' in html
-    assert 'href="/api/contracts/frontend-v1"' in html
-    assert 'id="train-rounds"' in html
-    assert 'id="train-mock"' in html
-    assert 'id="train-start-btn"' in html
-    assert 'id="train-routing-card"' in html
-    assert 'id="train-agent-overview-card"' in html
-    assert 'id="train-timeline-filter-stage"' in html
-    assert 'id="train-timeline-filter-agent"' in html
-    assert 'id="train-speech-card-panel"' in html
-    assert 'id="train-strategy-diff-card"' in html
-    assert 'id="train-result-card"' in html
-
-
-
 def test_save_cycle_result_persists_structured_trades(tmp_path):
     import json
     from app.train import TrainingResult

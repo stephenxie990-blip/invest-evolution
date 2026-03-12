@@ -151,7 +151,7 @@
 
 - `tests/test_schema_contracts.py`
 - `tests/test_commander*_golden.py`
-- `tests/test_frontend_api_contract.py`
+- `tests/test_runtime_api_contract.py`
 - `docs/contracts/*`
 - `docs/*.md`
 

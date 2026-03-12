@@ -5,7 +5,7 @@
 - 保证以下三层同时无漂移：
   - 运行协议
   - transcript / audit snapshot
-  - frontend contract / schema / openapi 导出
+  - runtime contract / schema / openapi 导出
 
 ## 推荐命令
 ```bash
@@ -20,7 +20,7 @@ invest-freeze-gate --mode full --list
 ```
 
 ## 实际执行内容
-1. `python3 scripts/generate_frontend_contract_derivatives.py --check`
+1. `python3 scripts/generate_runtime_contract_derivatives.py --check`
 2. focused protocol regression
 3. full regression suite（仅 `--mode full`）
 

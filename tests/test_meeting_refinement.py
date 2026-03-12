@@ -1,7 +1,7 @@
 from invest.meetings import SelectionMeeting, ReviewMeeting
 from invest.meetings.recorder import MeetingRecorder
 from invest.meetings.review import (
-    _REVIEW_COMMANDER_SYSTEM,
+    _REVIEW_DECISION_SYSTEM,
     _REVIEW_EVO_JUDGE_SYSTEM,
     _REVIEW_STRATEGIST_SYSTEM,
 )
@@ -49,7 +49,7 @@ def test_selection_meeting_trading_plan_preserves_pick_metadata():
 
 
 def test_review_meeting_prompt_contracts_include_examples_and_negative_constraints():
-    for prompt in (_REVIEW_STRATEGIST_SYSTEM, _REVIEW_EVO_JUDGE_SYSTEM, _REVIEW_COMMANDER_SYSTEM):
+    for prompt in (_REVIEW_STRATEGIST_SYSTEM, _REVIEW_EVO_JUDGE_SYSTEM, _REVIEW_DECISION_SYSTEM):
         assert "少样本示例" in prompt
         assert "负例约束" in prompt
         assert "只输出一个 JSON 对象" in prompt

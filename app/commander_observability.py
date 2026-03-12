@@ -5,6 +5,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from app.runtime_artifact_reader import safe_read_json, safe_read_jsonl, safe_read_text
+
 
 def append_event_row(path: Path, event: str, payload: dict[str, Any], *, source: str = "runtime") -> dict[str, Any]:
     row = {
@@ -63,61 +65,6 @@ def memory_brief_row(row: dict[str, Any]) -> dict[str, Any]:
         item["summary"] = metadata.get("summary")
         item["training_run"] = bool(metadata.get("training_run"))
     return item
-
-
-def _resolve_runtime_artifact_path(runtime: Any, path_str: str) -> Path | None:
-    raw = str(path_str or "").strip()
-    if not raw:
-        return None
-    path = Path(raw).expanduser()
-    if path.is_absolute() and path.exists():
-        return path
-    if runtime is not None:
-        candidate = Path(runtime.cfg.runtime_state_dir) / raw
-        if candidate.exists():
-            return candidate
-    if path.exists():
-        return path
-    return None
-
-
-def _safe_read_json(runtime: Any, path_str: str) -> Any:
-    path = _resolve_runtime_artifact_path(runtime, path_str)
-    if path is None:
-        return None
-    try:
-        return json.loads(path.read_text(encoding="utf-8"))
-    except Exception:
-        return None
-
-
-def _safe_read_text(runtime: Any, path_str: str, limit: int = 12000) -> str:
-    path = _resolve_runtime_artifact_path(runtime, path_str)
-    if path is None:
-        return ""
-    try:
-        return path.read_text(encoding="utf-8")[:limit]
-    except Exception:
-        return ""
-
-
-def _safe_read_jsonl(runtime: Any, path_str: str, limit: int = 400) -> list[dict[str, Any]]:
-    path = _resolve_runtime_artifact_path(runtime, path_str)
-    if path is None:
-        return []
-    rows: list[dict[str, Any]] = []
-    try:
-        for line in path.read_text(encoding="utf-8").splitlines():
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                rows.append(json.loads(line))
-            except Exception:
-                continue
-    except Exception:
-        return []
-    return rows[-max(1, int(limit)):]
 
 
 def _as_float(value: Any) -> float | None:
@@ -214,21 +161,21 @@ def build_memory_detail(runtime: Any, row: dict[str, Any]) -> dict[str, Any]:
         cycle = dict(result or {})
         artifacts = cycle.get("artifacts") if isinstance(cycle.get("artifacts"), dict) else {}
         cycle_id = cycle.get("cycle_id")
-        cycle_result = _safe_read_json(runtime, artifacts.get("cycle_result_path", "")) if artifacts else None
-        selection_meeting = _safe_read_json(runtime, artifacts.get("selection_meeting_json_path", "")) if artifacts else None
-        review_meeting = _safe_read_json(runtime, artifacts.get("review_meeting_json_path", "")) if artifacts else None
-        config_snapshot = _safe_read_json(runtime, cycle.get("config_snapshot_path", "")) if cycle.get("config_snapshot_path") else None
+        cycle_result = safe_read_json(runtime, artifacts.get("cycle_result_path", "")) if artifacts else None
+        selection_meeting = safe_read_json(runtime, artifacts.get("selection_meeting_json_path", "")) if artifacts else None
+        review_meeting = safe_read_json(runtime, artifacts.get("review_meeting_json_path", "")) if artifacts else None
+        config_snapshot = safe_read_json(runtime, cycle.get("config_snapshot_path", "")) if cycle.get("config_snapshot_path") else None
         optimization_path = artifacts.get("optimization_events_path", "") if artifacts else ""
         if optimization_path:
-            optimization_cache.setdefault(optimization_path, _safe_read_jsonl(runtime, optimization_path))
+            optimization_cache.setdefault(optimization_path, safe_read_jsonl(runtime, optimization_path))
         optimization_events = optimization_cache.get(optimization_path, [])
         detailed_results.append({
             **cycle,
             "cycle_result": cycle_result,
             "selection_meeting": selection_meeting,
-            "selection_meeting_markdown": _safe_read_text(runtime, artifacts.get("selection_meeting_markdown_path", "")) if artifacts else "",
+            "selection_meeting_markdown": safe_read_text(runtime, artifacts.get("selection_meeting_markdown_path", "")) if artifacts else "",
             "review_meeting": review_meeting,
-            "review_meeting_markdown": _safe_read_text(runtime, artifacts.get("review_meeting_markdown_path", "")) if artifacts else "",
+            "review_meeting_markdown": safe_read_text(runtime, artifacts.get("review_meeting_markdown_path", "")) if artifacts else "",
             "config_snapshot": config_snapshot,
             "optimization_events": [evt for evt in optimization_events if cycle_id is None or evt.get("cycle_id") in (None, cycle_id)],
         })

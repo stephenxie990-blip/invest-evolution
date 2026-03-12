@@ -39,6 +39,28 @@ def test_healthz_is_public():
     assert res.get_json()['status'] == 'ok'
 
 
+def test_root_returns_api_entrypoint_summary():
+    client = web_server.app.test_client()
+    res = client.get('/')
+
+    assert res.status_code == 200
+    payload = res.get_json()
+    assert payload['service'] == 'invest-api'
+    assert payload['entrypoints']['chat'] == '/api/chat'
+
+
+def test_removed_web_ui_routes_return_gone():
+    client = web_server.app.test_client()
+
+    legacy = client.get('/legacy')
+    app_shell = client.get('/app')
+
+    assert legacy.status_code == 410
+    assert app_shell.status_code == 410
+    assert legacy.get_json()['error'] == 'web ui has been removed'
+    assert app_shell.get_json()['removed_path'] == '/app'
+
+
 def test_api_status_requires_auth_when_enabled(monkeypatch):
     runtime = SimpleNamespace(status=lambda detail='fast': {'detail': detail, 'status': 'ok'})
     monkeypatch.setattr(web_server, '_runtime', runtime)

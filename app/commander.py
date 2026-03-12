@@ -43,7 +43,6 @@ from brain.scheduler import CronService, HeartbeatService
 from brain.tool_metadata import (
     INVEST_DEEP_STATUS_TOOL_NAME,
     INVEST_QUICK_STATUS_TOOL_NAME,
-    INVEST_STATUS_TOOL_NAME,
 )
 from brain.tools import build_commander_tools
 from brain.memory import MemoryStore
@@ -161,6 +160,37 @@ def _jsonable(value: Any) -> Any:
     if isinstance(value, np.generic):
         return value.item()
     return value
+
+
+def _extract_ask_result_metadata(response: Any) -> dict[str, Any]:
+    try:
+        payload = json.loads(response) if isinstance(response, str) else dict(response or {})
+    except Exception:
+        return {}
+    if not isinstance(payload, dict):
+        return {}
+
+    protocol = dict(payload.get("protocol") or {})
+    entrypoint = dict(payload.get("entrypoint") or {})
+    next_action = dict(payload.get("next_action") or {})
+    metadata: dict[str, Any] = {}
+
+    status = str(payload.get("status") or "").strip()
+    if status:
+        metadata["status"] = status
+    if protocol.get("domain"):
+        metadata["domain"] = str(protocol["domain"])
+    if protocol.get("operation"):
+        metadata["operation"] = str(protocol["operation"])
+    if protocol.get("schema_version"):
+        metadata["protocol_schema_version"] = str(protocol["schema_version"])
+    if entrypoint.get("kind"):
+        metadata["entrypoint_kind"] = str(entrypoint["kind"])
+    if entrypoint.get("intent"):
+        metadata["intent"] = str(entrypoint["intent"])
+    if next_action.get("kind"):
+        metadata["next_action_kind"] = str(next_action["kind"])
+    return metadata
 
 
 def _classify_workflow_artifact(value: Any) -> str:
@@ -1251,9 +1281,17 @@ class CommanderRuntime:
         self._end_task(status, **metadata)
         self._persist_state()
 
-    def _record_ask_activity(self, event: str, *, session_key: str, channel: str, chat_id: str) -> None:
-        payload = {"session_key": session_key, "channel": channel, "chat_id": chat_id}
-        self.memory.append_audit(event, session_key, {"channel": channel, "chat_id": chat_id})
+    def _record_ask_activity(
+        self,
+        event: str,
+        *,
+        session_key: str,
+        channel: str,
+        chat_id: str,
+        extra: dict[str, Any] | None = None,
+    ) -> None:
+        payload = {"session_key": session_key, "channel": channel, "chat_id": chat_id, **dict(extra or {})}
+        self.memory.append_audit(event, session_key, payload)
         self._append_runtime_event(event, payload, source="brain")
 
     def _read_runtime_lock_payload(self) -> dict[str, Any]:
@@ -1412,7 +1450,13 @@ class CommanderRuntime:
             content=message,
             metadata={"channel": channel, "chat_id": chat_id},
         )
-        self._record_ask_activity(EVENT_ASK_STARTED, session_key=session_key, channel=channel, chat_id=chat_id)
+        self._record_ask_activity(
+            EVENT_ASK_STARTED,
+            session_key=session_key,
+            channel=channel,
+            chat_id=chat_id,
+            extra={"message_length": len(message)},
+        )
         try:
             response = await self.brain.process_direct(message, session_key=session_key)
             self.memory.append(
@@ -1421,7 +1465,14 @@ class CommanderRuntime:
                 content=response or "",
                 metadata={"channel": channel, "chat_id": chat_id},
             )
-            self._record_ask_activity(EVENT_ASK_FINISHED, session_key=session_key, channel=channel, chat_id=chat_id)
+            ask_result = _extract_ask_result_metadata(response)
+            self._record_ask_activity(
+                EVENT_ASK_FINISHED,
+                session_key=session_key,
+                channel=channel,
+                chat_id=chat_id,
+                extra={"message_length": len(message), **ask_result},
+            )
             self._complete_runtime_task(status=STATUS_OK)
             return response
         except Exception:
@@ -3261,7 +3312,7 @@ class CommanderRuntime:
             3. Never fabricate strategy state, training results, config values, or file changes.
 
             Tool operating policy:
-            1. For runtime inspection, prefer `{INVEST_QUICK_STATUS_TOOL_NAME}` by default; use `{INVEST_DEEP_STATUS_TOOL_NAME}` only when deeper freshness is required. `{INVEST_STATUS_TOOL_NAME}` is backward-compatible alias only.
+            1. For runtime inspection, prefer `{INVEST_QUICK_STATUS_TOOL_NAME}` by default; use `{INVEST_DEEP_STATUS_TOOL_NAME}` only when deeper freshness is required.
             2. For observability and recent activity, use `invest_events_summary`, `invest_events_tail`, and `invest_runtime_diagnostics`.
             3. For strategy inventory, use `invest_list_strategies`; if strategy files changed, call `invest_reload_strategies` before analysis or training.
             4. For health checks, prefer `invest_quick_test` before heavier training.
@@ -3282,7 +3333,8 @@ class CommanderRuntime:
             4. If a tool fails or arguments are invalid, explain the issue and retry with corrected arguments when possible.
             5. After using tools, summarize verified facts first, then risks, then recommended next action.
             6. Keep replies concise; do not output fake tool syntax or unverifiable promises.
-            7. Treat this Commander window as the primary human entrypoint; prefer tools over telling the user to open the web UI.
+            7. Treat Commander plus `/api/chat` as the primary interaction entrypoint; the system is headless and no web UI should be referenced.
+            8. When the user asks for runtime detail, expose actionable status, recent events, diagnostics, and artifact paths directly in natural language.
 
             Active strategy genes:
             {self.strategy_registry.to_summary()}
@@ -3309,7 +3361,7 @@ class CommanderRuntime:
             Core rules:
             1. Every decision must serve investment evolution goals.
             2. Treat this Commander workspace as the primary human entrypoint for training, diagnostics, config management, data inspection, and stock-analysis workflows.
-            3. Prefer using `{INVEST_QUICK_STATUS_TOOL_NAME}`, `invest_runtime_diagnostics`, `invest_training_plan_create`, `invest_training_plan_execute`, `invest_leaderboard`, and `invest_list_strategies`; avoid `{INVEST_STATUS_TOOL_NAME}` except for backward compatibility.
+            3. Prefer using `{INVEST_QUICK_STATUS_TOOL_NAME}`, `invest_runtime_diagnostics`, `invest_training_plan_create`, `invest_training_plan_execute`, `invest_leaderboard`, and `invest_list_strategies`.
             4. If strategy files changed, call `invest_reload_strategies` before new cycle decisions.
             5. Keep risk under control, respect confirmation-required writes, and preserve reproducible logs.
 

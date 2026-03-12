@@ -1,12 +1,10 @@
 """
-投资进化系统 - Web 前端服务器
+投资进化系统 - API / Commander 服务器
 
-Flask 应用，包装 CommanderRuntime 提供 REST API。
+Flask 应用，包装 CommanderRuntime 提供 REST API、事件流与自然语言对话入口。
 启动方式：
     source .venv/bin/activate
     python web_server.py [--mock] [--port 8080]
-
-浏览器打开：http://localhost:8080
 """
 
 from __future__ import annotations
@@ -24,26 +22,16 @@ import threading
 from pathlib import Path
 from typing import Any
 
-from flask import Flask, jsonify, request, send_from_directory, Response, stream_with_context
+from flask import Flask, jsonify, request, Response, stream_with_context
 
 from app.commander import CommanderConfig, CommanderRuntime, _apply_runtime_path_overrides
-from app.frontend_contract_catalog import (
-    FRONTEND_CONTRACT_DOCUMENTS_BY_ID,
-    FRONTEND_CONTRACT_PUBLIC_PATHS,
-    build_frontend_contract_catalog_items,
-    load_frontend_contract_document,
+from app.runtime_contract_catalog import (
+    RUNTIME_CONTRACT_DOCUMENTS_BY_ID,
+    RUNTIME_CONTRACT_PUBLIC_PATHS,
+    build_runtime_contract_catalog_items,
+    load_runtime_contract_document,
 )
-from app.web_ui_metadata import (
-    FRONTEND_APP_ROUTE,
-    LEGACY_UI_ROUTE,
-)
-from app.web_ui_runtime import (
-    FRONTEND_APP_SHELL_TARGET,
-    WebUIShellSettings,
-    is_shell_public_path,
-    normalize_frontend_asset_path,
-    resolve_root_shell_target,
-)
+from app.runtime_artifact_reader import resolve_runtime_artifact_path, safe_read_json, safe_read_jsonl, safe_read_text
 from invest.allocator import build_allocation_plan
 from invest.leaderboard import write_leaderboard
 from invest.models import list_models
@@ -242,20 +230,27 @@ def _parse_limit_arg(default: int = 20, maximum: int = 200) -> int:
         raise ValueError("limit must be an integer")
     return max(1, min(maximum, value))
 
-_FRONTEND_DIST_DIR = Path(__file__).parent.parent / "frontend" / "dist"
 
+def _parse_detail_mode(
+    value: Any,
+    *,
+    default: str = "fast",
+    field_name: str = "detail",
+    strict: bool = False,
+) -> str:
+    detail_mode = str(value or default).strip().lower() or default
+    if detail_mode in {"fast", "slow"}:
+        return detail_mode
+    if strict:
+        raise ValueError(f"{field_name} must be one of: fast, slow")
+    return default
 
 # ---------------------------------------------------------------------------
 # Flask app
 # ---------------------------------------------------------------------------
+app = Flask(__name__)
 
-app = Flask(
-    __name__,
-    static_folder=str(Path(__file__).parent.parent / "static"),
-    static_url_path="/static",
-)
-
-_PUBLIC_API_PATHS = set(FRONTEND_CONTRACT_PUBLIC_PATHS)
+_PUBLIC_API_PATHS = set(RUNTIME_CONTRACT_PUBLIC_PATHS)
 _OPTIONALLY_PUBLIC_READ_PATHS = {
     "/api/status",
     "/api/lab/status/quick",
@@ -313,14 +308,8 @@ def _extract_request_token() -> str:
     return str(request.headers.get("X-Invest-Token", "") or "").strip()
 
 
-def _is_shell_public_path(path: str) -> bool:
-    return is_shell_public_path(path)
-
-
 def _request_requires_auth() -> bool:
     path = str(request.path or "")
-    if _is_shell_public_path(path):
-        return False
     if not path.startswith("/api/"):
         return False
     if path in _PUBLIC_API_PATHS:
@@ -332,49 +321,8 @@ def _request_requires_auth() -> bool:
     return True
 
 
-def _artifact_read_roots(runtime: CommanderRuntime) -> list[Path]:
-    cfg = runtime.cfg
-    roots = [
-        Path(cfg.training_output_dir),
-        Path(cfg.meeting_log_dir),
-        Path(cfg.config_snapshot_dir),
-        Path(cfg.config_audit_log_path).parent,
-        Path(cfg.training_plan_dir),
-        Path(cfg.training_run_dir),
-        Path(cfg.training_eval_dir),
-    ]
-    deduped: list[Path] = []
-    for root in roots:
-        resolved = root.resolve()
-        if resolved not in deduped:
-            deduped.append(resolved)
-    return deduped
-
-
 def _resolve_runtime_artifact_path(path_str: str) -> Path | None:
-    runtime = _runtime
-    if runtime is None:
-        return None
-    raw = str(path_str or "").strip()
-    if not raw:
-        return None
-    path = Path(raw).expanduser()
-    if not path.is_absolute():
-        path = Path(runtime.cfg.runtime_state_dir) / path
-    try:
-        resolved = path.resolve()
-    except OSError:
-        return None
-    for root in _artifact_read_roots(runtime):
-        try:
-            resolved.relative_to(root)
-            if resolved.exists() and resolved.is_file():
-                return resolved
-            return None
-        except ValueError:
-            continue
-    logger.warning("Rejected artifact read outside runtime roots: %s", resolved)
-    return None
+    return resolve_runtime_artifact_path(_runtime, path_str)
 
 
 def _client_identifier() -> str:
@@ -388,8 +336,6 @@ def _rate_limit_bucket() -> tuple[str, int] | None:
     if not _web_rate_limit_enabled():
         return None
     path = str(request.path or "")
-    if _is_shell_public_path(path):
-        return None
     if not path.startswith("/api/"):
         return None
     if path in _HEAVY_RATE_LIMIT_PATHS:
@@ -451,67 +397,75 @@ def _enforce_rate_limit():
     return response
 
 
-def _serve_legacy_shell():
-    return send_from_directory(app.static_folder, "index.html")
+def _removed_web_ui_response(path: str):
+    payload = {
+        "error": "web ui has been removed",
+        "removed_path": path,
+        "message": "请改用 /api/chat、/api/status、/api/events 或 commander CLI。",
+        "entrypoints": {
+            "chat": "/api/chat",
+            "status": "/api/status",
+            "events": "/api/events",
+            "healthz": "/healthz",
+        },
+    }
+    return jsonify(payload), 410
 
 
-def _frontend_dist_available() -> bool:
-    return _FRONTEND_DIST_DIR.exists() and _FRONTEND_DIST_DIR.is_dir()
+def _status_snapshot(detail_mode: str) -> dict[str, Any] | tuple[Any, int]:
+    runtime = _runtime
+    if runtime is None:
+        return _runtime_not_ready_response()
+    return runtime.status(detail=detail_mode)
 
 
-def _web_ui_settings() -> WebUIShellSettings:
-    import config as config_module
-
-    return WebUIShellSettings.from_config(config_module.config)
-
-
-@app.route(LEGACY_UI_ROUTE)
-def legacy_index():
-    return _serve_legacy_shell()
+def _status_response(*, detail_mode: str, route_mode: str | None = None):
+    snapshot = _status_snapshot(detail_mode)
+    if isinstance(snapshot, tuple):
+        return snapshot
+    if route_mode is None:
+        return _jsonify_contract_payload(snapshot)
+    return _jsonify_contract_payload({"mode": route_mode, "snapshot": snapshot})
 
 
 @app.route("/")
 def index():
-    target = resolve_root_shell_target(
-        _web_ui_settings(),
-        frontend_dist_available=_frontend_dist_available(),
-        query_args=request.args,
-        headers=request.headers,
-    )
-    if target == FRONTEND_APP_SHELL_TARGET:
-        return frontend_app()
-    return _serve_legacy_shell()
+    return jsonify({
+        "service": "invest-api",
+        "status": "ok",
+        "message": "Web UI 已移除；请通过 API、SSE 或 commander CLI 与系统交互。",
+        "entrypoints": {
+            "chat": "/api/chat",
+            "status": "/api/status",
+            "events": "/api/events",
+            "healthz": "/healthz",
+        },
+    })
 
 
-@app.route(FRONTEND_APP_ROUTE)
-@app.route(f"{FRONTEND_APP_ROUTE}/<path:asset_path>")
+@app.route("/legacy")
+def legacy_index():
+    return _removed_web_ui_response("/legacy")
+
+
+@app.route("/app")
+@app.route("/app/<path:asset_path>")
 def frontend_app(asset_path: str = ""):
-    if not _FRONTEND_DIST_DIR.exists():
-        return jsonify({
-            "error": "frontend dist is not available",
-            "expected_path": str(_FRONTEND_DIST_DIR),
-            "hint": "Build the standalone frontend into frontend/dist and revisit /app.",
-        }), 404
-    normalized = normalize_frontend_asset_path(asset_path)
-    if normalized:
-        asset = _FRONTEND_DIST_DIR / normalized
-        if asset.exists() and asset.is_file():
-            return send_from_directory(_FRONTEND_DIST_DIR, normalized)
-    return send_from_directory(_FRONTEND_DIST_DIR, "index.html")
+    return _removed_web_ui_response("/app" if not asset_path else f"/app/{asset_path}")
 
 
 # ---- Contracts ----
 
 @app.route("/api/contracts")
 def api_contracts():
-    items = build_frontend_contract_catalog_items()
+    items = build_runtime_contract_catalog_items()
     return jsonify({"count": len(items), "items": items})
 
 
-def _serve_frontend_contract_document(document_id: str):
-    document = FRONTEND_CONTRACT_DOCUMENTS_BY_ID[document_id]
+def _serve_runtime_contract_document(document_id: str):
+    document = RUNTIME_CONTRACT_DOCUMENTS_BY_ID[document_id]
     try:
-        return jsonify(load_frontend_contract_document(document))
+        return jsonify(load_runtime_contract_document(document))
     except FileNotFoundError:
         return jsonify({"error": document.not_found_error}), 404
     except Exception as exc:
@@ -519,19 +473,19 @@ def _serve_frontend_contract_document(document_id: str):
         return jsonify({"error": str(exc)}), 500
 
 
-@app.route("/api/contracts/frontend-v1")
-def api_contract_frontend_v1():
-    return _serve_frontend_contract_document("frontend-v1")
+@app.route("/api/contracts/runtime-v1")
+def api_contract_runtime_v1():
+    return _serve_runtime_contract_document("runtime-v1")
 
 
-@app.route("/api/contracts/frontend-v1/schema")
-def api_contract_frontend_v1_schema():
-    return _serve_frontend_contract_document("frontend-v1-schema")
+@app.route("/api/contracts/runtime-v1/schema")
+def api_contract_runtime_v1_schema():
+    return _serve_runtime_contract_document("runtime-v1-schema")
 
 
-@app.route("/api/contracts/frontend-v1/openapi")
-def api_contract_frontend_v1_openapi():
-    return _serve_frontend_contract_document("frontend-v1-openapi")
+@app.route("/api/contracts/runtime-v1/openapi")
+def api_contract_runtime_v1_openapi():
+    return _serve_runtime_contract_document("runtime-v1-openapi")
 
 
 @app.route("/healthz")
@@ -543,33 +497,18 @@ def healthz():
 
 @app.route("/api/status")
 def api_status():
-    runtime = _runtime
-    if runtime is None:
-        return _runtime_not_ready_response()
-    detail = str(request.args.get("detail", "fast") or "fast").strip().lower()
-    return _jsonify_contract_payload(runtime.status(detail=detail))
+    detail_mode = _parse_detail_mode(request.args.get("detail", "fast"))
+    return _status_response(detail_mode=detail_mode)
 
 
 @app.route("/api/lab/status/quick")
 def api_lab_status_quick():
-    runtime = _runtime
-    if runtime is None:
-        return _runtime_not_ready_response()
-    return _jsonify_contract_payload({
-        "mode": "quick",
-        "snapshot": runtime.status(detail="fast"),
-    })
+    return _status_response(detail_mode="fast", route_mode="quick")
 
 
 @app.route("/api/lab/status/deep")
 def api_lab_status_deep():
-    runtime = _runtime
-    if runtime is None:
-        return _runtime_not_ready_response()
-    return _jsonify_contract_payload({
-        "mode": "deep",
-        "snapshot": runtime.status(detail="slow"),
-    })
+    return _status_response(detail_mode="slow", route_mode="deep")
 
 
 # ---- SSE (Server-Sent Events) ----
@@ -625,7 +564,7 @@ def api_chat():
         return jsonify({"error": "message is required"}), 400
     try:
         reply = _run_async(
-            runtime.ask(message, session_key="web:chat", channel="web", chat_id="chat")
+            runtime.ask(message, session_key="api:chat", channel="api", chat_id="chat")
         )
         try:
             payload = json.loads(reply) if isinstance(reply, str) else dict(reply or {})
@@ -687,9 +626,14 @@ def api_training_plan_create():
     except ValueError as exc:
         return jsonify({"error": str(exc)}), 400
 
-    detail_mode = str(data.get("detail_mode", "fast") or "fast").strip().lower()
-    if detail_mode not in {"fast", "slow"}:
-        return jsonify({"error": "detail_mode must be one of: fast, slow"}), 400
+    try:
+        detail_mode = _parse_detail_mode(
+            data.get("detail_mode", "fast"),
+            field_name="detail_mode",
+            strict=True,
+        )
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
 
     raw_tags = data.get("tags", [])
     if isinstance(raw_tags, str):
@@ -959,45 +903,6 @@ def _memory_brief_row(row: dict[str, Any]) -> dict[str, Any]:
     return item
 
 
-def _safe_read_json(path_str: str) -> Any:
-    path = _resolve_runtime_artifact_path(path_str)
-    if path is None:
-        return None
-    try:
-        return json.loads(path.read_text(encoding="utf-8"))
-    except Exception:
-        return None
-
-
-def _safe_read_text(path_str: str, limit: int = 12000) -> str:
-    path = _resolve_runtime_artifact_path(path_str)
-    if path is None:
-        return ""
-    try:
-        return path.read_text(encoding="utf-8")[:limit]
-    except Exception:
-        return ""
-
-
-def _safe_read_jsonl(path_str: str, limit: int = 400) -> list[dict[str, Any]]:
-    path = _resolve_runtime_artifact_path(path_str)
-    if path is None:
-        return []
-    rows: list[dict[str, Any]] = []
-    try:
-        for line in path.read_text(encoding="utf-8").splitlines():
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                rows.append(json.loads(line))
-            except Exception:
-                continue
-    except Exception:
-        return []
-    return rows[-max(1, int(limit)):]
-
-
 def _as_float(value: Any) -> float | None:
     try:
         if value in (None, ""):
@@ -1157,21 +1062,21 @@ def _build_memory_detail(row: dict[str, Any]) -> dict[str, Any]:
         cycle = dict(result or {})
         artifacts = cycle.get("artifacts") if isinstance(cycle.get("artifacts"), dict) else {}
         cycle_id = cycle.get("cycle_id")
-        cycle_result = _safe_read_json(artifacts.get("cycle_result_path", "")) if artifacts else None
-        selection_meeting = _safe_read_json(artifacts.get("selection_meeting_json_path", "")) if artifacts else None
-        review_meeting = _safe_read_json(artifacts.get("review_meeting_json_path", "")) if artifacts else None
-        config_snapshot = _safe_read_json(cycle.get("config_snapshot_path", "")) if cycle.get("config_snapshot_path") else None
+        cycle_result = safe_read_json(_runtime, artifacts.get("cycle_result_path", "")) if artifacts else None
+        selection_meeting = safe_read_json(_runtime, artifacts.get("selection_meeting_json_path", "")) if artifacts else None
+        review_meeting = safe_read_json(_runtime, artifacts.get("review_meeting_json_path", "")) if artifacts else None
+        config_snapshot = safe_read_json(_runtime, cycle.get("config_snapshot_path", "")) if cycle.get("config_snapshot_path") else None
         optimization_path = artifacts.get("optimization_events_path", "") if artifacts else ""
         if optimization_path:
-            optimization_cache.setdefault(optimization_path, _safe_read_jsonl(optimization_path))
+            optimization_cache.setdefault(optimization_path, safe_read_jsonl(_runtime, optimization_path))
         optimization_events = optimization_cache.get(optimization_path, [])
         detailed_results.append({
             **cycle,
             "cycle_result": cycle_result,
             "selection_meeting": selection_meeting,
-            "selection_meeting_markdown": _safe_read_text(artifacts.get("selection_meeting_markdown_path", "")) if artifacts else "",
+            "selection_meeting_markdown": safe_read_text(_runtime, artifacts.get("selection_meeting_markdown_path", "")) if artifacts else "",
             "review_meeting": review_meeting,
-            "review_meeting_markdown": _safe_read_text(artifacts.get("review_meeting_markdown_path", "")) if artifacts else "",
+            "review_meeting_markdown": safe_read_text(_runtime, artifacts.get("review_meeting_markdown_path", "")) if artifacts else "",
             "config_snapshot": config_snapshot,
             "optimization_events": [evt for evt in optimization_events if cycle_id is None or evt.get("cycle_id") in (None, cycle_id)],
         })

@@ -10,9 +10,9 @@ from brain.transcript_snapshot import build_contract_transcript_snapshots
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 CONTRACTS_DIR = PROJECT_ROOT / 'docs' / 'contracts'
-CONTRACT_PATH = CONTRACTS_DIR / 'frontend-api-contract.v1.json'
-SCHEMA_PATH = CONTRACTS_DIR / 'frontend-api-contract.v1.schema.json'
-OPENAPI_PATH = CONTRACTS_DIR / 'frontend-api-contract.v1.openapi.json'
+CONTRACT_PATH = CONTRACTS_DIR / 'runtime-api-contract.v1.json'
+SCHEMA_PATH = CONTRACTS_DIR / 'runtime-api-contract.v1.schema.json'
+OPENAPI_PATH = CONTRACTS_DIR / 'runtime-api-contract.v1.openapi.json'
 
 
 def load_contract_source() -> dict[str, Any]:
@@ -70,7 +70,7 @@ def build_openapi(contract: dict[str, Any]) -> dict[str, Any]:
                 }
             },
             'x-runtime-required': bool(endpoint.get('runtime_required', False)),
-            'x-frontend-preferred': bool(endpoint.get('frontend_preferred', False)),
+            'x-runtime-preferred': bool(endpoint.get('frontend_preferred', False)),
             'x-latency': endpoint.get('latency', 'unknown'),
             'x-realtime': bool(endpoint.get('realtime', False)),
             'x-pagination': endpoint.get('pagination', 'none'),
@@ -120,7 +120,7 @@ def build_openapi(contract: dict[str, Any]) -> dict[str, Any]:
             'operationId': 'events_stream',
             'tags': ['events'],
             'summary': 'Consume the runtime SSE stream for training and agent observability.',
-            'description': 'Server-Sent Events endpoint used by the standalone frontend for cycle, agent, module log, and meeting speech updates.',
+            'description': 'Server-Sent Events endpoint used by API, CLI, and agent clients for cycle, agent, module log, and meeting speech updates.',
             'responses': {
                 '200': {
                     'description': 'SSE stream established.',
@@ -134,7 +134,7 @@ def build_openapi(contract: dict[str, Any]) -> dict[str, Any]:
             'x-sse-event-refs': sse_event_refs,
             'x-sse-protocol': deepcopy(contract['sse'].get('protocol', {})),
             'x-runtime-required': False,
-            'x-frontend-preferred': True,
+            'x-runtime-preferred': True,
             'x-realtime': True,
         }
     }
@@ -142,9 +142,9 @@ def build_openapi(contract: dict[str, Any]) -> dict[str, Any]:
     return {
         'openapi': '3.1.0',
         'info': {
-            'title': '投资进化系统 Frontend Contract',
+            'title': '投资进化系统 Runtime Contract',
             'version': contract['version'],
-            'description': 'Derived OpenAPI document generated from docs/contracts/frontend-api-contract.v1.json',
+            'description': 'Derived OpenAPI document generated from docs/contracts/runtime-api-contract.v1.json',
         },
         'servers': [
             {'url': '/', 'description': 'Project root; paths remain absolute and unversioned.'},
@@ -223,11 +223,11 @@ def build_contract_schema() -> dict[str, Any]:
     }
     return {
         '$schema': 'https://json-schema.org/draft/2020-12/schema',
-        '$id': 'https://contracts.local/frontend-api-contract.v1.schema.json',
-        'title': 'Frontend API Contract V1',
+        '$id': 'https://contracts.local/runtime-api-contract.v1.schema.json',
+        'title': 'Runtime API Contract V1',
         'type': 'object',
         'properties': {
-            'contract_id': {'type': 'string', 'const': 'frontend-v1'},
+            'contract_id': {'type': 'string', 'const': 'runtime-v1'},
             'version': {'type': 'string'},
             'published_at': {'type': 'string'},
             'api_base': {'type': 'string'},
@@ -314,7 +314,7 @@ def check_contract_documents(source_contract: dict[str, Any] | None = None) -> l
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description='Refresh or verify frontend API contract artifacts.')
+    parser = argparse.ArgumentParser(description='Refresh or verify runtime API contract artifacts.')
     parser.add_argument('--check', action='store_true', help='Only verify generated artifacts are up to date.')
     args = parser.parse_args(argv)
 
@@ -324,9 +324,9 @@ def main(argv: list[str] | None = None) -> int:
             for item in drift:
                 print(item)
             return 1
-        print('frontend contract artifacts are up to date')
+        print('runtime contract artifacts are up to date')
         return 0
 
     write_contract_documents()
-    print('refreshed frontend contract artifacts')
+    print('refreshed runtime contract artifacts')
     return 0

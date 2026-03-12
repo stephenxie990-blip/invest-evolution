@@ -8,7 +8,7 @@ from app.train import SelfLearningController
 from market_data import MockDataProvider
 
 
-CONTRACT = json.loads(Path('docs/contracts/frontend-api-contract.v1.json').read_text(encoding='utf-8'))
+CONTRACT = json.loads(Path('docs/contracts/runtime-api-contract.v1.json').read_text(encoding='utf-8'))
 SSE_SCHEMAS = CONTRACT['components']['sse_schemas']
 
 

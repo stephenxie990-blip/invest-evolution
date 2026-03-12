@@ -24,7 +24,7 @@ def test_run_training_cycle_emits_cutoff_date_before_diagnostics(
         data_provider=MockDataProvider(stock_count=5, days=300, start_date="20230101"),
     )
 
-    monkeypatch.setattr(controller.data_manager, "random_cutoff_date", lambda: "20240131")
+    monkeypatch.setattr(controller.data_manager, "random_cutoff_date", lambda **_: "20240131")
     monkeypatch.setattr(
         controller.data_manager,
         "diagnose_training_data",

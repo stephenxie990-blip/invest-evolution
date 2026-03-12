@@ -28,7 +28,7 @@ prod = ["gunicorn>=23.0"]
 invest-commander = "app.commander:main"
 invest-train = "app.train:train_main"
 invest-data = "market_data.__main__:main"
-invest-refresh-contracts = "app.frontend_contract_tools:main"
+invest-refresh-contracts = "app.runtime_contract_tools:main"
 invest-freeze-gate = "app.freeze_gate:main"
 
 [tool.pytest.ini_options]

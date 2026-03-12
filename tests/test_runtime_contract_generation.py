@@ -1,7 +1,7 @@
 import json
 from pathlib import Path
 
-from app.frontend_contract_tools import (
+from app.runtime_contract_tools import (
     CONTRACT_PATH,
     OPENAPI_PATH,
     SCHEMA_PATH,
@@ -10,11 +10,11 @@ from app.frontend_contract_tools import (
 )
 
 
-def test_generated_frontend_contract_artifacts_have_no_drift():
+def test_generated_runtime_contract_artifacts_have_no_drift():
     assert check_contract_documents() == []
 
 
-def test_generated_frontend_contract_documents_match_repo_files():
+def test_generated_runtime_contract_documents_match_repo_files():
     generated = build_contract_documents()
     current = {
         CONTRACT_PATH: json.loads(Path(CONTRACT_PATH).read_text(encoding='utf-8')),

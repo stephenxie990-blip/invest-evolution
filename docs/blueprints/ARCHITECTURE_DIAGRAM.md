@@ -8,7 +8,7 @@ flowchart TD
 
     ENTRY --> CMD[CommanderRuntime]
     ENTRY --> TRAIN[SelfLearningController]
-    ENTRY --> WEB[Flask API]
+    ENTRY --> WEB[Flask API / SSE / Chat]
 
     CMD --> BRAIN[brain/]
     CMD --> BODY[InvestmentBodyService]
@@ -31,7 +31,7 @@ flowchart TD
     DOMAIN --> BOARD[invest/leaderboard]
 
     CMD --> RUNTIME[runtime/]
-    WEB --> STATIC[static/index.html]
+    WEB --> API[JSON / SSE Endpoints]
 ```
 
 ## 2. Commander 运行时图

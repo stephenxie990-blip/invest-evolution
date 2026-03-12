@@ -65,7 +65,7 @@ def test_runtime_path_service_rejects_paths_outside_runtime(tmp_path):
         service.apply_patch({'training_output_dir': '../escape'})
 
 
-def test_config_service_normalizes_web_ui_fields(tmp_path):
+def test_config_service_updates_rate_limit_fields(tmp_path):
     project_root = tmp_path
     (project_root / 'config').mkdir(parents=True, exist_ok=True)
     service = EvolutionConfigService(
@@ -75,22 +75,12 @@ def test_config_service_normalizes_web_ui_fields(tmp_path):
 
     payload = service.apply_patch(
         {
-            'web_ui_shell_mode': ' APP ',
-            'frontend_canary_query_param': '  rollout  ',
+            'web_rate_limit_enabled': 'true',
+            'web_rate_limit_window_sec': '90',
         },
         source='test',
     )
 
     cfg = payload['config']
-    assert cfg['web_ui_shell_mode'] == 'app'
-    assert cfg['frontend_canary_query_param'] == 'rollout'
-
-
-def test_config_service_rejects_invalid_web_ui_shell_mode(tmp_path):
-    service = EvolutionConfigService(
-        project_root=tmp_path,
-        live_config=EvolutionConfig(),
-    )
-
-    with pytest.raises(ValueError, match='web_ui_shell_mode must be one of'):
-        service.apply_patch({'web_ui_shell_mode': 'beta'}, source='test')
+    assert cfg['web_rate_limit_enabled'] is True
+    assert cfg['web_rate_limit_window_sec'] == 90

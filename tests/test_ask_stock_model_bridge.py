@@ -193,7 +193,6 @@ def test_ask_stock_canonical_dashboard_path_does_not_require_legacy_dashboard_bu
         output_dir=tmp_path / "runtime" / "outputs" / "training",
     )
     service = _build_service(tmp_path, controller=controller)
-    service._build_dashboard = lambda **kwargs: (_ for _ in ()).throw(AssertionError("legacy dashboard should not be used when research bridge is available"))
 
     payload = service.ask_stock(question="请分析 Alpha", query="Alpha")
 
@@ -201,30 +200,20 @@ def test_ask_stock_canonical_dashboard_path_does_not_require_legacy_dashboard_bu
     assert payload["dashboard"]["signal"] == payload["research"]["hypothesis"]["stance"]
 
 
-def test_ask_stock_fallback_path_keeps_legacy_dashboard_contract(tmp_path: Path):
+def test_ask_stock_fallback_path_uses_canonical_fallback_contract(tmp_path: Path):
     service = _build_service(tmp_path)
     service._build_research_bridge = lambda **kwargs: {
         "status": "unavailable",
         "error": "bridge offline",
         "details": {"stage": "test"},
     }
-    service._build_dashboard = lambda **kwargs: {
-        "signal": "legacy-fallback",
-        "score": 42.0,
-        "entry_price": None,
-        "stop_loss": None,
-        "reason": "fallback",
-        "matched_signals": [],
-        "core_rules": [],
-        "entry_conditions": [],
-    }
 
     payload = service.ask_stock(question="请分析 Alpha", query="Alpha")
 
     assert payload["research"]["status"] == "unavailable"
-    assert payload["research"]["fallback"] == "legacy_yaml_dashboard"
-    assert payload["analysis"]["model_bridge"]["fallback"] == "legacy_yaml_dashboard"
-    assert payload["dashboard"]["signal"] == "legacy-fallback"
+    assert payload["research"]["fallback"] == "canonical_dashboard_fallback"
+    assert payload["analysis"]["model_bridge"]["fallback"] == "canonical_dashboard_fallback"
+    assert payload["dashboard"]["signal"]
 
 
 def test_ask_stock_fallback_path_uses_canonical_dashboard_renderer(tmp_path: Path, monkeypatch):
@@ -233,16 +222,6 @@ def test_ask_stock_fallback_path_uses_canonical_dashboard_renderer(tmp_path: Pat
         "status": "unavailable",
         "error": "bridge offline",
         "details": {"stage": "test"},
-    }
-    service._build_dashboard = lambda **kwargs: {
-        "signal": "legacy-fallback",
-        "score": 42.0,
-        "entry_price": 9.9,
-        "stop_loss": 9.3,
-        "reason": "legacy fallback reason",
-        "matched_signals": ["B", "A"],
-        "core_rules": ["rule-1"],
-        "entry_conditions": ["cond-1"],
     }
     captured = {}
 
@@ -253,7 +232,7 @@ def test_ask_stock_fallback_path_uses_canonical_dashboard_renderer(tmp_path: Pat
             "score": kwargs["hypothesis"].score,
             "entry_price": kwargs["hypothesis"].entry_rule.get("price"),
             "stop_loss": kwargs["hypothesis"].invalidation_rule.get("price"),
-            "reason": kwargs.get("legacy_reason", ""),
+            "reason": kwargs.get("supplemental_reason", ""),
             "matched_signals": list(kwargs["matched_signals"]),
             "core_rules": list(kwargs["core_rules"]),
             "entry_conditions": list(kwargs["entry_conditions"]),
@@ -264,7 +243,7 @@ def test_ask_stock_fallback_path_uses_canonical_dashboard_renderer(tmp_path: Pat
     payload = service.ask_stock(question="请分析 Alpha", query="Alpha")
 
     assert payload["dashboard"]["signal"] == "canonical-fallback"
-    assert payload["dashboard"]["reason"] == "legacy fallback reason"
-    assert captured["hypothesis"].stance == "legacy-fallback"
-    assert captured["legacy_reason"] == "legacy fallback reason"
-    assert captured["matched_signals"] == ["B", "A"]
+    assert "分析摘要" in payload["dashboard"]["reason"] or payload["dashboard"]["reason"]
+    assert captured["hypothesis"].stance in {"候选买入", "偏强关注", "持有观察", "偏弱回避", "减仓/回避"}
+    assert captured["supplemental_reason"]
+    assert isinstance(captured["matched_signals"], list)

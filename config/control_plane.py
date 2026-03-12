@@ -81,37 +81,37 @@ def _sanitize_name(value: str) -> str:
     return lowered.strip("_") or "component"
 
 
-def _legacy_default_payload() -> dict[str, Any]:
+def _default_control_plane_payload() -> dict[str, Any]:
     from config import agent_config_registry, config
 
     payload: dict[str, Any] = {
         "llm": {
             "providers": {
-                "legacy_default": {
+                "default_provider": {
                     "api_base": str(getattr(config, "llm_api_base", "") or ""),
                     "api_key": str(getattr(config, "llm_api_key", "") or ""),
                 }
             },
             "models": {
-                "legacy_fast": {
-                    "provider": "legacy_default",
+                "default_fast": {
+                    "provider": "default_provider",
                     "model": str(getattr(config, "llm_fast_model", "") or ""),
                 },
-                "legacy_deep": {
-                    "provider": "legacy_default",
+                "default_deep": {
+                    "provider": "default_provider",
                     "model": str(getattr(config, "llm_deep_model", "") or ""),
                 },
             },
             "bindings": {
-                "defaults.fast": "legacy_fast",
-                "defaults.deep": "legacy_deep",
-                "controller.main": "legacy_fast",
-                "meeting.selection.fast": "legacy_fast",
-                "meeting.selection.deep": "legacy_deep",
-                "meeting.review.fast": "legacy_fast",
-                "meeting.review.deep": "legacy_deep",
-                "optimizer.loss_analysis": "legacy_deep",
-                "commander.brain": "legacy_fast",
+                "defaults.fast": "default_fast",
+                "defaults.deep": "default_deep",
+                "controller.main": "default_fast",
+                "meeting.selection.fast": "default_fast",
+                "meeting.selection.deep": "default_deep",
+                "meeting.review.fast": "default_fast",
+                "meeting.review.deep": "default_deep",
+                "optimizer.loss_analysis": "default_deep",
+                "commander.brain": "default_fast",
             },
         },
         "data": {
@@ -129,14 +129,14 @@ def _legacy_default_payload() -> dict[str, Any]:
         binding_key = f"agent.{agent_name}"
         lowered = raw_model.lower()
         if lowered in {"", "fast"}:
-            bindings[binding_key] = "legacy_fast"
+            bindings[binding_key] = "default_fast"
             continue
         if lowered == "deep":
-            bindings[binding_key] = "legacy_deep"
+            bindings[binding_key] = "default_deep"
             continue
-        profile_name = f"legacy_agent_{_sanitize_name(agent_name)}"
+        profile_name = f"agent_{_sanitize_name(agent_name)}"
         models[profile_name] = {
-            "provider": "legacy_default",
+            "provider": "default_provider",
             "model": raw_model,
         }
         bindings[binding_key] = profile_name
@@ -164,7 +164,7 @@ def get_control_plane_paths(project_root: str | Path | None = None) -> list[Path
 
 @lru_cache(maxsize=8)
 def load_control_plane(project_root: str | Path | None = None) -> dict[str, Any]:
-    payload = _legacy_default_payload()
+    payload = _default_control_plane_payload()
     for path in get_control_plane_paths(project_root):
         payload = _deep_merge(payload, _read_yaml_dict(path))
     return payload
@@ -511,24 +511,3 @@ def _provider_dict(payload: dict[str, Any], provider_name: str) -> dict[str, Any
     llm = dict(payload.get("llm") or {})
     providers = dict(llm.get("providers") or {})
     return dict(providers.get(provider_name) or {})
-
-
-
-def legacy_model_setting_from_control_plane(
-    component_key: str,
-    *,
-    payload: dict[str, Any] | None = None,
-    project_root: str | Path | None = None,
-) -> str:
-    effective_payload = payload or load_control_plane(project_root)
-    binding_name = _binding_name(effective_payload, component_key)
-    if not binding_name:
-        return ""
-    fast_binding = _binding_name(effective_payload, "defaults.fast") or "legacy_fast"
-    deep_binding = _binding_name(effective_payload, "defaults.deep") or "legacy_deep"
-    if binding_name == fast_binding:
-        return "fast"
-    if binding_name == deep_binding:
-        return "deep"
-    profile = _profile_dict(effective_payload, binding_name)
-    return str(profile.get("model", "") or "").strip()

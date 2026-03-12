@@ -9,7 +9,7 @@ def test_build_freeze_gate_steps_quick_contains_contract_and_focused_suite():
         "focused-protocol-regression",
     ]
     assert steps[0].command[-1] == "--check"
-    assert "tests/test_frontend_contract_generation.py" in steps[1].command
+    assert "tests/test_runtime_contract_generation.py" in steps[1].command
 
 
 def test_build_freeze_gate_steps_full_adds_full_regression_suite():
@@ -21,4 +21,4 @@ def test_build_freeze_gate_steps_full_adds_full_regression_suite():
         "full-regression-suite",
     ]
     assert "tests/test_commander.py" in steps[-1].command
-    assert "tests/test_frontend_api_contract.py" in steps[-1].command
+    assert "tests/test_runtime_api_contract.py" in steps[-1].command

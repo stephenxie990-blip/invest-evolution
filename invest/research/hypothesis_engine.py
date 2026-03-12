@@ -15,7 +15,6 @@ def build_research_hypothesis(
 ) -> ResearchHypothesis:
     cross = dict(snapshot.cross_section_context or {})
     features = dict(snapshot.feature_snapshot or {})
-    legacy = dict(features.get("legacy_signals") or {})
     signal = dict(features.get("signal") or {})
     summary = dict(features.get("summary") or {})
     feature_metadata = dict(features.get("metadata") or {})
@@ -24,7 +23,6 @@ def build_research_hypothesis(
         summary.get("close")
         or feature_metadata.get("latest_close")
         or factor_values.get("latest_close")
-        or legacy.get("latest_close")
     )
     latest_close = float(latest_close or 0.0) if latest_close not in (None, "") else 0.0
     percentile = cross.get("percentile")
@@ -48,7 +46,7 @@ def build_research_hypothesis(
     take_profit = round(latest_close * (1.0 + take_profit_pct), 2) if latest_close and stance in {"候选买入", "偏强关注"} else None
     supporting_factors = []
     contradicting_factors = []
-    canonical_flags = dict(feature_metadata.get("flags") or signal.get("flags") or legacy.get("flags") or {})
+    canonical_flags = dict(feature_metadata.get("flags") or signal.get("flags") or {})
     canonical_matched = list(feature_metadata.get("matched_signals") or signal.get("matched_signals") or [])
     for label in canonical_matched:
         if str(label).strip():

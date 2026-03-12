@@ -1,9 +1,9 @@
 {
   "openapi": "3.1.0",
   "info": {
-    "title": "投资进化系统 Frontend Contract",
+    "title": "投资进化系统 Runtime Contract",
     "version": "1.1.0",
-    "description": "Derived OpenAPI document generated from docs/contracts/frontend-api-contract.v1.json"
+    "description": "Derived OpenAPI document generated from docs/contracts/runtime-api-contract.v1.json"
   },
   "servers": [
     {
@@ -33,23 +33,23 @@
           }
         },
         "x-runtime-required": false,
-        "x-frontend-preferred": true,
+        "x-runtime-preferred": true,
         "x-latency": "fast",
         "x-realtime": false,
         "x-pagination": "none"
       }
     },
-    "/api/contracts/frontend-v1": {
+    "/api/contracts/runtime-v1": {
       "get": {
-        "operationId": "contracts_frontendV1",
+        "operationId": "contracts_runtimeV1",
         "tags": [
           "contracts"
         ],
-        "summary": "Fetch the frozen frontend API contract document.",
-        "description": "Primary handoff contract for the standalone frontend.",
+        "summary": "Fetch the frozen runtime API contract document.",
+        "description": "Primary handoff contract for API, CLI, and agent clients.",
         "responses": {
           "200": {
-            "description": "Fetch the frozen frontend API contract document.",
+            "description": "Fetch the frozen runtime API contract document.",
             "content": {
               "application/json": {
                 "schema": {
@@ -61,7 +61,7 @@
           }
         },
         "x-runtime-required": false,
-        "x-frontend-preferred": true,
+        "x-runtime-preferred": true,
         "x-latency": "fast",
         "x-realtime": false,
         "x-pagination": "none"
@@ -98,7 +98,7 @@
           }
         },
         "x-runtime-required": true,
-        "x-frontend-preferred": true,
+        "x-runtime-preferred": true,
         "x-latency": "fast_or_slow",
         "x-realtime": false,
         "x-pagination": "none",
@@ -151,7 +151,7 @@
           }
         },
         "x-runtime-required": true,
-        "x-frontend-preferred": true,
+        "x-runtime-preferred": true,
         "x-latency": "fast",
         "x-realtime": false,
         "x-pagination": "none"
@@ -188,7 +188,7 @@
           }
         },
         "x-runtime-required": true,
-        "x-frontend-preferred": true,
+        "x-runtime-preferred": true,
         "x-latency": "slow",
         "x-realtime": false,
         "x-pagination": "none"
@@ -201,7 +201,7 @@
           "events"
         ],
         "summary": "Consume the runtime SSE stream for training and agent observability.",
-        "description": "Server-Sent Events endpoint used by the standalone frontend for cycle, agent, module log, and meeting speech updates.",
+        "description": "Server-Sent Events endpoint used by API, CLI, and agent clients for cycle, agent, module log, and meeting speech updates.",
         "responses": {
           "200": {
             "description": "SSE stream established.",
@@ -233,7 +233,7 @@
           "resume_behavior": "best-effort only; client should reconnect and refresh status if history gaps occur"
         },
         "x-runtime-required": false,
-        "x-frontend-preferred": true,
+        "x-runtime-preferred": true,
         "x-realtime": true
       }
     },
@@ -288,7 +288,7 @@
           }
         },
         "x-runtime-required": true,
-        "x-frontend-preferred": true,
+        "x-runtime-preferred": true,
         "x-latency": "medium",
         "x-realtime": false,
         "x-pagination": "none",
@@ -364,7 +364,7 @@
           }
         },
         "x-runtime-required": true,
-        "x-frontend-preferred": false,
+        "x-runtime-preferred": false,
         "x-latency": "long",
         "x-realtime": true,
         "x-pagination": "none",
@@ -434,7 +434,7 @@
           }
         },
         "x-runtime-required": true,
-        "x-frontend-preferred": true,
+        "x-runtime-preferred": true,
         "x-latency": "fast",
         "x-realtime": false,
         "x-pagination": "none",
@@ -540,7 +540,7 @@
           }
         },
         "x-runtime-required": true,
-        "x-frontend-preferred": true,
+        "x-runtime-preferred": true,
         "x-latency": "fast",
         "x-realtime": false,
         "x-pagination": "limit-only",
@@ -599,7 +599,7 @@
           }
         },
         "x-runtime-required": true,
-        "x-frontend-preferred": true,
+        "x-runtime-preferred": true,
         "x-latency": "fast",
         "x-realtime": false,
         "x-pagination": "none",
@@ -667,7 +667,7 @@
           }
         },
         "x-runtime-required": true,
-        "x-frontend-preferred": true,
+        "x-runtime-preferred": true,
         "x-latency": "long",
         "x-realtime": true,
         "x-pagination": "none",
@@ -725,7 +725,7 @@
           }
         },
         "x-runtime-required": true,
-        "x-frontend-preferred": true,
+        "x-runtime-preferred": true,
         "x-latency": "fast",
         "x-realtime": false,
         "x-pagination": "limit-only",
@@ -784,7 +784,7 @@
           }
         },
         "x-runtime-required": true,
-        "x-frontend-preferred": true,
+        "x-runtime-preferred": true,
         "x-latency": "fast",
         "x-realtime": false,
         "x-pagination": "none",
@@ -842,7 +842,7 @@
           }
         },
         "x-runtime-required": true,
-        "x-frontend-preferred": true,
+        "x-runtime-preferred": true,
         "x-latency": "fast",
         "x-realtime": false,
         "x-pagination": "limit-only",
@@ -901,7 +901,7 @@
           }
         },
         "x-runtime-required": true,
-        "x-frontend-preferred": true,
+        "x-runtime-preferred": true,
         "x-latency": "fast",
         "x-realtime": false,
         "x-pagination": "none",
@@ -949,7 +949,7 @@
           }
         },
         "x-runtime-required": true,
-        "x-frontend-preferred": true,
+        "x-runtime-preferred": true,
         "x-latency": "fast",
         "x-realtime": false,
         "x-pagination": "none"
@@ -986,7 +986,7 @@
           }
         },
         "x-runtime-required": true,
-        "x-frontend-preferred": true,
+        "x-runtime-preferred": true,
         "x-latency": "medium",
         "x-realtime": false,
         "x-pagination": "none"
@@ -1023,7 +1023,7 @@
           }
         },
         "x-runtime-required": true,
-        "x-frontend-preferred": true,
+        "x-runtime-preferred": true,
         "x-latency": "medium",
         "x-realtime": false,
         "x-pagination": "none",
@@ -1088,7 +1088,7 @@
           }
         },
         "x-runtime-required": true,
-        "x-frontend-preferred": true,
+        "x-runtime-preferred": true,
         "x-latency": "fast",
         "x-realtime": false,
         "x-pagination": "none"
@@ -1125,7 +1125,7 @@
           }
         },
         "x-runtime-required": true,
-        "x-frontend-preferred": true,
+        "x-runtime-preferred": true,
         "x-latency": "medium",
         "x-realtime": false,
         "x-pagination": "none",
@@ -1173,7 +1173,7 @@
           }
         },
         "x-runtime-required": true,
-        "x-frontend-preferred": true,
+        "x-runtime-preferred": true,
         "x-latency": "fast",
         "x-realtime": false,
         "x-pagination": "none"
@@ -1218,7 +1218,7 @@
           }
         },
         "x-runtime-required": true,
-        "x-frontend-preferred": true,
+        "x-runtime-preferred": true,
         "x-latency": "fast",
         "x-realtime": false,
         "x-pagination": "none",
@@ -1296,7 +1296,7 @@
           }
         },
         "x-runtime-required": true,
-        "x-frontend-preferred": true,
+        "x-runtime-preferred": true,
         "x-latency": "fast",
         "x-realtime": false,
         "x-pagination": "none",
@@ -1354,7 +1354,7 @@
           }
         },
         "x-runtime-required": true,
-        "x-frontend-preferred": true,
+        "x-runtime-preferred": true,
         "x-latency": "fast",
         "x-realtime": false,
         "x-pagination": "limit-only",
@@ -1423,7 +1423,7 @@
           }
         },
         "x-runtime-required": true,
-        "x-frontend-preferred": true,
+        "x-runtime-preferred": true,
         "x-latency": "medium",
         "x-realtime": false,
         "x-pagination": "none",
@@ -1461,7 +1461,7 @@
           }
         },
         "x-runtime-required": true,
-        "x-frontend-preferred": true,
+        "x-runtime-preferred": true,
         "x-latency": "fast",
         "x-realtime": false,
         "x-pagination": "none"
@@ -1496,7 +1496,7 @@
           }
         },
         "x-runtime-required": true,
-        "x-frontend-preferred": true,
+        "x-runtime-preferred": true,
         "x-latency": "fast",
         "x-realtime": false,
         "x-pagination": "none",
@@ -1548,7 +1548,7 @@
           }
         },
         "x-runtime-required": true,
-        "x-frontend-preferred": true,
+        "x-runtime-preferred": true,
         "x-latency": "fast",
         "x-realtime": false,
         "x-pagination": "none"
@@ -1593,7 +1593,7 @@
           }
         },
         "x-runtime-required": true,
-        "x-frontend-preferred": true,
+        "x-runtime-preferred": true,
         "x-latency": "fast",
         "x-realtime": false,
         "x-pagination": "none",
@@ -1644,7 +1644,7 @@
           }
         },
         "x-runtime-required": true,
-        "x-frontend-preferred": true,
+        "x-runtime-preferred": true,
         "x-latency": "fast",
         "x-realtime": false,
         "x-pagination": "none"
@@ -1655,7 +1655,7 @@
           "config"
         ],
         "summary": "Patch editable evolution training/runtime configuration.",
-        "description": "Security: llm_api_key should be sourced from env or config/evolution.local.yaml; response remains masked.\nRollout: web_ui_shell_mode + frontend_canary_enabled are used for legacy/app switch and canary release.",
+        "description": "Security: llm_api_key should be sourced from env or config/evolution.local.yaml; response remains masked.\nWeb UI has been removed; agent and CLI workflows should use API, SSE and commander entrypoints.",
         "responses": {
           "200": {
             "description": "Patch editable evolution training/runtime configuration.",
@@ -1689,7 +1689,7 @@
           }
         },
         "x-runtime-required": true,
-        "x-frontend-preferred": true,
+        "x-runtime-preferred": true,
         "x-latency": "fast",
         "x-realtime": false,
         "x-pagination": "none",
@@ -1758,17 +1758,13 @@
                   "stop_on_freeze": {
                     "type": "boolean"
                   },
-                  "web_ui_shell_mode": {
-                    "type": "string",
-                    "enum": [
-                      "legacy",
-                      "app"
-                    ],
-                    "description": "Controls whether root path / serves the legacy shell or the standalone frontend."
-                  },
-                  "frontend_canary_enabled": {
+                  "web_api_require_auth": {
                     "type": "boolean",
-                    "description": "When true and web_ui_shell_mode=legacy, allows canary access to the new frontend via query/header opt-in."
+                    "description": "Whether API authentication is required for non-public endpoints."
+                  },
+                  "web_api_public_read_enabled": {
+                    "type": "boolean",
+                    "description": "Whether selected read-only API endpoints may remain public when auth is enabled."
                   }
                 }
               }
@@ -1808,7 +1804,7 @@
           }
         },
         "x-runtime-required": true,
-        "x-frontend-preferred": true,
+        "x-runtime-preferred": true,
         "x-latency": "fast_or_slow",
         "x-realtime": false,
         "x-pagination": "none",
@@ -1857,7 +1853,7 @@
           }
         },
         "x-runtime-required": true,
-        "x-frontend-preferred": true,
+        "x-runtime-preferred": true,
         "x-latency": "medium",
         "x-realtime": false,
         "x-pagination": "limit-only",
@@ -1933,7 +1929,7 @@
           }
         },
         "x-runtime-required": true,
-        "x-frontend-preferred": true,
+        "x-runtime-preferred": true,
         "x-latency": "medium",
         "x-realtime": false,
         "x-pagination": "limit-only",
@@ -2009,7 +2005,7 @@
           }
         },
         "x-runtime-required": true,
-        "x-frontend-preferred": true,
+        "x-runtime-preferred": true,
         "x-latency": "slow",
         "x-realtime": false,
         "x-pagination": "limit-only",
@@ -2075,7 +2071,7 @@
           }
         },
         "x-runtime-required": true,
-        "x-frontend-preferred": true,
+        "x-runtime-preferred": true,
         "x-latency": "async",
         "x-realtime": false,
         "x-pagination": "none",
@@ -2143,7 +2139,7 @@
           }
         },
         "x-runtime-required": true,
-        "x-frontend-preferred": true,
+        "x-runtime-preferred": true,
         "x-latency": "medium",
         "x-realtime": false,
         "x-pagination": "none",

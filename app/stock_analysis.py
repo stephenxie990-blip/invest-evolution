@@ -834,13 +834,13 @@ class StockAnalysisService:
         if research_bridge.get("status") != "ok":
             fallback_details = {
                 "error": str(research_bridge.get("error") or ""),
-                "fallback": "legacy_yaml_dashboard",
+                "fallback": "canonical_dashboard_fallback",
                 "details": dict(research_bridge.get("details") or {}),
             }
             research_payload.update(fallback_details)
             model_bridge_payload.update(fallback_details)
             return {
-                "dashboard": self._build_dashboard_fallback_projection(
+                "dashboard": self._build_canonical_fallback_projection(
                     strategy=strategy,
                     derived=derived,
                     execution=execution,
@@ -917,43 +917,76 @@ class StockAnalysisService:
             "attribution_id": attribution_id,
         }
 
-    def _build_dashboard_fallback_projection(
+    def _build_canonical_fallback_projection(
         self,
         *,
         strategy: StockAnalysisStrategy,
         derived: dict[str, Any],
         execution: dict[str, Any],
     ) -> dict[str, Any]:
-        legacy_dashboard = self._build_dashboard(strategy=strategy, derived=derived, execution=execution)
-        legacy_reason = str(legacy_dashboard.get("reason") or "")
+        score = 50.0
+        reason_parts: list[str] = []
+        flags = dict(derived.get("flags") or {})
+        matched_signals = list(derived.get("matched_signals") or [])
+        for label, delta in strategy.scoring.items():
+            if flags.get(label):
+                score += float(delta)
+                reason_parts.append(f"{label}{'+' if delta >= 0 else ''}{delta:g}")
+        algo_score = float(derived.get("algo_score") or 0.0)
+        score += max(-10.0, min(10.0, algo_score * 2.0))
+        if algo_score:
+            reason_parts.append(f"algo_score 调整 {max(-10.0, min(10.0, algo_score * 2.0)):+.1f}")
+        final_reasoning = str(execution.get("final_reasoning") or "").strip()
+        if final_reasoning:
+            reason_parts.append(f"分析摘要: {final_reasoning[:120]}")
+
+        stance = "持有观察"
+        if score >= 82:
+            stance = "候选买入"
+        elif score >= 70:
+            stance = "偏强关注"
+        elif score <= 35:
+            stance = "减仓/回避"
+        elif score <= 45:
+            stance = "偏弱回避"
+
+        latest_price = float(derived.get("latest_close") or 0.0)
+        entry_price = round(latest_price * 0.99, 2) if latest_price and stance in {"候选买入", "偏强关注"} else None
+        stop_loss = round(latest_price * 0.94, 2) if latest_price else None
+        contradicting_factors = [
+            label
+            for label in ("空头排列", "MACD死叉", "RSI超买", "趋势向下", "结构走弱", "逼近阻力", "跌破MA20")
+            if flags.get(label)
+        ]
         fallback_hypothesis = ResearchHypothesis(
-            hypothesis_id="hypothesis_legacy_dashboard_fallback",
-            snapshot_id="snapshot_legacy_dashboard_fallback",
-            policy_id="policy_legacy_dashboard_fallback",
-            stance=str(legacy_dashboard.get("signal") or "持有观察"),
-            score=float(legacy_dashboard.get("score") or 0.0),
+            hypothesis_id="hypothesis_dashboard_fallback",
+            snapshot_id="snapshot_dashboard_fallback",
+            policy_id="policy_dashboard_fallback",
+            stance=stance,
+            score=round(max(0.0, min(100.0, score)), 1),
             entry_rule={
-                "kind": "legacy_dashboard_entry",
-                "price": legacy_dashboard.get("entry_price"),
+                "kind": "limit_pullback" if entry_price is not None else "observe_only",
+                "price": entry_price,
                 "source": strategy.display_name,
             },
             invalidation_rule={
-                "kind": "legacy_dashboard_stop_loss",
-                "price": legacy_dashboard.get("stop_loss"),
+                "kind": "stop_loss",
+                "price": stop_loss,
                 "source": strategy.name,
             },
-            supporting_factors=list(legacy_dashboard.get("matched_signals") or []),
+            supporting_factors=matched_signals,
+            contradicting_factors=contradicting_factors,
             metadata={
-                "source": "legacy_dashboard_fallback",
+                "source": "dashboard_fallback",
                 "strategy_name": strategy.name,
             },
         )
         return build_dashboard_projection(
             hypothesis=fallback_hypothesis,
-            matched_signals=list(legacy_dashboard.get("matched_signals") or []),
-            core_rules=list(legacy_dashboard.get("core_rules") or strategy.core_rules),
-            entry_conditions=list(legacy_dashboard.get("entry_conditions") or strategy.entry_conditions),
-            legacy_reason=legacy_reason,
+            matched_signals=matched_signals,
+            core_rules=list(strategy.core_rules),
+            entry_conditions=list(strategy.entry_conditions),
+            supplemental_reason="；".join(reason_parts),
         )
 
     @staticmethod
@@ -1225,7 +1258,7 @@ class StockAnalysisService:
             stock_data=stock_data,
             routing_context=routing_context,
             data_lineage=data_lineage,
-            legacy_signals=derived,
+            derived_signals=derived,
         )
         policy = resolve_policy_snapshot(
             investment_model=investment_model,
@@ -1818,49 +1851,6 @@ class StockAnalysisService:
             "bollinger_position": boll.get("position"),
             "flags": flags,
             "matched_signals": matched_signals,
-        }
-
-    def _build_dashboard(self, *, strategy: StockAnalysisStrategy, derived: dict[str, Any], execution: dict[str, Any]) -> dict[str, Any]:
-        score = 50.0
-        reasons: list[str] = []
-        flags = dict(derived.get("flags") or {})
-        matched = set(derived.get("matched_signals") or [])
-        for label, delta in strategy.scoring.items():
-            if flags.get(label):
-                score += float(delta)
-                reasons.append(f"{label}{'+' if delta >= 0 else ''}{delta:g}")
-        algo_score = float(derived.get("algo_score") or 0.0)
-        score += max(-10.0, min(10.0, algo_score * 2.0))
-        if algo_score:
-            reasons.append(f"algo_score 调整 {max(-10.0, min(10.0, algo_score * 2.0)):+.1f}")
-        if execution.get("final_reasoning"):
-            reasons.append(f"LLM总结: {execution['final_reasoning'][:120]}")
-
-        signal = "持有观察"
-        if score >= 82:
-            signal = "候选买入"
-        elif score >= 70:
-            signal = "偏强关注"
-        elif score <= 35:
-            signal = "减仓/回避"
-        elif score <= 45:
-            signal = "偏弱回避"
-
-        latest_price = float(derived.get("latest_close") or 0.0)
-        stop_loss = round(latest_price * 0.94, 2) if latest_price else None
-        entry_price = round(latest_price * 0.99, 2) if latest_price and signal in {"候选买入", "偏强关注"} else None
-        if not reasons:
-            reasons.append(f"基于 {strategy.display_name} 执行 {len(execution['tool_calls'])} 个分析步骤")
-
-        return {
-            "signal": signal,
-            "score": round(max(0.0, min(100.0, score)), 1),
-            "entry_price": entry_price,
-            "stop_loss": stop_loss,
-            "reason": "；".join(reasons),
-            "matched_signals": sorted(matched),
-            "core_rules": list(strategy.core_rules),
-            "entry_conditions": list(strategy.entry_conditions),
         }
 
     @staticmethod

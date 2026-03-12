@@ -1,12 +1,12 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://contracts.local/frontend-api-contract.v1.schema.json",
-  "title": "Frontend API Contract V1",
+  "$id": "https://contracts.local/runtime-api-contract.v1.schema.json",
+  "title": "Runtime API Contract V1",
   "type": "object",
   "properties": {
     "contract_id": {
       "type": "string",
-      "const": "frontend-v1"
+      "const": "runtime-v1"
     },
     "version": {
       "type": "string"

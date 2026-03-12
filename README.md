@@ -110,13 +110,13 @@ invest-commander train-once --rounds 1 --mock
 
 ```bash
 # 重建主契约 + JSON Schema + OpenAPI + transcript snapshots
-python3 scripts/generate_frontend_contract_derivatives.py
+python3 scripts/generate_runtime_contract_derivatives.py
 
 # 或使用统一 console script
 invest-refresh-contracts
 
 # 只校验当前文档是否与生成结果一致（适合 CI / release gate）
-python3 scripts/generate_frontend_contract_derivatives.py --check
+python3 scripts/generate_runtime_contract_derivatives.py --check
 invest-refresh-contracts --check
 ```
 
@@ -184,11 +184,10 @@ gunicorn -c gunicorn.conf.py wsgi:app
 - 鉴权支持 `Authorization: Bearer <token>` 或 `X-Invest-Token: <token>`。
 - 内置简单应用级限流，默认按窗口限制读 / 写 / 重型接口；可通过 `WEB_RATE_LIMIT_*` 环境变量调整。
 - 健康检查：`GET /healthz`。
+- 自然语言交互入口：`POST /api/chat`。
+- 运行状态与事件流入口：`GET /api/status`、`GET /api/events`。
 - 部署示例文件：`deploy/nginx/invest-evolution.conf`、`deploy/systemd/invest-evolution.service`、`deploy/systemd/invest-evolution.env.example`。
-- 旧静态壳：`/legacy`
-- 新前端挂载点：`/app`
-- 默认 `web_ui_shell_mode=legacy`，即 `/` 仍指向旧壳；设置为 `app` 后 `/` 指向新前端。
-- 当 `frontend_canary_enabled=true` 时，可通过 `/?__frontend=app` 或请求头 `X-Invest-Frontend-Canary: app` 做灰度访问。
+- 根路径 `/` 现在返回 API 入口说明；`/app` 与 `/legacy` 仅保留为已移除 UI 的 tombstone 提示。
 
 > `mock` 现在是显式的 smoke / demo / health-check 模式，不再作为真实训练失败时的隐式兜底。
 
@@ -198,7 +197,7 @@ gunicorn -c gunicorn.conf.py wsgi:app
 
 - `app/commander.py`：统一 Commander CLI / daemon / runtime 装配入口
 - `app/train.py`：训练/研究入口
-- `app/web_server.py`：Flask API + 静态控制台入口
+- `app/web_server.py`：Flask API / SSE / 自然语言交互入口
 - `market_data/__main__.py`：统一数据同步与状态诊断入口
 
 ### 兼容壳
@@ -320,6 +319,5 @@ pytest -q
 
 ## 发布与安全手册
 
-- 前端 Jira 级任务单：`docs/frontend/frontend-implementation-task-sheet-v2.md`
 - 安全与发布前清理：`docs/runbooks/security-release-preflight.md`
 - 模型路由灰度 / 回滚：`docs/runbooks/router-rollout.md`

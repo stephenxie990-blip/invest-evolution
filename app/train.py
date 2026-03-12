@@ -22,7 +22,6 @@
 """
 
 import argparse
-import inspect
 import json
 import logging
 import os
@@ -90,48 +89,6 @@ def emit_event(event_type: str, data: dict):
             _event_callback(event_type, data)
         except Exception:
             pass
-
-
-def _call_with_compatible_signature(func: Callable[..., Any], *, preferred_kwargs: dict[str, Any], positional_args: tuple[Any, ...] = ()) -> Any:
-    try:
-        signature = inspect.signature(func)
-    except (TypeError, ValueError):
-        signature = None
-
-    if signature is None:
-        try:
-            return func(**preferred_kwargs)
-        except TypeError:
-            return func(*positional_args)
-
-    params = list(signature.parameters.values())
-    if any(param.kind == inspect.Parameter.VAR_KEYWORD for param in params):
-        return func(**preferred_kwargs)
-
-    accepted_kwargs = {
-        name: preferred_kwargs[name]
-        for name, param in signature.parameters.items()
-        if name in preferred_kwargs
-        and param.kind in (
-            inspect.Parameter.POSITIONAL_ONLY,
-            inspect.Parameter.POSITIONAL_OR_KEYWORD,
-            inspect.Parameter.KEYWORD_ONLY,
-        )
-    }
-    if accepted_kwargs:
-        return func(**accepted_kwargs)
-
-    if any(param.kind == inspect.Parameter.VAR_POSITIONAL for param in params):
-        return func(*positional_args)
-
-    positional_capacity = sum(
-        1 for param in params
-        if param.kind in (inspect.Parameter.POSITIONAL_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD)
-    )
-    if positional_capacity:
-        return func(*positional_args[:positional_capacity])
-
-    return func()
 
 
 def _default_training_diagnostics(cutoff_date: str, stock_count: int, min_history_days: int) -> dict[str, Any]:
@@ -1125,12 +1082,9 @@ class SelfLearningController:
             np.random.seed(seed_value % (2**32 - 1))
         cutoff_date = normalize_date(
             os.getenv("INVEST_FORCE_CUTOFF_DATE", "")
-            or _call_with_compatible_signature(
-                self.data_manager.random_cutoff_date,
-                preferred_kwargs={
-                    "min_date": self.experiment_min_date or "20180101",
-                    "max_date": self.experiment_max_date,
-                },
+            or self.data_manager.random_cutoff_date(
+                min_date=self.experiment_min_date or "20180101",
+                max_date=self.experiment_max_date,
             )
         )
         logger.info(f"截断日期: {cutoff_date}")
@@ -1178,10 +1132,10 @@ class SelfLearningController:
             method = getattr(self.data_manager, method_name, None)
             if not callable(method):
                 continue
-            diagnostics = _call_with_compatible_signature(
-                method,
-                preferred_kwargs=diagnostic_kwargs,
-                positional_args=(cutoff_date, config.max_stocks, min_history_days),
+            diagnostics = method(
+                cutoff_date=cutoff_date,
+                stock_count=config.max_stocks,
+                min_history_days=min_history_days,
             )
             if isinstance(diagnostics, dict):
                 break

@@ -1,21 +1,21 @@
 {
-  "contract_id": "frontend-v1",
+  "contract_id": "runtime-v1",
   "version": "1.1.0",
   "published_at": "2026-03-10",
   "api_base": "/api",
-  "frontend_shell_mount": "/app",
+  "frontend_shell_mount": "/api/chat",
   "legacy_shell_mount": "/",
-  "contract_endpoint": "/api/contracts/frontend-v1",
+  "contract_endpoint": "/api/contracts/runtime-v1",
   "goals": [
-    "Keep backend headless and CLI-first while allowing a standalone frontend to evolve independently.",
+    "Keep backend headless and CLI-first while allowing agent clients to evolve independently.",
     "Freeze the current API surface as a versioned contract even though the runtime URLs are still unversioned.",
-    "Let the frontend consume documented stable fields and ignore extra debug/diagnostic payloads."
+    "Let agent and CLI clients consume documented stable fields and ignore extra debug/diagnostic payloads."
   ],
   "compatibility": {
     "cli_remains_supported": true,
     "runtime_urls_are_unversioned": true,
-    "contract_versioning_strategy": "Document versioning via /api/contracts/frontend-v1, not via URL path changes.",
-    "unknown_fields_policy": "Frontend clients must ignore unknown object fields.",
+    "contract_versioning_strategy": "Document versioning via /api/contracts/runtime-v1, not via URL path changes.",
+    "unknown_fields_policy": "Agent and CLI clients must ignore unknown object fields.",
     "nullable_fields_policy": "Missing and null should be treated equivalently unless explicitly required.",
     "error_normalization_recommendation": "Frontend SDK should normalize flat {error} and {status,error} bodies into one client-side error type.",
     "cross_domain_feedback_fragment": {
@@ -1851,11 +1851,11 @@
       ]
     },
     {
-      "id": "contracts.frontendV1",
+      "id": "contracts.runtimeV1",
       "group": "contracts",
       "method": "GET",
-      "path": "/api/contracts/frontend-v1",
-      "summary": "Fetch the frozen frontend API contract document.",
+      "path": "/api/contracts/runtime-v1",
+      "summary": "Fetch the frozen runtime API contract document.",
       "runtime_required": false,
       "frontend_preferred": true,
       "replacement": null,
@@ -1871,7 +1871,7 @@
       "pagination": "none",
       "realtime": false,
       "notes": [
-        "Primary handoff contract for the standalone frontend."
+        "Primary handoff contract for API, CLI, and agent clients."
       ]
     },
     {
@@ -3186,17 +3186,13 @@
           "stop_on_freeze": {
             "type": "boolean"
           },
-          "web_ui_shell_mode": {
-            "type": "string",
-            "enum": [
-              "legacy",
-              "app"
-            ],
-            "description": "Controls whether root path / serves the legacy shell or the standalone frontend."
-          },
-          "frontend_canary_enabled": {
+          "web_api_require_auth": {
             "type": "boolean",
-            "description": "When true and web_ui_shell_mode=legacy, allows canary access to the new frontend via query/header opt-in."
+            "description": "Whether API authentication is required for non-public endpoints."
+          },
+          "web_api_public_read_enabled": {
+            "type": "boolean",
+            "description": "Whether selected read-only API endpoints may remain public when auth is enabled."
           }
         }
       },
@@ -3225,7 +3221,7 @@
       "realtime": false,
       "notes": [
         "Security: llm_api_key should be sourced from env or config/evolution.local.yaml; response remains masked.",
-        "Rollout: web_ui_shell_mode + frontend_canary_enabled are used for legacy/app switch and canary release."
+        "Web UI has been removed; agent and CLI workflows should use API, SSE and commander entrypoints."
       ]
     },
     {

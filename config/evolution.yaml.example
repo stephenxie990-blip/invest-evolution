@@ -27,7 +27,3 @@ model_routing_allowed_models:
   - mean_reversion
   - value_quality
   - defensive_low_vol
-
-# Web 壳层发布策略
-web_ui_shell_mode: legacy   # legacy / app
-frontend_canary_enabled: false

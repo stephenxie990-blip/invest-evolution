@@ -9,13 +9,6 @@ from pathlib import Path
 from typing import Any
 
 from config import EvolutionConfig, LOGS_DIR, OUTPUT_DIR, PROJECT_ROOT, RUNTIME_DIR, config, get_config_layer_paths, load_config
-from config.web_ui import (
-    DEFAULT_FRONTEND_CANARY_QUERY_PARAM,
-    DEFAULT_WEB_UI_SHELL_MODE,
-    WEB_UI_SHELL_MODES,
-    normalize_frontend_canary_query_param,
-    normalize_web_ui_shell_mode,
-)
 
 try:
     import yaml
@@ -56,9 +49,6 @@ class EvolutionConfigService:
         "model_routing_agent_override_max_gap",
         "model_routing_policy",
         "stop_on_freeze",
-        "web_ui_shell_mode",
-        "frontend_canary_enabled",
-        "frontend_canary_query_param",
         "web_rate_limit_enabled",
         "web_rate_limit_window_sec",
         "web_rate_limit_read_max",
@@ -160,13 +150,6 @@ class EvolutionConfigService:
             "model_routing_agent_override_max_gap": cfg.model_routing_agent_override_max_gap,
             "model_routing_policy": dict(cfg.model_routing_policy or {}),
             "stop_on_freeze": cfg.stop_on_freeze,
-            "web_ui_shell_mode": normalize_web_ui_shell_mode(
-                getattr(cfg, "web_ui_shell_mode", DEFAULT_WEB_UI_SHELL_MODE)
-            ),
-            "frontend_canary_enabled": bool(getattr(cfg, "frontend_canary_enabled", False)),
-            "frontend_canary_query_param": normalize_frontend_canary_query_param(
-                getattr(cfg, "frontend_canary_query_param", DEFAULT_FRONTEND_CANARY_QUERY_PARAM)
-            ),
             "config_layers": [str(path) for path in get_config_layer_paths(self.config_path)],
             "local_override_path": str(self.local_override_path),
             "web_api_token_source": self._web_auth_secret_source(),
@@ -226,19 +209,10 @@ class EvolutionConfigService:
             out["model_switch_hysteresis_margin"] = float(out["model_switch_hysteresis_margin"])
         if "model_routing_agent_override_max_gap" in out:
             out["model_routing_agent_override_max_gap"] = float(out["model_routing_agent_override_max_gap"])
-        if "web_ui_shell_mode" in out:
-            out["web_ui_shell_mode"] = normalize_web_ui_shell_mode(
-                out["web_ui_shell_mode"],
-                strict=True,
-            )
-        if "frontend_canary_query_param" in out:
-            out["frontend_canary_query_param"] = normalize_frontend_canary_query_param(
-                out["frontend_canary_query_param"]
-            )
         for int_key in ("web_rate_limit_window_sec", "web_rate_limit_read_max", "web_rate_limit_write_max", "web_rate_limit_heavy_max"):
             if int_key in out:
                 out[int_key] = int(out[int_key])
-        for bool_key in ("model_routing_enabled", "model_routing_agent_override_enabled", "frontend_canary_enabled", "web_rate_limit_enabled"):
+        for bool_key in ("model_routing_enabled", "model_routing_agent_override_enabled", "web_rate_limit_enabled"):
             if bool_key not in out:
                 continue
             val = out[bool_key]
@@ -332,10 +306,6 @@ class EvolutionConfigService:
             raise ValueError("model_switch_hysteresis_margin must be >= 0")
         if "model_routing_agent_override_max_gap" in patch and patch["model_routing_agent_override_max_gap"] < 0:
             raise ValueError("model_routing_agent_override_max_gap must be >= 0")
-        if "web_ui_shell_mode" in patch and patch["web_ui_shell_mode"] not in WEB_UI_SHELL_MODES:
-            raise ValueError(
-                f"web_ui_shell_mode must be one of: {', '.join(sorted(WEB_UI_SHELL_MODES))}"
-            )
         for limit_key in ("web_rate_limit_window_sec", "web_rate_limit_read_max", "web_rate_limit_write_max", "web_rate_limit_heavy_max"):
             if limit_key in patch and int(patch[limit_key]) <= 0:
                 raise ValueError(f"{limit_key} must be > 0")

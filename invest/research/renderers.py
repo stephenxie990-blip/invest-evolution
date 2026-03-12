@@ -11,11 +11,11 @@ def build_dashboard_projection(
     matched_signals: list[str],
     core_rules: list[str],
     entry_conditions: list[str],
-    legacy_reason: str = "",
+    supplemental_reason: str = "",
 ) -> Dict[str, Any]:
     reason_parts = []
-    if legacy_reason:
-        reason_parts.append(str(legacy_reason))
+    if supplemental_reason:
+        reason_parts.append(str(supplemental_reason))
     if hypothesis.supporting_factors:
         reason_parts.append("支持因素: " + "、".join(hypothesis.supporting_factors[:4]))
     if hypothesis.contradicting_factors:

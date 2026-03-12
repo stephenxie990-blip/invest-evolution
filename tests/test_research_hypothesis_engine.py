@@ -2,7 +2,7 @@ from invest.research.contracts import PolicySnapshot, ResearchSnapshot
 from invest.research.hypothesis_engine import build_research_hypothesis
 
 
-def test_hypothesis_prefers_canonical_snapshot_fields_over_legacy_signals():
+def test_hypothesis_prefers_canonical_snapshot_fields():
     snapshot = ResearchSnapshot(
         snapshot_id="snapshot_test",
         as_of_date="20240130",
@@ -23,7 +23,6 @@ def test_hypothesis_prefers_canonical_snapshot_fields_over_legacy_signals():
                 "matched_signals": ["多头排列"],
                 "latest_close": 12.34,
             },
-            "legacy_signals": {},
             "evidence": ["突破后缩量回踩"],
         },
     )
@@ -43,7 +42,7 @@ def test_hypothesis_prefers_canonical_snapshot_fields_over_legacy_signals():
     assert "逼近阻力" in hypothesis.contradicting_factors
 
 
-def test_snapshot_builder_promotes_legacy_derived_fields_into_canonical_metadata():
+def test_snapshot_builder_promotes_derived_fields_into_canonical_metadata():
     from types import SimpleNamespace
     from invest.research.snapshot_builder import build_research_snapshot
 
@@ -70,7 +69,7 @@ def test_snapshot_builder_promotes_legacy_derived_fields_into_canonical_metadata
         security={"code": "sh.600001"},
         query_code="sh.600001",
         stock_data={"sh.600001": []},
-        legacy_signals={"flags": {"趋势向上": True}, "matched_signals": ["多头排列"], "latest_close": 10.5, "rsi": 48.0},
+        derived_signals={"flags": {"趋势向上": True}, "matched_signals": ["多头排列"], "latest_close": 10.5, "rsi": 48.0},
     )
 
     metadata = snapshot.feature_snapshot["metadata"]
@@ -81,8 +80,7 @@ def test_snapshot_builder_promotes_legacy_derived_fields_into_canonical_metadata
     assert metadata["latest_close"] == 10.5
     assert factor_values["rsi"] == 48.0
 
-
-def test_snapshot_builder_compacts_legacy_signals_to_compatibility_subset():
+def test_snapshot_builder_discards_noncanonical_derived_fields():
     from types import SimpleNamespace
     from invest.research.snapshot_builder import build_research_snapshot
 
@@ -109,7 +107,7 @@ def test_snapshot_builder_compacts_legacy_signals_to_compatibility_subset():
         security={"code": "sh.600001"},
         query_code="sh.600001",
         stock_data={"sh.600001": []},
-        legacy_signals={
+        derived_signals={
             "flags": {"趋势向上": True},
             "matched_signals": ["多头排列"],
             "latest_close": 10.5,
@@ -121,10 +119,9 @@ def test_snapshot_builder_compacts_legacy_signals_to_compatibility_subset():
         },
     )
 
-    assert snapshot.feature_snapshot["legacy_signals"] == {
-        "flags": {"趋势向上": True},
-        "matched_signals": ["多头排列"],
-        "latest_close": 10.5,
-        "ma20": 10.1,
-        "rsi": 48.0,
-    }
+    assert snapshot.feature_snapshot["metadata"]["flags"] == {"趋势向上": True}
+    assert snapshot.feature_snapshot["metadata"]["matched_signals"] == ["多头排列"]
+    assert snapshot.feature_snapshot["metadata"]["latest_close"] == 10.5
+    assert snapshot.feature_snapshot["factor_values"]["ma20"] == 10.1
+    assert snapshot.feature_snapshot["factor_values"]["rsi"] == 48.0
+    assert "legacy_signals" not in snapshot.feature_snapshot

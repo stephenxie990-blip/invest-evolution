@@ -8,34 +8,12 @@ from typing import Any
 from .tool_metadata import (
     INVEST_DEEP_STATUS_TOOL_NAME,
     INVEST_QUICK_STATUS_TOOL_NAME,
-    INVEST_STATUS_ALIAS_DESCRIPTION,
-    INVEST_STATUS_TOOL_NAME,
 )
 from .runtime import BrainTool
 
 
 def _json(payload: Any) -> str:
     return json.dumps(payload, ensure_ascii=False, indent=2)
-
-
-class InvestStatusTool(BrainTool):
-    def __init__(self, runtime: Any):
-        self.runtime = runtime
-
-    @property
-    def name(self) -> str:
-        return INVEST_STATUS_TOOL_NAME
-
-    @property
-    def description(self) -> str:
-        return INVEST_STATUS_ALIAS_DESCRIPTION
-
-    @property
-    def parameters(self) -> dict[str, Any]:
-        return {"type": "object", "properties": {}, "required": []}
-
-    async def execute(self, **kwargs: Any) -> str:
-        return _json(self.runtime.status(detail="fast"))
 
 
 class InvestQuickStatusTool(BrainTool):
@@ -883,7 +861,6 @@ def build_commander_tools(runtime: Any) -> list[BrainTool]:
     return [
         InvestQuickStatusTool(runtime),
         InvestDeepStatusTool(runtime),
-        InvestStatusTool(runtime),
         InvestEventsSummaryTool(runtime),
         InvestEventsTailTool(runtime),
         InvestRuntimeDiagnosticsTool(runtime),

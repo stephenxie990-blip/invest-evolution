@@ -117,11 +117,6 @@ _REVIEW_DECISION_SYSTEM = """你是复盘决策综合员，负责综合策略分
 
 严格输出：{"strategy_suggestions":["建议1"],"param_adjustments":{"key":0.1},"agent_weight_adjustments":{"trend_hunter":1.0,"contrarian":1.0},"reasoning":"一句话说明依据"}"""
 
-# backward-compatible alias for older imports
-_REVIEW_COMMANDER_SYSTEM = _REVIEW_DECISION_SYSTEM
-
-
-
 class ReviewMeeting:
     """
     复盘会议编排器

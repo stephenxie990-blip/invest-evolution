@@ -293,3 +293,20 @@
 - frontend contract 三条文档路由最后一层仍有重复：每条都在做“读盘 → FileNotFoundError 映射 404 → 其他异常映射 500 → logger.exception”的同构分支。
 - 将这层收成统一 responder 后，路由只剩“声明 document_id”，而错误文案和日志语义继续由 catalog 元数据驱动，避免后续局部改错或漂移。
 - 这一步也把异常路径纳入了显式回归：现在不仅验证正常返回，还验证 schema/openapi 在缺文件或坏 payload 时会保持既有 HTTP 语义。
+## 2026-03-12 第十二段清理补充发现
+- `invest_status`、`_REVIEW_COMMANDER_SYSTEM`、`_call_with_compatible_signature` 这三类对象已经可以判定为“纯兼容残留”，删除后不会削弱系统能力，只会降低维护噪音。
+- `legacy dashboard` 和 `legacy_signals` 的关键问题，不是名字难看，而是把 canonical research 主链重新拉回旧语义；彻底删除后，问股 fallback 终于也回到统一研究对象体系。
+- control plane 里的 `legacy_*` profile/provider 命名属于典型“概念已迁移，但命名还停在旧时代”的残留；这类命名会持续放大认知负担，值得尽早清掉。
+## 2026-03-12 第十三段清理补充发现
+- `web_server.py` 与 `app/commander_observability.py` 之前各自维护一套 artifact 路径解析与 JSON/JSONL/文本安全读取 helper，属于典型“同一安全语义散落两处”的重复实现。
+- 抽出 `app/runtime_artifact_reader.py` 之后，运行时 artifact 的允许读取根目录、安全解析、容错读盘已统一收口；后续若要再收紧 artifact 读取策略，不必双处同步。
+- 当前后端剩余最主要的 compat 面，已经基本收敛为 Web 壳双轨（`/legacy`、`web_ui_shell_mode`、canary 配置与 frontend contract 相关说明），不再是训练/问股主链内部的兼容桥。
+## 2026-03-12 第十四段验证结论
+- 本轮 `web_server` / observability 收口后，全量 `pytest` 再次通过，说明共享 artifact reader 并未破坏 Commander、memory detail 或 Web 安全边界。
+- 真实训练再次通过：`./.venv/bin/python train.py --cycles 1` 完整跑通，并产出盈利周期与复盘参数调整。
+- 真实问股再次通过：`./.venv/bin/python commander.py ask -m '请帮我分析一下平安银行，按最近60个交易日视角，给出结论、依据、风险点和操作建议。'` 正常返回；系统明确给出有效分析截止日为 `2026-03-06`，避免把 `2026-03-12` 误当成已落库交易日。
+## 2026-03-12 第十五段前端删除结论
+- 当前系统定位已明确切换为 **agent-first / CLI-first / API-first**；人类可视化 Web UI 不再是必须能力。
+- 本轮已经删除 `frontend/` 工作区、`static/index.html` 旧壳、`app/web_ui_*` 与 `config/web_ui.py` 相关灰度配置逻辑；`web_server` 保留为纯 API / SSE / 对话入口。
+- 事件流、监控、自然语言交互和机器可读契约被明确保留；`/api/chat`、`/api/status`、`/api/events`、`/api/contracts/frontend-v1` 继续可用。
+- `/app` 与 `/legacy` 仍保留路由占位，但只返回 `410` tombstone 提示；这不是兼容 UI，而是防止外部旧链接静默失效。

@@ -48,7 +48,6 @@
 
 - `contracts/`：前后端契约、Schema、OpenAPI
 - `architecture/`：更细分的架构专题资料
-- `frontend/`：前端专题文档
 - `research/`：研究引擎相关专题
 - `runbooks/`：运维/执行手册
 

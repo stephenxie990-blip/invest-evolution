@@ -545,18 +545,6 @@ def test_build_training_evaluation_summary_uses_helper_shape(tmp_path):
     assert summary['assessment']['no_data_count'] == 1
     assert summary['artifacts']['run_path'].endswith('run_x.json')
 
-
-
-def test_invest_status_tool_is_marked_as_compat_alias():
-    from brain.tools import InvestStatusTool
-
-    tool = InvestStatusTool(runtime=None)
-    assert tool.name == "invest_status"
-    assert "Deprecated compatibility alias" in tool.description
-    assert "invest_quick_status" in tool.description
-
-
-
 def test_run_cycles_switches_back_to_real_data_manager_after_mock_run(tmp_path):
     import asyncio
 
@@ -955,6 +943,63 @@ async def test_ask_failure_records_error_last_task(tmp_path, monkeypatch):
     assert last_task["status"] == "error"
     assert payload["runtime"]["current_task"] is None
     assert payload["runtime"]["last_task"]["status"] == "error"
+
+
+@pytest.mark.asyncio
+async def test_ask_finished_audit_captures_structured_reply_metadata(tmp_path, monkeypatch):
+    cfg = CommanderConfig(
+        workspace=tmp_path / "workspace",
+        strategy_dir=tmp_path / "strategies",
+        state_file=tmp_path / "state" / "state.json",
+        cron_store=tmp_path / "state" / "cron.json",
+        memory_store=tmp_path / "memory" / "memory.jsonl",
+        plugin_dir=tmp_path / "plugins",
+        bridge_inbox=tmp_path / "inbox",
+        bridge_outbox=tmp_path / "outbox",
+        mock_mode=True,
+        autopilot_enabled=False,
+        heartbeat_enabled=False,
+        bridge_enabled=False,
+    )
+    runtime = CommanderRuntime(cfg)
+
+    async def _ok(*args, **kwargs):
+        return json.dumps(
+            {
+                "status": "ok",
+                "reply": "已完成",
+                "protocol": {
+                    "schema_version": "bounded_workflow.v2",
+                    "domain": "runtime",
+                    "operation": "status",
+                },
+                "entrypoint": {
+                    "kind": "commander_builtin_intent",
+                    "intent": "runtime_status",
+                },
+                "next_action": {
+                    "kind": "continue",
+                },
+            },
+            ensure_ascii=False,
+        )
+
+    monkeypatch.setattr(runtime.brain, "process_direct", _ok)
+
+    await runtime.ask("请汇总系统状态", session_key="test:ask-metadata", channel="api", chat_id="chat")
+
+    audit_rows = [
+        json.loads(line)
+        for line in runtime.memory.audit_path.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    finished = next(row for row in audit_rows if row["event"] == "ask_finished")
+    assert finished["payload"]["channel"] == "api"
+    assert finished["payload"]["message_length"] == len("请汇总系统状态")
+    assert finished["payload"]["domain"] == "runtime"
+    assert finished["payload"]["operation"] == "status"
+    assert finished["payload"]["intent"] == "runtime_status"
+    assert finished["payload"]["next_action_kind"] == "continue"
 
 
 def test_reload_strategies_resets_runtime_to_idle_and_persists_last_task(tmp_path):

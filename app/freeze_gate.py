@@ -9,15 +9,15 @@ from typing import Sequence
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
-CONTRACT_CHECK_CMD = [sys.executable, 'scripts/generate_frontend_contract_derivatives.py', '--check']
+CONTRACT_CHECK_CMD = [sys.executable, 'scripts/generate_runtime_contract_derivatives.py', '--check']
 
 FOCUSED_PROTOCOL_TESTS = [
     'tests/test_schema_contracts.py',
     'tests/test_commander_transcript_golden.py',
     'tests/test_commander_mutating_workflow_golden.py',
     'tests/test_commander_direct_planner_golden.py',
-    'tests/test_frontend_api_contract.py',
-    'tests/test_frontend_contract_generation.py',
+    'tests/test_runtime_api_contract.py',
+    'tests/test_runtime_contract_generation.py',
 ]
 
 FULL_REGRESSION_TESTS = [
@@ -35,8 +35,8 @@ FULL_REGRESSION_TESTS = [
     'tests/test_web_training_lab_api.py',
     'tests/test_web_server_data_api.py',
     'tests/test_data_unification.py',
-    'tests/test_frontend_api_contract.py',
-    'tests/test_frontend_contract_generation.py',
+    'tests/test_runtime_api_contract.py',
+    'tests/test_runtime_contract_generation.py',
 ]
 
 

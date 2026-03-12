@@ -19,13 +19,6 @@ from dataclasses import dataclass, field
 from typing import List, Optional, Any
 from datetime import datetime
 
-from config.web_ui import (
-    DEFAULT_FRONTEND_CANARY_QUERY_PARAM,
-    DEFAULT_WEB_UI_SHELL_MODE,
-    normalize_frontend_canary_query_param,
-    normalize_web_ui_shell_mode,
-)
-
 logger = logging.getLogger(__name__)
 
 try:
@@ -187,9 +180,6 @@ def _apply_env_overrides(data: dict[str, Any]) -> dict[str, Any]:
         "web_rate_limit_read_max": ("WEB_RATE_LIMIT_READ_MAX", int),
         "web_rate_limit_write_max": ("WEB_RATE_LIMIT_WRITE_MAX", int),
         "web_rate_limit_heavy_max": ("WEB_RATE_LIMIT_HEAVY_MAX", int),
-        "web_ui_shell_mode": ("WEB_UI_SHELL_MODE", str),
-        "frontend_canary_enabled": ("FRONTEND_CANARY_ENABLED", lambda raw: str(raw).strip().lower() in _TRUE_VALUES),
-        "frontend_canary_query_param": ("FRONTEND_CANARY_QUERY_PARAM", str),
     }
     merged = dict(data)
     for field, (env_name, caster) in env_map.items():
@@ -282,14 +272,6 @@ class EvolutionConfig:
     web_rate_limit_read_max: int = field(default_factory=lambda: _env_int("WEB_RATE_LIMIT_READ_MAX", 120))
     web_rate_limit_write_max: int = field(default_factory=lambda: _env_int("WEB_RATE_LIMIT_WRITE_MAX", 20))
     web_rate_limit_heavy_max: int = field(default_factory=lambda: _env_int("WEB_RATE_LIMIT_HEAVY_MAX", 5))
-    web_ui_shell_mode: str = field(default_factory=lambda: os.environ.get("WEB_UI_SHELL_MODE", DEFAULT_WEB_UI_SHELL_MODE))
-    frontend_canary_enabled: bool = field(default_factory=lambda: _env_bool("FRONTEND_CANARY_ENABLED", False))
-    frontend_canary_query_param: str = field(
-        default_factory=lambda: os.environ.get(
-            "FRONTEND_CANARY_QUERY_PARAM",
-            DEFAULT_FRONTEND_CANARY_QUERY_PARAM,
-        )
-    )
     rsi_thresholds: dict = field(default_factory=lambda: {
         "oversold": 25,
         "overbought": 75,
@@ -340,10 +322,6 @@ class EvolutionConfig:
         self.web_rate_limit_read_max = max(1, int(self.web_rate_limit_read_max or 120))
         self.web_rate_limit_write_max = max(1, int(self.web_rate_limit_write_max or 20))
         self.web_rate_limit_heavy_max = max(1, int(self.web_rate_limit_heavy_max or 5))
-        self.web_ui_shell_mode = normalize_web_ui_shell_mode(self.web_ui_shell_mode, logger=logger)
-        self.frontend_canary_query_param = normalize_frontend_canary_query_param(
-            self.frontend_canary_query_param
-        )
         if self.model_routing_allowed_models is None:
             self.model_routing_allowed_models = [
                 "momentum",

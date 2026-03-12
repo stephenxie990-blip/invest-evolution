@@ -135,8 +135,13 @@ Phase 9
 
 ### Phase 16: Project Audit, File-System Consolidation & Cleanup
 - [x] 建立清理前真实运行/测试基线
-- [ ] 梳理仓库架构、功能模块与数据链路
-- [ ] 盘点文件体系混乱点与兼容/遗留代码
-- [ ] 输出最小破坏式清理方案
-- [ ] 执行清理并复跑关键验证
-- **Status:** in_progress
+- [x] 梳理仓库架构、功能模块与数据链路
+- [x] 盘点文件体系混乱点与兼容/遗留代码
+- [x] 输出最小破坏式清理方案
+- [x] 执行清理并复跑关键验证
+- **Status:** complete
+
+#### Phase 16 当前补充
+- 已完成仓库级 compat 主链清理：`invest_status`、review prompt alias、train compat shim、legacy dashboard 命名、legacy_signals 输出面、control plane legacy naming。
+- 已完成 `web_server.py` 结构层第一轮瘦身：状态类 responder 统一、detail 解析统一、artifact reader 下沉共享模块。
+- 已完成人类 Web UI 删除：前端工作区、静态壳与灰度配置均已移除；系统正式收敛为 CLI/API/SSE/自然语言交互模式。
