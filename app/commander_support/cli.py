@@ -6,7 +6,10 @@ import argparse
 import asyncio
 import json
 import logging
+import sys
 from typing import Any
+
+from app.commander_support.presentation import build_human_display
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -32,14 +35,32 @@ def build_parser() -> argparse.ArgumentParser:
     p_status = sub.add_parser("status", help="Print commander status snapshot")
     add_common_args(p_status)
     p_status.add_argument("--detail", choices=["fast", "slow"], default="fast", help="Status detail mode")
+    p_status.add_argument(
+        "--view",
+        choices=["auto", "human", "json"],
+        default="auto",
+        help="CLI output view: auto prints human summary on TTY, json keeps full payload",
+    )
 
     p_train = sub.add_parser("train-once", help="Run training cycles once")
     add_common_args(p_train)
     p_train.add_argument("--rounds", type=int, default=1, help="Number of cycles to run")
+    p_train.add_argument(
+        "--view",
+        choices=["auto", "human", "json"],
+        default="auto",
+        help="CLI output view: auto prints human summary on TTY, json keeps full payload",
+    )
 
     p_ask = sub.add_parser("ask", help="Send one message to fused commander brain")
     add_common_args(p_ask)
     p_ask.add_argument("-m", "--message", required=True, help="User message")
+    p_ask.add_argument(
+        "--view",
+        choices=["auto", "human", "json"],
+        default="auto",
+        help="CLI output view: auto prints human receipt on TTY, json keeps full payload",
+    )
 
     p_genes = sub.add_parser("strategies", help="List strategy genes")
     add_common_args(p_genes)
@@ -55,21 +76,44 @@ async def run_async(
     config_cls: Any,
     runtime_cls: Any,
 ) -> int:
+    def emit_payload(payload: Any) -> None:
+        selected_view = str(getattr(args, "view", "auto"))
+        if selected_view == "json":
+            print(json.dumps(payload, ensure_ascii=False, indent=2))
+            return
+        display = build_human_display(payload if isinstance(payload, dict) else {})
+        if selected_view == "human" or (selected_view == "auto" and sys.stdout.isatty() and display.get("available")):
+            print(str(display.get("text") or json.dumps(payload, ensure_ascii=False, indent=2)))
+            return
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
+
     cfg = config_cls.from_args(args)
     runtime = runtime_cls(cfg)
 
     if args.cmd == "status":
-        print(json.dumps(runtime.status(detail=getattr(args, "detail", "fast")), ensure_ascii=False, indent=2))
+        emit_payload(runtime.status(detail=getattr(args, "detail", "fast")))
         return 0
 
     if args.cmd == "train-once":
         out = await runtime.train_once(rounds=max(1, int(args.rounds)), mock=cfg.mock_mode)
-        print(json.dumps(out, ensure_ascii=False, indent=2))
+        emit_payload(out)
         return 0
 
     if args.cmd == "ask":
         reply = await runtime.ask(args.message, session_key="cli:direct", channel="cli", chat_id="direct")
-        print(reply)
+        if str(getattr(args, "view", "auto")) == "json":
+            print(reply)
+            return 0
+        try:
+            payload = json.loads(reply) if isinstance(reply, str) else dict(reply or {})
+        except Exception:
+            payload = None
+        display = build_human_display(payload) if isinstance(payload, dict) else {"available": False}
+        selected_view = str(getattr(args, "view", "auto"))
+        if selected_view == "human" or (selected_view == "auto" and sys.stdout.isatty() and display.get("available")):
+            print(str(display.get("text") or reply))
+        else:
+            print(reply)
         return 0
 
     if args.cmd == "strategies":

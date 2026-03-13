@@ -75,10 +75,8 @@ def test_legacy_invest_packages_are_removed():
 
 def test_root_python_surface_is_intentional():
     allowed = {
-        'allocator.py',
         'commander.py',
         'gunicorn.conf.py',
-        'leaderboard.py',
         'llm_gateway.py',
         'llm_router.py',
         'train.py',

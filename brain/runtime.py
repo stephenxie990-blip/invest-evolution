@@ -889,6 +889,200 @@ class BrainRuntime:
             f"训练评估：{int(training_lab.get('evaluation_count', 0) or 0)}",
         ]
 
+    @staticmethod
+    def _truncate_text(value: Any, *, limit: int = 120) -> str:
+        text = str(value or "").strip()
+        if len(text) <= limit:
+            return text
+        return text[: max(0, limit - 1)].rstrip() + "…"
+
+    @staticmethod
+    def _is_internal_runtime_event(event_name: Any) -> bool:
+        return str(event_name or "") in {"ask_started", "ask_finished", "task_started", "task_finished"}
+
+    @staticmethod
+    def _top_event_distribution(counts: dict[str, Any], *, limit: int = 3) -> str:
+        ordered = sorted(
+            ((str(name), int(value or 0)) for name, value in dict(counts or {}).items()),
+            key=lambda item: (-item[1], item[0]),
+        )
+        return "，".join(f"{name}×{count}" for name, count in ordered[:limit])
+
+    @staticmethod
+    def _event_explanation_bullets(
+        event_summary: dict[str, Any],
+        *,
+        recent_events: list[dict[str, Any]] | None = None,
+    ) -> tuple[list[str], dict[str, Any], str]:
+        summary = dict(event_summary or {})
+        rows = list(recent_events or [])
+        preferred_latest: dict[str, Any] = {}
+        latest_internal: dict[str, Any] = {}
+        for row in reversed(rows):
+            event_name = str(row.get("event") or "")
+            if not event_name:
+                continue
+            if not BrainRuntime._is_internal_runtime_event(event_name):
+                preferred_latest = dict(row)
+                break
+            if not latest_internal:
+                latest_internal = dict(row)
+        latest = dict(preferred_latest or latest_internal or summary.get("latest") or {})
+        counts = dict(summary.get("counts") or {})
+        external_counts = {
+            str(name): int(value or 0)
+            for name, value in counts.items()
+            if not BrainRuntime._is_internal_runtime_event(name)
+        }
+        bullets: list[str] = []
+        latest_event: dict[str, Any] = {}
+        explanation = ""
+        if latest:
+            event_name = str(latest.get("event") or "unknown")
+            source = str(latest.get("source") or "").strip()
+            latest_event = {
+                "event": event_name,
+                "source": source,
+                "ts": str(latest.get("ts") or ""),
+                "kind": "internal" if BrainRuntime._is_internal_runtime_event(event_name) else "business",
+            }
+            if not BrainRuntime._is_internal_runtime_event(event_name):
+                detail = f"最近业务事件：{event_name}"
+                if source:
+                    detail += f"（来源 {source}）"
+                bullets.append(detail)
+        if external_counts:
+            distribution = BrainRuntime._top_event_distribution(external_counts)
+            bullets.append("业务事件分布：" + distribution)
+            if preferred_latest:
+                explanation = (
+                    f"最近一次业务事件是 {latest_event['event']}"
+                    + (f"（来源 {latest_event['source']}）" if latest_event.get("source") else "")
+                    + "。"
+                )
+                if distribution:
+                    explanation += f" 当前窗口内主要业务事件分布为：{distribution}。"
+        elif counts:
+            distribution = BrainRuntime._top_event_distribution(counts)
+            bullets.append("交互事件分布：" + distribution)
+            explanation = "当前窗口内主要记录的是交互与调度事件，尚未出现新的业务事件。"
+            if distribution:
+                explanation += f" 最近的事件分布为：{distribution}。"
+        return bullets, latest_event, explanation
+
+    @staticmethod
+    def _risk_explanations(
+        diagnostics: list[Any],
+        *,
+        feedback: dict[str, Any],
+        last_error: Any = "",
+    ) -> list[str]:
+        mapping = {
+            "runtime_state=error": "运行态处于 error，建议优先检查最近失败任务和错误日志。",
+            "data_quality_unhealthy": "数据健康异常，继续训练或问股前应先检查数据状态。",
+            "last_run_degraded": "最近一次运行出现降级迹象，当前结果建议人工复核。",
+        }
+        items: list[str] = []
+        for code in diagnostics[:3]:
+            text = mapping.get(str(code), str(code).replace("_", " "))
+            if text and text not in items:
+                items.append(text)
+        for reason_text in list(feedback.get("reason_texts") or []):
+            text = str(reason_text or "").strip()
+            if text and text not in items:
+                items.append(text)
+        error_text = BrainRuntime._truncate_text(last_error, limit=100)
+        if error_text:
+            items.append(f"最近错误：{error_text}")
+        return items
+
+    @staticmethod
+    def _action_items(
+        next_action: dict[str, Any],
+        *,
+        diagnostics: list[Any],
+        latest_event: dict[str, Any] | None = None,
+        status: str = "ok",
+    ) -> list[str]:
+        items: list[str] = []
+        label = str(next_action.get("label") or "").strip()
+        description = str(next_action.get("description") or "").strip()
+        if label:
+            items.append(f"{label}：{description}" if description else label)
+        diagnostic_codes = {str(item) for item in diagnostics}
+        if "runtime_state=error" in diagnostic_codes:
+            items.append("先恢复运行态，再继续训练、配置修改或问股请求。")
+        if "data_quality_unhealthy" in diagnostic_codes:
+            items.append("先执行数据状态检查或刷新，确认数据健康后再继续下游任务。")
+        latest_event_name = str((latest_event or {}).get("event") or "")
+        if latest_event_name == "training_finished":
+            items.append("查看最近训练结果、排行榜和生成工件，确认是否需要继续迭代。")
+        elif latest_event_name == "training_started":
+            items.append("继续关注事件流和运行状态，等待训练完成后再查看结果。")
+        if status == "ok" and not items:
+            items.append("可以继续发起更具体的自然语言任务，例如训练、问股或配置诊断。")
+        deduped: list[str] = []
+        for item in items:
+            if item and item not in deduped:
+                deduped.append(item)
+        return deduped
+
+    @staticmethod
+    def _compose_human_readable_receipt(
+        *,
+        title: str,
+        summary: str,
+        operation: str,
+        facts: list[str] | None = None,
+        risks: list[str] | None = None,
+        suggested_actions: list[str] | None = None,
+        recommended_next_step: str = "",
+        risk_level: str = "",
+        latest_event: dict[str, Any] | None = None,
+        event_explanation: str = "",
+    ) -> dict[str, Any]:
+        fact_items = [str(item) for item in list(facts or []) if str(item or "").strip()]
+        risk_items = [str(item) for item in list(risks or []) if str(item or "").strip()]
+        action_items = [str(item) for item in list(suggested_actions or []) if str(item or "").strip()]
+        bullets = list(fact_items)
+        if event_explanation:
+            bullets.append(f"事件解释：{event_explanation}")
+        bullets.extend(f"关注项：{item}" for item in risk_items[:2])
+        bullets.extend(f"建议动作：{item}" for item in action_items[:2])
+        sections: list[dict[str, Any]] = [{"label": "结论", "text": summary}]
+        if fact_items:
+            sections.append({"label": "现状", "items": fact_items})
+        if event_explanation:
+            sections.append({"label": "事件解释", "text": event_explanation})
+        if risk_items:
+            sections.append({"label": "风险提示", "items": risk_items})
+        if action_items:
+            sections.append({"label": "建议动作", "items": action_items})
+        receipt_lines = [f"结论：{summary}"]
+        if fact_items:
+            receipt_lines.append("现状：" + "；".join(fact_items[:4]))
+        if event_explanation:
+            receipt_lines.append("事件解释：" + event_explanation)
+        if risk_items:
+            receipt_lines.append("风险提示：" + "；".join(risk_items[:2]))
+        if action_items:
+            receipt_lines.append("建议动作：" + "；".join(action_items[:2]))
+        return {
+            "title": title,
+            "summary": summary,
+            "bullets": bullets,
+            "facts": fact_items,
+            "risks": risk_items,
+            "suggested_actions": action_items,
+            "event_explanation": event_explanation,
+            "sections": sections,
+            "receipt_text": "\n".join(receipt_lines),
+            "recommended_next_step": recommended_next_step,
+            "risk_level": risk_level,
+            "latest_event": dict(latest_event or {}),
+            "operation": operation,
+        }
+
     def _build_human_readable_receipt(
         self,
         payload: dict[str, Any],
@@ -899,71 +1093,111 @@ class BrainRuntime:
         feedback = dict(payload.get("feedback") or {})
         next_action = dict(payload.get("next_action") or {})
         status = str(payload.get("status") or "ok")
+        task_bus = dict(payload.get("task_bus") or {})
+        gate = dict(task_bus.get("gate") or {})
+        risk_level = str(gate.get("risk_level") or "")
 
         if intent in {"runtime_status", "runtime_diagnostics", "runtime_status_and_training", "config_risk_diagnostics"}:
             quick_status = dict(payload.get("quick_status") or {})
             runtime_payload = dict(payload.get("runtime") or quick_status.get("runtime") or {})
             plugins = dict(payload.get("plugins") or quick_status.get("plugins") or {})
             event_summary = dict(payload.get("event_summary") or payload.get("events") or quick_status.get("events") or {})
+            recent_events = list(payload.get("recent_events") or payload.get("items") or [])
             training_lab = dict(payload.get("training_lab") or quick_status.get("training_lab") or {})
             diagnostics = list(payload.get("diagnostics") or [])
-            bullets = []
-            bullets.extend(self._runtime_state_bullets(runtime_payload))
+            facts = []
+            facts.extend(self._runtime_state_bullets(runtime_payload))
             if plugins:
-                bullets.append(f"插件数：{int(plugins.get('count', 0) or 0)}")
+                facts.append(f"插件数：{int(plugins.get('count', 0) or 0)}")
             if event_summary:
-                bullets.append(f"事件数：{int(event_summary.get('count', 0) or 0)}")
-            bullets.extend(self._training_lab_bullets(training_lab))
-            if diagnostics:
-                bullets.append(f"诊断提示：{', '.join(str(item) for item in diagnostics[:3])}")
+                facts.append(f"事件数：{int(event_summary.get('count', 0) or 0)}")
+            event_bullets, latest_event, event_explanation = self._event_explanation_bullets(
+                event_summary,
+                recent_events=recent_events,
+            )
+            facts.extend(event_bullets)
+            facts.extend(self._training_lab_bullets(training_lab))
+            risks = self._risk_explanations(
+                diagnostics,
+                feedback=feedback,
+                last_error=payload.get("last_error") or "",
+            )
+            actions = self._action_items(
+                next_action,
+                diagnostics=diagnostics,
+                latest_event=latest_event,
+                status=status,
+            )
             summary = str(feedback.get("summary") or "已生成运行时摘要。")
             if status == "ok" and not diagnostics:
                 summary = "系统可用，已返回运行状态、事件与训练摘要。"
-            return {
-                "title": "系统运行摘要",
-                "summary": summary,
-                "bullets": bullets,
-                "recommended_next_step": str(next_action.get("label") or ""),
-                "operation": operation,
-            }
+            elif status == "ok" and diagnostics:
+                summary = f"系统仍可用，但有 {len(risks)} 项需要优先关注。"
+            return self._compose_human_readable_receipt(
+                title="系统运行摘要",
+                summary=summary,
+                operation=operation,
+                facts=facts,
+                risks=risks,
+                suggested_actions=actions,
+                recommended_next_step=str(next_action.get("label") or ""),
+                risk_level=risk_level,
+                latest_event=latest_event,
+                event_explanation=event_explanation,
+            )
 
         if intent in {"training_lab_summary", "training_execution"}:
             training_lab = dict(payload.get("training_lab") or payload)
-            return {
-                "title": "训练实验室摘要",
-                "summary": str(feedback.get("summary") or "已返回训练实验室状态。"),
-                "bullets": self._training_lab_bullets(training_lab),
-                "recommended_next_step": str(next_action.get("label") or ""),
-                "operation": operation,
-            }
+            facts = self._training_lab_bullets(training_lab)
+            risks = self._risk_explanations([], feedback=feedback)
+            actions = self._action_items(next_action, diagnostics=[], status=status)
+            return self._compose_human_readable_receipt(
+                title="训练实验室摘要",
+                summary=str(feedback.get("summary") or "已返回训练实验室状态。"),
+                operation=operation,
+                facts=facts,
+                risks=risks,
+                suggested_actions=actions,
+                recommended_next_step=str(next_action.get("label") or ""),
+                risk_level=risk_level,
+                event_explanation="",
+            )
 
         if intent.startswith("config_") or intent in {"runtime_paths", "config_overview"}:
             control_plane = dict(payload.get("control_plane") or {})
             evolution_config = dict(payload.get("evolution_config") or {})
-            bullets: list[str] = []
+            facts: list[str] = []
             if control_plane:
                 provider = str(control_plane.get("provider") or control_plane.get("default_provider") or "")
                 if provider:
-                    bullets.append(f"控制面 Provider：{provider}")
+                    facts.append(f"控制面 Provider：{provider}")
             if evolution_config:
                 model_name = str(evolution_config.get("investment_model") or "")
                 if model_name:
-                    bullets.append(f"当前投资模型：{model_name}")
-            return {
-                "title": "配置摘要",
-                "summary": str(feedback.get("summary") or "已返回配置与控制面信息。"),
-                "bullets": bullets,
-                "recommended_next_step": str(next_action.get("label") or ""),
-                "operation": operation,
-            }
+                    facts.append(f"当前投资模型：{model_name}")
+            return self._compose_human_readable_receipt(
+                title="配置摘要",
+                summary=str(feedback.get("summary") or "已返回配置与控制面信息。"),
+                operation=operation,
+                facts=facts,
+                risks=self._risk_explanations([], feedback=feedback),
+                suggested_actions=self._action_items(next_action, diagnostics=[], status=status),
+                recommended_next_step=str(next_action.get("label") or ""),
+                risk_level=risk_level,
+                event_explanation="",
+            )
 
-        return {
-            "title": "执行摘要",
-            "summary": str(feedback.get("summary") or payload.get("message") or payload.get("reply") or ""),
-            "bullets": [],
-            "recommended_next_step": str(next_action.get("label") or ""),
-            "operation": operation,
-        }
+        return self._compose_human_readable_receipt(
+            title="执行摘要",
+            summary=str(feedback.get("summary") or payload.get("message") or payload.get("reply") or ""),
+            operation=operation,
+            facts=[],
+            risks=self._risk_explanations([], feedback=feedback),
+            suggested_actions=self._action_items(next_action, diagnostics=[], status=status),
+            recommended_next_step=str(next_action.get("label") or ""),
+            risk_level=risk_level,
+            event_explanation="",
+        )
 
     def _attach_human_readable_receipt(
         self,

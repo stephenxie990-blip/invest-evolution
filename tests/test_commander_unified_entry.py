@@ -145,17 +145,54 @@ async def test_runtime_ask_combines_status_and_recent_training(runtime_with_db):
     assert "training_lab" in payload
     assert payload["human_readable"]["title"] == "系统运行摘要"
     assert payload["human_readable"]["bullets"]
+    assert payload["human_readable"]["facts"]
+    assert payload["human_readable"]["suggested_actions"]
+    assert payload["human_readable"]["receipt_text"].startswith("结论：")
+    assert payload["human_readable"]["sections"][0]["label"] == "结论"
     assert payload["task_bus"]["audit"]["used_tools"] == ["invest_quick_status", "invest_training_lab_summary"]
 
 
 @pytest.mark.asyncio
 async def test_runtime_ask_config_query_does_not_misroute_to_stock(runtime_with_db):
+    runtime_with_db._append_runtime_event("training_finished", {"run_id": "run-1"}, source="body")
     result = await runtime_with_db.ask("我想看看配置有没有问题", session_key="test:config-risk")
     payload = json.loads(result)
     assert payload["status"] == "ok"
     assert "runtime" in payload
     assert "event_summary" in payload
     assert payload["human_readable"]["title"] == "系统运行摘要"
+    assert payload["human_readable"]["latest_event"]["event"] == "training_finished"
+    assert payload["human_readable"]["latest_event"]["kind"] == "business"
+    assert payload["human_readable"]["facts"]
+    assert payload["human_readable"]["suggested_actions"]
+    assert "最近一次业务事件是 training_finished" in payload["human_readable"]["event_explanation"]
+
+
+@pytest.mark.asyncio
+async def test_runtime_ask_training_confirmation_human_receipt_explains_next_step(runtime_with_db):
+    result = await runtime_with_db.ask("请帮我真实训练2轮", session_key="test:train-human")
+    payload = json.loads(result)
+    human = payload["human_readable"]
+
+    assert payload["status"] == "confirmation_required"
+    assert human["title"] == "训练实验室摘要"
+    assert human["risk_level"] == "high"
+    assert human["suggested_actions"]
+    assert any("确认" in item for item in human["suggested_actions"])
+    assert human["recommended_next_step"] == "补充确认后重试"
+    assert "风险提示：" in human["receipt_text"]
+
+
+@pytest.mark.asyncio
+async def test_runtime_diagnostics_receipt_humanizes_internal_only_events(runtime_with_db):
+    result = await runtime_with_db.ask("请总结最近事件", session_key="test:event-human")
+    payload = json.loads(result)
+    human = payload["human_readable"]
+
+    assert payload["status"] == "ok"
+    assert human["title"] == "系统运行摘要"
+    assert "当前窗口内主要记录的是交互与调度事件" in human["event_explanation"]
+    assert "最近业务事件：ask_started" not in "\n".join(human["facts"])
 
 
 @pytest.mark.asyncio

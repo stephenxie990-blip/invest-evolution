@@ -223,6 +223,7 @@ brain/               本地 agent loop、工具、cron、bridge、memory、plugi
 market_data/         canonical SQLite 数据层、同步服务、读侧 dataset builder
 invest/              投资域模型：模型、Agent、会议、交易模拟、评估、进化、allocator
 config/              全局配置、可编辑配置服务、Agent 配置注册表
+scripts/cli/         独立 CLI 工具脚本（allocator / leaderboard）
 scripts/data/        数据回填与修复脚本
 strategies/          可插拔策略基因（md/json/py）
 runtime/             运行态输出、锁文件、记忆、会话、日志、训练实验室工件

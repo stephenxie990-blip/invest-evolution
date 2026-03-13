@@ -141,8 +141,8 @@ market_data/*
 
 ### 5.2 独立工具脚本
 
-- `allocator.py`
-- `leaderboard.py`
+- `scripts/cli/allocator.py`
+- `scripts/cli/leaderboard.py`
 
 
 ## 6. 当前扩展点

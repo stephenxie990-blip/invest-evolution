@@ -212,6 +212,9 @@ def test_api_chat_returns_structured_protocol_payload(client_with_runtime, monke
     assert payload['feedback']['summary'] == '当前任务已完成，计划与参数覆盖满足预期。'
     assert payload['next_action']['kind'] == 'complete'
     assert payload['task_bus']['schema_version'] == 'task_bus.v2'
+    assert payload['human_reply'].startswith('结论：当前任务已完成，计划与参数覆盖满足预期。')
+    assert payload['display']['available'] is True
+    assert payload['display']['summary'] == '当前任务已完成，计划与参数覆盖满足预期。'
 
 
 def test_api_chat_honors_explicit_session_identity(client_with_runtime):
@@ -235,3 +238,66 @@ def test_api_chat_honors_explicit_session_identity(client_with_runtime):
     assert seen == {'session_key': 'api:chat:portfolio-1', 'chat_id': 'portfolio-1'}
     assert payload['session_key'] == 'api:chat:portfolio-1'
     assert payload['chat_id'] == 'portfolio-1'
+
+
+def test_api_chat_surfaces_human_receipt_when_available(client_with_runtime):
+    client, runtime = client_with_runtime
+
+    async def fake_ask(message, session_key=None, channel=None, chat_id=None):
+        return json.dumps(
+            {
+                'status': 'ok',
+                'reply': 'raw-reply',
+                'message': 'raw-reply',
+                'human_readable': {
+                    'title': '系统运行摘要',
+                    'summary': '系统可用',
+                    'receipt_text': '结论：系统可用\\n建议动作：继续观察',
+                    'sections': [{'label': '结论', 'text': '系统可用'}],
+                    'suggested_actions': ['继续观察'],
+                    'recommended_next_step': '继续观察',
+                    'risk_level': 'low',
+                },
+            },
+            ensure_ascii=False,
+        )
+
+    runtime.ask = fake_ask
+    res = client.post('/api/chat', data=json.dumps({'message': '你好'}), content_type='application/json')
+    assert res.status_code == 200
+    payload = res.get_json()
+    assert payload['human_reply'].startswith('结论：系统可用')
+    assert payload['display']['title'] == '系统运行摘要'
+    assert payload['display']['text'].startswith('结论：系统可用')
+    assert payload['display']['sections'][0]['label'] == '结论'
+
+
+def test_api_chat_view_human_returns_plain_text(client_with_runtime):
+    client, runtime = client_with_runtime
+
+    async def fake_ask(message, session_key=None, channel=None, chat_id=None):
+        return json.dumps(
+            {
+                'status': 'ok',
+                'reply': 'raw-reply',
+                'message': 'raw-reply',
+                'human_readable': {
+                    'summary': '系统可用',
+                    'receipt_text': '结论：系统可用',
+                },
+            },
+            ensure_ascii=False,
+        )
+
+    runtime.ask = fake_ask
+    res = client.post('/api/chat?view=human', data=json.dumps({'message': '你好'}), content_type='application/json')
+    assert res.status_code == 200
+    assert res.mimetype == 'text/plain'
+    assert '结论：系统可用' in res.get_data(as_text=True)
+
+
+def test_api_chat_rejects_unknown_view(client_with_runtime):
+    client, _runtime = client_with_runtime
+    res = client.post('/api/chat', data=json.dumps({'message': '你好', 'view': 'xml'}), content_type='application/json')
+    assert res.status_code == 400
+    assert 'view must be one of' in res.get_json()['error']

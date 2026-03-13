@@ -62,11 +62,12 @@ docs/
 
 - `app/commander_*` support 文件全部归并到 `app/commander_support/`
 - `runtime/baostock_backfill.py` / `runtime/baostock_resume_backfill.py` 迁移到 `scripts/data/`
+- 根目录 `allocator.py` / `leaderboard.py` 迁移到 `scripts/cli/`
 - 根目录会话草稿 `findings.md` / `progress.md` / `task_plan.md` 迁移到 `docs/plans/session/`
 - 旧 `frontend/` / `static/` 迁移到 `历史归档区/20260313_root_cleanup/`
 
 ## 后续可选收口
 
-1. 若确认外部没有直接依赖，可把 `allocator.py` / `leaderboard.py` 再并入 `scripts/cli/`
-2. 评估是否保留根层 `llm_gateway.py` / `llm_router.py` 兼容壳
-3. 为 `docs/architecture` / `docs/blueprints` 增加索引页，进一步提升文档可读性
+1. 继续评估根层 `llm_gateway.py` / `llm_router.py` 的外部依赖面，条件成熟后再决定是否删除
+2. 继续按“根层只留兼容壳”的原则收敛零散入口
+3. 围绕 `commander` 统一入口增强自然语言调度、事件解释与人类可读回执

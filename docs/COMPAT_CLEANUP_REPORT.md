@@ -20,8 +20,8 @@
 
 ### 2.2 独立工具脚本
 
-- `allocator.py`
-- `leaderboard.py`
+- `scripts/cli/allocator.py`
+- `scripts/cli/leaderboard.py`
 
 二者仍有明确用途。
 
@@ -57,10 +57,12 @@
 - `app.web_server`
 - `app.llm_gateway`
 - `app.llm_router`
+- `scripts/cli/allocator.py`
+- `scripts/cli/leaderboard.py`
 
 而不是继续围绕根目录壳文件开发。
 
 ## 5. 剩余清理建议
 
-- 若 UI 完整接管某些脚本能力，可逐步弱化独立脚本入口
-- 但在当前阶段，根目录兼容壳仍然是合理保留项
+- `allocator` / `leaderboard` 已并入 `scripts/cli/`，后续如有更多独立工具脚本，也应优先进入该目录
+- `llm_gateway.py` / `llm_router.py` 当前仍建议保留为根层极薄兼容壳，因为测试和潜在外部导入仍直接依赖它们

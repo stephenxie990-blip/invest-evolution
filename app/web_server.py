@@ -28,6 +28,7 @@ import uuid
 from flask import Flask, jsonify, request, Response, stream_with_context
 
 from app.commander import CommanderConfig, CommanderRuntime, _apply_runtime_path_overrides
+from app.commander_support.presentation import build_human_display
 from app.runtime_contract_catalog import (
     RUNTIME_CONTRACT_DOCUMENTS_BY_ID,
     RUNTIME_CONTRACT_PUBLIC_PATHS,
@@ -240,6 +241,13 @@ def _parse_limit_arg(default: int = 20, maximum: int = 200) -> int:
     raw = request.args.get("limit", default)
     value = _parse_int(raw, "limit")
     return max(1, min(maximum, value))
+
+
+def _parse_view_arg(value: Any, *, default: str = "json") -> str:
+    view = str(value or default).strip().lower()
+    if view not in {"json", "human"}:
+        raise ValueError("view must be one of: json, human")
+    return view
 
 
 def _removed_web_ui_response(path: str):
@@ -692,6 +700,7 @@ def api_chat():
     if not message:
         return jsonify({"error": "message is required"}), 400
     try:
+        view = _parse_view_arg(data.get("view", request.args.get("view", "json")))
         session_key = _normalize_chat_session_token(
             data.get("session_key"),
             field_name="session_key",
@@ -718,7 +727,26 @@ def api_chat():
         payload.setdefault("message", str(payload.get("reply") or ""))
         payload.setdefault("session_key", session_key)
         payload.setdefault("chat_id", chat_id)
+        display = build_human_display(payload)
+        payload.setdefault("human_reply", str(display.get("text") or payload.get("reply") or ""))
+        payload.setdefault(
+            "display",
+            {
+                "available": bool(display.get("available")),
+                "title": str(display.get("title") or ""),
+                "summary": str(display.get("summary") or ""),
+                "text": str(display.get("text") or ""),
+                "sections": list(display.get("sections") or []),
+                "suggested_actions": list(display.get("suggested_actions") or []),
+                "recommended_next_step": str(display.get("recommended_next_step") or ""),
+                "risk_level": str(display.get("risk_level") or ""),
+            },
+        )
+        if view == "human":
+            return Response(str(payload.get("human_reply") or ""), mimetype="text/plain; charset=utf-8")
         return jsonify(payload)
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
     except Exception as exc:
         logger.exception("Chat error")
         return jsonify({"error": str(exc)}), 500

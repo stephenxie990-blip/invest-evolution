@@ -253,6 +253,8 @@ def _build_confirmation_summary(*, writes_state: bool, requires_confirmation: bo
 
 def _reason_human_text(reason_code: str) -> str:
     mapping = {
+        "read_only_analysis": "本次是只读分析，不会改动系统状态",
+        "tool_grounded_execution": "结果来自实际工具执行，不是自由编造",
         REASON_CONFIRMATION_REQUIRED: "当前操作仍需要人工确认",
         REASON_INCOMPLETE_PLAN_COVERAGE: "推荐计划尚未被完整覆盖",
         REASON_INCOMPLETE_PARAMETER_COVERAGE: "关键参数执行尚未完整对齐推荐计划",
