@@ -271,6 +271,12 @@
             "items": {
               "type": "string"
             }
+          },
+          "sse_event_refs": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           }
         },
         "required": [

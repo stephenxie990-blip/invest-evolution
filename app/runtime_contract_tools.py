@@ -93,6 +93,8 @@ def build_openapi(contract: dict[str, Any]) -> dict[str, Any]:
             'x-realtime': bool(endpoint.get('realtime', False)),
             'x-pagination': endpoint.get('pagination', 'none'),
         }
+        if success_content_type == 'text/event-stream' and endpoint.get('sse_event_refs'):
+            operation['x-sse-event-refs'] = list(endpoint.get('sse_event_refs') or [])
         parameters = []
         for param in endpoint.get('query_params', []):
             parameters.append({
@@ -231,6 +233,7 @@ def build_contract_schema() -> dict[str, Any]:
             'pagination': {'type': 'string'},
             'realtime': {'type': 'boolean'},
             'notes': {'type': 'array', 'items': {'type': 'string'}},
+            'sse_event_refs': {'type': 'array', 'items': {'type': 'string'}},
         },
         'required': [
             'id', 'group', 'method', 'path', 'summary', 'runtime_required', 'runtime_preferred',

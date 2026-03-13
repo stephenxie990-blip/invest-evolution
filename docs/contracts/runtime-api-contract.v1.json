@@ -272,6 +272,331 @@
         ],
         "additionalProperties": false
       },
+      "chatStreamConnected": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "connected"
+            ]
+          },
+          "session_key": {
+            "type": "string"
+          },
+          "chat_id": {
+            "type": "string"
+          },
+          "request_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "session_key",
+          "chat_id",
+          "request_id"
+        ],
+        "additionalProperties": false
+      },
+      "chatStreamRuntimeEvent": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "runtime_event"
+            ]
+          },
+          "id": {
+            "type": "string"
+          },
+          "ts": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "event": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "stream_kind": {
+            "type": "string"
+          },
+          "stream_tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "stage": {
+            "type": "string"
+          },
+          "phase_label": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "detail": {
+            "type": "string"
+          },
+          "broadcast_text": {
+            "type": "string"
+          },
+          "human_reply": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "risk_level": {
+            "type": "string"
+          },
+          "risk_summary": {
+            "type": "string"
+          },
+          "requires_confirmation": {
+            "type": "boolean"
+          },
+          "confirmation_state": {
+            "type": "string"
+          },
+          "confirmation_summary": {
+            "type": "string"
+          },
+          "session_key": {
+            "type": "string"
+          },
+          "chat_id": {
+            "type": "string"
+          },
+          "request_id": {
+            "type": "string"
+          },
+          "channel": {
+            "type": "string"
+          },
+          "agent": {
+            "type": "string"
+          },
+          "module": {
+            "type": "string"
+          },
+          "meeting": {
+            "type": "string"
+          },
+          "artifacts": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "progress_pct": {
+            "type": "integer"
+          },
+          "display_priority": {
+            "type": "integer"
+          },
+          "display_text": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "id",
+          "ts",
+          "event",
+          "source",
+          "kind",
+          "stream_kind",
+          "stream_tags",
+          "stage",
+          "phase_label",
+          "label",
+          "detail",
+          "broadcast_text",
+          "human_reply",
+          "status",
+          "risk_level",
+          "risk_summary",
+          "requires_confirmation",
+          "confirmation_state",
+          "confirmation_summary",
+          "session_key",
+          "chat_id",
+          "request_id",
+          "channel",
+          "agent",
+          "module",
+          "meeting",
+          "artifacts",
+          "display_priority",
+          "display_text"
+        ],
+        "additionalProperties": true
+      },
+      "chatStreamSummary": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "runtime_summary"
+            ]
+          },
+          "stream_kind": {
+            "type": "string",
+            "enum": [
+              "summary"
+            ]
+          },
+          "stream_tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "display_priority": {
+            "type": "integer"
+          },
+          "display_text": {
+            "type": "string"
+          },
+          "human_reply": {
+            "type": "string"
+          },
+          "session_key": {
+            "type": "string"
+          },
+          "chat_id": {
+            "type": "string"
+          },
+          "request_id": {
+            "type": "string"
+          },
+          "event_count": {
+            "type": "integer"
+          },
+          "suppressed_count": {
+            "type": "integer"
+          },
+          "phase_labels": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "highest_risk_level": {
+            "type": "string"
+          },
+          "requires_confirmation": {
+            "type": "boolean"
+          },
+          "artifact_names": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "type",
+          "stream_kind",
+          "stream_tags",
+          "display_priority",
+          "display_text",
+          "human_reply",
+          "session_key",
+          "chat_id",
+          "request_id",
+          "event_count",
+          "suppressed_count",
+          "phase_labels",
+          "highest_risk_level",
+          "requires_confirmation",
+          "artifact_names"
+        ],
+        "additionalProperties": false
+      },
+      "chatStreamReply": {
+        "type": "object",
+        "properties": {
+          "reply": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "session_key": {
+            "type": "string"
+          },
+          "chat_id": {
+            "type": "string"
+          },
+          "request_id": {
+            "type": "string"
+          },
+          "next_action": {
+            "$ref": "#/components/schemas/responseNextAction"
+          },
+          "feedback": {
+            "$ref": "#/components/schemas/responseFeedback"
+          },
+          "task_bus": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "human_readable": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "stream_summary": {
+            "$ref": "#/components/schemas/chatStreamSummary"
+          }
+        },
+        "required": [
+          "reply"
+        ],
+        "additionalProperties": true
+      },
+      "chatStreamDone": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "completed"
+            ]
+          },
+          "request_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "request_id"
+        ],
+        "additionalProperties": false
+      },
+      "chatStreamError": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "string"
+          },
+          "request_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "error",
+          "request_id"
+        ],
+        "additionalProperties": false
+      },
       "trainingPlan": {
         "type": "object",
         "properties": {
@@ -2179,6 +2504,14 @@
           }
         }
       },
+      "sse_event_refs": [
+        "#/components/schemas/chatStreamConnected",
+        "#/components/schemas/chatStreamRuntimeEvent",
+        "#/components/schemas/chatStreamSummary",
+        "#/components/schemas/chatStreamReply",
+        "#/components/schemas/chatStreamDone",
+        "#/components/schemas/chatStreamError"
+      ],
       "success": {
         "http_status": 200,
         "body_ref": "object",
@@ -2211,7 +2544,9 @@
       "pagination": "none",
       "realtime": true,
       "notes": [
-        "The stream first emits a connected event, then request-bound runtime events, then the final reply and done event.",
+        "Event sequence is `connected` -> repeated `runtime_event` -> `summary` -> `reply` -> `done`.",
+        "If the request fails after the stream is opened, `summary` is followed by `error` instead of `reply` and `done`.",
+        "The `runtime_event` payload contains phase labels, risk hints, confirmation state, artifacts, and human relay text.",
         "This is event streaming for runtime state; it does not stream LLM tokens."
       ],
       "runtime_preferred": true

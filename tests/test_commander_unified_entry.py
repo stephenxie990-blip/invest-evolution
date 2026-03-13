@@ -411,6 +411,31 @@ def test_stream_subscription_suppresses_duplicate_module_updates(runtime_with_db
         runtime_with_db.unsubscribe_event_stream(subscription_id)
 
 
+def test_stream_summary_can_merge_into_final_human_receipt(runtime_with_db):
+    payload = {
+        "status": "ok",
+        "reply": "已完成分析",
+        "message": "已完成分析",
+        "human_readable": {
+            "summary": "系统可用",
+            "receipt_text": "结论：系统可用",
+            "sections": [{"label": "结论", "text": "系统可用"}],
+            "bullets": [],
+            "facts": [],
+        },
+    }
+    summary_packet = {
+        "display_text": "本次共播报 3 条事件；主要阶段：模型路由 → 训练执行；最高风险：中风险，建议先核对关键参数或数据状态。。",
+        "stream_kind": "summary",
+    }
+
+    merged = runtime_with_db.merge_stream_summary_into_reply_payload(payload, summary_packet)
+
+    assert merged["stream_summary"]["stream_kind"] == "summary"
+    assert "流式过程摘要：" in merged["human_readable"]["receipt_text"]
+    assert any(section["label"] == "流式过程摘要" for section in merged["human_readable"]["sections"])
+
+
 @pytest.mark.asyncio
 async def test_runtime_ask_data_status_preserves_bounded_workflow(runtime_with_db):
     result = await runtime_with_db.ask("请帮我刷新数据状态", session_key="test:data-bounded")

@@ -527,6 +527,7 @@ def test_api_chat_stream_returns_session_bound_sse(client_with_runtime):
     assert '"phase_label": "模块处理"' in text
     assert '"display_text": "模块处理：模块日志更新：dispatcher / 解析意图 / 正在整理运行上下文。"' in text
     assert '本次共播报 1 条事件' in text
+    assert '流式过程摘要：本次共播报 1 条事件' in text
     assert '模块日志更新：dispatcher / 解析意图 / 正在整理运行上下文。' in text
 
 

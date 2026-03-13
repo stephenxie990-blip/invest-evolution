@@ -111,6 +111,14 @@ async def test_cli_run_async_streams_events_before_final_reply(capsys):
                 "display_text": "本次共播报 1 条事件；主要阶段：模块处理；最后播报：模块处理：正在整理运行上下文。。",
             }
 
+        @staticmethod
+        def merge_stream_summary_into_reply_payload(payload, summary_packet):
+            body = dict(payload or {})
+            human = dict(body.get("human_readable") or {})
+            human["receipt_text"] = str(human.get("receipt_text") or "") + "\n流式过程摘要：" + str(summary_packet.get("display_text") or "")
+            body["human_readable"] = human
+            return body
+
         def unsubscribe_event_stream(self, subscription_id):
             return None
 
@@ -142,4 +150,5 @@ async def test_cli_run_async_streams_events_before_final_reply(capsys):
     assert exit_code == 0
     assert "模块处理：正在整理运行上下文。" in captured.out
     assert "本次共播报 1 条事件" in captured.out
+    assert "流式过程摘要：" in captured.out
     assert "结论：系统可用" in captured.out

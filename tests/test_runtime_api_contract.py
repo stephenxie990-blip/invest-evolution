@@ -52,6 +52,12 @@ def test_runtime_contract_endpoint_returns_machine_readable_contract():
     assert payload['components']['schemas']['chatReply']['properties']['session_key']['type'] == 'string'
     assert payload['components']['schemas']['chatReply']['properties']['chat_id']['type'] == 'string'
     assert payload['components']['schemas']['chatReply']['properties']['request_id']['type'] == 'string'
+    assert payload['components']['schemas']['chatStreamConnected']['properties']['status']['enum'] == ['connected']
+    assert payload['components']['schemas']['chatStreamRuntimeEvent']['properties']['stream_kind']['type'] == 'string'
+    assert payload['components']['schemas']['chatStreamSummary']['properties']['event_count']['type'] == 'integer'
+    assert payload['components']['schemas']['chatStreamReply']['properties']['stream_summary']['$ref'] == '#/components/schemas/chatStreamSummary'
+    assert payload['components']['schemas']['chatStreamDone']['properties']['status']['enum'] == ['completed']
+    assert payload['components']['schemas']['chatStreamError']['properties']['error']['type'] == 'string'
     assert payload['transcript_snapshots']['schema_version'] == 'transcript_snapshots.v1'
     assert 'ask_stock' in payload['transcript_snapshots']['examples']
     assert payload['transcript_snapshots']['examples']['ask_stock']['entrypoint']['domain'] == 'stock'
@@ -65,7 +71,16 @@ def test_runtime_contract_endpoint_returns_machine_readable_contract():
     assert chat_endpoint['request_body']['properties']['session_key']['type'] == 'string'
     assert chat_endpoint['request_body']['properties']['chat_id']['type'] == 'string'
     assert chat_endpoint['request_body']['properties']['request_id']['type'] == 'string'
-    assert any(endpoint['path'] == '/api/chat/stream' and endpoint['method'] == 'POST' for endpoint in payload['endpoints'])
+    chat_stream_endpoint = next(endpoint for endpoint in payload['endpoints'] if endpoint['path'] == '/api/chat/stream' and endpoint['method'] == 'POST')
+    assert chat_stream_endpoint['success']['content_type'] == 'text/event-stream'
+    assert chat_stream_endpoint['sse_event_refs'] == [
+        '#/components/schemas/chatStreamConnected',
+        '#/components/schemas/chatStreamRuntimeEvent',
+        '#/components/schemas/chatStreamSummary',
+        '#/components/schemas/chatStreamReply',
+        '#/components/schemas/chatStreamDone',
+        '#/components/schemas/chatStreamError',
+    ]
     cycle_complete = payload['components']['sse_schemas']['cycleComplete']['data']['properties']
     assert 'requested_data_mode' in cycle_complete
     assert 'effective_data_mode' in cycle_complete
@@ -99,6 +114,14 @@ def test_runtime_contract_openapi_endpoint_returns_openapi_document():
     assert '/api/model-routing/preview' in payload['paths']
     assert payload['x-transcript-snapshots']['schema_version'] == 'transcript_snapshots.v1'
     assert 'runtime_status' in payload['x-transcript-snapshots']['examples']
+    assert payload['paths']['/api/chat/stream']['post']['x-sse-event-refs'] == [
+        '#/components/schemas/chatStreamConnected',
+        '#/components/schemas/chatStreamRuntimeEvent',
+        '#/components/schemas/chatStreamSummary',
+        '#/components/schemas/chatStreamReply',
+        '#/components/schemas/chatStreamDone',
+        '#/components/schemas/chatStreamError',
+    ]
 
 
 def test_runtime_contract_endpoint_returns_404_when_document_missing(monkeypatch):
@@ -138,6 +161,10 @@ def test_generated_contract_derivatives_validate_against_main_contract():
 
     assert openapi['info']['version'] == contract['version']
     assert openapi['paths']['/api/events']['get']['x-sse-event-refs'] == contract['sse']['event_refs']
+    chat_stream_endpoint = next(
+        endpoint for endpoint in contract['endpoints'] if endpoint['path'] == '/api/chat/stream' and endpoint['method'] == 'POST'
+    )
+    assert openapi['paths']['/api/chat/stream']['post']['x-sse-event-refs'] == chat_stream_endpoint['sse_event_refs']
 
     for endpoint in contract['endpoints']:
         path_item = openapi['paths'][endpoint['path']]
