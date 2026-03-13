@@ -802,6 +802,7 @@ class BrainRuntime:
             default_message=str(payload.get("message") or payload.get("reply") or ""),
             default_reply=str(payload.get("message") or payload.get("reply") or ""),
         )
+        payload = self._attach_human_readable_receipt(payload, intent=inferred_intent, operation=mode)
         return json.dumps(payload, ensure_ascii=False, indent=2)
 
     def _wrap_builtin_payload(
@@ -863,7 +864,121 @@ class BrainRuntime:
             default_message=str(payload.get("message") or payload.get("reply") or ""),
             default_reply=str(payload.get("message") or payload.get("reply") or ""),
         )
+        payload = self._attach_human_readable_receipt(payload, intent=intent, operation=operation)
         return json.dumps(payload, ensure_ascii=False, indent=2)
+
+    @staticmethod
+    def _runtime_state_bullets(runtime_payload: dict[str, Any]) -> list[str]:
+        state = str(runtime_payload.get("state") or "unknown")
+        current_task = dict(runtime_payload.get("current_task") or {})
+        last_task = dict(runtime_payload.get("last_task") or {})
+        bullets = [f"运行状态：{state}"]
+        if current_task.get("type"):
+            bullets.append(f"当前任务：{current_task.get('type')}")
+        if last_task.get("type"):
+            bullets.append(f"最近完成：{last_task.get('type')} / {last_task.get('status', '')}".rstrip(" /"))
+        return bullets
+
+    @staticmethod
+    def _training_lab_bullets(training_lab: dict[str, Any]) -> list[str]:
+        if not training_lab:
+            return []
+        return [
+            f"训练计划：{int(training_lab.get('plan_count', 0) or 0)}",
+            f"训练运行：{int(training_lab.get('run_count', 0) or 0)}",
+            f"训练评估：{int(training_lab.get('evaluation_count', 0) or 0)}",
+        ]
+
+    def _build_human_readable_receipt(
+        self,
+        payload: dict[str, Any],
+        *,
+        intent: str,
+        operation: str,
+    ) -> dict[str, Any]:
+        feedback = dict(payload.get("feedback") or {})
+        next_action = dict(payload.get("next_action") or {})
+        status = str(payload.get("status") or "ok")
+
+        if intent in {"runtime_status", "runtime_diagnostics", "runtime_status_and_training", "config_risk_diagnostics"}:
+            quick_status = dict(payload.get("quick_status") or {})
+            runtime_payload = dict(payload.get("runtime") or quick_status.get("runtime") or {})
+            plugins = dict(payload.get("plugins") or quick_status.get("plugins") or {})
+            event_summary = dict(payload.get("event_summary") or payload.get("events") or quick_status.get("events") or {})
+            training_lab = dict(payload.get("training_lab") or quick_status.get("training_lab") or {})
+            diagnostics = list(payload.get("diagnostics") or [])
+            bullets = []
+            bullets.extend(self._runtime_state_bullets(runtime_payload))
+            if plugins:
+                bullets.append(f"插件数：{int(plugins.get('count', 0) or 0)}")
+            if event_summary:
+                bullets.append(f"事件数：{int(event_summary.get('count', 0) or 0)}")
+            bullets.extend(self._training_lab_bullets(training_lab))
+            if diagnostics:
+                bullets.append(f"诊断提示：{', '.join(str(item) for item in diagnostics[:3])}")
+            summary = str(feedback.get("summary") or "已生成运行时摘要。")
+            if status == "ok" and not diagnostics:
+                summary = "系统可用，已返回运行状态、事件与训练摘要。"
+            return {
+                "title": "系统运行摘要",
+                "summary": summary,
+                "bullets": bullets,
+                "recommended_next_step": str(next_action.get("label") or ""),
+                "operation": operation,
+            }
+
+        if intent in {"training_lab_summary", "training_execution"}:
+            training_lab = dict(payload.get("training_lab") or payload)
+            return {
+                "title": "训练实验室摘要",
+                "summary": str(feedback.get("summary") or "已返回训练实验室状态。"),
+                "bullets": self._training_lab_bullets(training_lab),
+                "recommended_next_step": str(next_action.get("label") or ""),
+                "operation": operation,
+            }
+
+        if intent.startswith("config_") or intent in {"runtime_paths", "config_overview"}:
+            control_plane = dict(payload.get("control_plane") or {})
+            evolution_config = dict(payload.get("evolution_config") or {})
+            bullets: list[str] = []
+            if control_plane:
+                provider = str(control_plane.get("provider") or control_plane.get("default_provider") or "")
+                if provider:
+                    bullets.append(f"控制面 Provider：{provider}")
+            if evolution_config:
+                model_name = str(evolution_config.get("investment_model") or "")
+                if model_name:
+                    bullets.append(f"当前投资模型：{model_name}")
+            return {
+                "title": "配置摘要",
+                "summary": str(feedback.get("summary") or "已返回配置与控制面信息。"),
+                "bullets": bullets,
+                "recommended_next_step": str(next_action.get("label") or ""),
+                "operation": operation,
+            }
+
+        return {
+            "title": "执行摘要",
+            "summary": str(feedback.get("summary") or payload.get("message") or payload.get("reply") or ""),
+            "bullets": [],
+            "recommended_next_step": str(next_action.get("label") or ""),
+            "operation": operation,
+        }
+
+    def _attach_human_readable_receipt(
+        self,
+        payload: dict[str, Any],
+        *,
+        intent: str,
+        operation: str,
+    ) -> dict[str, Any]:
+        enriched = dict(payload or {})
+        enriched["human_readable"] = self._build_human_readable_receipt(
+            enriched,
+            intent=intent,
+            operation=operation,
+        )
+        return enriched
 
 
     async def _try_builtin_intent(self, content: str) -> Optional[str]:

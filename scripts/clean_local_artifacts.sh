@@ -15,9 +15,7 @@ rm -rf \
   market_data/__pycache__ \
   runtime/__pycache__ \
   strategies/__pycache__ \
-  tests/__pycache__ \
-  frontend/dist \
-  frontend/test-results
+  tests/__pycache__
 
 find . -type d -name '__pycache__' -prune -exec rm -rf {} +
 find . -name '.DS_Store' -delete

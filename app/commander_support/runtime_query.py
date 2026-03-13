@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from app.commander_observability import build_runtime_diagnostics
-from app.commander_status_support import (
+from app.commander_support.observability import build_runtime_diagnostics
+from app.commander_support.status import (
     build_commander_status_snapshot,
     build_events_summary_payload,
     build_events_tail_payload,

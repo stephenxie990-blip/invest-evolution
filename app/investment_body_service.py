@@ -8,7 +8,7 @@ import logging
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, Optional
 
-from app.commander_workflow_support import jsonable as _jsonable
+from app.commander_support.workflow import jsonable as _jsonable
 from app.train import SelfLearningController, TrainingResult
 from config import config
 from market_data import DataManager, DataSourceUnavailableError, MockDataProvider

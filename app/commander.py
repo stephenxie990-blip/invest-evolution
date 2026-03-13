@@ -39,11 +39,11 @@ from config.services import EvolutionConfigService, RuntimePathConfigService
 from invest.meetings import MeetingRecorder
 from app.lab.artifacts import TrainingLabArtifactStore
 from app.investment_body_service import InvestmentBodyService
-from app.commander_status_support import (
+from app.commander_support.status import (
     build_persisted_status_payload,
     collect_data_status,
 )
-from app.commander_training_support import (
+from app.commander_support.training import (
     append_training_memory,
     attach_training_lab_paths,
     build_commander_promotion_summary,
@@ -54,32 +54,32 @@ from app.commander_training_support import (
     summarize_research_feedback_promotion,
     summarize_training_evaluation_brief,
 )
-from app.commander_training_plan_support import (
+from app.commander_support.training_plan import (
     build_experiment_spec_from_plan,
     build_run_cycles_kwargs,
     load_training_plan_artifact,
 )
-from app.commander_identity_support import (
+from app.commander_support.identity import (
     build_commander_soul,
     build_commander_system_prompt,
     build_heartbeat_tasks_markdown,
 )
-from app.commander_ask_support import (
+from app.commander_support.ask import (
     execute_runtime_ask,
     record_runtime_ask_activity,
 )
-from app.commander_config_support import (
+from app.commander_support.config import (
     apply_runtime_path_overrides as apply_runtime_path_overrides_impl,
     build_commander_config_from_args,
     relocate_commander_state_paths,
     sync_runtime_path_config as sync_runtime_path_config_impl,
 )
-from app.commander_cli import (
+from app.commander_support.cli import (
     build_parser as build_commander_cli_parser,
     run_async as run_commander_cli_async,
     run_cli_main,
 )
-from app.commander_runtime_state_support import (
+from app.commander_support.runtime_state import (
     acquire_runtime_lock,
     apply_restored_body_state,
     build_finished_task,
@@ -89,24 +89,26 @@ from app.commander_runtime_state_support import (
     read_runtime_lock_payload,
     release_runtime_lock,
 )
-from app.commander_runtime_lifecycle_support import (
+from app.commander_support.runtime_lifecycle import (
     drain_runtime_notifications,
     ensure_runtime_storage,
-    load_persisted_runtime_state,
-    persist_runtime_state,
+    persist_runtime_snapshot,
+    restore_runtime_from_persisted_state,
     setup_cron_callback,
+    start_runtime_flow,
     start_runtime_background_services,
+    stop_runtime_flow,
     stop_runtime_background_services,
-    write_commander_identity_artifacts,
+    write_runtime_identity,
 )
-from app.commander_runtime_query_support import (
+from app.commander_support.runtime_query import (
     get_events_summary_response,
     get_events_tail_response,
     get_runtime_diagnostics_response,
     get_status_response,
     get_training_lab_summary_response,
 )
-from app.commander_runtime_mutation_support import (
+from app.commander_support.runtime_mutation import (
     add_cron_job_response,
     list_cron_jobs_response,
     reload_plugins_response,
@@ -114,11 +116,11 @@ from app.commander_runtime_mutation_support import (
     remove_cron_job_response,
     serve_forever_loop,
 )
-from app.commander_plugin_support import (
+from app.commander_support.plugin import (
     load_plugin_tools,
     register_fusion_tools as register_fusion_tools_impl,
 )
-from app.commander_services import (
+from app.commander_support.services import (
     get_allocator_payload,
     get_capital_flow_payload,
     get_control_plane_payload,
@@ -138,14 +140,14 @@ from app.commander_services import (
     update_evolution_config_payload,
     update_runtime_paths_payload,
 )
-from app.commander_observability import (
+from app.commander_support.observability import (
     append_event_row,
     build_memory_detail,
     memory_brief_row,
 )
-from app.commander_domain_catalog import get_domain_agent_kind, get_domain_tools
+from app.commander_support.domain_catalog import get_domain_agent_kind, get_domain_tools
 from app.strategy_gene_registry import StrategyGene, StrategyGeneRegistry
-from app.commander_workflow_support import (
+from app.commander_support.workflow import (
     attach_bounded_workflow_response,
     jsonable as _jsonable,
 )
@@ -393,17 +395,14 @@ class CommanderRuntime:
         return append_event_row(self.cfg.runtime_events_path, event, payload, source=source)
 
     def _restore_persisted_state(self) -> None:
-        payload = load_persisted_runtime_state(self.cfg.state_file, logger=logger)
-        if payload is None:
-            return
-        runtime_payload = dict(payload.get("runtime") or {})
-        body_payload = dict(payload.get("body") or {})
-        self._update_runtime_fields(
-            state=runtime_payload.get("state", self.runtime_state),
-            current_task=runtime_payload.get("current_task"),
-            last_task=runtime_payload.get("last_task"),
+        restore_runtime_from_persisted_state(
+            state_file=self.cfg.state_file,
+            logger=logger,
+            update_runtime_fields=self._update_runtime_fields,
+            current_state=self.runtime_state,
+            apply_restored_body_state_impl=apply_restored_body_state,
+            body=self.body,
         )
-        apply_restored_body_state(self.body, body_payload)
 
     def _set_runtime_state(self, state: str) -> None:
         self._update_runtime_fields(state=state)
@@ -511,19 +510,29 @@ class CommanderRuntime:
             )
             self._runtime_lock_acquired = False
 
+    def _set_started_flag(self, started: bool) -> None:
+        self._started = bool(started)
+
+    def _set_background_tasks(
+        self,
+        notify_task: Optional[asyncio.Task],
+        autopilot_task: Optional[asyncio.Task],
+    ) -> None:
+        self._notify_task = notify_task
+        self._autopilot_task = autopilot_task
+
     async def start(self) -> None:
-        if self._started:
-            return
-        self._ensure_runtime_storage()
-        self._begin_task("start", "system")
-        self._set_runtime_state(RUNTIME_STATE_STARTING)
-        try:
-            self._acquire_runtime_lock()
-            self.strategy_registry.ensure_default_templates()
-            self.strategy_registry.reload()
-            self._load_plugins(persist=False)
-            self._write_commander_identity()
-            self._notify_task, self._autopilot_task = await start_runtime_background_services(
+        await start_runtime_flow(
+            is_started=self._started,
+            ensure_runtime_storage=self._ensure_runtime_storage,
+            begin_task=self._begin_task,
+            set_runtime_state=self._set_runtime_state,
+            acquire_runtime_lock=self._acquire_runtime_lock,
+            ensure_default_templates=self.strategy_registry.ensure_default_templates,
+            reload_strategies=lambda: self.strategy_registry.reload(),
+            load_plugins=self._load_plugins,
+            write_commander_identity=self._write_commander_identity,
+            start_background_services=lambda: start_runtime_background_services(
                 cron=self.cron,
                 heartbeat=self.heartbeat,
                 bridge=self.bridge,
@@ -533,34 +542,40 @@ class CommanderRuntime:
                 autopilot_enabled=self.cfg.autopilot_enabled,
                 autopilot_loop=self.body.autopilot_loop,
                 training_interval_sec=self.cfg.training_interval_sec,
-            )
-
-            self._started = True
-            self._complete_runtime_task(state=STATUS_IDLE, status=STATUS_OK)
-        except Exception:
-            self._set_runtime_state(STATUS_ERROR)
-            self._end_task(STATUS_ERROR)
-            self._release_runtime_lock()
-            self._persist_state()
-            raise
+            ),
+            mark_started=self._set_started_flag,
+            set_background_tasks=self._set_background_tasks,
+            complete_runtime_task=self._complete_runtime_task,
+            end_task=self._end_task,
+            release_runtime_lock=self._release_runtime_lock,
+            persist_state=self._persist_state,
+            starting_state=RUNTIME_STATE_STARTING,
+            idle_state=STATUS_IDLE,
+            error_state=STATUS_ERROR,
+            ok_status=STATUS_OK,
+        )
 
     async def stop(self) -> None:
-        if not self._started:
-            return
-        self._begin_task("stop", "system")
-        self._set_runtime_state(RUNTIME_STATE_STOPPING)
-        self._notify_task, self._autopilot_task = await stop_runtime_background_services(
-            body=self.body,
-            autopilot_task=self._autopilot_task,
-            notify_task=self._notify_task,
-            bridge=self.bridge,
-            heartbeat=self.heartbeat,
-            cron=self.cron,
-            brain=self.brain,
+        await stop_runtime_flow(
+            is_started=self._started,
+            begin_task=self._begin_task,
+            set_runtime_state=self._set_runtime_state,
+            stop_background_services=lambda: stop_runtime_background_services(
+                body=self.body,
+                autopilot_task=self._autopilot_task,
+                notify_task=self._notify_task,
+                bridge=self.bridge,
+                heartbeat=self.heartbeat,
+                cron=self.cron,
+                brain=self.brain,
+            ),
+            mark_started=self._set_started_flag,
+            release_runtime_lock=self._release_runtime_lock,
+            complete_runtime_task=self._complete_runtime_task,
+            stopping_state=RUNTIME_STATE_STOPPING,
+            stopped_state=RUNTIME_STATE_STOPPED,
+            ok_status=STATUS_OK,
         )
-        self._started = False
-        self._release_runtime_lock()
-        self._complete_runtime_task(state=RUNTIME_STATE_STOPPED, status=STATUS_OK)
 
     async def ask(
         self,
@@ -1640,14 +1655,14 @@ class CommanderRuntime:
         )
 
     def _persist_state(self) -> None:
-        persist_runtime_state(
-            self.cfg.state_file,
-            payload=self._build_persisted_state_payload(),
+        persist_runtime_snapshot(
+            state_file=self.cfg.state_file,
+            build_persisted_state_payload=self._build_persisted_state_payload,
         )
 
     def _write_commander_identity(self) -> None:
-        write_commander_identity_artifacts(
-            self.cfg.workspace,
+        write_runtime_identity(
+            workspace=self.cfg.workspace,
             strategy_dir=str(self.cfg.strategy_dir),
             quick_status_tool_name=INVEST_QUICK_STATUS_TOOL_NAME,
             strategy_summary=self.strategy_registry.to_summary(),

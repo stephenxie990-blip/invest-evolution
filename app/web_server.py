@@ -1272,7 +1272,7 @@ def api_agent_prompts_list():
     if runtime is not None:
         return _jsonify_contract_payload(runtime.list_agent_prompts())
     import config as config_module
-    from app.commander_services import list_agent_prompts_payload
+    from app.commander_support.services import list_agent_prompts_payload
     return jsonify(list_agent_prompts_payload(project_root=config_module.PROJECT_ROOT))
 
 
@@ -1289,7 +1289,7 @@ def api_agent_prompts_update():
         if runtime is not None:
             return _jsonify_contract_payload(runtime.update_agent_prompt(agent_name=agent_name, system_prompt=str(data.get("system_prompt", "") or "")))
         import config as config_module
-        from app.commander_services import update_agent_prompt_payload
+        from app.commander_support.services import update_agent_prompt_payload
         return jsonify(update_agent_prompt_payload(agent_name=agent_name, system_prompt=str(data.get("system_prompt", "") or ""), project_root=config_module.PROJECT_ROOT))
     except Exception as exc:
         logger.exception("Failed to update agent prompt")
@@ -1304,7 +1304,7 @@ def api_runtime_paths_get():
     if runtime is not None:
         return _jsonify_contract_payload(runtime.get_runtime_paths())
     import config as config_module
-    from app.commander_services import get_runtime_paths_payload
+    from app.commander_support.services import get_runtime_paths_payload
     return jsonify(get_runtime_paths_payload(None, project_root=config_module.PROJECT_ROOT))
 
 
@@ -1316,7 +1316,7 @@ def api_runtime_paths_update():
         if runtime is not None:
             return _jsonify_contract_payload(runtime.update_runtime_paths(data, confirm=True))
         import config as config_module
-        from app.commander_services import update_runtime_paths_payload
+        from app.commander_support.services import update_runtime_paths_payload
         return jsonify(update_runtime_paths_payload(patch=data, runtime=None, project_root=config_module.PROJECT_ROOT, sync_runtime=None))
     except ValueError as exc:
         return jsonify({"status": "error", "error": str(exc)}), 400
@@ -1333,7 +1333,7 @@ def api_evolution_config_get():
     if runtime is not None:
         return _jsonify_contract_payload(runtime.get_evolution_config())
     import config as config_module
-    from app.commander_services import get_evolution_config_payload
+    from app.commander_support.services import get_evolution_config_payload
     return jsonify(get_evolution_config_payload(project_root=config_module.PROJECT_ROOT, live_config=config_module.config))
 
 
@@ -1354,7 +1354,7 @@ def api_evolution_config_update():
         if runtime is not None:
             return _jsonify_contract_payload(runtime.update_evolution_config(data, confirm=True))
         import config as config_module
-        from app.commander_services import update_evolution_config_payload
+        from app.commander_support.services import update_evolution_config_payload
         return jsonify(update_evolution_config_payload(patch=data, project_root=config_module.PROJECT_ROOT, live_config=config_module.config, source="web_api"))
     except ValueError as exc:
         return jsonify({"status": "error", "error": str(exc)}), 400
@@ -1369,7 +1369,7 @@ def api_control_plane_get():
     if runtime is not None:
         return _jsonify_contract_payload(runtime.get_control_plane())
     import config as config_module
-    from app.commander_services import get_control_plane_payload
+    from app.commander_support.services import get_control_plane_payload
     return jsonify(get_control_plane_payload(project_root=config_module.PROJECT_ROOT))
 
 
@@ -1381,7 +1381,7 @@ def api_control_plane_update():
         if runtime is not None:
             return _jsonify_contract_payload(runtime.update_control_plane(data, confirm=True))
         import config as config_module
-        from app.commander_services import update_control_plane_payload
+        from app.commander_support.services import update_control_plane_payload
         return jsonify(update_control_plane_payload(patch=data, project_root=config_module.PROJECT_ROOT, source="web_api"))
     except ValueError as exc:
         return jsonify({"status": "error", "error": str(exc)}), 400
@@ -1401,7 +1401,7 @@ def api_data_status():
     runtime = _runtime
     if runtime is not None:
         return _jsonify_contract_payload(runtime.get_data_status(refresh=refresh))
-    from app.commander_services import get_data_status_payload
+    from app.commander_support.services import get_data_status_payload
     return jsonify(get_data_status_payload(refresh=refresh))
 
 @app.route("/api/data/capital_flow", methods=["GET"])
@@ -1414,7 +1414,7 @@ def api_data_capital_flow():
     runtime = _runtime
     if runtime is not None:
         return _jsonify_contract_payload(runtime.get_capital_flow(codes=codes, start_date=start_date, end_date=end_date, limit=limit))
-    from app.commander_services import get_capital_flow_payload
+    from app.commander_support.services import get_capital_flow_payload
     return jsonify(get_capital_flow_payload(codes=codes, start_date=start_date, end_date=end_date, limit=limit))
 
 
@@ -1428,7 +1428,7 @@ def api_data_dragon_tiger():
     runtime = _runtime
     if runtime is not None:
         return _jsonify_contract_payload(runtime.get_dragon_tiger(codes=codes, start_date=start_date, end_date=end_date, limit=limit))
-    from app.commander_services import get_dragon_tiger_payload
+    from app.commander_support.services import get_dragon_tiger_payload
     return jsonify(get_dragon_tiger_payload(codes=codes, start_date=start_date, end_date=end_date, limit=limit))
 
 
@@ -1442,7 +1442,7 @@ def api_data_intraday_60m():
     runtime = _runtime
     if runtime is not None:
         return _jsonify_contract_payload(runtime.get_intraday_60m(codes=codes, start_date=start_date, end_date=end_date, limit=limit))
-    from app.commander_services import get_intraday_60m_payload
+    from app.commander_support.services import get_intraday_60m_payload
     return jsonify(get_intraday_60m_payload(codes=codes, start_date=start_date, end_date=end_date, limit=limit))
 
 

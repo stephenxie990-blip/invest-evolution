@@ -7,7 +7,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from app.commander_workflow_support import jsonable
+from app.commander_support.workflow import jsonable
 from app.lab.evaluation import (
     build_promotion_summary,
     build_training_evaluation_summary,

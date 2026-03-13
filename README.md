@@ -218,15 +218,17 @@ gunicorn -c gunicorn.conf.py wsgi:app
 
 ```text
 app/                 顶层应用实现（commander/train/web_server/lab/training）
+app/commander_support/ Commander 入口的查询/写入/生命周期/工作流支撑模块
 brain/               本地 agent loop、工具、cron、bridge、memory、plugin loader
 market_data/         canonical SQLite 数据层、同步服务、读侧 dataset builder
 invest/              投资域模型：模型、Agent、会议、交易模拟、评估、进化、allocator
 config/              全局配置、可编辑配置服务、Agent 配置注册表
+scripts/data/        数据回填与修复脚本
 strategies/          可插拔策略基因（md/json/py）
-static/              Web 控制台静态资源
 runtime/             运行态输出、锁文件、记忆、会话、日志、训练实验室工件
 agent_settings/      Agent prompt / model 配置与插件模板
 tests/               当前实现对应的回归测试
+docs/plans/session/  会话级 task_plan / findings / progress 归档
 历史归档区/          已退出主链但保留追溯价值的历史资料
 ```
 

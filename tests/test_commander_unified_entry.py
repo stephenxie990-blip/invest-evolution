@@ -143,6 +143,8 @@ async def test_runtime_ask_combines_status_and_recent_training(runtime_with_db):
     assert payload["intent"] == "status_and_recent_training"
     assert "quick_status" in payload
     assert "training_lab" in payload
+    assert payload["human_readable"]["title"] == "系统运行摘要"
+    assert payload["human_readable"]["bullets"]
     assert payload["task_bus"]["audit"]["used_tools"] == ["invest_quick_status", "invest_training_lab_summary"]
 
 
@@ -153,6 +155,7 @@ async def test_runtime_ask_config_query_does_not_misroute_to_stock(runtime_with_
     assert payload["status"] == "ok"
     assert "runtime" in payload
     assert "event_summary" in payload
+    assert payload["human_readable"]["title"] == "系统运行摘要"
 
 
 @pytest.mark.asyncio

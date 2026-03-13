@@ -73,6 +73,36 @@ def load_persisted_runtime_state(state_file: Path, *, logger: Any) -> dict[str, 
     return payload
 
 
+def restore_runtime_from_persisted_state(
+    *,
+    state_file: Path,
+    logger: Any,
+    update_runtime_fields: Callable[..., None],
+    current_state: str,
+    apply_restored_body_state_impl: Callable[[Any, dict[str, Any]], None],
+    body: Any,
+) -> None:
+    payload = load_persisted_runtime_state(state_file, logger=logger)
+    if payload is None:
+        return
+    runtime_payload = dict(payload.get("runtime") or {})
+    body_payload = dict(payload.get("body") or {})
+    update_runtime_fields(
+        state=runtime_payload.get("state", current_state),
+        current_task=runtime_payload.get("current_task"),
+        last_task=runtime_payload.get("last_task"),
+    )
+    apply_restored_body_state_impl(body, body_payload)
+
+
+def persist_runtime_snapshot(
+    *,
+    state_file: Path,
+    build_persisted_state_payload: Callable[[], dict[str, Any]],
+) -> None:
+    persist_runtime_state(state_file, payload=build_persisted_state_payload())
+
+
 def write_commander_identity_artifacts(
     workspace: Path,
     *,
@@ -94,6 +124,25 @@ def write_commander_identity_artifacts(
 
     if not heartbeat_file.exists():
         heartbeat_file.write_text(build_heartbeat(), encoding="utf-8")
+
+
+def write_runtime_identity(
+    *,
+    workspace: Path,
+    strategy_dir: str,
+    quick_status_tool_name: str,
+    strategy_summary: str,
+    build_soul: Callable[..., str],
+    build_heartbeat: Callable[[], str],
+) -> None:
+    write_commander_identity_artifacts(
+        workspace,
+        strategy_dir=strategy_dir,
+        quick_status_tool_name=quick_status_tool_name,
+        strategy_summary=strategy_summary,
+        build_soul=build_soul,
+        build_heartbeat=build_heartbeat,
+    )
 
 
 async def start_runtime_background_services(
@@ -121,6 +170,52 @@ async def start_runtime_background_services(
     return notify_task, autopilot_task
 
 
+async def start_runtime_flow(
+    *,
+    is_started: bool,
+    ensure_runtime_storage: Callable[[], None],
+    begin_task: Callable[..., None],
+    set_runtime_state: Callable[[str], None],
+    acquire_runtime_lock: Callable[[], None],
+    ensure_default_templates: Callable[[], None],
+    reload_strategies: Callable[[], Any],
+    load_plugins: Callable[..., dict[str, Any]],
+    write_commander_identity: Callable[[], None],
+    start_background_services: Callable[[], Awaitable[tuple[asyncio.Task[None], asyncio.Task[None] | None]]],
+    mark_started: Callable[[bool], None],
+    set_background_tasks: Callable[[asyncio.Task[None] | None, asyncio.Task[None] | None], None],
+    complete_runtime_task: Callable[..., None],
+    end_task: Callable[..., None],
+    release_runtime_lock: Callable[[], None],
+    persist_state: Callable[[], None],
+    starting_state: str,
+    idle_state: str,
+    error_state: str,
+    ok_status: str,
+) -> None:
+    if is_started:
+        return
+    ensure_runtime_storage()
+    begin_task("start", "system")
+    set_runtime_state(starting_state)
+    try:
+        acquire_runtime_lock()
+        ensure_default_templates()
+        reload_strategies()
+        load_plugins(persist=False)
+        write_commander_identity()
+        notify_task, autopilot_task = await start_background_services()
+        set_background_tasks(notify_task, autopilot_task)
+        mark_started(True)
+        complete_runtime_task(state=idle_state, status=ok_status)
+    except Exception:
+        set_runtime_state(error_state)
+        end_task(error_state)
+        release_runtime_lock()
+        persist_state()
+        raise
+
+
 async def stop_runtime_background_services(
     *,
     body: Any,
@@ -144,3 +239,26 @@ async def stop_runtime_background_services(
     cron.stop()
     await brain.close()
     return None, None
+
+
+async def stop_runtime_flow(
+    *,
+    is_started: bool,
+    begin_task: Callable[..., None],
+    set_runtime_state: Callable[[str], None],
+    stop_background_services: Callable[[], Awaitable[tuple[None, None]]],
+    mark_started: Callable[[bool], None],
+    release_runtime_lock: Callable[[], None],
+    complete_runtime_task: Callable[..., None],
+    stopping_state: str,
+    stopped_state: str,
+    ok_status: str,
+) -> None:
+    if not is_started:
+        return
+    begin_task("stop", "system")
+    set_runtime_state(stopping_state)
+    await stop_background_services()
+    mark_started(False)
+    release_runtime_lock()
+    complete_runtime_task(state=stopped_state, status=ok_status)
