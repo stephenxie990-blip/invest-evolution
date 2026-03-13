@@ -16,6 +16,18 @@ def _apply_runtime_adjustments(controller: Any, adjustments: dict[str, Any]) -> 
         controller.investment_model.update_runtime_overrides(adjustments)
 
 
+def _population_size(controller: Any) -> int:
+    service = getattr(controller, "evolution_service", None)
+    if service is not None:
+        try:
+            return int(getattr(service, "population_size"))
+        except Exception:
+            return 0
+    engine = getattr(controller, "evolution_engine", None)
+    population = getattr(engine, "population", []) if engine is not None else []
+    return len(population or [])
+
+
 def trigger_loss_optimization(
     controller: Any,
     cycle_dict: dict[str, Any],
@@ -139,17 +151,26 @@ def trigger_loss_optimization(
 
             if len(controller.cycle_history) >= 3:
                 fitness_scores = [max(result.return_pct, -50) for result in controller.cycle_history[-10:]]
-                if len(controller.evolution_engine.population) == 0:
-                    controller.evolution_engine.initialize_population(controller.current_params)
-
-                pop_size = len(controller.evolution_engine.population)
+                evolution_service = getattr(controller, "evolution_service", None)
+                if evolution_service is not None:
+                    if _population_size(controller) == 0:
+                        evolution_service.initialize_population(controller.current_params)
+                    pop_size = _population_size(controller)
+                else:
+                    if len(controller.evolution_engine.population) == 0:
+                        controller.evolution_engine.initialize_population(controller.current_params)
+                    pop_size = len(controller.evolution_engine.population)
                 if len(fitness_scores) > pop_size:
                     fitness_scores = fitness_scores[-pop_size:]
                 elif len(fitness_scores) < pop_size:
                     fitness_scores = fitness_scores + [0.0] * (pop_size - len(fitness_scores))
 
-                controller.evolution_engine.evolve(fitness_scores)
-                best_params = controller.evolution_engine.get_best_params()
+                if evolution_service is not None:
+                    evolution_service.evolve(fitness_scores)
+                    best_params = evolution_service.get_best_params()
+                else:
+                    controller.evolution_engine.evolve(fitness_scores)
+                    best_params = controller.evolution_engine.get_best_params()
                 evo_event = event_factory(
                     trigger='consecutive_losses',
                     stage='evolution_engine',

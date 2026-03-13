@@ -1,3 +1,5 @@
+"""Training service re-exports for the application layer."""
+
 from app.training.controller_services import (
     FreezeGateService,
     TrainingFeedbackService,

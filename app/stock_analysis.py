@@ -16,11 +16,11 @@ except Exception:  # pragma: no cover
 import pandas as pd
 
 from app.llm_gateway import LLMGateway, LLMGatewayError, LLMUnavailableError
+from app.training.routing_services import TrainingRoutingService
 from config import OUTPUT_DIR, PROJECT_ROOT, config, normalize_date
 from config.control_plane import resolve_default_llm
 from brain.schema_contract import BOUNDED_WORKFLOW_SCHEMA_VERSION
 from brain.task_bus import build_bounded_entrypoint, build_bounded_orchestration, build_bounded_policy, build_bounded_response_context, build_readonly_task_bus, build_protocol_response
-from invest.leaderboard import write_leaderboard
 from invest.models import create_investment_model, resolve_model_config_path
 from invest.research import (
     ResearchAttributionEngine,
@@ -32,13 +32,13 @@ from invest.research import (
     build_research_snapshot,
     resolve_policy_snapshot,
 )
-from invest.router import ModelRoutingCoordinator
 from invest.foundation.compute.features import compute_stock_summary
 from invest.foundation.compute.indicators_v2 import compute_indicator_snapshot
 from market_data import DataManager
 from market_data.repository import MarketDataRepository
 
 logger = logging.getLogger(__name__)
+_TRAINING_ROUTING_SERVICE = TrainingRoutingService()
 
 _STOCK_CODE_RE = re.compile(r"\b(?:sh|sz)\.\d{6}\b|\b\d{6}(?:\.(?:SH|SZ|sh|sz))?\b")
 _DAY_COUNT_RE = re.compile(r"(\d{2,4})\s*(?:个)?(?:交易)?(?:日|天)")
@@ -1172,15 +1172,6 @@ class StockAnalysisService:
                     "as_of_date": effective_as_of_date,
                 },
             }
-        leaderboard_root = Path(getattr(controller, "output_dir", OUTPUT_DIR) or OUTPUT_DIR)
-        if leaderboard_root.name == "training":
-            leaderboard_root = leaderboard_root.parent
-        leaderboard_root.mkdir(parents=True, exist_ok=True)
-        leaderboard_path = leaderboard_root / "leaderboard.json"
-        try:
-            write_leaderboard(leaderboard_root, leaderboard_path)
-        except Exception:
-            logger.debug("Leaderboard refresh failed during ask_stock bridge", exc_info=True)
         allowed_models = [
             str(item).strip()
             for item in (
@@ -1193,35 +1184,17 @@ class StockAnalysisService:
         ]
         routing_enabled = bool(getattr(controller, "model_routing_enabled", getattr(config, "model_routing_enabled", True)))
         routing_mode = str(getattr(controller, "model_routing_mode", getattr(config, "model_routing_mode", "rule")) or "rule").strip().lower()
-        allocator_top_n = int(getattr(controller, "allocator_top_n", getattr(config, "allocator_top_n", 3)) or 3)
-        routing_coordinator = getattr(controller, "routing_coordinator", None)
-        if routing_coordinator is None:
-            routing_coordinator = ModelRoutingCoordinator(
-                routing_policy=dict(getattr(controller, "model_routing_policy", getattr(config, "model_routing_policy", {})) or {}),
-                min_confidence=float(getattr(controller, "model_switch_min_confidence", getattr(config, "model_switch_min_confidence", 0.60)) or 0.60),
-                cooldown_cycles=int(getattr(controller, "model_switch_cooldown_cycles", getattr(config, "model_switch_cooldown_cycles", 2)) or 2),
-                hysteresis_margin=float(getattr(controller, "model_switch_hysteresis_margin", getattr(config, "model_switch_hysteresis_margin", 0.08)) or 0.08),
-                agent_override_max_gap=float(
-                    getattr(controller, "model_routing_agent_override_max_gap", getattr(config, "model_routing_agent_override_max_gap", 0.18)) or 0.18
-                ),
-            )
         try:
-            decision = routing_coordinator.route(
+            decision = _TRAINING_ROUTING_SERVICE.route_model(
+                controller,
                 stock_data=stock_data,
                 cutoff_date=effective_as_of_date,
                 current_model=current_model,
-                leaderboard_path=leaderboard_path,
-                allocator_top_n=allocator_top_n,
-                allowed_models=allowed_models or None,
-                routing_mode=routing_mode if routing_enabled else "off",
-                regime_agent=(getattr(controller, "agents", {}) or {}).get("market_regime") if controller is not None and routing_mode in {"hybrid", "agent"} else None,
-                selector_agent=(getattr(controller, "agents", {}) or {}).get("model_selector")
-                if controller is not None and bool(getattr(controller, "model_routing_agent_override_enabled", False)) and routing_mode in {"hybrid", "agent"}
-                else None,
-                previous_decision=dict(getattr(controller, "last_routing_decision", {}) or {}),
-                current_cycle_id=getattr(controller, "current_cycle_id", None),
-                last_switch_cycle_id=getattr(controller, "last_model_switch_cycle_id", None),
                 data_manager=data_manager,
+                output_dir=getattr(controller, "output_dir", OUTPUT_DIR),
+                allowed_models=allowed_models or None,
+                current_cycle_id=getattr(controller, "current_cycle_id", None),
+                safe_leaderboard_refresh=True,
             )
         except Exception as exc:
             logger.warning("Research bridge routing failed for %s", code, exc_info=True)

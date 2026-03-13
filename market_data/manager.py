@@ -398,6 +398,11 @@ class DataManager:
         self._capital_flow = CapitalFlowDatasetService(repository=self._offline.repository)
         self._events = EventDatasetService(repository=self._offline.repository)
         self._intraday = IntradayDatasetBuilder(repository=self._offline.repository)
+        from .services.benchmark import BenchmarkDataService
+        from .services.query import MarketQueryService
+
+        self._query = MarketQueryService(dataset_service=self._web)
+        self._benchmark = BenchmarkDataService(repository=self._offline.repository)
         self._quality_audit_cache: dict[str, object] = {}
         self._online: Optional[EvolutionDataLoader] = None
         self._prefer_offline = prefer_offline
@@ -671,23 +676,19 @@ class DataManager:
         )
 
     def get_benchmark_daily_values(self, trading_dates: list[str], index_code: str = "sh.000300") -> list[float]:
-        if not trading_dates:
-            return []
-        df = self._offline.repository.query_index_bars(index_codes=[index_code], start_date=min(trading_dates), end_date=max(trading_dates))
-        if df.empty:
-            return []
-        frame = df.copy()
-        frame["trade_date"] = frame["trade_date"].astype(str)
-        frame = frame.sort_values("trade_date").drop_duplicates("trade_date", keep="last")
-        frame = frame.set_index("trade_date")
-        closes = frame["close"].astype(float)
-        aligned = closes.reindex(trading_dates).ffill().bfill()
-        return [float(x) for x in aligned.tolist() if x is not None]
+        return self._benchmark.get_benchmark_daily_values(
+            trading_dates=trading_dates,
+            index_code=index_code,
+        )
 
     def get_market_index_frame(self, index_code: str = "sh.000300", start_date: str | None = None, end_date: str | None = None) -> pd.DataFrame:
         if not self._offline.available:
             return pd.DataFrame()
-        return self._offline.repository.query_index_bars(index_codes=[index_code], start_date=start_date, end_date=end_date)
+        return self._benchmark.get_market_index_frame(
+            index_code=index_code,
+            start_date=start_date,
+            end_date=end_date,
+        )
 
     def load_stock_data(
         self,
@@ -815,7 +816,7 @@ class DataManager:
         raise error
 
     def get_status_summary(self, *, refresh: bool = False) -> dict[str, object]:
-        return self._web.get_status_summary(refresh=refresh)
+        return self._query.get_status_summary(refresh=refresh)
 
     def get_capital_flow_data(
         self,
@@ -823,7 +824,7 @@ class DataManager:
         start_date: str | None = None,
         end_date: str | None = None,
     ) -> pd.DataFrame:
-        return self._capital_flow.get_capital_flow(codes=codes, start_date=start_date, end_date=end_date)
+        return self._query.get_capital_flow(codes=codes, start_date=start_date, end_date=end_date)
 
     def get_dragon_tiger_events(
         self,
@@ -831,7 +832,7 @@ class DataManager:
         start_date: str | None = None,
         end_date: str | None = None,
     ) -> pd.DataFrame:
-        return self._events.get_dragon_tiger_events(codes=codes, start_date=start_date, end_date=end_date)
+        return self._query.get_dragon_tiger_events(codes=codes, start_date=start_date, end_date=end_date)
 
     def get_intraday_60m_data(
         self,
@@ -839,7 +840,7 @@ class DataManager:
         start_date: str | None = None,
         end_date: str | None = None,
     ) -> pd.DataFrame:
-        return self._intraday.get_bars(codes=codes, start_date=start_date, end_date=end_date)
+        return self._query.get_intraday_60m_bars(codes=codes, start_date=start_date, end_date=end_date)
 
     @property
     def offline_available(self) -> bool:

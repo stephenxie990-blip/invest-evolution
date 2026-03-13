@@ -13,8 +13,8 @@ from config.services import EvolutionConfigService, RuntimePathConfigService
 from invest.allocator import build_allocation_plan
 from invest.leaderboard import write_leaderboard
 from invest.models import list_models
-from market_data.datasets import WebDatasetService
 from market_data.gateway import MarketDataGateway
+from market_data.services import MarketQueryService
 
 
 @dataclass
@@ -193,25 +193,25 @@ def update_control_plane_payload(*, patch: dict[str, Any], project_root: Path | 
 
 
 def get_data_status_payload(*, refresh: bool = False) -> dict[str, Any]:
-    return WebDatasetService().get_status_summary(refresh=refresh)
+    return MarketQueryService().get_status_summary(refresh=refresh)
 
 
 def get_capital_flow_payload(*, codes: list[str] | None = None, start_date: str | None = None, end_date: str | None = None, limit: int = 200) -> dict[str, Any]:
-    frame = WebDatasetService().get_capital_flow(codes=codes, start_date=start_date, end_date=end_date)
+    frame = MarketQueryService().get_capital_flow(codes=codes, start_date=start_date, end_date=end_date)
     if not frame.empty:
         frame = frame.head(max(1, min(int(limit), 5000)))
     return {"count": int(len(frame)), "items": frame.to_dict(orient="records")}
 
 
 def get_dragon_tiger_payload(*, codes: list[str] | None = None, start_date: str | None = None, end_date: str | None = None, limit: int = 200) -> dict[str, Any]:
-    frame = WebDatasetService().get_dragon_tiger_events(codes=codes, start_date=start_date, end_date=end_date)
+    frame = MarketQueryService().get_dragon_tiger_events(codes=codes, start_date=start_date, end_date=end_date)
     if not frame.empty:
         frame = frame.head(max(1, min(int(limit), 5000)))
     return {"count": int(len(frame)), "items": frame.to_dict(orient="records")}
 
 
 def get_intraday_60m_payload(*, codes: list[str] | None = None, start_date: str | None = None, end_date: str | None = None, limit: int = 500) -> dict[str, Any]:
-    frame = WebDatasetService().get_intraday_60m_bars(codes=codes, start_date=start_date, end_date=end_date)
+    frame = MarketQueryService().get_intraday_60m_bars(codes=codes, start_date=start_date, end_date=end_date)
     if not frame.empty:
         frame = frame.head(max(1, min(int(limit), 10000)))
     return {"count": int(len(frame)), "items": frame.to_dict(orient="records")}

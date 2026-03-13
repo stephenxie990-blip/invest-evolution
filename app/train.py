@@ -24,14 +24,10 @@
 import argparse
 import json
 import logging
-import os
-import random
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
-
-import numpy as np
 
 from config import OUTPUT_DIR, PROJECT_ROOT, RUNTIME_DIR, config, normalize_date
 from config.services import EvolutionConfigService, RuntimePathConfigService
@@ -39,20 +35,28 @@ from config.control_plane import build_component_llm_caller, resolve_default_llm
 from invest.shared import AgentTracker
 from market_data import DataManager, DataSourceUnavailableError, MockDataProvider
 from invest.evolution import LLMOptimizer, StrategyEvolutionOptimizer, EvolutionEngine, YamlConfigMutator
-from invest.foundation import BenchmarkEvaluator, SimulatedTrader, StrategyEvaluator, sanitize_risk_params
+from invest.foundation import BenchmarkEvaluator, StrategyEvaluator, sanitize_risk_params
 from invest.agents import (
     MarketRegimeAgent, ModelSelectorAgent, TrendHunterAgent, ContrarianAgent, QualityAgent, DefensiveAgent,
     ReviewDecisionAgent, StrategistAgent, EvoJudgeAgent
 )
 from invest.meetings import SelectionMeeting, ReviewMeeting, MeetingRecorder
-from invest.contracts import EvalReport
-from invest.leaderboard import write_leaderboard
-from invest.router import ModelRoutingCoordinator
 from invest.models import create_investment_model, resolve_model_config_path
-from invest.models.defaults import COMMON_EXECUTION_DEFAULTS, COMMON_PARAM_DEFAULTS, COMMON_BENCHMARK_DEFAULTS
+from invest.models.defaults import COMMON_PARAM_DEFAULTS
 from invest.research.case_store import ResearchCaseStore
+from invest.services import EvolutionService, ReviewMeetingService, SelectionMeetingService
 from app.training.optimization import trigger_loss_optimization
 from app.training.controller_services import FreezeGateService, TrainingFeedbackService, TrainingPersistenceService
+from app.training.cycle_services import TrainingCycleDataService
+from app.training.execution_services import TrainingExecutionService
+from app.training.lifecycle_services import TrainingLifecycleService
+from app.training.outcome_services import TrainingOutcomeService
+from app.training.policy_services import TrainingPolicyService
+from app.training.review_services import TrainingReviewService
+from app.training.review_stage_services import TrainingReviewStageService
+from app.training.selection_services import TrainingSelectionService
+from app.training.routing_services import TrainingRoutingService
+from app.training.simulation_services import TrainingSimulationService
 
 logger = logging.getLogger(__name__)
 
@@ -272,9 +276,32 @@ class SelfLearningController:
         max_losses_before_optimize: int = 3,
         data_provider=None,
     ):
-        # 组件
-        self.evo_optimizer     = StrategyEvolutionOptimizer()
-        self.evolution_engine  = EvolutionEngine(population_size=10)
+        self._initialize_core_runtime(data_provider=data_provider)
+        build_llm = self._initialize_llm_runtime()
+        self._initialize_agents_and_meetings(build_llm=build_llm, meeting_log_dir=meeting_log_dir)
+        self._initialize_config_service(
+            config_audit_log_path=config_audit_log_path,
+            config_snapshot_dir=config_snapshot_dir,
+        )
+        self._initialize_model_runtime(
+            freeze_total_cycles=freeze_total_cycles,
+            freeze_profit_required=freeze_profit_required,
+            max_losses_before_optimize=max_losses_before_optimize,
+        )
+        self._initialize_training_state()
+        self._initialize_callbacks()
+        self._initialize_output_runtime(
+            output_dir=output_dir,
+            runtime_state_dir=runtime_state_dir,
+            config_audit_log_path=config_audit_log_path,
+        )
+        self._initialize_training_services()
+
+        logger.info("自我学习控制器初始化完成")
+
+    def _initialize_core_runtime(self, *, data_provider: Any = None) -> None:
+        self.evo_optimizer = StrategyEvolutionOptimizer()
+        self.evolution_engine = EvolutionEngine(population_size=10)
         self.strategy_evaluator = StrategyEvaluator()
         self.benchmark_evaluator = BenchmarkEvaluator()
         self.execution_policy: Dict[str, Any] = {}
@@ -282,16 +309,20 @@ class SelfLearningController:
         self.freeze_gate_policy: Dict[str, Any] = {}
         self.risk_policy: Dict[str, Any] = {}
         self.evaluation_policy: Dict[str, Any] = {}
-        self.data_manager      = DataManager(data_provider=data_provider)
+        self.review_policy: Dict[str, Any] = {}
+        self.data_manager = DataManager(data_provider=data_provider)
         self.requested_data_mode = getattr(self.data_manager, "requested_mode", "live")
         self.current_params: Dict[str, Any] = {}
+        self.auto_apply_mutation = False
 
-        # Agent 团队 & 会议组件（统一从控制面启动装配）
-        default_fast_llm = resolve_default_llm("fast")
-        default_deep_llm = resolve_default_llm("deep")
+    def _initialize_llm_runtime(self) -> Callable[..., Any]:
+        self._default_fast_llm = resolve_default_llm("fast")
+        self._default_deep_llm = resolve_default_llm("deep")
 
         def _build_llm(component_key: str, fallback_model: str, *, fallback_kind: str):
-            resolved_default = default_fast_llm if fallback_kind == "fast" else default_deep_llm
+            resolved_default = (
+                self._default_fast_llm if fallback_kind == "fast" else self._default_deep_llm
+            )
             return build_component_llm_caller(
                 component_key,
                 fallback_model=fallback_model or resolved_default.model,
@@ -301,27 +332,104 @@ class SelfLearningController:
                 max_retries=config.llm_max_retries,
             )
 
-        self.llm_caller = _build_llm("controller.main", default_fast_llm.model, fallback_kind="fast")
-        self.llm_optimizer = LLMOptimizer(llm_caller=_build_llm("optimizer.loss_analysis", default_deep_llm.model, fallback_kind="deep"))
+        self.llm_caller = _build_llm(
+            "controller.main",
+            self._default_fast_llm.model,
+            fallback_kind="fast",
+        )
+        self.llm_optimizer = LLMOptimizer(
+            llm_caller=_build_llm(
+                "optimizer.loss_analysis",
+                self._default_deep_llm.model,
+                fallback_kind="deep",
+            )
+        )
         self.llm_mode = "dry_run" if bool(getattr(self.llm_caller, "dry_run", False)) else "live"
+        return _build_llm
 
+    def _initialize_agents_and_meetings(
+        self,
+        *,
+        build_llm: Callable[..., Any],
+        meeting_log_dir: Optional[str],
+    ) -> None:
         self.agents = {
-            "market_regime": MarketRegimeAgent(llm_caller=_build_llm("agent.MarketRegime", default_deep_llm.model, fallback_kind="deep")),
-            "model_selector": ModelSelectorAgent(llm_caller=_build_llm("agent.ModelSelector", default_fast_llm.model, fallback_kind="fast")),
-            "trend_hunter": TrendHunterAgent(llm_caller=_build_llm("agent.TrendHunter", default_fast_llm.model, fallback_kind="fast")),
-            "contrarian": ContrarianAgent(llm_caller=_build_llm("agent.Contrarian", default_fast_llm.model, fallback_kind="fast")),
-            "quality_agent": QualityAgent(llm_caller=_build_llm("agent.QualityAgent", default_fast_llm.model, fallback_kind="fast")),
-            "defensive_agent": DefensiveAgent(llm_caller=_build_llm("agent.DefensiveAgent", default_fast_llm.model, fallback_kind="fast")),
-            "strategist": StrategistAgent(llm_caller=_build_llm("agent.Strategist", default_deep_llm.model, fallback_kind="deep")),
-            "review_decision": ReviewDecisionAgent(llm_caller=_build_llm("agent.ReviewDecision", default_deep_llm.model, fallback_kind="deep")),
-            "evo_judge": EvoJudgeAgent(llm_caller=_build_llm("agent.EvoJudge", default_deep_llm.model, fallback_kind="deep")),
+            "market_regime": MarketRegimeAgent(
+                llm_caller=build_llm(
+                    "agent.MarketRegime",
+                    self._default_deep_llm.model,
+                    fallback_kind="deep",
+                )
+            ),
+            "model_selector": ModelSelectorAgent(
+                llm_caller=build_llm(
+                    "agent.ModelSelector",
+                    self._default_fast_llm.model,
+                    fallback_kind="fast",
+                )
+            ),
+            "trend_hunter": TrendHunterAgent(
+                llm_caller=build_llm(
+                    "agent.TrendHunter",
+                    self._default_fast_llm.model,
+                    fallback_kind="fast",
+                )
+            ),
+            "contrarian": ContrarianAgent(
+                llm_caller=build_llm(
+                    "agent.Contrarian",
+                    self._default_fast_llm.model,
+                    fallback_kind="fast",
+                )
+            ),
+            "quality_agent": QualityAgent(
+                llm_caller=build_llm(
+                    "agent.QualityAgent",
+                    self._default_fast_llm.model,
+                    fallback_kind="fast",
+                )
+            ),
+            "defensive_agent": DefensiveAgent(
+                llm_caller=build_llm(
+                    "agent.DefensiveAgent",
+                    self._default_fast_llm.model,
+                    fallback_kind="fast",
+                )
+            ),
+            "strategist": StrategistAgent(
+                llm_caller=build_llm(
+                    "agent.Strategist",
+                    self._default_deep_llm.model,
+                    fallback_kind="deep",
+                )
+            ),
+            "review_decision": ReviewDecisionAgent(
+                llm_caller=build_llm(
+                    "agent.ReviewDecision",
+                    self._default_deep_llm.model,
+                    fallback_kind="deep",
+                )
+            ),
+            "evo_judge": EvoJudgeAgent(
+                llm_caller=build_llm(
+                    "agent.EvoJudge",
+                    self._default_deep_llm.model,
+                    fallback_kind="deep",
+                )
+            ),
         }
 
-        selection_fast_llm = _build_llm("meeting.selection.fast", default_fast_llm.model, fallback_kind="fast")
-        selection_deep_llm = _build_llm("meeting.selection.deep", default_deep_llm.model, fallback_kind="deep")
         self.selection_meeting = SelectionMeeting(
-            llm_caller=selection_fast_llm,
-            deep_llm_caller=selection_deep_llm,
+            llm_caller=build_llm(
+                "meeting.selection.fast",
+                self._default_fast_llm.model,
+                fallback_kind="fast",
+            ),
+            deep_llm_caller=build_llm(
+                "meeting.selection.deep",
+                self._default_deep_llm.model,
+                fallback_kind="deep",
+            ),
             trend_hunter=self.agents["trend_hunter"],
             contrarian=self.agents["contrarian"],
             quality_agent=self.agents["quality_agent"],
@@ -331,11 +439,17 @@ class SelfLearningController:
             progress_callback=self._handle_selection_progress,
         )
         self.agent_tracker = AgentTracker()
-        review_fast_llm = _build_llm("meeting.review.fast", default_fast_llm.model, fallback_kind="fast")
-        review_deep_llm = _build_llm("meeting.review.deep", default_deep_llm.model, fallback_kind="deep")
         self.review_meeting = ReviewMeeting(
-            llm_caller=review_fast_llm,
-            deep_llm_caller=review_deep_llm,
+            llm_caller=build_llm(
+                "meeting.review.fast",
+                self._default_fast_llm.model,
+                fallback_kind="fast",
+            ),
+            deep_llm_caller=build_llm(
+                "meeting.review.deep",
+                self._default_deep_llm.model,
+                fallback_kind="deep",
+            ),
             agent_tracker=self.agent_tracker,
             strategist=self.agents["strategist"],
             evo_judge=self.agents["evo_judge"],
@@ -347,6 +461,16 @@ class SelfLearningController:
         self.meeting_recorder = MeetingRecorder(
             base_dir=str(meeting_log_dir or (OUTPUT_DIR / "meetings"))
         )
+        self.selection_meeting_service = SelectionMeetingService(meeting=self.selection_meeting)
+        self.review_meeting_service = ReviewMeetingService(meeting=self.review_meeting)
+        self.evolution_service = EvolutionService(engine=self.evolution_engine)
+
+    def _initialize_config_service(
+        self,
+        *,
+        config_audit_log_path: Optional[str],
+        config_snapshot_dir: Optional[str],
+    ) -> None:
         self.config_service = EvolutionConfigService(
             project_root=PROJECT_ROOT,
             live_config=config,
@@ -354,23 +478,47 @@ class SelfLearningController:
             snapshot_dir=Path(config_snapshot_dir) if config_snapshot_dir else None,
         )
 
-        # 条件
-        self.freeze_total_cycles       = freeze_total_cycles
-        self.freeze_profit_required    = freeze_profit_required
+    def _initialize_model_runtime(
+        self,
+        *,
+        freeze_total_cycles: int,
+        freeze_profit_required: int,
+        max_losses_before_optimize: int,
+    ) -> None:
+        self.freeze_total_cycles = freeze_total_cycles
+        self.freeze_profit_required = freeze_profit_required
         self.max_losses_before_optimize = max_losses_before_optimize
 
         self.model_name = str(getattr(config, "investment_model", "momentum") or "momentum")
-        self.model_config_path = str(getattr(config, "investment_model_config", "invest/models/configs/momentum_v1.yaml"))
+        self.model_config_path = str(
+            getattr(config, "investment_model_config", "invest/models/configs/momentum_v1.yaml")
+        )
         self.allocator_enabled = bool(getattr(config, "allocator_enabled", False))
         self.allocator_top_n = int(getattr(config, "allocator_top_n", 3) or 3)
-        self.model_routing_enabled = bool(getattr(config, "model_routing_enabled", True) or self.allocator_enabled)
+        self.model_routing_enabled = bool(
+            getattr(config, "model_routing_enabled", True) or self.allocator_enabled
+        )
         self.model_routing_mode = str(getattr(config, "model_routing_mode", "rule") or "rule").strip().lower()
-        self.model_routing_allowed_models = [str(item).strip() for item in (getattr(config, "model_routing_allowed_models", []) or []) if str(item).strip()]
-        self.model_switch_cooldown_cycles = int(getattr(config, "model_switch_cooldown_cycles", 2) or 2)
-        self.model_switch_min_confidence = float(getattr(config, "model_switch_min_confidence", 0.60) or 0.60)
-        self.model_switch_hysteresis_margin = float(getattr(config, "model_switch_hysteresis_margin", 0.08) or 0.08)
-        self.model_routing_agent_override_enabled = bool(getattr(config, "model_routing_agent_override_enabled", False))
-        self.model_routing_agent_override_max_gap = float(getattr(config, "model_routing_agent_override_max_gap", 0.18) or 0.18)
+        self.model_routing_allowed_models = [
+            str(item).strip()
+            for item in (getattr(config, "model_routing_allowed_models", []) or [])
+            if str(item).strip()
+        ]
+        self.model_switch_cooldown_cycles = int(
+            getattr(config, "model_switch_cooldown_cycles", 2) or 2
+        )
+        self.model_switch_min_confidence = float(
+            getattr(config, "model_switch_min_confidence", 0.60) or 0.60
+        )
+        self.model_switch_hysteresis_margin = float(
+            getattr(config, "model_switch_hysteresis_margin", 0.08) or 0.08
+        )
+        self.model_routing_agent_override_enabled = bool(
+            getattr(config, "model_routing_agent_override_enabled", False)
+        )
+        self.model_routing_agent_override_max_gap = float(
+            getattr(config, "model_routing_agent_override_max_gap", 0.18) or 0.18
+        )
         self.model_routing_policy = dict(getattr(config, "model_routing_policy", {}) or {})
         self.last_allocation_plan: Dict[str, Any] = {}
         self.last_routing_decision: Dict[str, Any] = {}
@@ -378,6 +526,8 @@ class SelfLearningController:
         self.last_model_switch_cycle_id: int | None = None
         self.stop_on_freeze = bool(getattr(config, "stop_on_freeze", True))
         self.model_mutator = YamlConfigMutator()
+        self.training_policy_service = TrainingPolicyService()
+        self.training_routing_service = TrainingRoutingService()
         self.investment_model = create_investment_model(
             self.model_name,
             config_path=self.model_config_path,
@@ -386,9 +536,9 @@ class SelfLearningController:
         self._sync_runtime_policy_from_model()
         self._refresh_model_routing_coordinator()
 
-        # 状态
-        self.cycle_history:   List[TrainingResult] = []
-        self.cycle_records:   List[Dict] = []
+    def _initialize_training_state(self) -> None:
+        self.cycle_history: List[TrainingResult] = []
+        self.cycle_records: List[Dict] = []
         self.current_cycle_id = 0
         self.total_cycle_attempts = 0
         self.skipped_cycle_count = 0
@@ -408,16 +558,23 @@ class SelfLearningController:
         self.experiment_simulation_days: int | None = None
         self.experiment_llm: Dict[str, Any] = {}
 
-        # 回调
+    def _initialize_callbacks(self) -> None:
         self.on_cycle_complete: Optional[Callable] = None
-        self.on_optimize:       Optional[Callable] = None
+        self.on_optimize: Optional[Callable] = None
 
-        # 输出目录
-        self.output_dir = Path(output_dir) if output_dir else (
-            OUTPUT_DIR / "training"
-        )
+    def _initialize_output_runtime(
+        self,
+        *,
+        output_dir: Optional[str],
+        runtime_state_dir: Optional[str],
+        config_audit_log_path: Optional[str],
+    ) -> None:
+        self.output_dir = Path(output_dir) if output_dir else (OUTPUT_DIR / "training")
         self.output_dir.mkdir(parents=True, exist_ok=True)
-        self.runtime_state_dir = self._infer_runtime_state_dir(runtime_state_dir, config_audit_log_path)
+        self.runtime_state_dir = self._infer_runtime_state_dir(
+            runtime_state_dir,
+            config_audit_log_path,
+        )
         self.runtime_state_dir.mkdir(parents=True, exist_ok=True)
         self.research_case_store = ResearchCaseStore(self.runtime_state_dir)
         self.last_research_feedback: Dict[str, Any] = {}
@@ -427,11 +584,19 @@ class SelfLearningController:
         self.research_feedback_policy: Dict[str, Any] = {}
         self.research_feedback_optimization_policy: Dict[str, Any] = {}
         self.research_feedback_freeze_policy: Dict[str, Any] = {}
+
+    def _initialize_training_services(self) -> None:
         self.training_feedback_service = TrainingFeedbackService()
         self.freeze_gate_service = FreezeGateService()
         self.training_persistence_service = TrainingPersistenceService()
-
-        logger.info("自我学习控制器初始化完成")
+        self.training_cycle_data_service = TrainingCycleDataService()
+        self.training_execution_service = TrainingExecutionService()
+        self.training_lifecycle_service = TrainingLifecycleService()
+        self.training_outcome_service = TrainingOutcomeService()
+        self.training_review_service = TrainingReviewService()
+        self.training_review_stage_service = TrainingReviewStageService()
+        self.training_selection_service = TrainingSelectionService()
+        self.training_simulation_service = TrainingSimulationService()
 
     def _infer_runtime_state_dir(self, runtime_state_dir: Optional[str], config_audit_log_path: Optional[str]) -> Path:
         if runtime_state_dir:
@@ -606,13 +771,7 @@ class SelfLearningController:
         self.set_llm_dry_run(enabled)
 
     def _refresh_model_routing_coordinator(self) -> None:
-        self.routing_coordinator = ModelRoutingCoordinator(
-            routing_policy=self.model_routing_policy,
-            min_confidence=self.model_switch_min_confidence,
-            cooldown_cycles=self.model_switch_cooldown_cycles,
-            hysteresis_margin=self.model_switch_hysteresis_margin,
-            agent_override_max_gap=self.model_routing_agent_override_max_gap,
-        )
+        self.training_routing_service.refresh_routing_coordinator(self)
 
     def refresh_runtime_from_config(self) -> None:
         previous_model = self.model_name
@@ -643,32 +802,13 @@ class SelfLearningController:
         min_history_days: Optional[int] = None,
         allowed_models: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
-        preview_cutoff = normalize_date(cutoff_date or self.data_manager.random_cutoff_date())
-        preview_stock_count = max(1, int(stock_count or getattr(config, "max_stocks", 50) or 50))
-        preview_min_history = max(30, int(min_history_days or getattr(config, "min_history_days", 200) or 200))
-        stock_data = self.data_manager.load_stock_data(
-            cutoff_date=preview_cutoff,
-            stock_count=preview_stock_count,
-            min_history_days=preview_min_history,
+        return self.training_routing_service.preview_routing(
+            self,
+            cutoff_date=cutoff_date,
+            stock_count=stock_count,
+            min_history_days=min_history_days,
+            allowed_models=allowed_models or None,
         )
-        leaderboard_root = self.output_dir.parent
-        write_leaderboard(leaderboard_root)
-        decision = self.routing_coordinator.route(
-            stock_data=stock_data,
-            cutoff_date=preview_cutoff,
-            current_model=self.model_name,
-            leaderboard_path=leaderboard_root / "leaderboard.json",
-            allocator_top_n=self.allocator_top_n,
-            allowed_models=allowed_models or self.model_routing_allowed_models or self.experiment_allowed_models,
-            routing_mode=self.model_routing_mode if self.model_routing_enabled else "off",
-            regime_agent=self.agents.get("market_regime"),
-            selector_agent=self.agents.get("model_selector") if self.model_routing_agent_override_enabled else None,
-            previous_decision=self.last_routing_decision,
-            current_cycle_id=self.current_cycle_id + 1,
-            last_switch_cycle_id=self.last_model_switch_cycle_id,
-            data_manager=self.data_manager,
-        )
-        return decision.to_dict()
 
     def _reload_investment_model(self, config_path: Optional[str] = None) -> None:
         if config_path:
@@ -681,55 +821,7 @@ class SelfLearningController:
         self._sync_runtime_policy_from_model()
 
     def _sync_runtime_policy_from_model(self) -> None:
-        if getattr(self, "investment_model", None) is None:
-            return
-        config_params = self.investment_model.config_section("params", {})
-        merged_params = dict(self.DEFAULT_PARAMS)
-        merged_params.update(config_params or {})
-        explicit_overrides = {
-            key: value
-            for key, value in (self.current_params or {}).items()
-            if key not in self.DEFAULT_PARAMS or value != self.DEFAULT_PARAMS.get(key)
-        }
-        merged_params.update(explicit_overrides)
-        self.current_params = merged_params
-        self.investment_model.update_runtime_overrides(self.current_params)
-
-        self.execution_policy = self.investment_model.config_section("execution", {}) or {}
-        self.risk_policy = self.investment_model.config_section("risk_policy", {}) or {}
-        self.evaluation_policy = self.investment_model.config_section("evaluation_policy", {}) or {}
-        self.review_policy = self.investment_model.config_section("review_policy", {}) or {}
-        self.strategy_evaluator.set_policy(self.evaluation_policy)
-        self.review_meeting.set_policy(self.review_policy)
-        benchmark_policy = self.investment_model.config_section("benchmark", {}) or {}
-        benchmark_criteria = dict(benchmark_policy.get("criteria") or COMMON_BENCHMARK_DEFAULTS.get("criteria") or {})
-        self.benchmark_evaluator = BenchmarkEvaluator(
-            risk_free_rate=float(benchmark_policy.get("risk_free_rate", COMMON_BENCHMARK_DEFAULTS["risk_free_rate"]) or COMMON_BENCHMARK_DEFAULTS["risk_free_rate"]),
-            criteria=benchmark_criteria,
-        )
-
-        self.train_policy = self.investment_model.config_section("train", {}) or {}
-        self.freeze_total_cycles = int(self.train_policy.get("freeze_total_cycles", self.freeze_total_cycles) or self.freeze_total_cycles)
-        self.freeze_profit_required = int(self.train_policy.get("freeze_profit_required", self.freeze_profit_required) or self.freeze_profit_required)
-        self.max_losses_before_optimize = int(self.train_policy.get("max_losses_before_optimize", self.max_losses_before_optimize) or self.max_losses_before_optimize)
-        self.freeze_gate_policy = dict(self.train_policy.get("freeze_gate", {}) or {})
-        self.auto_apply_mutation = bool(self.train_policy.get("auto_apply_mutation", False))
-        self.research_feedback_policy = dict(self.train_policy.get("research_feedback", {}) or {})
-        self.research_feedback_optimization_policy = dict(self.research_feedback_policy.get("optimization", {}) or {})
-        self.research_feedback_freeze_policy = dict(
-            self.research_feedback_policy.get("freeze_gate", {})
-            or self.freeze_gate_policy.get("research_feedback", {})
-            or {}
-        )
-        if self.research_feedback_freeze_policy and not self.freeze_gate_policy.get("research_feedback"):
-            self.freeze_gate_policy["research_feedback"] = dict(self.research_feedback_freeze_policy)
-
-        agent_weights = self.investment_model.config_section("agent_weights", {}) or {}
-        if agent_weights:
-            self.selection_meeting.agent_weights = {
-                "trend_hunter": float(agent_weights.get("trend_hunter", 1.0) or 1.0),
-                "contrarian": float(agent_weights.get("contrarian", 1.0) or 1.0),
-            }
+        self.training_policy_service.sync_runtime_policy(self)
 
 
     def _maybe_apply_allocator(self, stock_data: Dict[str, Any], cutoff_date: str, cycle_id: int) -> None:
@@ -750,24 +842,15 @@ class SelfLearningController:
             "current_model": self.model_name,
             "routing_mode": self.model_routing_mode,
         })
-        leaderboard_root = self.output_dir.parent
-        write_leaderboard(leaderboard_root)
-        leaderboard_path = leaderboard_root / "leaderboard.json"
-        selector_agent = self.agents.get("model_selector") if self.model_routing_agent_override_enabled and self.model_routing_mode in {"hybrid", "agent"} else None
-        decision = self.routing_coordinator.route(
+        decision = self.training_routing_service.route_model(
+            self,
             stock_data=stock_data,
             cutoff_date=cutoff_date,
             current_model=self.model_name,
-            leaderboard_path=leaderboard_path,
-            allocator_top_n=self.allocator_top_n,
-            allowed_models=self.experiment_allowed_models or self.model_routing_allowed_models,
-            routing_mode=self.model_routing_mode,
-            regime_agent=self.agents.get("market_regime") if self.model_routing_mode in {"hybrid", "agent"} else None,
-            selector_agent=selector_agent,
-            previous_decision=self.last_routing_decision,
-            current_cycle_id=cycle_id,
-            last_switch_cycle_id=self.last_model_switch_cycle_id,
             data_manager=self.data_manager,
+            output_dir=self.output_dir,
+            allowed_models=self.experiment_allowed_models or self.model_routing_allowed_models,
+            current_cycle_id=cycle_id,
         )
         self.last_routing_decision = decision.to_dict()
         self.routing_history.append(dict(self.last_routing_decision))
@@ -1078,26 +1161,16 @@ class SelfLearningController:
         Returns:
             TrainingResult 或 None（数据不足时）
         """
-        cycle_id = self.current_cycle_id + 1
+        cycle_context = self.training_cycle_data_service.prepare_cycle_context(self)
+        cycle_id = cycle_context.cycle_id
         logger.info(f"\n{'='*60}")
         logger.info(f"训练周期 #{cycle_id}")
         logger.info(f"{'='*60}")
 
-        if self.experiment_seed is not None:
-            seed_value = int(self.experiment_seed) + int(cycle_id)
-            random.seed(seed_value)
-            np.random.seed(seed_value % (2**32 - 1))
-        cutoff_date = normalize_date(
-            os.getenv("INVEST_FORCE_CUTOFF_DATE", "")
-            or self.data_manager.random_cutoff_date(
-                min_date=self.experiment_min_date or "20180101",
-                max_date=self.experiment_max_date,
-            )
-        )
+        cutoff_date = cycle_context.cutoff_date
         logger.info(f"截断日期: {cutoff_date}")
-
-        requested_data_mode = str(getattr(self, "requested_data_mode", getattr(self.data_manager, "requested_mode", "live")) or "live")
-        llm_mode = str(getattr(self, "llm_mode", "live") or "live")
+        requested_data_mode = cycle_context.requested_data_mode
+        llm_mode = cycle_context.llm_mode
 
         # 发射周期开始事件
         emit_event("cycle_start", {
@@ -1110,8 +1183,6 @@ class SelfLearningController:
         })
 
         optimization_events: list[dict[str, Any]] = []
-        review_applied = False
-        benchmark_passed = False
         llm_used = bool(getattr(self.llm_caller.gateway, "available", False))
         self.last_research_feedback = {}
         self.last_cycle_meta = {
@@ -1124,62 +1195,43 @@ class SelfLearningController:
         logger.info("加载数据...")
         self._emit_agent_status("DataLoader", "loading", f"正在加载 {cutoff_date} 的历史数据...", cycle_id=cycle_id, stage="data_loading", progress_pct=8, step=1, total_steps=6)
         self._emit_module_log("data_loading", "开始加载训练数据", f"截断日期 {cutoff_date}", cycle_id=cycle_id, kind="phase_start")
-        min_history_days = max(30, int(self.experiment_min_history_days or getattr(config, "min_history_days", 200)))
-        diagnostic_kwargs = {
-            "cutoff_date": cutoff_date,
-            "stock_count": config.max_stocks,
-            "min_history_days": min_history_days,
-        }
-        diagnostic_order = ["check_training_readiness", "diagnose_training_data"]
-        if callable(getattr(self.data_manager, "__dict__", {}).get("diagnose_training_data")):
-            diagnostic_order = ["diagnose_training_data", "check_training_readiness"]
-
-        diagnostics: dict[str, Any] | None = None
-        for method_name in diagnostic_order:
-            method = getattr(self.data_manager, method_name, None)
-            if not callable(method):
-                continue
-            raw_diagnostics = method(
-                cutoff_date=cutoff_date,
-                stock_count=config.max_stocks,
-                min_history_days=min_history_days,
-            )
-            if isinstance(raw_diagnostics, dict):
-                diagnostics = dict(raw_diagnostics)
-                break
-
-        if not isinstance(diagnostics, dict):
-            diagnostics = _default_training_diagnostics(cutoff_date, config.max_stocks, min_history_days)
-        if not diagnostics.get("ready", False):
-            logger.warning(
-                "训练前数据诊断: eligible=%s target=%s range=%s~%s issues=%s",
-                diagnostics.get("eligible_stock_count", 0),
-                diagnostics.get("target_stock_count", 0),
-                diagnostics.get("date_range", {}).get("min"),
-                diagnostics.get("date_range", {}).get("max"),
-                "；".join(diagnostics.get("issues", [])) or "none",
-            )
-            self._emit_module_log(
-                "data_loading",
-                "训练前数据诊断预警",
-                "可用数据不足，可能跳过本轮",
-                cycle_id=cycle_id,
-                kind="diagnostics",
-                level="warn",
-                details=diagnostics.get("issues", []),
-                metrics={
-                    "eligible_stock_count": diagnostics.get("eligible_stock_count", 0),
-                    "target_stock_count": diagnostics.get("target_stock_count", 0),
-                },
-            )
+        data_load_result = None
+        diagnostics: dict[str, Any] = _default_training_diagnostics(
+            cutoff_date,
+            config.max_stocks,
+            max(30, int(self.experiment_min_history_days or getattr(config, "min_history_days", 200))),
+        )
 
         try:
-            stock_data = self.data_manager.load_stock_data(
-                cutoff_date,
-                stock_count=config.max_stocks,
-                min_history_days=min_history_days,
-                include_future_days=max(30, int(self.experiment_simulation_days or getattr(config, "simulation_days", 30))),
+            data_load_result = self.training_cycle_data_service.load_training_data(
+                self,
+                cutoff_date=cutoff_date,
+                requested_data_mode=requested_data_mode,
             )
+            diagnostics = data_load_result.diagnostics or diagnostics
+            if not diagnostics.get("ready", False):
+                logger.warning(
+                    "训练前数据诊断: eligible=%s target=%s range=%s~%s issues=%s",
+                    diagnostics.get("eligible_stock_count", 0),
+                    diagnostics.get("target_stock_count", 0),
+                    diagnostics.get("date_range", {}).get("min"),
+                    diagnostics.get("date_range", {}).get("max"),
+                    "；".join(diagnostics.get("issues", [])) or "none",
+                )
+                self._emit_module_log(
+                    "data_loading",
+                    "训练前数据诊断预警",
+                    "可用数据不足，可能跳过本轮",
+                    cycle_id=cycle_id,
+                    kind="diagnostics",
+                    level="warn",
+                    details=diagnostics.get("issues", []),
+                    metrics={
+                        "eligible_stock_count": diagnostics.get("eligible_stock_count", 0),
+                        "target_stock_count": diagnostics.get("target_stock_count", 0),
+                    },
+                )
+            stock_data = data_load_result.stock_data
         except DataSourceUnavailableError as exc:
             error_payload = exc.to_dict()
             self.last_cycle_meta = {
@@ -1211,11 +1263,10 @@ class SelfLearningController:
             )
             raise
 
-        resolution = dict(getattr(self.data_manager, "last_resolution", {}) or {})
-        effective_data_mode = str(resolution.get("effective_data_mode") or getattr(self.data_manager, "last_source", "unknown") or "unknown")
-        degrade_reason = str(resolution.get("degrade_reason") or "")
-        degraded = bool(resolution.get("degraded", False))
-        data_mode = effective_data_mode
+        effective_data_mode = data_load_result.effective_data_mode if data_load_result else "unknown"
+        degrade_reason = data_load_result.degrade_reason if data_load_result else ""
+        degraded = data_load_result.degraded if data_load_result else False
+        data_mode = data_load_result.data_mode if data_load_result else effective_data_mode
         self._emit_agent_status(
             "DataLoader",
             "completed",
@@ -1271,626 +1322,23 @@ class SelfLearningController:
             )
             return None
 
-        if self.experiment_allowed_models and self.model_name not in self.experiment_allowed_models:
-            self.model_name = self.experiment_allowed_models[0]
-            self.model_config_path = str(resolve_model_config_path(self.model_name))
-            self.current_params = {}
-            self._reload_investment_model(self.model_config_path)
-        self._maybe_apply_allocator(stock_data, cutoff_date, cycle_id)
-        if self.experiment_allowed_models and self.model_name not in self.experiment_allowed_models:
-            self.model_name = self.experiment_allowed_models[0]
-            self.model_config_path = str(resolve_model_config_path(self.model_name))
-            self.current_params = {}
-            self._reload_investment_model(self.model_config_path)
-
-        logger.info("Agent 开会讨论选股...")
-        self._emit_agent_status("SelectionMeeting", "running", "Agent 开会讨论选股...", cycle_id=cycle_id, stage="selection_meeting", progress_pct=26, step=2, total_steps=6)
-        self._emit_module_log("selection", "进入选股会议", "系统开始汇总市场状态和候选标的", cycle_id=cycle_id, kind="phase_start")
-        self.investment_model.update_runtime_overrides(self.current_params)
-        model_output = self.investment_model.process(stock_data, cutoff_date)
-        signal_packet = model_output.signal_packet
-        agent_context = model_output.agent_context
-        routing_snapshot = dict(self.last_routing_decision or {})
-        regime_result = {
-            "regime": routing_snapshot.get("regime") or signal_packet.regime,
-            "confidence": float(routing_snapshot.get("regime_confidence") or agent_context.metadata.get("confidence", 0.72) or 0.72),
-            "reasoning": routing_snapshot.get("reasoning") or agent_context.summary,
-            "suggested_exposure": max(0.0, min(1.0, 1.0 - float(signal_packet.cash_reserve))),
-            "decision_source": routing_snapshot.get("decision_source", "model_output"),
-            "params": {
-                **dict(signal_packet.params or {}),
-                "top_n": max(len(signal_packet.selected_codes), len(signal_packet.signals)),
-                "max_positions": signal_packet.max_positions,
-                "stop_loss_pct": signal_packet.params.get("stop_loss_pct", self.current_params.get("stop_loss_pct", COMMON_PARAM_DEFAULTS["stop_loss_pct"])),
-                "take_profit_pct": signal_packet.params.get("take_profit_pct", self.current_params.get("take_profit_pct", COMMON_PARAM_DEFAULTS["take_profit_pct"])),
-                "position_size": signal_packet.params.get("position_size", self.current_params.get("position_size", COMMON_PARAM_DEFAULTS["position_size"])),
-            },
-        }
-        logger.info(f"市场状态(v2): {regime_result.get('regime', 'unknown')}")
-        self._emit_agent_status(
-            "InvestmentModel",
-            "completed",
-            f"{self.model_name} 已输出结构化信号与叙事上下文",
-            cycle_id=cycle_id,
-            stage="model_extraction",
-            progress_pct=30,
-            step=2,
-            total_steps=6,
-            details=model_output.to_dict(),
-        )
-        self._emit_module_log(
-            "model_extraction",
-            "模型输出完成",
-            agent_context.summary,
-            cycle_id=cycle_id,
-            kind="model_output",
-            details={
-                "model_name": model_output.model_name,
-                "config_name": model_output.config_name,
-                "selected_codes": signal_packet.selected_codes,
-            },
-            metrics={
-                "signal_count": len(signal_packet.signals),
-                "max_positions": signal_packet.max_positions,
-            },
-        )
-        self._emit_agent_status(
-            "MarketRegime",
-            "thinking",
-            f"分析当前市场状态: {regime_result.get('regime', 'unknown')}",
-            cycle_id=cycle_id,
-            stage="market_regime",
-            progress_pct=32,
-            step=2,
-            total_steps=6,
-            thinking=self._thinking_excerpt(agent_context.summary),
-            details=regime_result,
-        )
-        self._emit_module_log(
-            "market_regime",
-            "市场状态识别",
-            f"当前市场状态: {regime_result.get('regime', 'unknown')}",
-            cycle_id=cycle_id,
-            kind="market_regime",
-            details=agent_context.summary,
-            metrics={
-                "confidence": regime_result.get("confidence"),
-                "suggested_exposure": regime_result.get("suggested_exposure"),
-            },
-        )
-        meeting_data = self.selection_meeting.run_with_model_output(model_output)
-
-        trading_plan = meeting_data["trading_plan"]
-        meeting_log = meeting_data.get("meeting_log", {})
-        strategy_advice = meeting_data.get("strategy_advice", {})
-        self.meeting_recorder.save_selection(meeting_log, cycle_id)
-
-        for hunter in meeting_log.get("hunters", []):
-            picks = hunter.get("result", {}).get("picks", [])
-            if picks:
-                self.agent_tracker.record_predictions(cycle_id, hunter.get("name", "unknown"), picks)
-            self._emit_meeting_speech(
-                "selection",
-                hunter.get("name", "unknown"),
-                hunter.get("result", {}).get("overall_view") or hunter.get("result", {}).get("reasoning") or "已完成候选输出",
-                cycle_id=cycle_id,
-                role="hunter",
-                picks=picks[:10],
-                confidence=hunter.get("result", {}).get("confidence"),
-            )
-
-        selected = [p.code for p in trading_plan.positions]
-        agent_used = bool(meeting_log.get("hunters"))
-        selection_mode = "meeting" if selected else "meeting_empty"
-        if selected and trading_plan.source and trading_plan.source != "llm":
-            selection_mode = f"{trading_plan.source}_selection"
-
-        if not selected:
-            logger.warning("模型与会议未产出可交易标的，跳过本周期")
-            self._mark_cycle_skipped(cycle_id, cutoff_date, stage="selection", reason="模型与会议未产出可交易标的")
-            return None
-
-        logger.info(f"最终选中股票: {selected}")
-        self._emit_agent_status(
-            "SelectionMeeting",
-            "completed",
-            f"选股完成，共选中 {len(selected)} 只股票",
-            cycle_id=cycle_id,
-            stage="selection_meeting",
-            progress_pct=58,
-            step=2,
-            total_steps=6,
-            selected_stocks=selected[:10],
-            details=meeting_log.get("selected", []),
-        )
-        self._emit_module_log(
-            "selection",
-            "选股会议完成",
-            f"最终选中 {len(selected)} 只股票",
-            cycle_id=cycle_id,
-            kind="selection_result",
-            details=meeting_log.get("selected", selected)[:10],
-            metrics={"selected_count": len(selected), "selection_mode": selection_mode},
-        )
-        self.agent_tracker.mark_selected(cycle_id, selected)
-
-        selected_data = {code: stock_data[code] for code in selected if code in stock_data}
-        if not selected_data:
-            logger.warning("选股结果在数据集中不可用，跳过本周期")
-            self._mark_cycle_skipped(cycle_id, cutoff_date, stage="selection", reason="选股结果在数据集中不可用")
-            return None
-
-        trader = SimulatedTrader(
-            initial_capital=float(self.execution_policy.get("initial_capital", getattr(config, "initial_capital", COMMON_EXECUTION_DEFAULTS["initial_capital"])) or getattr(config, "initial_capital", COMMON_EXECUTION_DEFAULTS["initial_capital"])),
-            max_positions=trading_plan.max_positions or len(selected),
-            position_size_pct=self.current_params.get("position_size", COMMON_PARAM_DEFAULTS["position_size"]),
-            commission_rate=float(self.execution_policy.get("commission_rate", COMMON_EXECUTION_DEFAULTS["commission_rate"]) or COMMON_EXECUTION_DEFAULTS["commission_rate"]),
-            stamp_tax_rate=float(self.execution_policy.get("stamp_tax_rate", COMMON_EXECUTION_DEFAULTS["stamp_tax_rate"]) or COMMON_EXECUTION_DEFAULTS["stamp_tax_rate"]),
-            slippage_rate=float(self.execution_policy.get("slippage_rate", COMMON_EXECUTION_DEFAULTS["slippage_rate"]) or COMMON_EXECUTION_DEFAULTS["slippage_rate"]),
-            risk_policy=self.risk_policy,
-        )
-        trader.set_stock_data(selected_data)
-        trader.set_stock_info({
-            code: {
-                "name": str(frame["name"].iloc[-1]) if "name" in frame.columns and not frame.empty else code,
-                "industry": str(frame["industry"].iloc[-1]) if "industry" in frame.columns and not frame.empty else "其他",
-                "market_cap": float(frame["market_cap"].dropna().iloc[-1]) if "market_cap" in frame.columns and not frame["market_cap"].dropna().empty else 0.0,
-                "roe": float(frame["roe"].dropna().iloc[-1]) if "roe" in frame.columns and not frame["roe"].dropna().empty else 0.0,
-            }
-            for code, frame in selected_data.items()
-        })
-        trader.set_trading_plan(trading_plan)
-
-        all_dates = set()
-        for df in selected_data.values():
-            date_col = "trade_date" if "trade_date" in df.columns else "date"
-            if date_col not in df.columns:
-                continue
-            all_dates.update(df[date_col].apply(normalize_date).tolist())
-
-        dates_after = sorted(d for d in all_dates if d > cutoff_date)
-        simulation_days = max(1, int(self.experiment_simulation_days or getattr(config, "simulation_days", 30)))
-        if len(dates_after) < simulation_days:
-            logger.warning(f"截断日期后交易日不足: {len(dates_after)} < {simulation_days}")
-            self._mark_cycle_skipped(
-                cycle_id,
-                cutoff_date,
-                stage="simulation",
-                reason=f"截断日期后交易日不足: {len(dates_after)} < {simulation_days}",
-            )
-            return None
-
-        self._emit_agent_status(
-            "SimulatedTrader",
-            "running",
-            f"模拟交易中... 初始资金 {trader.initial_capital:.2f}",
-            cycle_id=cycle_id,
-            stage="simulation",
-            progress_pct=68,
-            step=3,
-            total_steps=6,
-            details={"simulation_days": simulation_days, "selected_count": len(selected)},
-        )
-        self._emit_module_log(
-            "simulation",
-            "开始模拟交易",
-            f"模拟 {simulation_days} 个交易日，标的 {', '.join(selected[:5])}",
-            cycle_id=cycle_id,
-            kind="simulation_start",
-            metrics={"simulation_days": simulation_days, "selected_count": len(selected)},
-        )
-
-        trading_dates = dates_after[:simulation_days]
-        benchmark_daily_values = self.data_manager.get_benchmark_daily_values(trading_dates, index_code="sh.000300")
-        market_index_start = (datetime.strptime(cutoff_date, "%Y%m%d") - timedelta(days=180)).strftime("%Y%m%d")
-        market_index_frame = self.data_manager.get_market_index_frame(
-            index_code="sh.000300",
-            start_date=market_index_start,
-            end_date=trading_dates[-1] if trading_dates else cutoff_date,
-        )
-        if market_index_frame is not None and not market_index_frame.empty:
-            trader.set_market_index_data(market_index_frame)
-        sim_result = trader.run_simulation(trading_dates[0], trading_dates)
-        is_profit = sim_result.return_pct > 0
-
-        self.agent_tracker.record_outcomes(cycle_id, sim_result.per_stock_pnl)
-        cycle_dict = {
-            "cycle_id": cycle_id,
-            "cutoff_date": cutoff_date,
-            "return_pct": sim_result.return_pct,
-            "profit_loss": sim_result.total_pnl,
-            "total_trades": sim_result.total_trades,
-            "winning_trades": sim_result.winning_trades,
-            "losing_trades": sim_result.losing_trades,
-            "win_rate": sim_result.win_rate,
-            "selected_stocks": selected,
-            "is_profit": is_profit,
-            "regime": regime_result.get("regime", "unknown"),
-            "routing_decision": dict(self.last_routing_decision or {}),
-            "plan_source": trading_plan.source,
-            "data_mode": data_mode,
-            "requested_data_mode": requested_data_mode,
-            "effective_data_mode": effective_data_mode,
-            "llm_mode": llm_mode,
-            "degraded": degraded,
-            "degrade_reason": degrade_reason,
-            "selection_mode": selection_mode,
-            "agent_used": agent_used,
-            "llm_used": llm_used,
-            "initial_capital": sim_result.initial_capital,
-            "final_value": sim_result.final_value,
-        }
-        trade_dicts = [
-            {
-                "date": t.date,
-                "action": t.action.value if hasattr(t.action, "value") else str(t.action),
-                "ts_code": t.ts_code,
-                "price": t.price,
-                "shares": t.shares,
-                "pnl": t.pnl,
-                "pnl_pct": t.pnl_pct,
-                "reason": t.reason,
-                "source": getattr(t, "source", ""),
-                "entry_reason": getattr(t, "entry_reason", ""),
-                "exit_reason": getattr(t, "exit_reason", ""),
-                "exit_trigger": getattr(t, "exit_trigger", ""),
-                "entry_date": getattr(t, "entry_date", ""),
-                "entry_price": getattr(t, "entry_price", 0.0),
-                "holding_days": getattr(t, "holding_days", 0),
-                "stop_loss_price": getattr(t, "stop_loss_price", 0.0),
-                "take_profit_price": getattr(t, "take_profit_price", 0.0),
-                "trailing_pct": getattr(t, "trailing_pct", None),
-                "capital_before": getattr(t, "capital_before", 0.0),
-                "capital_after": getattr(t, "capital_after", 0.0),
-                "open_price": getattr(t, "open_price", 0.0),
-                "high_price": getattr(t, "high_price", 0.0),
-                "low_price": getattr(t, "low_price", 0.0),
-                "volume": getattr(t, "volume", 0.0),
-                "amount": getattr(t, "amount", 0.0),
-                "pct_chg": getattr(t, "pct_chg", 0.0),
-            }
-            for t in sim_result.trade_history
-        ]
-
-        daily_values = [
-            float(r.get("total_value") or 0.0)
-            for r in sim_result.daily_records
-            if isinstance(r, dict) and r.get("total_value") is not None
-        ]
-        benchmark_metrics = None
-        if len(daily_values) >= 2:
-            aligned_benchmark = benchmark_daily_values if len(benchmark_daily_values) == len(daily_values) else None
-            benchmark_metrics = self.benchmark_evaluator.evaluate(
-                daily_values=daily_values,
-                benchmark_daily_values=aligned_benchmark,
-                trade_history=trade_dicts,
-            )
-            benchmark_passed = bool(benchmark_metrics.passed)
-            cycle_dict.update({
-                "sharpe_ratio": benchmark_metrics.sharpe_ratio,
-                "max_drawdown": benchmark_metrics.max_drawdown,
-                "excess_return": benchmark_metrics.excess_return,
-                "benchmark_return": benchmark_metrics.benchmark_return,
-                "benchmark_source": "index_bar:sh.000300" if aligned_benchmark else "none",
-                "benchmark_passed": benchmark_passed,
-                "benchmark_strict_passed": benchmark_metrics.passed,
-            })
-        else:
-            cycle_dict["benchmark_passed"] = False
-            cycle_dict["benchmark_strict_passed"] = False
-
-        strategy_eval = self.strategy_evaluator.evaluate(cycle_dict, trade_dicts, sim_result.daily_records)
-        cycle_dict["strategy_scores"] = {
-            "signal_accuracy": float(strategy_eval.signal_accuracy),
-            "timing_score": float(strategy_eval.timing_score),
-            "risk_control_score": float(strategy_eval.risk_control_score),
-            "overall_score": float(strategy_eval.overall_score),
-            "suggestions": list(strategy_eval.suggestions or []),
-        }
-        research_feedback = self._load_research_feedback(
-            cutoff_date=cutoff_date,
-            model_name=getattr(model_output, "model_name", self.model_name),
-            config_name=getattr(model_output, "config_name", self.model_config_path),
-        )
-        cycle_dict["research_feedback"] = dict(research_feedback or {})
-        if research_feedback:
-            self._emit_module_log(
-                "review",
-                "载入 ask 侧校准反馈",
-                dict(research_feedback.get("recommendation") or {}).get("summary", "research feedback loaded"),
-                cycle_id=cycle_id,
-                kind="research_feedback",
-                details=research_feedback,
-                metrics=self._research_feedback_brief(research_feedback),
-            )
-        self._emit_agent_status(
-            "SimulatedTrader",
-            "completed",
-            f"模拟完成，收益 {sim_result.return_pct:+.2f}% ，共 {sim_result.total_trades} 笔交易",
-            cycle_id=cycle_id,
-            stage="simulation",
-            progress_pct=78,
-            step=3,
-            total_steps=6,
-            details={"final_value": sim_result.final_value, "win_rate": sim_result.win_rate},
-        )
-        self._emit_module_log(
-            "simulation",
-            "模拟交易完成",
-            f"期末资金 {sim_result.final_value:.2f}，收益 {sim_result.return_pct:+.2f}%",
-            cycle_id=cycle_id,
-            kind="simulation_result",
-            details=trade_dicts[:12],
-            metrics={
-                "return_pct": sim_result.return_pct,
-                "trade_count": sim_result.total_trades,
-                "win_rate": sim_result.win_rate,
-            },
-        )
-
-        feedback_plan = self._build_feedback_optimization_plan(research_feedback, cycle_id=cycle_id)
-        self.last_feedback_optimization = self._feedback_optimization_brief(feedback_plan, triggered=False)
-        if feedback_plan:
-            cycle_dict["research_feedback_optimization"] = dict(self.last_feedback_optimization)
-
-        if not is_profit:
-            self.consecutive_losses += 1
-            logger.warning(f"亏损！连续亏损: {self.consecutive_losses}")
-            if self.consecutive_losses >= self.max_losses_before_optimize:
-                optimization_events.extend(
-                    self._trigger_optimization(
-                        cycle_dict,
-                        trade_dicts,
-                        trigger_reason="consecutive_losses",
-                        feedback_plan=feedback_plan or None,
-                    )
-                )
-                if feedback_plan:
-                    self.last_feedback_optimization_cycle_id = cycle_id
-                    self.last_feedback_optimization = self._feedback_optimization_brief(feedback_plan, triggered=True)
-                    cycle_dict["research_feedback_optimization"] = dict(self.last_feedback_optimization)
-                    feedback_plan = {}
-        else:
-            self.consecutive_losses = 0
-            logger.info(f"盈利！收益率: {sim_result.return_pct:.2f}%")
-
-        if feedback_plan:
-            optimization_events.extend(
-                self._trigger_optimization(
-                    cycle_dict,
-                    trade_dicts,
-                    trigger_reason="research_feedback",
-                    feedback_plan=feedback_plan,
-                )
-            )
-            self.last_feedback_optimization_cycle_id = cycle_id
-            self.last_feedback_optimization = self._feedback_optimization_brief(feedback_plan, triggered=True)
-            cycle_dict["research_feedback_optimization"] = dict(self.last_feedback_optimization)
-
-        logger.info("周期结语：复盘会议自省...")
-        self._emit_agent_status("ReviewMeeting", "running", "复盘会议自省中...", cycle_id=cycle_id, stage="review_meeting", progress_pct=84, step=4, total_steps=6)
-        self._emit_module_log("review", "进入复盘会议", "开始汇总交易表现与策略偏差", cycle_id=cycle_id, kind="phase_start")
-        eval_report = EvalReport(
-            cycle_id=cycle_id,
-            as_of_date=cutoff_date,
-            return_pct=sim_result.return_pct,
-            total_pnl=sim_result.total_pnl,
-            total_trades=sim_result.total_trades,
-            win_rate=sim_result.win_rate,
-            regime=regime_result.get("regime", "unknown"),
-            is_profit=bool(is_profit),
-            selected_codes=list(selected),
-            benchmark_passed=bool(cycle_dict.get("benchmark_passed", False)),
-            benchmark_strict_passed=bool(cycle_dict.get("benchmark_strict_passed", False)),
-            sharpe_ratio=float(cycle_dict.get("sharpe_ratio", 0.0) or 0.0),
-            max_drawdown=float(cycle_dict.get("max_drawdown", 0.0) or 0.0),
-            excess_return=float(cycle_dict.get("excess_return", 0.0) or 0.0),
-            data_mode=data_mode,
-            selection_mode=selection_mode,
-            agent_used=bool(agent_used),
-            llm_used=bool(llm_used),
-            metadata={
-                "model_name": getattr(model_output, "model_name", self.model_name) if 'model_output' in locals() else self.model_name,
-                "config_name": getattr(model_output, "config_name", self.model_name) if 'model_output' in locals() and model_output is not None else self.model_config_path,
-                "trade_count": len(trade_dicts),
-                "requested_data_mode": requested_data_mode,
-                "effective_data_mode": effective_data_mode,
-                "llm_mode": llm_mode,
-                "degraded": degraded,
-                "degrade_reason": degrade_reason,
-                "research_feedback": dict(research_feedback or {}),
-            },
-        )
-        self.cycle_records.append(cycle_dict)
-        agent_accuracy = self.agent_tracker.compute_accuracy(last_n_cycles=20)
-        review_decision = self.review_meeting.run_with_eval_report(eval_report, agent_accuracy, self.current_params)
-        review_facts = getattr(self.review_meeting, "last_facts", None) or cycle_dict
-        self.meeting_recorder.save_review(review_decision, review_facts, cycle_id)
-
-        review_event = OptimizationEvent(
-            trigger="review_meeting",
-            stage="review_decision",
-            decision={
-                "strategy_suggestions": review_decision.get("strategy_suggestions", []),
-                "param_adjustments": review_decision.get("param_adjustments", {}),
-                "agent_weight_adjustments": review_decision.get("agent_weight_adjustments", {}),
-            },
-            applied_change={},
-            notes=review_decision.get("reasoning", ""),
-        )
-
-        if review_decision.get("param_adjustments"):
-            self.current_params.update(review_decision["param_adjustments"])
-            if getattr(self, "investment_model", None) is not None:
-                self.investment_model.update_runtime_overrides(review_decision["param_adjustments"])
-            review_applied = True
-            review_event.applied_change.update({"params": dict(review_decision["param_adjustments"])})
-            logger.info(f"根据复盘调整参数: {review_decision['param_adjustments']}")
-            self._emit_agent_status(
-                "ReviewMeeting",
-                "completed",
-                f"参数已调整: {list(review_decision.get('param_adjustments', {}).keys())}",
-                cycle_id=cycle_id,
-                stage="review_meeting",
-                progress_pct=96,
-                step=4,
-                total_steps=6,
-                details=review_decision,
-                adjustments=review_decision.get("param_adjustments", {}),
-            )
-
-        if review_decision.get("agent_weight_adjustments"):
-            self.selection_meeting.update_weights(review_decision["agent_weight_adjustments"])
-            review_applied = True
-            review_event.applied_change.update({"agent_weights": dict(review_decision["agent_weight_adjustments"])})
-
-        optimization_events.append(review_event.to_dict())
-        cycle_dict["review_applied"] = review_applied
-        self._emit_module_log(
-            "review",
-            "复盘会议结论",
-            review_decision.get("reasoning", "复盘完成"),
-            cycle_id=cycle_id,
-            kind="review_decision",
-            details={
-                "strategy_suggestions": review_decision.get("strategy_suggestions", []),
-                "param_adjustments": review_decision.get("param_adjustments", {}),
-                "agent_weight_adjustments": review_decision.get("agent_weight_adjustments", {}),
-            },
-            metrics={
-                "review_applied": review_applied,
-                "suggestion_count": len(review_decision.get("strategy_suggestions", [])),
-            },
-        )
-
-        config_snapshot_path = str(self.config_service.write_runtime_snapshot(cycle_id=cycle_id, output_dir=self.output_dir))
-        audit_tags = {
-            "data_mode": data_mode,
-            "requested_data_mode": requested_data_mode,
-            "effective_data_mode": effective_data_mode,
-            "llm_mode": llm_mode,
-            "degraded": degraded,
-            "degrade_reason": degrade_reason,
-            "selection_mode": selection_mode,
-            "meeting_fallback": False,
-            "agent_used": agent_used,
-            "llm_used": llm_used,
-            "mock_data_used": data_mode == "mock",
-            "benchmark_passed": benchmark_passed,
-            "review_applied": review_applied,
-            "routing_enabled": self.model_routing_enabled,
-            "routing_mode": self.model_routing_mode,
-            "routing_model": (self.last_routing_decision or {}).get("selected_model", self.model_name),
-            "routing_regime": (self.last_routing_decision or {}).get("regime", regime_result.get("regime", "unknown")),
-        }
-
-        cycle_result = TrainingResult(
+        return self.training_execution_service.execute_loaded_cycle(
+            self,
+            result_factory=TrainingResult,
+            optimization_event_factory=OptimizationEvent,
             cycle_id=cycle_id,
             cutoff_date=cutoff_date,
-            selected_stocks=selected,
-            initial_capital=sim_result.initial_capital,
-            final_value=sim_result.final_value,
-            return_pct=sim_result.return_pct,
-            is_profit=is_profit,
-            trade_history=trade_dicts,
-            params=dict(self.current_params),
-            analysis=review_decision.get("reasoning", ""),
-            data_mode=data_mode,
+            stock_data=stock_data,
+            diagnostics=diagnostics,
             requested_data_mode=requested_data_mode,
             effective_data_mode=effective_data_mode,
             llm_mode=llm_mode,
             degraded=degraded,
             degrade_reason=degrade_reason,
-            selection_mode=selection_mode,
-            agent_used=agent_used,
+            data_mode=data_mode,
             llm_used=llm_used,
-            benchmark_passed=benchmark_passed,
-            strategy_scores=dict(cycle_dict.get("strategy_scores") or {}),
-            review_applied=review_applied,
-            config_snapshot_path=config_snapshot_path,
             optimization_events=optimization_events,
-            audit_tags=audit_tags,
-            model_name=getattr(model_output, "model_name", self.model_name) if "model_output" in locals() and model_output is not None else self.model_name,
-            config_name=getattr(model_output, "config_name", self.model_config_path) if "model_output" in locals() and model_output is not None else self.model_config_path,
-            routing_decision=dict(self.last_routing_decision or {}),
-            research_feedback=dict(research_feedback or {}),
         )
-        self.cycle_history.append(cycle_result)
-        self.current_cycle_id += 1
-        self._record_self_assessment(cycle_result, cycle_dict)
-        freeze_gate_evaluation = self._evaluate_freeze_gate()
-
-        self.last_cycle_meta = {
-            "status": "ok",
-            "cycle_id": cycle_id,
-            "cutoff_date": cutoff_date,
-            "return_pct": sim_result.return_pct,
-            "requested_data_mode": requested_data_mode,
-            "effective_data_mode": effective_data_mode,
-            "llm_mode": llm_mode,
-            "degraded": degraded,
-            "degrade_reason": degrade_reason,
-            "routing_decision": dict(self.last_routing_decision or {}),
-            "research_feedback": self._research_feedback_brief(research_feedback),
-            "research_feedback_optimization": dict(self.last_feedback_optimization or {}),
-            "freeze_gate_evaluation": dict(freeze_gate_evaluation or {}),
-            "timestamp": datetime.now().isoformat(),
-        }
-        self._save_cycle_result(cycle_result)
-
-        # 发射周期完成事件
-        emit_event("cycle_complete", {
-            "cycle_id": cycle_id,
-            "cutoff_date": cutoff_date,
-            "return_pct": sim_result.return_pct,
-            "is_profit": bool(is_profit),
-            "selected_count": len(selected),
-            "selected_stocks": selected[:10],
-            "trade_count": len(trade_dicts),
-            "final_value": sim_result.final_value,
-            "review_applied": review_applied,
-            "selection_mode": selection_mode,
-            "requested_data_mode": requested_data_mode,
-            "effective_data_mode": effective_data_mode,
-            "llm_mode": llm_mode,
-            "degraded": degraded,
-            "degrade_reason": degrade_reason,
-            "model_name": self.model_name,
-            "routing_decision": dict(self.last_routing_decision or {}),
-            "timestamp": datetime.now().isoformat()
-        })
-        self._emit_module_log(
-            "cycle_complete",
-            f"周期 #{cycle_id} 完成",
-            f"收益 {sim_result.return_pct:+.2f}% ，共 {len(selected)} 只选股",
-            cycle_id=cycle_id,
-            kind="cycle_complete",
-            details={
-                "selected_stocks": selected[:10],
-                "trade_count": len(trade_dicts),
-                "review_applied": review_applied,
-                "requested_data_mode": requested_data_mode,
-                "effective_data_mode": effective_data_mode,
-                "llm_mode": llm_mode,
-                "degraded": degraded,
-                "degrade_reason": degrade_reason,
-            },
-            metrics={
-                "return_pct": sim_result.return_pct,
-                "selected_count": len(selected),
-                "trade_count": len(trade_dicts),
-            },
-        )
-
-        if self.on_cycle_complete:
-            self.on_cycle_complete(cycle_result)
-
-        logger.info(
-            f"\n周期 #{cycle_id} 完成: "
-            f"收益率 {sim_result.return_pct:.2f}%, "
-            f"{'盈利' if is_profit else '亏损'}"
-        )
-        return cycle_result
 
     def _trigger_optimization(self, cycle_dict: Dict, trade_dicts: List[Dict], *, trigger_reason: str = "consecutive_losses", feedback_plan: Dict[str, Any] | None = None) -> List[Dict[str, Any]]:
         return trigger_loss_optimization(
@@ -1918,33 +1366,10 @@ class SelfLearningController:
         Returns:
             训练报告字典
         """
-        logger.info(f"\n{'#'*60}")
-        logger.info(f"开始持续训练 (最多 {max_cycles} 个周期)")
-        logger.info(f"{'#'*60}")
-
-        for i in range(max_cycles):
-            # 检查固化条件
-            if self.should_freeze():
-                logger.info("🎉 达到固化条件！")
-                if self.stop_on_freeze:
-                    return self._freeze_model()
-                logger.info("配置为继续训练，不因固化条件提前停止")
-
-            self.total_cycle_attempts += 1
-            result = self.run_training_cycle()
-            if result is None:
-                self.skipped_cycle_count += 1
-                logger.warning(f"周期 {i+1} 执行失败，跳过")
-                continue
-
-            profits = sum(1 for r in self.cycle_history if r.is_profit)
-            total   = len(self.cycle_history)
-            logger.info(
-                f"进度: {i+1}/{max_cycles} | 盈利: {profits}/{total} | "
-                f"连续亏损: {self.consecutive_losses}"
-            )
-
-        return self._generate_report()
+        return self.training_lifecycle_service.run_continuous(
+            self,
+            max_cycles=max_cycles,
+        )
 
     def _record_self_assessment(self, cycle_result: TrainingResult, cycle_dict: Dict):
         """记录单周期自我评估快照"""

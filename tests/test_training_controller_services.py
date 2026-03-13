@@ -1,7 +1,21 @@
 import json
+from types import SimpleNamespace
+from typing import cast
 
+from config import config
 from app.train import SelfLearningController, TrainingResult
 from app.training.controller_services import FreezeGateService, TrainingFeedbackService, TrainingPersistenceService
+from app.training.cycle_services import TrainingCycleContext, TrainingCycleDataService, TrainingDataLoadResult
+from app.training.execution_services import TrainingExecutionService
+from app.training.lifecycle_services import TrainingLifecycleService
+from app.training.outcome_services import TrainingOutcomeService
+from app.training.policy_services import TrainingPolicyService
+from app.training.review_services import TrainingReviewService
+from app.training.review_stage_services import TrainingReviewStageResult, TrainingReviewStageService
+from app.training.selection_services import TrainingSelectionResult, TrainingSelectionService
+from app.training.routing_services import TrainingRoutingService
+from app.training.simulation_services import TrainingSimulationService
+from invest.services import EvolutionService, ReviewMeetingService, SelectionMeetingService
 
 
 def _make_controller(tmp_path):
@@ -34,6 +48,75 @@ def test_controller_exposes_training_services(tmp_path):
     assert isinstance(controller.training_feedback_service, TrainingFeedbackService)
     assert isinstance(controller.freeze_gate_service, FreezeGateService)
     assert isinstance(controller.training_persistence_service, TrainingPersistenceService)
+    assert isinstance(controller.training_cycle_data_service, TrainingCycleDataService)
+    assert isinstance(controller.training_execution_service, TrainingExecutionService)
+    assert isinstance(controller.training_lifecycle_service, TrainingLifecycleService)
+    assert isinstance(controller.training_outcome_service, TrainingOutcomeService)
+    assert isinstance(controller.training_policy_service, TrainingPolicyService)
+    assert isinstance(controller.training_review_service, TrainingReviewService)
+    assert isinstance(controller.training_review_stage_service, TrainingReviewStageService)
+    assert isinstance(controller.training_selection_service, TrainingSelectionService)
+    assert isinstance(controller.training_routing_service, TrainingRoutingService)
+    assert isinstance(controller.training_simulation_service, TrainingSimulationService)
+    assert isinstance(controller.selection_meeting_service, SelectionMeetingService)
+    assert isinstance(controller.review_meeting_service, ReviewMeetingService)
+    assert isinstance(controller.evolution_service, EvolutionService)
+
+
+def test_training_execution_service_returns_none_when_selection_stage_short_circuits():
+    service = TrainingExecutionService()
+    captured = {}
+
+    class DummySelectionService:
+        @staticmethod
+        def run_selection_stage(owner, **kwargs):
+            captured['selection_owner'] = owner
+            captured['selection_kwargs'] = dict(kwargs)
+            return None
+
+    class DummyController:
+        experiment_allowed_models = []
+        model_name = 'momentum'
+        training_selection_service = DummySelectionService()
+
+        @staticmethod
+        def _maybe_apply_allocator(stock_data, cutoff_date, cycle_id):
+            captured['allocator'] = {
+                'stock_data': dict(stock_data),
+                'cutoff_date': cutoff_date,
+                'cycle_id': cycle_id,
+            }
+
+        @staticmethod
+        def _emit_agent_status(*args, **kwargs):
+            captured['agent_status'] = (args, kwargs)
+
+        @staticmethod
+        def _emit_module_log(*args, **kwargs):
+            captured['module_log'] = (args, kwargs)
+
+    result = service.execute_loaded_cycle(
+        DummyController(),
+        result_factory=TrainingResult,
+        optimization_event_factory=SimpleNamespace,
+        cycle_id=9,
+        cutoff_date='20240201',
+        stock_data={'sh.600519': {'rows': 5}},
+        diagnostics={'ready': True},
+        requested_data_mode='offline',
+        effective_data_mode='offline',
+        llm_mode='dry_run',
+        degraded=False,
+        degrade_reason='',
+        data_mode='offline',
+        llm_used=False,
+        optimization_events=[],
+    )
+
+    assert result is None
+    assert captured['allocator']['cycle_id'] == 9
+    assert captured['selection_kwargs']['cycle_id'] == 9
+    assert captured['selection_kwargs']['cutoff_date'] == '20240201'
 
 
 def test_feedback_plan_delegates_to_service(monkeypatch, tmp_path):
@@ -54,6 +137,494 @@ def test_feedback_plan_delegates_to_service(monkeypatch, tmp_path):
     assert captured['owner'] is controller
     assert captured['cycle_id'] == 7
     assert captured['feedback']['sample_count'] == 8
+
+
+def test_runtime_policy_sync_delegates_to_policy_service(monkeypatch, tmp_path):
+    controller = _make_controller(tmp_path)
+    captured = {}
+
+    def fake_sync(owner):
+        captured['owner'] = owner
+
+    monkeypatch.setattr(controller.training_policy_service, 'sync_runtime_policy', fake_sync)
+
+    controller._sync_runtime_policy_from_model()  # pylint: disable=protected-access
+
+    assert captured['owner'] is controller
+
+
+def test_training_outcome_service_builds_audit_tags_and_cycle_result():
+    service = TrainingOutcomeService()
+
+    class DummyController:
+        model_name = 'momentum'
+        model_config_path = 'cfg.yaml'
+        model_routing_enabled = True
+        model_routing_mode = 'rule'
+        last_routing_decision = {'selected_model': 'mean_reversion', 'regime': 'oscillation'}
+        current_params = {'position_size': 0.12}
+
+    audit_tags = service.build_audit_tags(
+        DummyController(),
+        data_mode='offline',
+        requested_data_mode='live',
+        effective_data_mode='offline',
+        llm_mode='dry_run',
+        degraded=False,
+        degrade_reason='',
+        selection_mode='meeting_selection',
+        agent_used=True,
+        llm_used=False,
+        benchmark_passed=True,
+        review_applied=True,
+        regime_result={'regime': 'bull'},
+    )
+    cycle_result = service.build_cycle_result(
+        DummyController(),
+        result_factory=TrainingResult,
+        cycle_id=8,
+        cutoff_date='20240201',
+        selected=['sh.600519'],
+        sim_result=SimpleNamespace(
+            initial_capital=100000.0,
+            final_value=102000.0,
+            return_pct=2.0,
+        ),
+        is_profit=True,
+        trade_dicts=[{'action': 'SELL'}],
+        data_mode='offline',
+        requested_data_mode='live',
+        effective_data_mode='offline',
+        llm_mode='dry_run',
+        degraded=False,
+        degrade_reason='',
+        selection_mode='meeting_selection',
+        agent_used=True,
+        llm_used=False,
+        benchmark_passed=True,
+        cycle_dict={'strategy_scores': {'overall_score': 0.8}, 'analysis': 'review ok'},
+        review_applied=True,
+        config_snapshot_path='snap.json',
+        optimization_events=[{'stage': 'review'}],
+        audit_tags=audit_tags,
+        model_output=SimpleNamespace(model_name='value_quality', config_name='value.yaml'),
+        research_feedback={'recommendation': {'bias': 'maintain'}},
+    )
+
+    assert audit_tags['routing_model'] == 'mean_reversion'
+    assert audit_tags['routing_regime'] == 'oscillation'
+    assert cycle_result.analysis == 'review ok'
+    assert cycle_result.model_name == 'value_quality'
+    assert cycle_result.config_name == 'value.yaml'
+
+
+def test_run_continuous_delegates_to_lifecycle_service(monkeypatch, tmp_path):
+    controller = _make_controller(tmp_path)
+    captured = {}
+
+    def fake_run(owner, *, max_cycles):
+        captured['owner'] = owner
+        captured['max_cycles'] = max_cycles
+        return {'status': 'delegated'}
+
+    monkeypatch.setattr(controller.training_lifecycle_service, 'run_continuous', fake_run)
+
+    payload = controller.run_continuous(max_cycles=3)
+
+    assert payload == {'status': 'delegated'}
+    assert captured['owner'] is controller
+    assert captured['max_cycles'] == 3
+
+
+def test_training_lifecycle_service_finalize_cycle_updates_meta_and_callback(monkeypatch, tmp_path):
+    from app.train import TrainingResult
+    import app.train as train_module
+
+    service = TrainingLifecycleService()
+    emitted = []
+    logs = []
+    callback_result = {}
+
+    monkeypatch.setattr(train_module, 'emit_event', lambda event_type, data: emitted.append((event_type, data)))
+
+    class DummyController:
+        cycle_history = []
+        current_cycle_id = 0
+        last_routing_decision = {'selected_model': 'momentum', 'regime': 'bull'}
+        last_feedback_optimization = {'triggered': False}
+        last_cycle_meta = {}
+        model_name = 'momentum'
+        on_cycle_complete = staticmethod(lambda result: callback_result.setdefault('cycle', result.cycle_id))
+
+        @staticmethod
+        def _record_self_assessment(cycle_result, cycle_dict):
+            logs.append(('assessment', cycle_result.cycle_id, dict(cycle_dict)))
+
+        @staticmethod
+        def _evaluate_freeze_gate():
+            return {'passed': False}
+
+        @staticmethod
+        def _research_feedback_brief(feedback):
+            return {'sample_count': int((feedback or {}).get('sample_count') or 0)}
+
+        @staticmethod
+        def _save_cycle_result(result):
+            logs.append(('save', result.cycle_id))
+
+        @staticmethod
+        def _emit_module_log(*args, **kwargs):
+            logs.append(('module', args, kwargs))
+
+    cycle_result = TrainingResult(
+        cycle_id=2,
+        cutoff_date='20240201',
+        selected_stocks=['sh.600519'],
+        initial_capital=100000,
+        final_value=102000,
+        return_pct=2.0,
+        is_profit=True,
+        trade_history=[],
+        params={},
+    )
+    cycle_dict = {'strategy_scores': {'overall_score': 0.8}}
+    controller = DummyController()
+    service.finalize_cycle(
+        controller,
+        cycle_result=cycle_result,
+        cycle_dict=cycle_dict,
+        cycle_id=2,
+        cutoff_date='20240201',
+        sim_result=SimpleNamespace(return_pct=2.0, final_value=102000),
+        is_profit=True,
+        selected=['sh.600519'],
+        trade_dicts=[{'action': 'SELL'}],
+        review_applied=True,
+        selection_mode='meeting_selection',
+        requested_data_mode='live',
+        effective_data_mode='offline',
+        llm_mode='dry_run',
+        degraded=False,
+        degrade_reason='',
+        research_feedback={'sample_count': 6},
+    )
+
+    assert controller.current_cycle_id == 1
+    assert controller.last_cycle_meta['cycle_id'] == 2
+    assert emitted[0][0] == 'cycle_complete'
+    assert emitted[0][1]['cycle_id'] == 2
+    assert callback_result['cycle'] == 2
+
+
+def test_training_selection_service_runs_selection_stage():
+    service = TrainingSelectionService()
+    events = []
+
+    class DummyInvestmentModel:
+        def update_runtime_overrides(self, updates):
+            self.updates = dict(updates)
+
+        def process(self, stock_data, cutoff_date):
+            del stock_data, cutoff_date
+            signal_packet = SimpleNamespace(
+                regime='bull',
+                cash_reserve=0.2,
+                params={'position_size': 0.15},
+                selected_codes=['sh.600519'],
+                signals=[{'code': 'sh.600519'}],
+                max_positions=2,
+            )
+            agent_context = SimpleNamespace(
+                summary='bull summary',
+                metadata={'confidence': 0.81},
+            )
+            return SimpleNamespace(
+                signal_packet=signal_packet,
+                agent_context=agent_context,
+                model_name='momentum',
+                config_name='cfg.yaml',
+                to_dict=lambda: {'model_name': 'momentum'},
+            )
+
+    class DummyRecorder:
+        def __init__(self):
+            self.saved = []
+
+        def save_selection(self, meeting_log, cycle_id):
+            self.saved.append((cycle_id, dict(meeting_log)))
+
+    class DummyTracker:
+        def __init__(self):
+            self.predictions = []
+            self.selected = []
+
+        def record_predictions(self, cycle_id, name, picks):
+            self.predictions.append((cycle_id, name, list(picks)))
+
+        def mark_selected(self, cycle_id, selected):
+            self.selected.append((cycle_id, list(selected)))
+
+    trading_plan = SimpleNamespace(
+        positions=[SimpleNamespace(code='sh.600519')],
+        source='meeting',
+    )
+
+    class DummySelectionMeetingService:
+        @staticmethod
+        def run_with_model_output(model_output):
+            del model_output
+            return {
+                'trading_plan': trading_plan,
+                'meeting_log': {
+                    'hunters': [{
+                        'name': 'trend_hunter',
+                        'result': {
+                            'picks': ['sh.600519'],
+                            'overall_view': 'strong trend',
+                            'confidence': 0.9,
+                        },
+                    }],
+                    'selected': ['sh.600519'],
+                },
+                'strategy_advice': {'bias': 'trend'},
+            }
+
+    class DummyController:
+        current_params = {'position_size': 0.12}
+        model_name = 'momentum'
+        investment_model = DummyInvestmentModel()
+        selection_meeting_service = DummySelectionMeetingService()
+        meeting_recorder = DummyRecorder()
+        agent_tracker = DummyTracker()
+        last_routing_decision = {'regime': 'bull', 'decision_source': 'router'}
+
+        @staticmethod
+        def _thinking_excerpt(text):
+            return text
+
+        @staticmethod
+        def _emit_agent_status(*args, **kwargs):
+            events.append(('status', args, kwargs))
+
+        @staticmethod
+        def _emit_module_log(*args, **kwargs):
+            events.append(('module', args, kwargs))
+
+        @staticmethod
+        def _emit_meeting_speech(*args, **kwargs):
+            events.append(('speech', args, kwargs))
+
+        @staticmethod
+        def _mark_cycle_skipped(*args, **kwargs):
+            raise AssertionError('selection should not skip')
+
+    stock_data = {'sh.600519': {'rows': 1}}
+    result = service.run_selection_stage(
+        DummyController(),
+        cycle_id=3,
+        cutoff_date='20240201',
+        stock_data=stock_data,
+    )
+
+    assert result is not None
+    assert result == TrainingSelectionResult(
+        model_output=result.model_output,
+        regime_result=result.regime_result,
+        trading_plan=trading_plan,
+        meeting_log={
+            'hunters': [{
+                'name': 'trend_hunter',
+                'result': {
+                    'picks': ['sh.600519'],
+                    'overall_view': 'strong trend',
+                    'confidence': 0.9,
+                },
+            }],
+            'selected': ['sh.600519'],
+        },
+        strategy_advice={'bias': 'trend'},
+        selected=['sh.600519'],
+        selected_data={'sh.600519': {'rows': 1}},
+        selection_mode='meeting_selection',
+        agent_used=True,
+    )
+    assert result.regime_result['decision_source'] == 'router'
+    assert any(item[0] == 'speech' for item in events)
+
+
+def test_training_selection_service_skips_when_no_selected_codes():
+    service = TrainingSelectionService()
+    skipped = {}
+
+    class DummyInvestmentModel:
+        def update_runtime_overrides(self, updates):
+            del updates
+
+        def process(self, stock_data, cutoff_date):
+            del stock_data, cutoff_date
+            return SimpleNamespace(
+                signal_packet=SimpleNamespace(
+                    regime='oscillation',
+                    cash_reserve=0.4,
+                    params={},
+                    selected_codes=[],
+                    signals=[],
+                    max_positions=0,
+                ),
+                agent_context=SimpleNamespace(summary='flat', metadata={}),
+                model_name='momentum',
+                config_name='cfg.yaml',
+                to_dict=lambda: {},
+            )
+
+    class DummyController:
+        current_params = {}
+        model_name = 'momentum'
+        investment_model = DummyInvestmentModel()
+        last_routing_decision = {}
+        selection_meeting_service = SimpleNamespace(
+            run_with_model_output=lambda model_output: {
+                'trading_plan': SimpleNamespace(positions=[], source='meeting'),
+                'meeting_log': {},
+                'strategy_advice': {},
+            }
+        )
+        meeting_recorder = SimpleNamespace(save_selection=lambda *args, **kwargs: None)
+        agent_tracker = SimpleNamespace(
+            record_predictions=lambda *args, **kwargs: None,
+            mark_selected=lambda *args, **kwargs: None,
+        )
+
+        @staticmethod
+        def _thinking_excerpt(text):
+            return text
+
+        @staticmethod
+        def _emit_agent_status(*args, **kwargs):
+            del args, kwargs
+
+        @staticmethod
+        def _emit_module_log(*args, **kwargs):
+            del args, kwargs
+
+        @staticmethod
+        def _emit_meeting_speech(*args, **kwargs):
+            del args, kwargs
+
+        @staticmethod
+        def _mark_cycle_skipped(cycle_id, cutoff_date, **kwargs):
+            skipped['cycle_id'] = cycle_id
+            skipped['cutoff_date'] = cutoff_date
+            skipped.update(kwargs)
+
+    result = service.run_selection_stage(
+        DummyController(),
+        cycle_id=5,
+        cutoff_date='20240201',
+        stock_data={'sh.600519': {'rows': 1}},
+    )
+
+    assert result is None
+    assert skipped['stage'] == 'selection'
+    assert skipped['reason'] == '模型与会议未产出可交易标的'
+
+
+def test_training_review_stage_service_runs_review_flow():
+    service = TrainingReviewStageService()
+    events = []
+
+    class DummyReviewMeetingService:
+        @staticmethod
+        def run_with_eval_report(eval_report, *, agent_accuracy, current_params):
+            events.append(('review_meeting', eval_report, agent_accuracy, current_params))
+            return {
+                'reasoning': 'tighten risk',
+                'strategy_suggestions': ['reduce exposure'],
+                'param_adjustments': {'position_size': 0.1},
+                'agent_weight_adjustments': {'trend_hunter': 0.9},
+            }
+
+    class DummyTrainingReviewService:
+        @staticmethod
+        def build_eval_report(owner, **kwargs):
+            events.append(('build_eval_report', owner, kwargs))
+            return {'eval': 'report', 'cycle_id': kwargs['cycle_id']}
+
+        @staticmethod
+        def apply_review_decision(owner, **kwargs):
+            events.append(('apply_review_decision', owner, kwargs))
+            return True
+
+    class DummyTracker:
+        @staticmethod
+        def compute_accuracy(last_n_cycles=20):
+            return {'window': last_n_cycles, 'accuracy': 0.75}
+
+    saved_reviews = []
+
+    class DummyController:
+        training_review_service = DummyTrainingReviewService()
+        review_meeting_service = DummyReviewMeetingService()
+        agent_tracker = DummyTracker()
+        current_params = {'position_size': 0.12}
+        review_meeting = SimpleNamespace(last_facts={'facts': 'ok'})
+        meeting_recorder = SimpleNamespace(
+            save_review=lambda decision, facts, cycle_id: saved_reviews.append(
+                (decision, facts, cycle_id)
+            )
+        )
+        cycle_records = []
+
+        @staticmethod
+        def _emit_agent_status(*args, **kwargs):
+            events.append(('status', args, kwargs))
+
+        @staticmethod
+        def _emit_module_log(*args, **kwargs):
+            events.append(('module', args, kwargs))
+
+    class DummyEvent:
+        def __init__(self, **kwargs):
+            self.kwargs = dict(kwargs)
+
+    cycle_dict = {'benchmark_passed': True}
+    result = service.run_review_stage(
+        DummyController(),
+        cycle_id=6,
+        cutoff_date='20240201',
+        sim_result=SimpleNamespace(return_pct=1.0, total_pnl=1000, total_trades=2, win_rate=0.5),
+        regime_result={'regime': 'bull'},
+        selected=['sh.600519'],
+        cycle_dict=cycle_dict,
+        trade_dicts=[{'action': 'SELL'}],
+        requested_data_mode='live',
+        effective_data_mode='offline',
+        llm_mode='dry_run',
+        degraded=False,
+        degrade_reason='',
+        data_mode='offline',
+        selection_mode='meeting_selection',
+        agent_used=True,
+        llm_used=False,
+        model_output=None,
+        research_feedback={'recommendation': {'bias': 'maintain'}},
+        optimization_event_factory=DummyEvent,
+    )
+
+    assert result == TrainingReviewStageResult(
+        eval_report={'eval': 'report', 'cycle_id': 6},
+        review_decision={
+            'reasoning': 'tighten risk',
+            'strategy_suggestions': ['reduce exposure'],
+            'param_adjustments': {'position_size': 0.1},
+            'agent_weight_adjustments': {'trend_hunter': 0.9},
+        },
+        review_applied=True,
+        review_event=result.review_event,
+    )
+    assert cycle_dict['review_applied'] is True
+    assert saved_reviews[0][2] == 6
+    assert any(item[0] == 'apply_review_decision' for item in events)
 
 
 def test_save_cycle_result_delegates_to_persistence_service(tmp_path):
@@ -100,3 +671,365 @@ def test_generate_report_delegates_to_freeze_gate_service(monkeypatch, tmp_path)
     payload = controller._generate_report()  # pylint: disable=protected-access
 
     assert payload == {'status': 'ok', 'owner_bound': True}
+
+
+def test_training_cycle_data_service_prepares_context():
+    class DummyDataManager:
+        requested_mode = 'mock'
+
+        def random_cutoff_date(self, *, min_date='20180101', max_date=None):
+            return '20240201'
+
+    class DummyController:
+        current_cycle_id = 4
+        experiment_seed = None
+        experiment_min_date = None
+        experiment_max_date = None
+        data_manager = DummyDataManager()
+        llm_mode = 'dry_run'
+
+    service = TrainingCycleDataService()
+    context = service.prepare_cycle_context(DummyController())
+
+    assert context == TrainingCycleContext(
+        cycle_id=5,
+        cutoff_date='20240201',
+        requested_data_mode='mock',
+        llm_mode='dry_run',
+    )
+
+
+def test_training_cycle_data_service_loads_diagnostics_and_resolution():
+    class DummyDataManager:
+        last_resolution = {
+            'effective_data_mode': 'offline',
+            'degraded': False,
+            'degrade_reason': '',
+        }
+
+        def diagnose_training_data(self, *, cutoff_date, stock_count, min_history_days):
+            return {
+                'ready': True,
+                'cutoff_date': cutoff_date,
+                'stock_count': stock_count,
+                'min_history_days': min_history_days,
+            }
+
+        def load_stock_data(self, cutoff_date, *, stock_count, min_history_days, include_future_days):
+            return {
+                'sh.600519': {
+                    'cutoff_date': cutoff_date,
+                    'stock_count': stock_count,
+                    'min_history_days': min_history_days,
+                    'include_future_days': include_future_days,
+                }
+            }
+
+    class DummyController:
+        experiment_min_history_days = 160
+        experiment_simulation_days = 40
+        data_manager = DummyDataManager()
+
+    service = TrainingCycleDataService()
+    payload = service.load_training_data(
+        DummyController(),
+        cutoff_date='20240201',
+        requested_data_mode='live',
+    )
+
+    assert payload == TrainingDataLoadResult(
+        diagnostics={
+            'ready': True,
+            'cutoff_date': '20240201',
+            'stock_count': config.max_stocks,
+            'min_history_days': 160,
+        },
+        stock_data={
+            'sh.600519': {
+                'cutoff_date': '20240201',
+                'stock_count': config.max_stocks,
+                'min_history_days': 160,
+                'include_future_days': 40,
+            }
+        },
+        requested_data_mode='live',
+        effective_data_mode='offline',
+        data_mode='offline',
+        degraded=False,
+        degrade_reason='',
+        min_history_days=160,
+    )
+
+
+def test_training_review_service_builds_eval_report():
+    class DummyController:
+        model_name = 'momentum'
+        model_config_path = 'invest/models/configs/momentum_v1.yaml'
+
+    class DummySimResult:
+        return_pct = 1.25
+        total_pnl = 1250.0
+        total_trades = 4
+        win_rate = 0.5
+
+    service = TrainingReviewService()
+    report = service.build_eval_report(
+        DummyController(),
+        cycle_id=9,
+        cutoff_date='20240201',
+        sim_result=DummySimResult(),
+        regime_result={'regime': 'bull'},
+        selected=['sh.600519'],
+        cycle_dict={'benchmark_passed': True, 'sharpe_ratio': 1.1},
+        trade_dicts=[{'symbol': 'sh.600519'}],
+        requested_data_mode='live',
+        effective_data_mode='offline',
+        llm_mode='dry_run',
+        degraded=False,
+        degrade_reason='',
+        data_mode='offline',
+        selection_mode='meeting',
+        agent_used=True,
+        llm_used=False,
+        model_output=None,
+        research_feedback={'recommendation': {'bias': 'maintain'}},
+    )
+
+    assert report.cycle_id == 9
+    assert report.selected_codes == ['sh.600519']
+    assert report.metadata['effective_data_mode'] == 'offline'
+    assert report.metadata['research_feedback']['recommendation']['bias'] == 'maintain'
+
+
+def test_training_simulation_service_builds_cycle_and_trade_payloads():
+    service = TrainingSimulationService()
+    trade = SimpleNamespace(
+        date='20240202',
+        action=SimpleNamespace(value='BUY'),
+        ts_code='sh.600519',
+        price=123.4,
+        shares=100,
+        pnl=0.0,
+        pnl_pct=0.0,
+        reason='entry',
+        source='signal',
+        entry_reason='breakout',
+        exit_reason='',
+        exit_trigger='',
+        entry_date='20240202',
+        entry_price=123.4,
+        holding_days=0,
+        stop_loss_price=120.0,
+        take_profit_price=130.0,
+        trailing_pct=None,
+        capital_before=100000.0,
+        capital_after=87660.0,
+        open_price=122.0,
+        high_price=124.0,
+        low_price=121.5,
+        volume=1000.0,
+        amount=123400.0,
+        pct_chg=1.2,
+    )
+    sim_result = SimpleNamespace(
+        return_pct=2.5,
+        total_pnl=2500.0,
+        total_trades=1,
+        winning_trades=1,
+        losing_trades=0,
+        win_rate=1.0,
+        initial_capital=100000.0,
+        final_value=102500.0,
+        trade_history=[trade],
+    )
+    trading_plan = SimpleNamespace(source='meeting', max_positions=3)
+
+    cycle = service.build_cycle_dict(
+        cycle_id=11,
+        cutoff_date='20240201',
+        sim_result=sim_result,
+        selected=['sh.600519'],
+        is_profit=True,
+        regime_result={'regime': 'bull'},
+        routing_decision={'selected_model': 'momentum'},
+        trading_plan=trading_plan,
+        data_mode='offline',
+        requested_data_mode='live',
+        effective_data_mode='offline',
+        llm_mode='dry_run',
+        degraded=False,
+        degrade_reason='',
+        selection_mode='meeting',
+        agent_used=True,
+        llm_used=False,
+    )
+    trades = service.build_trade_dicts(sim_result)
+
+    assert cycle['cycle_id'] == 11
+    assert cycle['plan_source'] == 'meeting'
+    assert cycle['routing_decision']['selected_model'] == 'momentum'
+    assert trades == [{
+        'date': '20240202',
+        'action': 'BUY',
+        'ts_code': 'sh.600519',
+        'price': 123.4,
+        'shares': 100,
+        'pnl': 0.0,
+        'pnl_pct': 0.0,
+        'reason': 'entry',
+        'source': 'signal',
+        'entry_reason': 'breakout',
+        'exit_reason': '',
+        'exit_trigger': '',
+        'entry_date': '20240202',
+        'entry_price': 123.4,
+        'holding_days': 0,
+        'stop_loss_price': 120.0,
+        'take_profit_price': 130.0,
+        'trailing_pct': None,
+        'capital_before': 100000.0,
+        'capital_after': 87660.0,
+        'open_price': 122.0,
+        'high_price': 124.0,
+        'low_price': 121.5,
+        'volume': 1000.0,
+        'amount': 123400.0,
+        'pct_chg': 1.2,
+    }]
+
+
+def test_training_simulation_service_evaluates_cycle():
+    service = TrainingSimulationService()
+    strategy_calls = {}
+    benchmark_calls = {}
+
+    class DummyController:
+        class BenchmarkEvaluator:
+            @staticmethod
+            def evaluate(*, daily_values, benchmark_daily_values, trade_history):
+                benchmark_calls['daily_values'] = list(daily_values)
+                benchmark_calls['benchmark_daily_values'] = list(benchmark_daily_values or [])
+                benchmark_calls['trade_history'] = list(trade_history)
+                return SimpleNamespace(
+                    passed=True,
+                    sharpe_ratio=1.3,
+                    max_drawdown=-0.05,
+                    excess_return=0.08,
+                    benchmark_return=0.03,
+                )
+
+        class StrategyEvaluator:
+            @staticmethod
+            def evaluate(cycle_dict, trade_dicts, daily_records):
+                strategy_calls['cycle_id'] = cycle_dict['cycle_id']
+                strategy_calls['trade_count'] = len(trade_dicts)
+                strategy_calls['daily_records'] = list(daily_records)
+                return SimpleNamespace(
+                    signal_accuracy=0.8,
+                    timing_score=0.7,
+                    risk_control_score=0.9,
+                    overall_score=0.82,
+                    suggestions=['hold discipline'],
+                )
+
+        benchmark_evaluator = BenchmarkEvaluator()
+        strategy_evaluator = StrategyEvaluator()
+
+    sim_result = SimpleNamespace(
+        daily_records=[
+            {'total_value': 100000.0},
+            {'total_value': 101000.0},
+        ],
+    )
+    cycle_dict: dict[str, object] = {'cycle_id': 12}
+    trade_dicts = [{'action': 'SELL', 'pnl': 100.0}]
+
+    benchmark_passed = service.evaluate_cycle(
+        DummyController(),
+        cycle_dict=cycle_dict,
+        trade_dicts=trade_dicts,
+        sim_result=sim_result,
+        benchmark_daily_values=[3000.0, 3015.0],
+    )
+
+    assert benchmark_passed is True
+    assert cycle_dict['benchmark_passed'] is True
+    assert cycle_dict['benchmark_source'] == 'index_bar:sh.000300'
+    strategy_scores = cast(dict[str, object], cycle_dict['strategy_scores'])
+    assert strategy_scores['overall_score'] == 0.82
+    assert benchmark_calls['daily_values'] == [100000.0, 101000.0]
+    assert strategy_calls['trade_count'] == 1
+
+
+def test_training_routing_service_refreshes_controller_coordinator():
+    service = TrainingRoutingService()
+
+    class DummyController:
+        model_routing_policy = {'bull_avg_change_20d': 4.0}
+        model_switch_min_confidence = 0.7
+        model_switch_cooldown_cycles = 3
+        model_switch_hysteresis_margin = 0.12
+        model_routing_agent_override_max_gap = 0.2
+
+    controller = DummyController()
+    coordinator = service.refresh_routing_coordinator(controller)
+
+    assert getattr(controller, 'routing_coordinator') is coordinator
+    assert coordinator.min_confidence == 0.7
+    assert coordinator.cooldown_cycles == 3
+    assert coordinator.hysteresis_margin == 0.12
+
+
+def test_training_review_service_applies_review_decision():
+    agent_events = []
+
+    class DummyModel:
+        def __init__(self):
+            self.updates = []
+
+        def update_runtime_overrides(self, updates):
+            self.updates.append(dict(updates))
+
+    class DummySelectionMeetingService:
+        def __init__(self):
+            self.weight_updates = []
+
+        def update_weights(self, updates):
+            self.weight_updates.append(dict(updates))
+
+    class DummyController:
+        def __init__(self):
+            self.current_params = {'position_size': 0.2}
+            self.investment_model = DummyModel()
+            self.selection_meeting_service = DummySelectionMeetingService()
+
+        def _emit_agent_status(self, *args, **kwargs):
+            agent_events.append((args, kwargs))
+
+    class DummyEvent:
+        def __init__(self):
+            self.applied_change = {}
+
+    controller = DummyController()
+    review_event = DummyEvent()
+    service = TrainingReviewService()
+
+    applied = service.apply_review_decision(
+        controller,
+        cycle_id=12,
+        review_decision={
+            'param_adjustments': {'position_size': 0.12},
+            'agent_weight_adjustments': {'trend_hunter': 0.9},
+        },
+        review_event=review_event,
+    )
+
+    assert applied is True
+    assert controller.current_params['position_size'] == 0.12
+    assert controller.investment_model.updates[-1] == {'position_size': 0.12}
+    assert controller.selection_meeting_service.weight_updates[-1] == {'trend_hunter': 0.9}
+    assert review_event.applied_change == {
+        'params': {'position_size': 0.12},
+        'agent_weights': {'trend_hunter': 0.9},
+    }
+    assert agent_events

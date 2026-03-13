@@ -9,6 +9,7 @@ RULES = {
     "invest/contracts": {"invest.agents", "invest.meetings", "invest.evolution", "app.train", "app.commander"},
     "invest/foundation": {"invest.agents", "invest.meetings", "invest.models"},
     "invest/models": {"invest.agents", "invest.meetings"},
+    "app/application": {"flask", "app.interfaces.web", "app.web_server"},
 }
 
 
@@ -48,3 +49,14 @@ def test_legacy_packages_removed_from_tree():
         "invest/core.py",
     ):
         assert not (PROJECT_ROOT / rel).exists(), f"legacy path should be removed: {rel}"
+
+
+def test_phase6_interface_and_application_packages_exist():
+    for rel in (
+        "app/application",
+        "app/interfaces",
+        "app/interfaces/web",
+        "invest/services",
+        "market_data/services",
+    ):
+        assert (PROJECT_ROOT / rel).exists(), f"expected Phase 6 package missing: {rel}"

@@ -27,10 +27,7 @@ from flask import Flask, jsonify, request, Response, stream_with_context
 
 from app.commander import CommanderConfig, CommanderRuntime
 from app.commander_support.presentation import build_human_display
-from app.web_command_routes import register_runtime_command_routes
-from app.web_data_routes import register_runtime_data_routes
-from app.web_ops_routes import register_runtime_ops_routes
-from app.web_read_routes import register_runtime_read_routes
+from app.interfaces.web import register_runtime_interface_routes
 from app.runtime_contract_catalog import (
     RUNTIME_CONTRACT_DOCUMENTS_BY_ID,
     RUNTIME_CONTRACT_PUBLIC_PATHS,
@@ -582,35 +579,19 @@ def _status_response(*, detail_mode: str, route_mode: str | None = None):
     return _respond_with_display({"mode": route_mode, "snapshot": snapshot}, view=view)
 
 
-register_runtime_read_routes(
+register_runtime_interface_routes(
     app,
     get_runtime=lambda: _runtime,
+    get_loop=lambda: _loop,
     parse_detail_mode=_parse_detail_mode,
     status_response=_status_response,
     runtime_not_ready_response=_runtime_not_ready_response,
     request_view_arg=_request_view_arg,
-    parse_limit_arg=_parse_limit_arg,
-    respond_with_display=_respond_with_display,
-)
-
-register_runtime_ops_routes(
-    app,
-    get_runtime=lambda: _runtime,
-    runtime_not_ready_response=_runtime_not_ready_response,
-    request_view_arg=_request_view_arg,
     parse_view_arg=_parse_view_arg,
+    parse_limit_arg=_parse_limit_arg,
     parse_bool=_parse_bool,
     parse_int=_parse_int,
     respond_with_display=_respond_with_display,
-    jsonify_contract_payload=_jsonify_contract_payload,
-)
-
-register_runtime_data_routes(
-    app,
-    get_runtime=lambda: _runtime,
-    runtime_not_ready_response=_runtime_not_ready_response,
-    parse_limit_arg=_parse_limit_arg,
-    parse_bool=_parse_bool,
     jsonify_contract_payload=_jsonify_contract_payload,
     data_source_unavailable_response=_data_source_unavailable_response,
     logger=logger,
@@ -618,22 +599,8 @@ register_runtime_data_routes(
     get_data_download_running=lambda: _data_download_running,
     set_data_download_running=lambda value: globals().__setitem__("_data_download_running", bool(value)),
     thread_factory=lambda target: threading.Thread(target=target, daemon=True),
-)
-
-register_runtime_command_routes(
-    app,
-    get_runtime=lambda: _runtime,
-    get_loop=lambda: _loop,
-    runtime_not_ready_response=_runtime_not_ready_response,
-    parse_view_arg=_parse_view_arg,
-    parse_bool=_parse_bool,
-    parse_detail_mode=_parse_detail_mode,
     normalize_chat_session_token=_normalize_chat_session_token,
-    respond_with_display=_respond_with_display,
-    jsonify_contract_payload=_jsonify_contract_payload,
     run_async=lambda coro: _run_async(coro),
-    data_source_unavailable_response=_data_source_unavailable_response,
-    logger=logger,
 )
 
 
