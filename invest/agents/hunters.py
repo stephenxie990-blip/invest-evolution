@@ -159,7 +159,7 @@ class TrendHunterAgent(InvestAgent):
 
     def reason(self, perception: List[dict], context: Optional[RegimeResult] = None) -> dict:
         """推理：结合显式上下文进行 LLM 或算法分析。"""
-        regime = context or {"regime": "oscillation"}
+        regime = dict(context) if context else {"regime": "oscillation"}
         return self.analyze(perception, regime)
 
     def act(self, reasoning: dict) -> dict:
@@ -342,7 +342,7 @@ class ContrarianAgent(InvestAgent):
 
     def reason(self, perception: List[dict], context: Optional[RegimeResult] = None) -> dict:
         """推理：结合显式上下文进行反弹潜力分析。"""
-        regime = context or {"regime": "oscillation"}
+        regime = dict(context) if context else {"regime": "oscillation"}
         return self.analyze(perception, regime)
 
     def act(self, reasoning: dict) -> dict:

@@ -7,6 +7,10 @@ from .base import AgentConfig, InvestAgent
 
 logger = logging.getLogger(__name__)
 
+
+def _candidate_codes(candidates: List[dict]) -> list[str]:
+    return [str(item.get("code") or "").strip() for item in candidates if str(item.get("code") or "").strip()]
+
 _QUALITY_SYSTEM_PROMPT = "你是价值质量分析师。你的职责是从候选股中识别估值合理、质量稳定、基本面更扎实的标的。请只输出 JSON，格式如下：{\"picks\": [{\"code\": \"股票代码\", \"score\": 0.5, \"reasoning\": \"选股理由\"}], \"confidence\": 0.5, \"overall_view\": \"总体观点\"}"
 _DEFENSIVE_SYSTEM_PROMPT = "你是防御型配置分析师。你的职责是从候选股中识别低波动、回撤更可控、在弱势市里更抗跌的标的。请只输出 JSON，格式如下：{\"picks\": [{\"code\": \"股票代码\", \"score\": 0.5, \"reasoning\": \"选股理由\"}], \"confidence\": 0.5, \"overall_view\": \"总体观点\"}"
 
@@ -35,7 +39,7 @@ class QualityAgent(InvestAgent):
                 user_msg = f"当前市场状态: {regime}\n\n以下是候选股摘要：\n\n{format_stock_table(candidates)}\n\n请挑选最符合价值质量风格的 2-4 只股票。"
                 result = self.llm.call_json(_QUALITY_SYSTEM_PROMPT, user_msg, warn_on_parse_error=False)
                 if result and not result.get("_parse_error"):
-                    return self._validate(result, [c.get("code") for c in candidates])
+                    return self._validate(result, _candidate_codes(candidates))
             except Exception:
                 logger.debug("QualityAgent LLM failed; fallback to algorithm", exc_info=True)
         return self._fallback_analysis(candidates)
@@ -107,7 +111,7 @@ class DefensiveAgent(InvestAgent):
                 user_msg = f"当前市场状态: {regime}\n\n以下是候选股摘要：\n\n{format_stock_table(candidates)}\n\n请挑选最适合防御配置的 2-4 只股票。"
                 result = self.llm.call_json(_DEFENSIVE_SYSTEM_PROMPT, user_msg, warn_on_parse_error=False)
                 if result and not result.get("_parse_error"):
-                    return self._validate(result, [c.get("code") for c in candidates])
+                    return self._validate(result, _candidate_codes(candidates))
             except Exception:
                 logger.debug("DefensiveAgent LLM failed; fallback to algorithm", exc_info=True)
         return self._fallback_analysis(candidates)

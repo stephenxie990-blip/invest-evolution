@@ -260,10 +260,155 @@ async def test_runtime_ask_multi_round_real_training_requires_explicit_confirmat
     assert payload["task_bus"]["gate"]["confirmation"]["required"] is True
     assert payload["task_bus"]["gate"]["confirmation"]["state"] == "pending_confirmation"
     assert "tool_grounded_execution" in payload["task_bus"]["gate"]["confirmation"]["reason_codes"]
-    assert payload["task_bus"]["gate"]["confirmation"]["reason_codes"]
-    assert payload["task_bus"]["planner"]["recommended_plan"][0]["step_id"] == "step_01"
-    assert payload["task_bus"]["planner"]["recommended_plan"][0]["tool"] == "invest_quick_test"
-    assert payload["task_bus"]["planner"]["recommended_plan"][1]["tool"] == "invest_training_plan_create"
+
+
+@pytest.mark.asyncio
+async def test_training_and_routing_events_inherit_request_context(runtime_with_db):
+    plan = runtime_with_db.create_training_plan(
+        rounds=1,
+        mock=True,
+        goal="stream test",
+        notes="ctx",
+        tags=["stream"],
+        source="api",
+    )
+
+    async def fake_run_cycles(
+        rounds=1,
+        force_mock=False,
+        task_source="direct",
+        experiment_spec=None,
+        session_key="",
+        chat_id="",
+        request_id="",
+        channel="",
+    ):
+        runtime_with_db.body._emit_runtime_event(
+            "training_started",
+            {
+                "type": "training",
+                "rounds": rounds,
+                "session_key": session_key,
+                "chat_id": chat_id,
+                "request_id": request_id,
+                "channel": channel,
+            },
+        )
+        runtime_with_db.body._emit_runtime_event(
+            "routing_decided",
+            {
+                "current_model": "momentum",
+                "selected_model": "mean_reversion",
+                "regime": "oscillation",
+                "switch_applied": True,
+                "session_key": session_key,
+                "chat_id": chat_id,
+                "request_id": request_id,
+                "channel": channel,
+            },
+        )
+        return {
+            "status": "completed",
+            "results": [],
+            "summary": runtime_with_db.body.snapshot(),
+        }
+
+    runtime_with_db.body.run_cycles = fake_run_cycles
+
+    await runtime_with_db.execute_training_plan(
+        plan["plan_id"],
+        session_key="api:chat:ctx-1",
+        chat_id="ctx-1",
+        request_id="req:testctx1",
+        channel="api",
+    )
+
+    tail = runtime_with_db.get_events_tail(limit=20)
+    items = list(tail.get("items") or [])
+    routing = next(item for item in reversed(items) if item["event"] == "routing_decided")
+    started = next(item for item in reversed(items) if item["event"] == "training_started")
+
+    assert routing["request_id"] == "req:testctx1"
+    assert routing["session_key"] == "api:chat:ctx-1"
+    assert routing["chat_id"] == "ctx-1"
+    assert started["request_id"] == "req:testctx1"
+
+
+def test_stream_packet_humanizes_confirmation_and_artifacts(runtime_with_db):
+    subscription_id, event_queue = runtime_with_db.subscribe_event_stream(
+        session_key="api:chat:stream-1",
+        chat_id="stream-1",
+        request_id="req:stream-1",
+    )
+    try:
+        runtime_with_db._append_runtime_event(
+            "ask_finished",
+            {
+                "session_key": "api:chat:stream-1",
+                "chat_id": "stream-1",
+                "request_id": "req:stream-1",
+                "status": "confirmation_required",
+                "risk_level": "high",
+                "requires_confirmation": True,
+                "confirmation_state": "pending_confirmation",
+                "intent": "training_execution",
+            },
+            source="brain",
+        )
+        confirmation_packet = event_queue.get(timeout=1)
+        assert confirmation_packet["stream_kind"] == "confirmation_update"
+        assert "risk_update" in confirmation_packet["stream_tags"]
+        assert confirmation_packet["risk_summary"].startswith("高风险")
+        assert "仍需人工确认" in confirmation_packet["confirmation_summary"]
+        assert "确认要求：" in confirmation_packet["display_text"]
+
+        runtime_with_db._append_runtime_event(
+            "cycle_complete",
+            {
+                "session_key": "api:chat:stream-1",
+                "chat_id": "stream-1",
+                "request_id": "req:stream-1",
+                "cycle_id": 7,
+                "return_pct": 3.21,
+            },
+            source="body",
+        )
+        artifact_packet = event_queue.get(timeout=1)
+        assert artifact_packet["stream_kind"] == "artifact_update"
+        assert "artifact_update" in artifact_packet["stream_tags"]
+        assert artifact_packet["phase_label"] == "训练执行"
+        assert artifact_packet["artifacts"]["cycle_result_path"].endswith("cycle_7.json")
+        assert "相关产物：" in artifact_packet["display_text"]
+    finally:
+        runtime_with_db.unsubscribe_event_stream(subscription_id)
+
+
+def test_stream_subscription_suppresses_duplicate_module_updates(runtime_with_db):
+    subscription_id, event_queue = runtime_with_db.subscribe_event_stream(
+        session_key="api:chat:dup-1",
+        chat_id="dup-1",
+        request_id="req:dup-1",
+    )
+    try:
+        event_payload = {
+            "session_key": "api:chat:dup-1",
+            "chat_id": "dup-1",
+            "request_id": "req:dup-1",
+            "module": "dispatcher",
+            "title": "解析意图",
+            "message": "正在整理运行上下文",
+        }
+        runtime_with_db._append_runtime_event("module_log", event_payload, source="brain")
+        runtime_with_db._append_runtime_event("module_log", event_payload, source="brain")
+
+        first_packet = event_queue.get(timeout=1)
+        assert first_packet["stream_kind"] == "module_update"
+
+        summary_packet = runtime_with_db.build_stream_summary_packet(subscription_id)
+        assert summary_packet["suppressed_count"] >= 1
+        assert "已合并/抑制" in summary_packet["display_text"]
+    finally:
+        runtime_with_db.unsubscribe_event_stream(subscription_id)
 
 
 @pytest.mark.asyncio

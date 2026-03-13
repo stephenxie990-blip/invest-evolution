@@ -70,7 +70,8 @@ def test_training_lab_plan_run_eval_api(tmp_path, monkeypatch):
     runtime = _make_runtime(tmp_path)
     _install_runtime(monkeypatch, runtime)
 
-    async def fake_run_cycles(rounds=1, force_mock=False, task_source='direct'):
+    async def fake_run_cycles(rounds=1, force_mock=False, task_source='direct', experiment_spec=None):
+        del experiment_spec
         cycle_path = tmp_path / 'training' / 'cycle_1.json'
         cycle_path.parent.mkdir(parents=True, exist_ok=True)
         cycle_path.write_text(json.dumps({'cycle_id': 1, 'return_pct': 1.5}, ensure_ascii=False), encoding='utf-8')
@@ -92,7 +93,7 @@ def test_training_lab_plan_run_eval_api(tmp_path, monkeypatch):
             'summary': {'total_cycles': 1, 'success_cycles': 1},
         }
 
-    runtime.body.run_cycles = fake_run_cycles
+    monkeypatch.setattr(runtime.body, 'run_cycles', fake_run_cycles)
     client = web_server.app.test_client()
 
     created = client.post(
@@ -177,7 +178,8 @@ def test_api_train_still_returns_training_lab_bundle(tmp_path, monkeypatch):
     runtime = _make_runtime(tmp_path)
     _install_runtime(monkeypatch, runtime)
 
-    async def fake_run_cycles(rounds=1, force_mock=False, task_source='direct'):
+    async def fake_run_cycles(rounds=1, force_mock=False, task_source='direct', experiment_spec=None):
+        del experiment_spec
         return {
             'status': 'ok',
             'rounds': rounds,
@@ -195,7 +197,7 @@ def test_api_train_still_returns_training_lab_bundle(tmp_path, monkeypatch):
             'summary': {'total_cycles': 1, 'success_cycles': 1},
         }
 
-    runtime.body.run_cycles = fake_run_cycles
+    monkeypatch.setattr(runtime.body, 'run_cycles', fake_run_cycles)
     client = web_server.app.test_client()
 
     res = client.post(
@@ -227,7 +229,7 @@ def test_api_train_defaults_to_live_mode_when_mock_omitted(tmp_path, monkeypatch
         observed['mock'] = mock
         return {'status': 'ok', 'results': [], 'summary': {}, 'training_lab': {}}
 
-    runtime.train_once = fake_train_once
+    monkeypatch.setattr(runtime, 'train_once', fake_train_once)
     client = web_server.app.test_client()
 
     res = client.post(
@@ -259,7 +261,7 @@ def test_api_train_returns_structured_503_for_data_source_unavailable(tmp_path, 
             allow_mock_fallback=False,
         )
 
-    runtime.train_once = fake_train_once
+    monkeypatch.setattr(runtime, 'train_once', fake_train_once)
     client = web_server.app.test_client()
 
     res = client.post(

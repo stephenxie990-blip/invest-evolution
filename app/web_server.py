@@ -64,7 +64,7 @@ _data_download_lock = threading.Lock()
 _data_download_running = False
 
 _rate_limit_lock = threading.Lock()
-_rate_limit_events: dict[tuple[str, str], deque[float]] = {}
+_rate_limit_events: dict[tuple[str, str, str], deque[float]] = {}
 _HEAVY_RATE_LIMIT_PATHS = {
     "/api/train",
     "/api/data/download",
@@ -232,7 +232,7 @@ def _parse_view_arg(value: Any, *, default: str = "json") -> str:
 
 
 def _attach_display_payload(payload: Any) -> dict[str, Any]:
-    body = dict(payload or {}) if isinstance(payload, dict) else {"reply": str(payload)}
+    body: dict[str, Any] = dict(payload or {}) if isinstance(payload, dict) else {"reply": str(payload)}
     display = build_human_display(body)
     body.setdefault("human_reply", str(display.get("text") or body.get("reply") or body.get("message") or ""))
     body.setdefault(

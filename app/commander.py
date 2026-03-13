@@ -12,10 +12,14 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import contextlib
+import contextvars
 import logging
 import os
+import queue
 import socket
 import threading
+import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Optional
@@ -205,6 +209,25 @@ _STATE_DIR_RELOCATIONS: dict[str, str] = {
     "runtime_events_path": "commander_events.jsonl",
 }
 
+_REQUEST_EVENT_CONTEXT: contextvars.ContextVar[dict[str, Any]] = contextvars.ContextVar(
+    "commander_request_event_context",
+    default={},
+)
+
+
+@dataclass
+class RuntimeEventSubscription:
+    subscription_id: str
+    event_queue: queue.Queue
+    session_key: str = ""
+    chat_id: str = ""
+    request_id: str = ""
+    emitted_count: int = 0
+    suppressed_count: int = 0
+    last_display_by_key: dict[str, str] = field(default_factory=dict)
+    last_progress_bucket_by_stage: dict[str, int] = field(default_factory=dict)
+    collected_packets: list[dict[str, Any]] = field(default_factory=list)
+
 
 def _commander_llm_default(field_name: str, fallback: str = "") -> str:
     try:
@@ -330,6 +353,8 @@ class CommanderRuntime:
         self.current_task: Optional[dict[str, Any]] = None
         self.last_task: Optional[dict[str, Any]] = None
         self._task_lock = threading.RLock()
+        self._stream_lock = threading.RLock()
+        self._event_subscriptions: dict[str, RuntimeEventSubscription] = {}
         self._runtime_lock_acquired = False
 
         self.training_lab = TrainingLabArtifactStore(
@@ -392,7 +417,10 @@ class CommanderRuntime:
         self._persist_state()
 
     def _append_runtime_event(self, event: str, payload: dict[str, Any], *, source: str = "runtime") -> dict[str, Any]:
-        return append_event_row(self.cfg.runtime_events_path, event, payload, source=source)
+        normalized_payload = self._normalize_event_payload(payload)
+        row = append_event_row(self.cfg.runtime_events_path, event, normalized_payload, source=source)
+        self._publish_stream_event(row)
+        return row
 
     def _restore_persisted_state(self) -> None:
         restore_runtime_from_persisted_state(
@@ -410,6 +438,548 @@ class CommanderRuntime:
     @staticmethod
     def _copy_runtime_task(task: Optional[dict[str, Any]]) -> Optional[dict[str, Any]]:
         return copy_runtime_task(task)
+
+    @staticmethod
+    def new_request_id() -> str:
+        return f"req:{uuid.uuid4().hex[:16]}"
+
+    def _current_request_event_context(self) -> dict[str, Any]:
+        return dict(_REQUEST_EVENT_CONTEXT.get() or {})
+
+    @contextlib.contextmanager
+    def _request_event_context(
+        self,
+        *,
+        session_key: str = "",
+        chat_id: str = "",
+        request_id: str = "",
+        channel: str = "",
+    ):
+        base = self._current_request_event_context()
+        for key, value in {
+            "session_key": session_key,
+            "chat_id": chat_id,
+            "request_id": request_id,
+            "channel": channel,
+        }.items():
+            normalized = str(value or "").strip()
+            if normalized:
+                base[key] = normalized
+        token = _REQUEST_EVENT_CONTEXT.set(base)
+        try:
+            yield dict(base)
+        finally:
+            _REQUEST_EVENT_CONTEXT.reset(token)
+
+    def _normalize_event_payload(self, payload: dict[str, Any] | None = None) -> dict[str, Any]:
+        normalized = dict(payload or {})
+        context = self._current_request_event_context()
+        for key in ("session_key", "chat_id", "request_id", "channel"):
+            value = str(normalized.get(key) or context.get(key) or "").strip()
+            if value:
+                normalized[key] = value
+        return normalized
+
+    @staticmethod
+    def _event_context_from_row(row: dict[str, Any]) -> dict[str, str]:
+        payload = dict(row.get("payload") or {})
+        resolved: dict[str, str] = {}
+        for key in ("session_key", "chat_id", "request_id", "channel"):
+            value = str(row.get(key) or payload.get(key) or "").strip()
+            if value:
+                resolved[key] = value
+        return resolved
+
+    @staticmethod
+    def _stream_stage_for_event(row: dict[str, Any]) -> str:
+        payload = dict(row.get("payload") or {})
+        stage = str(payload.get("stage") or "").strip()
+        if stage:
+            return stage
+        mapping = {
+            EVENT_ASK_STARTED: "request_received",
+            EVENT_ASK_FINISHED: "request_completed",
+            EVENT_TASK_STARTED: "task_started",
+            EVENT_TASK_FINISHED: "task_completed",
+            EVENT_TRAINING_STARTED: "training",
+            EVENT_TRAINING_FINISHED: "training",
+            "routing_started": "model_routing",
+            "regime_classified": "model_routing",
+            "routing_decided": "model_routing",
+            "model_switch_applied": "model_routing",
+            "model_switch_blocked": "model_routing",
+            "agent_status": "agent",
+            "agent_progress": "agent",
+            "module_log": "module",
+            "meeting_speech": "meeting",
+            "cycle_start": "training",
+            "cycle_complete": "training",
+            "cycle_skipped": "training",
+            "data_download_triggered": "data",
+        }
+        return mapping.get(str(row.get("event") or ""), "")
+
+    @staticmethod
+    def _stream_phase_label(stage: str) -> str:
+        mapping = {
+            "request_received": "收到请求",
+            "request_completed": "请求完成",
+            "task_started": "任务开始",
+            "task_completed": "任务结束",
+            "training": "训练执行",
+            "model_routing": "模型路由",
+            "agent": "Agent 执行",
+            "module": "模块处理",
+            "meeting": "会议播报",
+            "data": "数据处理",
+            "selection_meeting": "选股会议",
+            "review_meeting": "复盘会议",
+            "simulation": "模拟交易",
+            "data_loading": "数据加载",
+        }
+        return mapping.get(str(stage or ""), str(stage or "").replace("_", " "))
+
+    @staticmethod
+    def _stream_kind_for_event(row: dict[str, Any]) -> str:
+        event_name = str(row.get("event") or "")
+        payload = dict(row.get("payload") or {})
+        if payload.get("requires_confirmation") or str(payload.get("confirmation_state") or "").strip():
+            return "confirmation_update"
+        if str(payload.get("risk_level") or "").strip():
+            return "risk_update"
+        if event_name in {"cycle_complete", "cycle_skipped"}:
+            return "artifact_update"
+        if event_name in {"module_log"}:
+            return "module_update"
+        if event_name in {"meeting_speech"}:
+            return "meeting_update"
+        if event_name in {"agent_status", "agent_progress"}:
+            return "agent_update"
+        if event_name in {"routing_started", "regime_classified", "routing_decided", "model_switch_applied", "model_switch_blocked"}:
+            return "routing_update"
+        return "stage_update"
+
+    @staticmethod
+    def _stream_tags_for_event(row: dict[str, Any]) -> list[str]:
+        event_name = str(row.get("event") or "")
+        payload = dict(row.get("payload") or {})
+        tags: list[str] = []
+        stream_kind = CommanderRuntime._stream_kind_for_event(row)
+        if stream_kind:
+            tags.append(stream_kind)
+        if str(payload.get("risk_level") or "").strip():
+            tags.append("risk_update")
+        if payload.get("requires_confirmation") or str(payload.get("confirmation_state") or "").strip():
+            tags.append("confirmation_update")
+        if event_name in {"cycle_complete", "cycle_skipped"}:
+            tags.append("artifact_update")
+        if event_name in {"module_log"}:
+            tags.append("module_update")
+        if event_name in {"meeting_speech"}:
+            tags.append("meeting_update")
+        if event_name in {"agent_status", "agent_progress"}:
+            tags.append("agent_update")
+        deduped: list[str] = []
+        for tag in tags:
+            if tag and tag not in deduped:
+                deduped.append(tag)
+        return deduped
+
+    @staticmethod
+    def _stream_risk_summary(risk_level: str) -> str:
+        mapping = {
+            "low": "低风险，可继续观察。",
+            "medium": "中风险，建议先核对关键参数或数据状态。",
+            "high": "高风险，建议先人工确认再继续。",
+        }
+        return mapping.get(str(risk_level or "").strip(), "")
+
+    @staticmethod
+    def _stream_confirmation_summary(*, requires_confirmation: bool, confirmation_state: str, status: str) -> str:
+        if requires_confirmation or confirmation_state == "pending_confirmation" or status == STATUS_CONFIRMATION_REQUIRED:
+            return "当前仍需人工确认，系统尚未执行最终写入。"
+        if confirmation_state in {"confirmed", "approved"}:
+            return "确认已完成，系统可继续执行后续动作。"
+        return ""
+
+    def _stream_artifacts_for_event(self, row: dict[str, Any]) -> dict[str, Any]:
+        payload = dict(row.get("payload") or {})
+        artifacts = dict(payload.get("artifacts") or {}) if isinstance(payload.get("artifacts"), dict) else {}
+        cycle_id = payload.get("cycle_id")
+        if cycle_id not in (None, ""):
+            try:
+                artifacts.update(self.body._artifact_paths_for_cycle(int(cycle_id)))  # pylint: disable=protected-access
+            except Exception:
+                pass
+        config_snapshot_path = str(payload.get("config_snapshot_path") or "").strip()
+        if config_snapshot_path:
+            artifacts.setdefault("config_snapshot_path", config_snapshot_path)
+        return artifacts
+
+    @staticmethod
+    def _stream_artifact_summary(artifacts: dict[str, Any]) -> str:
+        labels = {
+            "cycle_result_path": "周期结果",
+            "selection_meeting_json_path": "选股会议(JSON)",
+            "selection_meeting_markdown_path": "选股会议(Markdown)",
+            "review_meeting_json_path": "复盘会议(JSON)",
+            "review_meeting_markdown_path": "复盘会议(Markdown)",
+            "config_snapshot_path": "配置快照",
+            "optimization_events_path": "优化事件",
+        }
+        items: list[str] = []
+        for key, label in labels.items():
+            value = str((artifacts or {}).get(key) or "").strip()
+            if not value:
+                continue
+            items.append(f"{label}：{Path(value).name}")
+            if len(items) >= 3:
+                break
+        return "；".join(items)
+
+    @staticmethod
+    def _stream_display_priority(stream_kind: str) -> int:
+        mapping = {
+            "confirmation_update": 100,
+            "risk_update": 90,
+            "artifact_update": 80,
+            "meeting_update": 70,
+            "routing_update": 65,
+            "agent_update": 60,
+            "module_update": 55,
+            "stage_update": 50,
+        }
+        return int(mapping.get(str(stream_kind or ""), 40))
+
+    def _stream_display_text(self, packet: dict[str, Any]) -> str:
+        stream_kind = str(packet.get("stream_kind") or "").strip()
+        phase_label = str(packet.get("phase_label") or "").strip()
+        base = str(
+            packet.get("human_reply")
+            or packet.get("broadcast_text")
+            or packet.get("label")
+            or packet.get("event")
+            or ""
+        ).strip()
+        risk_summary = str(packet.get("risk_summary") or "").strip()
+        confirmation_summary = str(packet.get("confirmation_summary") or "").strip()
+        artifacts = dict(packet.get("artifacts") or {})
+        artifact_summary = self._stream_artifact_summary(artifacts)
+
+        if stream_kind == "confirmation_update":
+            parts = [base or phase_label]
+            if risk_summary:
+                parts.append(f"风险提示：{risk_summary}")
+            if confirmation_summary:
+                parts.append(f"确认要求：{confirmation_summary}")
+            return "；".join(part for part in parts if part)
+        if stream_kind == "risk_update":
+            parts = [base or phase_label]
+            if risk_summary:
+                parts.append(f"风险提示：{risk_summary}")
+            return "；".join(part for part in parts if part)
+        if stream_kind == "artifact_update":
+            parts = [base or phase_label]
+            if artifact_summary:
+                parts.append(f"相关产物：{artifact_summary}")
+            return "；".join(part for part in parts if part)
+        if stream_kind in {"routing_update", "meeting_update", "agent_update", "module_update"}:
+            if phase_label and base and not base.startswith(f"{phase_label}："):
+                return f"{phase_label}：{base}"
+        if phase_label and base and phase_label not in {"", base} and not base.startswith(f"{phase_label}："):
+            return f"{phase_label}：{base}"
+        return base
+
+    def _build_stream_event_packet(self, row: dict[str, Any]) -> dict[str, Any]:
+        event_name = str(row.get("event") or "")
+        payload = dict(row.get("payload") or {})
+        context = self._event_context_from_row(row)
+        status = str(payload.get("status") or "").strip()
+        risk_level = str(payload.get("risk_level") or "").strip()
+        confirmation_state = str(payload.get("confirmation_state") or "").strip()
+        requires_confirmation = bool(payload.get("requires_confirmation")) or status == STATUS_CONFIRMATION_REQUIRED
+        stage = self._stream_stage_for_event(row)
+        artifacts = self._stream_artifacts_for_event(row)
+        packet = {
+            "type": "runtime_event",
+            "id": str(row.get("id") or ""),
+            "ts": str(row.get("ts") or ""),
+            "event": event_name,
+            "source": str(row.get("source") or ""),
+            "kind": "internal" if BrainRuntime._is_internal_runtime_event(event_name) else "business",
+            "stream_kind": self._stream_kind_for_event(row),
+            "stream_tags": self._stream_tags_for_event(row),
+            "stage": stage,
+            "phase_label": self._stream_phase_label(stage),
+            "label": BrainRuntime._event_human_label(event_name),
+            "detail": BrainRuntime._event_detail_text(row),
+            "broadcast_text": BrainRuntime._event_broadcast_text(row),
+            "human_reply": BrainRuntime._event_broadcast_text(row) or BrainRuntime._event_human_label(event_name),
+            "status": status,
+            "risk_level": risk_level,
+            "risk_summary": self._stream_risk_summary(risk_level),
+            "requires_confirmation": requires_confirmation,
+            "confirmation_state": confirmation_state,
+            "confirmation_summary": self._stream_confirmation_summary(
+                requires_confirmation=requires_confirmation,
+                confirmation_state=confirmation_state,
+                status=status,
+            ),
+            "session_key": context.get("session_key", ""),
+            "chat_id": context.get("chat_id", ""),
+            "request_id": context.get("request_id", ""),
+            "channel": context.get("channel", ""),
+            "agent": str(payload.get("agent") or "").strip(),
+            "module": str(payload.get("module") or "").strip(),
+            "meeting": str(payload.get("meeting") or "").strip(),
+            "artifacts": artifacts,
+        }
+        if payload.get("progress_pct") not in (None, ""):
+            packet["progress_pct"] = payload.get("progress_pct")
+        packet["display_priority"] = self._stream_display_priority(str(packet.get("stream_kind") or ""))
+        packet["display_text"] = self._stream_display_text(packet)
+        return packet
+
+    def subscribe_event_stream(
+        self,
+        *,
+        session_key: str = "",
+        chat_id: str = "",
+        request_id: str = "",
+    ) -> tuple[str, queue.Queue]:
+        subscription_id = f"sub:{uuid.uuid4().hex[:16]}"
+        subscription = RuntimeEventSubscription(
+            subscription_id=subscription_id,
+            event_queue=queue.Queue(maxsize=256),
+            session_key=str(session_key or "").strip(),
+            chat_id=str(chat_id or "").strip(),
+            request_id=str(request_id or "").strip(),
+        )
+        with self._stream_lock:
+            self._event_subscriptions[subscription_id] = subscription
+        return subscription_id, subscription.event_queue
+
+    @staticmethod
+    def _stream_packet_key(packet: dict[str, Any]) -> str:
+        return "|".join(
+            [
+                str(packet.get("stream_kind") or ""),
+                str(packet.get("stage") or ""),
+                str(packet.get("agent") or ""),
+                str(packet.get("module") or ""),
+                str(packet.get("meeting") or ""),
+                str(packet.get("event") or ""),
+            ]
+        )
+
+    def _should_emit_stream_packet(
+        self,
+        subscription: RuntimeEventSubscription,
+        packet: dict[str, Any],
+    ) -> bool:
+        stream_kind = str(packet.get("stream_kind") or "").strip()
+        display_text = str(packet.get("display_text") or "").strip()
+        packet_key = self._stream_packet_key(packet)
+        if display_text and subscription.last_display_by_key.get(packet_key) == display_text:
+            subscription.suppressed_count += 1
+            return False
+
+        if stream_kind == "agent_update" and packet.get("progress_pct") not in (None, ""):
+            try:
+                progress_pct = packet.get("progress_pct")
+                bucket = int(progress_pct) // 10 if progress_pct is not None else -1
+            except (TypeError, ValueError):
+                bucket = -1
+            stage = str(packet.get("stage") or "agent").strip() or "agent"
+            previous_bucket = subscription.last_progress_bucket_by_stage.get(stage)
+            if previous_bucket is not None and bucket >= 0 and bucket <= previous_bucket:
+                subscription.suppressed_count += 1
+                return False
+            if bucket >= 0:
+                subscription.last_progress_bucket_by_stage[stage] = bucket
+
+        if display_text:
+            subscription.last_display_by_key[packet_key] = display_text
+        return True
+
+    def _record_stream_packet(
+        self,
+        subscription: RuntimeEventSubscription,
+        packet: dict[str, Any],
+    ) -> None:
+        subscription.emitted_count += 1
+        subscription.collected_packets.append(dict(packet))
+        if len(subscription.collected_packets) > 64:
+            subscription.collected_packets = subscription.collected_packets[-64:]
+
+    @staticmethod
+    def _risk_rank(value: str) -> int:
+        return {"low": 1, "medium": 2, "high": 3}.get(str(value or "").strip(), 0)
+
+    def build_stream_summary_packet(self, subscription_id: str) -> dict[str, Any]:
+        with self._stream_lock:
+            subscription = self._event_subscriptions.get(str(subscription_id or ""))
+            if subscription is None:
+                return {
+                    "type": "runtime_summary",
+                    "stream_kind": "summary",
+                    "display_priority": 110,
+                    "display_text": "本次会话流式播报已结束。",
+                }
+            packets = list(subscription.collected_packets)
+            emitted_count = int(subscription.emitted_count)
+            suppressed_count = int(subscription.suppressed_count)
+
+        phase_labels: list[str] = []
+        highest_risk = ""
+        requires_confirmation = False
+        confirmation_summary = ""
+        artifact_names: list[str] = []
+        last_display_text = ""
+        for packet in packets:
+            phase_label = str(packet.get("phase_label") or "").strip()
+            if phase_label and phase_label not in phase_labels:
+                phase_labels.append(phase_label)
+            risk_level = str(packet.get("risk_level") or "").strip()
+            if self._risk_rank(risk_level) > self._risk_rank(highest_risk):
+                highest_risk = risk_level
+            if bool(packet.get("requires_confirmation")):
+                requires_confirmation = True
+            confirmation_text = str(packet.get("confirmation_summary") or "").strip()
+            if confirmation_text:
+                confirmation_summary = confirmation_text
+            last_display_text = str(packet.get("display_text") or last_display_text or "").strip()
+            artifacts = dict(packet.get("artifacts") or {})
+            for value in artifacts.values():
+                name = Path(str(value)).name if str(value or "").strip() else ""
+                if name and name not in artifact_names:
+                    artifact_names.append(name)
+                if len(artifact_names) >= 3:
+                    break
+            if len(artifact_names) >= 3:
+                break
+
+        parts = [f"本次共播报 {emitted_count} 条事件"]
+        if suppressed_count:
+            parts.append(f"已合并/抑制 {suppressed_count} 条高频更新")
+        if phase_labels:
+            parts.append("主要阶段：" + " → ".join(phase_labels[:5]))
+        if highest_risk:
+            parts.append("最高风险：" + self._stream_risk_summary(highest_risk))
+        if requires_confirmation and confirmation_summary:
+            parts.append("确认状态：" + confirmation_summary)
+        if artifact_names:
+            parts.append("关键产物：" + "、".join(artifact_names[:3]))
+        if last_display_text:
+            parts.append("最后播报：" + last_display_text)
+
+        display_text = "；".join(part for part in parts if part) + "。"
+        return {
+            "type": "runtime_summary",
+            "stream_kind": "summary",
+            "stream_tags": ["summary"],
+            "display_priority": 110,
+            "display_text": display_text,
+            "human_reply": display_text,
+            "session_key": subscription.session_key,
+            "chat_id": subscription.chat_id,
+            "request_id": subscription.request_id,
+            "event_count": emitted_count,
+            "suppressed_count": suppressed_count,
+            "phase_labels": phase_labels,
+            "highest_risk_level": highest_risk,
+            "requires_confirmation": requires_confirmation,
+            "artifact_names": artifact_names[:3],
+        }
+
+    @staticmethod
+    def merge_stream_summary_into_reply_payload(
+        payload: dict[str, Any] | None,
+        summary_packet: dict[str, Any] | None,
+    ) -> dict[str, Any]:
+        body = dict(payload or {})
+        summary = dict(summary_packet or {})
+        summary_text = str(summary.get("display_text") or "").strip()
+        if not summary_text:
+            return body
+
+        body["stream_summary"] = summary
+        human = dict(body.get("human_readable") or {})
+        if not human:
+            human = {
+                "summary": str(body.get("message") or body.get("reply") or "").strip(),
+                "receipt_text": str(body.get("message") or body.get("reply") or "").strip(),
+                "sections": [],
+                "bullets": [],
+                "facts": [],
+                "risks": [],
+                "suggested_actions": [],
+            }
+
+        sections = list(human.get("sections") or [])
+        if not any(str(section.get("label") or "") == "流式过程摘要" for section in sections if isinstance(section, dict)):
+            sections.append({"label": "流式过程摘要", "text": summary_text})
+        human["sections"] = sections
+
+        bullets = [str(item) for item in list(human.get("bullets") or []) if str(item or "").strip()]
+        stream_bullet = f"流式过程摘要：{summary_text}"
+        if stream_bullet not in bullets:
+            bullets.append(stream_bullet)
+        human["bullets"] = bullets
+
+        facts = [str(item) for item in list(human.get("facts") or []) if str(item or "").strip()]
+        if stream_bullet not in facts:
+            facts.append(stream_bullet)
+        human["facts"] = facts
+
+        receipt_text = str(human.get("receipt_text") or "").strip()
+        summary_line = "流式过程摘要：" + summary_text
+        if receipt_text:
+            if summary_line not in receipt_text:
+                receipt_text = receipt_text + "\n" + summary_line
+        else:
+            receipt_text = summary_line
+        human["receipt_text"] = receipt_text
+        human["stream_summary"] = summary
+        body["human_readable"] = human
+        return body
+
+    def unsubscribe_event_stream(self, subscription_id: str) -> None:
+        with self._stream_lock:
+            self._event_subscriptions.pop(str(subscription_id or ""), None)
+
+    @staticmethod
+    def _event_matches_subscription(row: dict[str, Any], subscription: RuntimeEventSubscription) -> bool:
+        context = CommanderRuntime._event_context_from_row(row)
+        if subscription.request_id:
+            return context.get("request_id", "") == subscription.request_id
+        if subscription.session_key and context.get("session_key", "") != subscription.session_key:
+            return False
+        if subscription.chat_id and context.get("chat_id", "") != subscription.chat_id:
+            return False
+        return bool(subscription.session_key or subscription.chat_id)
+
+    def _publish_stream_event(self, row: dict[str, Any]) -> None:
+        packet = self._build_stream_event_packet(row)
+        with self._stream_lock:
+            subscriptions = list(self._event_subscriptions.values())
+        for subscription in subscriptions:
+            if not self._event_matches_subscription(row, subscription):
+                continue
+            if not self._should_emit_stream_packet(subscription, packet):
+                continue
+            self._record_stream_packet(subscription, packet)
+            try:
+                subscription.event_queue.put_nowait(packet)
+            except queue.Full:
+                try:
+                    subscription.event_queue.get_nowait()
+                except queue.Empty:
+                    pass
+                try:
+                    subscription.event_queue.put_nowait(packet)
+                except queue.Full:
+                    continue
 
     def _update_runtime_fields(
         self,
@@ -465,6 +1035,7 @@ class CommanderRuntime:
         session_key: str,
         channel: str,
         chat_id: str,
+        request_id: str = "",
         extra: dict[str, Any] | None = None,
     ) -> None:
         record_runtime_ask_activity(
@@ -478,6 +1049,7 @@ class CommanderRuntime:
             session_key=session_key,
             channel=channel,
             chat_id=chat_id,
+            request_id=request_id,
             extra=extra,
         )
 
@@ -583,23 +1155,32 @@ class CommanderRuntime:
         session_key: str = "commander:direct",
         channel: str = "cli",
         chat_id: str = "direct",
+        request_id: str = "",
     ) -> str:
-        return await execute_runtime_ask(
-            message=message,
+        resolved_request_id = str(request_id or self.new_request_id()).strip()
+        with self._request_event_context(
             session_key=session_key,
-            channel=channel,
             chat_id=chat_id,
-            ensure_runtime_storage=self._ensure_runtime_storage,
-            begin_task=self._begin_task,
-            memory=self.memory,
-            record_ask_activity=self._record_ask_activity,
-            process_direct=self.brain.process_direct,
-            complete_runtime_task=self._complete_runtime_task,
-            status_ok=STATUS_OK,
-            status_error=STATUS_ERROR,
-            event_ask_started=EVENT_ASK_STARTED,
-            event_ask_finished=EVENT_ASK_FINISHED,
-        )
+            request_id=resolved_request_id,
+            channel=channel,
+        ):
+            return await execute_runtime_ask(
+                message=message,
+                session_key=session_key,
+                channel=channel,
+                chat_id=chat_id,
+                request_id=resolved_request_id,
+                ensure_runtime_storage=self._ensure_runtime_storage,
+                begin_task=self._begin_task,
+                memory=self.memory,
+                record_ask_activity=self._record_ask_activity,
+                process_direct=self.brain.process_direct,
+                complete_runtime_task=self._complete_runtime_task,
+                status_ok=STATUS_OK,
+                status_error=STATUS_ERROR,
+                event_ask_started=EVENT_ASK_STARTED,
+                event_ask_finished=EVENT_ASK_FINISHED,
+            )
 
     def _lab_counts(self) -> dict[str, int]:
         return self.training_lab.counts()
@@ -1425,6 +2006,7 @@ class CommanderRuntime:
             rounds=rounds,
             mock=mock,
             experiment_spec=experiment_spec,
+            request_context=self._current_request_event_context(),
         )
 
     @staticmethod
@@ -1465,7 +2047,16 @@ class CommanderRuntime:
             },
         )
 
-    async def train_once(self, rounds: int = 1, mock: bool = False) -> dict[str, Any]:
+    async def train_once(
+        self,
+        rounds: int = 1,
+        mock: bool = False,
+        *,
+        session_key: str = "",
+        chat_id: str = "",
+        request_id: str = "",
+        channel: str = "",
+    ) -> dict[str, Any]:
         plan = self.create_training_plan(
             rounds=rounds,
             mock=mock,
@@ -1475,37 +2066,77 @@ class CommanderRuntime:
             source="direct",
             auto_generated=True,
         )
-        return await self.execute_training_plan(plan["plan_id"])
+        return await self.execute_training_plan(
+            plan["plan_id"],
+            session_key=session_key,
+            chat_id=chat_id,
+            request_id=request_id,
+            channel=channel,
+        )
 
-    async def execute_training_plan(self, plan_id: str) -> dict[str, Any]:
+    async def execute_training_plan(
+        self,
+        plan_id: str,
+        *,
+        session_key: str = "",
+        chat_id: str = "",
+        request_id: str = "",
+        channel: str = "",
+    ) -> dict[str, Any]:
         self._ensure_runtime_storage()
         plan_path, plan = self._load_training_plan_artifact(str(plan_id))
         experiment_spec, rounds, mock = self._build_experiment_spec_from_plan(plan)
-        return await execute_training_plan_flow(
-            plan_path=plan_path,
-            plan=plan,
-            experiment_spec=experiment_spec,
-            rounds=rounds,
-            mock=mock,
-            plan_id=str(plan_id),
-            body=self.body,
-            body_snapshot=self.body.snapshot,
-            build_run_cycles_kwargs=self._build_run_cycles_kwargs,
-            write_json_artifact=self._write_json_artifact,
-            begin_task=self._begin_task,
-            set_runtime_state=self._set_runtime_state,
-            memory=self.memory,
-            record_training_lab_artifacts_impl=self._record_training_lab_artifacts,
-            attach_training_lab_paths_impl=self._attach_training_lab_paths,
-            append_training_memory_impl=self._append_training_memory,
-            complete_runtime_task=self._complete_runtime_task,
-            wrap_training_execution_payload=self._wrap_training_execution_payload,
-            ok_status=STATUS_OK,
-            busy_state=STATUS_BUSY,
-            idle_state=STATUS_IDLE,
-            training_state=STATUS_TRAINING,
-            error_state=STATUS_ERROR,
-        )
+        resolved_request_id = str(
+            request_id
+            or self._current_request_event_context().get("request_id")
+            or self.new_request_id()
+        ).strip()
+        resolved_session_key = str(
+            session_key
+            or self._current_request_event_context().get("session_key")
+            or f"train:{plan_id}"
+        ).strip()
+        resolved_chat_id = str(
+            chat_id
+            or self._current_request_event_context().get("chat_id")
+            or str(plan_id)
+        ).strip()
+        resolved_channel = str(
+            channel
+            or self._current_request_event_context().get("channel")
+            or "runtime"
+        ).strip()
+        with self._request_event_context(
+            session_key=resolved_session_key,
+            chat_id=resolved_chat_id,
+            request_id=resolved_request_id,
+            channel=resolved_channel,
+        ):
+            return await execute_training_plan_flow(
+                plan_path=plan_path,
+                plan=plan,
+                experiment_spec=experiment_spec,
+                rounds=rounds,
+                mock=mock,
+                plan_id=str(plan_id),
+                body=self.body,
+                body_snapshot=self.body.snapshot,
+                build_run_cycles_kwargs=self._build_run_cycles_kwargs,
+                write_json_artifact=self._write_json_artifact,
+                begin_task=self._begin_task,
+                set_runtime_state=self._set_runtime_state,
+                memory=self.memory,
+                record_training_lab_artifacts_impl=self._record_training_lab_artifacts,
+                attach_training_lab_paths_impl=self._attach_training_lab_paths,
+                append_training_memory_impl=self._append_training_memory,
+                complete_runtime_task=self._complete_runtime_task,
+                wrap_training_execution_payload=self._wrap_training_execution_payload,
+                ok_status=STATUS_OK,
+                busy_state=STATUS_BUSY,
+                idle_state=STATUS_IDLE,
+                training_state=STATUS_TRAINING,
+                error_state=STATUS_ERROR,
+            )
 
     def reload_strategies(self) -> dict[str, Any]:
         return reload_strategies_response(

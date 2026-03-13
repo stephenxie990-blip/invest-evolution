@@ -43,5 +43,6 @@ def test_strategy_evaluator_uses_configured_weights_and_thresholds():
     assert round(result.risk_control_score, 4) == round((1 / 3) + 0.1, 4)
     expected = result.signal_accuracy * 0.2 + result.timing_score * 0.2 + result.risk_control_score * 0.6
     assert round(result.overall_score, 6) == round(expected, 6)
+    assert result.suggestions is not None
     assert "信号准确率低，建议优化选股策略参数" in result.suggestions
     assert "交易过于频繁，建议减少无效交易" in result.suggestions

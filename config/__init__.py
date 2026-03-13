@@ -16,7 +16,7 @@ import logging
 import sqlite3
 from pathlib import Path
 from dataclasses import dataclass, field
-from typing import List, Optional, Any
+from typing import Any, Callable, List, Optional
 from datetime import datetime
 
 logger = logging.getLogger(__name__)
@@ -25,6 +25,7 @@ try:
     import yaml
     _HAS_YAML = True
 except ImportError:
+    yaml = None
     _HAS_YAML = False
 
 
@@ -138,6 +139,7 @@ def _expand_env_placeholders(value: Any) -> Any:
 def _load_yaml_layer(path: Path) -> dict[str, Any]:
     if not (_HAS_YAML and Path(path).exists()):
         return {}
+    assert yaml is not None
     with open(path, encoding="utf-8") as f:
         loaded = yaml.safe_load(f) or {}
     known = {f.name for f in EvolutionConfig.__dataclass_fields__.values()}
@@ -181,7 +183,7 @@ def get_config_layer_paths(config_path: str | Path | None = None) -> list[Path]:
 
 
 def _apply_env_overrides(data: dict[str, Any]) -> dict[str, Any]:
-    env_map: dict[str, tuple[str, callable]] = {
+    env_map: dict[str, tuple[str, Callable[[str], Any]]] = {
         "llm_fast_model": ("LLM_MODEL", str),
         "llm_deep_model": ("LLM_DEEP_MODEL", str),
         "llm_api_key": ("LLM_API_KEY", str),
@@ -369,7 +371,7 @@ class EvolutionConfig:
         # 并且会在纯内建/显式工具路径中制造噪音。
 
 
-def load_config(config_path: str = None) -> EvolutionConfig:
+def load_config(config_path: str | None = None) -> EvolutionConfig:
     """从 YAML 或默认值加载配置。
 
     优先级：环境变量 > INVEST_CONFIG_PATH > evolution.runtime.yaml >
@@ -404,7 +406,7 @@ class IndustryRegistry:
     2. data/industry_map.json（人工覆盖补丁）
     """
 
-    def __init__(self, json_path: Path = None, db_path: Path = None):
+    def __init__(self, json_path: Path | None = None, db_path: Path | None = None):
         self._db_map: dict[str, str] = {}
         self._override_map: dict[str, str] = {}
         self._path = json_path or DATA_DIR / "industry_map.json"

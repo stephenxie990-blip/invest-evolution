@@ -20,7 +20,7 @@ import logging
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +28,7 @@ try:
     from rank_bm25 import BM25Okapi
     _HAS_BM25 = True
 except ImportError:
+    BM25Okapi = None
     _HAS_BM25 = False
     logger.warning(
         "rank_bm25 未安装，MarketSituationMemory 将以 keyword 模式降级。"
@@ -89,7 +90,7 @@ class MarketSituationMemory:
         self.name = name
         self.save_dir = Path(save_dir) if save_dir else None
         self._entries: List[MemoryEntry] = []
-        self._bm25: Optional["BM25Okapi"] = None
+        self._bm25: Optional[Any] = None
 
     # ------------------------------------------------------------------ #
     # 写入                                                                  #
@@ -272,6 +273,7 @@ class MarketSituationMemory:
             self._bm25 = None
             return
         tokenized = [self._tokenize(e.situation) for e in self._entries]
+        assert BM25Okapi is not None
         self._bm25 = BM25Okapi(tokenized)
 
     def _query_bm25(

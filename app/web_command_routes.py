@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import json
+import queue
+import threading
 from typing import Any, Callable
 
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify, request, Response, stream_with_context
 
 from market_data import DataSourceUnavailableError
 
@@ -73,10 +75,23 @@ def register_runtime_command_routes(
                 field_name="chat_id",
                 prefix="chat",
             )
+            request_id = normalize_chat_session_token(
+                data.get("request_id"),
+                field_name="request_id",
+                prefix="req",
+            )
         except ValueError as exc:
             return jsonify({"error": str(exc)}), 400
         try:
-            reply = run_async(runtime.ask(message, session_key=session_key, channel="api", chat_id=chat_id))
+            reply = run_async(
+                runtime.ask(
+                    message,
+                    session_key=session_key,
+                    channel="api",
+                    chat_id=chat_id,
+                    request_id=request_id,
+                )
+            )
             try:
                 payload = json.loads(reply) if isinstance(reply, str) else dict(reply or {})
             except Exception:
@@ -87,12 +102,131 @@ def register_runtime_command_routes(
             payload.setdefault("message", str(payload.get("reply") or ""))
             payload.setdefault("session_key", session_key)
             payload.setdefault("chat_id", chat_id)
+            payload.setdefault("request_id", request_id)
             return respond_with_display(payload, view=view)
         except ValueError as exc:
             return jsonify({"error": str(exc)}), 400
         except Exception as exc:
             logger.exception("Chat error")
             return jsonify({"error": str(exc)}), 500
+
+    @app.route("/api/chat/stream", methods=["POST"])
+    def api_chat_stream():
+        runtime = _runtime_or_not_ready(
+            get_runtime=get_runtime,
+            get_loop=get_loop,
+            runtime_not_ready_response=runtime_not_ready_response,
+            require_loop=True,
+        )
+        if isinstance(runtime, tuple):
+            return runtime
+
+        data = request.get_json(force=True) or {}
+        message = str(data.get("message", "")).strip()
+        if not message:
+            return jsonify({"error": "message is required"}), 400
+        try:
+            session_key = normalize_chat_session_token(
+                data.get("session_key"),
+                field_name="session_key",
+                prefix="api:chat",
+            )
+            chat_id = normalize_chat_session_token(
+                data.get("chat_id"),
+                field_name="chat_id",
+                prefix="chat",
+            )
+            request_id = normalize_chat_session_token(
+                data.get("request_id"),
+                field_name="request_id",
+                prefix="req",
+            )
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
+
+        subscription_id, event_queue = runtime.subscribe_event_stream(
+            session_key=session_key,
+            chat_id=chat_id,
+            request_id=request_id,
+        )
+        result_holder: dict[str, Any] = {}
+        completed = threading.Event()
+
+        def run_request() -> None:
+            try:
+                result_holder["reply"] = run_async(
+                    runtime.ask(
+                        message,
+                        session_key=session_key,
+                        channel="api",
+                        chat_id=chat_id,
+                        request_id=request_id,
+                    )
+                )
+            except Exception as exc:
+                result_holder["error"] = str(exc)
+            finally:
+                completed.set()
+
+        worker = threading.Thread(target=run_request, name=f"chat-stream-{request_id}", daemon=True)
+        worker.start()
+
+        def generate():
+            try:
+                yield (
+                    "event: connected\n"
+                    f"data: {json.dumps({'status': 'connected', 'session_key': session_key, 'chat_id': chat_id, 'request_id': request_id}, ensure_ascii=False)}\n\n"
+                )
+                while True:
+                    try:
+                        event_payload = event_queue.get(timeout=0.5)
+                        yield f"event: runtime_event\ndata: {json.dumps(event_payload, ensure_ascii=False)}\n\n"
+                        continue
+                    except queue.Empty:
+                        if completed.is_set():
+                            break
+                        yield ": keepalive\n\n"
+                while True:
+                    try:
+                        event_payload = event_queue.get_nowait()
+                    except queue.Empty:
+                        break
+                    yield f"event: runtime_event\ndata: {json.dumps(event_payload, ensure_ascii=False)}\n\n"
+
+                summary_payload = runtime.build_stream_summary_packet(subscription_id)
+                yield f"event: summary\ndata: {json.dumps(summary_payload, ensure_ascii=False)}\n\n"
+
+                if "error" in result_holder:
+                    yield f"event: error\ndata: {json.dumps({'error': result_holder['error'], 'request_id': request_id}, ensure_ascii=False)}\n\n"
+                    return
+
+                reply = result_holder.get("reply")
+                try:
+                    payload = json.loads(reply) if isinstance(reply, str) else dict(reply or {})
+                except Exception:
+                    payload = {"reply": str(reply)}
+                if not isinstance(payload, dict):
+                    payload = {"reply": str(reply)}
+                payload.setdefault("reply", str(payload.get("message") or reply or ""))
+                payload.setdefault("message", str(payload.get("reply") or ""))
+                payload.setdefault("session_key", session_key)
+                payload.setdefault("chat_id", chat_id)
+                payload.setdefault("request_id", request_id)
+                payload = runtime.merge_stream_summary_into_reply_payload(payload, summary_payload)
+                yield f"event: reply\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"
+                yield f"event: done\ndata: {json.dumps({'status': 'completed', 'request_id': request_id}, ensure_ascii=False)}\n\n"
+            finally:
+                runtime.unsubscribe_event_stream(subscription_id)
+
+        return Response(
+            stream_with_context(generate()),
+            mimetype="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "X-Accel-Buffering": "no",
+                "Connection": "keep-alive",
+            },
+        )
 
     @app.route("/api/train", methods=["POST"])
     def api_train():

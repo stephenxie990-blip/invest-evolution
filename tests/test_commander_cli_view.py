@@ -1,4 +1,8 @@
 import argparse
+import json
+import queue
+
+import pytest
 
 from app.commander_support.presentation import build_human_display
 
@@ -59,6 +63,15 @@ def test_cli_parser_accepts_view_flag():
     assert args.view == "human"
 
 
+def test_cli_parser_accepts_stream_events_flag():
+    from app.commander_support.cli import build_parser
+
+    parser = build_parser()
+    args = parser.parse_args(["ask", "-m", "你好", "--stream-events"])
+
+    assert args.stream_events is True
+
+
 def test_cli_parser_status_and_train_accept_view_flag():
     from app.commander_support.cli import build_parser
 
@@ -68,3 +81,65 @@ def test_cli_parser_status_and_train_accept_view_flag():
 
     assert status_args.view == "human"
     assert train_args.view == "json"
+
+
+@pytest.mark.asyncio
+async def test_cli_run_async_streams_events_before_final_reply(capsys):
+    from app.commander_support.cli import run_async
+
+    class FakeConfig:
+        mock_mode = False
+
+        @classmethod
+        def from_args(cls, args):
+            return cls()
+
+    class FakeRuntime:
+        def __init__(self, cfg):
+            self.cfg = cfg
+            self._queue = queue.Queue()
+
+        @staticmethod
+        def new_request_id():
+            return "req:test-cli-stream"
+
+        def subscribe_event_stream(self, **kwargs):
+            return "sub:test", self._queue
+
+        def build_stream_summary_packet(self, subscription_id):
+            return {
+                "display_text": "本次共播报 1 条事件；主要阶段：模块处理；最后播报：模块处理：正在整理运行上下文。。",
+            }
+
+        def unsubscribe_event_stream(self, subscription_id):
+            return None
+
+        async def ask(self, message, session_key="cli:direct", channel="cli", chat_id="direct", request_id=""):
+            self._queue.put(
+                {
+                    "event": "module_log",
+                    "display_text": "模块处理：正在整理运行上下文。",
+                    "human_reply": "模块日志更新：dispatcher / 解析意图 / 正在整理运行上下文。",
+                }
+            )
+            return json.dumps(
+                {
+                    "status": "ok",
+                    "reply": "raw",
+                    "message": "raw",
+                    "human_readable": {
+                        "summary": "系统可用",
+                        "receipt_text": "结论：系统可用",
+                    },
+                },
+                ensure_ascii=False,
+            )
+
+    args = argparse.Namespace(cmd="ask", message="你好", view="human", stream_events=True)
+    exit_code = await run_async(args, config_cls=FakeConfig, runtime_cls=FakeRuntime)
+
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert "模块处理：正在整理运行上下文。" in captured.out
+    assert "本次共播报 1 条事件" in captured.out
+    assert "结论：系统可用" in captured.out

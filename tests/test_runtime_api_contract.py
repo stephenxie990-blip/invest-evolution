@@ -51,6 +51,7 @@ def test_runtime_contract_endpoint_returns_machine_readable_contract():
     assert payload['components']['schemas']['chatReply']['properties']['next_action']['$ref'] == '#/components/schemas/responseNextAction'
     assert payload['components']['schemas']['chatReply']['properties']['session_key']['type'] == 'string'
     assert payload['components']['schemas']['chatReply']['properties']['chat_id']['type'] == 'string'
+    assert payload['components']['schemas']['chatReply']['properties']['request_id']['type'] == 'string'
     assert payload['transcript_snapshots']['schema_version'] == 'transcript_snapshots.v1'
     assert 'ask_stock' in payload['transcript_snapshots']['examples']
     assert payload['transcript_snapshots']['examples']['ask_stock']['entrypoint']['domain'] == 'stock'
@@ -63,6 +64,8 @@ def test_runtime_contract_endpoint_returns_machine_readable_contract():
     chat_endpoint = next(endpoint for endpoint in payload['endpoints'] if endpoint['path'] == '/api/chat' and endpoint['method'] == 'POST')
     assert chat_endpoint['request_body']['properties']['session_key']['type'] == 'string'
     assert chat_endpoint['request_body']['properties']['chat_id']['type'] == 'string'
+    assert chat_endpoint['request_body']['properties']['request_id']['type'] == 'string'
+    assert any(endpoint['path'] == '/api/chat/stream' and endpoint['method'] == 'POST' for endpoint in payload['endpoints'])
     cycle_complete = payload['components']['sse_schemas']['cycleComplete']['data']['properties']
     assert 'requested_data_mode' in cycle_complete
     assert 'effective_data_mode' in cycle_complete
@@ -91,6 +94,7 @@ def test_runtime_contract_openapi_endpoint_returns_openapi_document():
     assert payload['openapi'] == '3.1.0'
     assert '/api/events' in payload['paths']
     assert '/api/events/summary' in payload['paths']
+    assert '/api/chat/stream' in payload['paths']
     assert '/api/lab/status/quick' in payload['paths']
     assert '/api/model-routing/preview' in payload['paths']
     assert payload['x-transcript-snapshots']['schema_version'] == 'transcript_snapshots.v1'

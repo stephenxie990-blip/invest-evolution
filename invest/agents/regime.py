@@ -44,9 +44,10 @@ class MarketRegimeAgent(InvestAgent):
         super().__init__(AgentConfig(name="MarketRegime", role="regime"), llm_caller)
         self.history: List[Dict] = []
 
-    def perceive(self, market_stats: dict) -> dict:
+    def perceive(self, data: dict, context: AgentContext | None = None) -> dict:
         """感知：接收市场统计数据"""
-        return market_stats
+        del context
+        return data
 
     def reason(self, perception: dict) -> dict:
         """推理：调用分析逻辑"""

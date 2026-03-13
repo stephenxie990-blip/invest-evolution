@@ -25,6 +25,18 @@ ResponseValue = Any
 RuntimeGetter = Callable[[], Any]
 
 
+def _as_object_dict(value: Any) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        return {}
+    return {str(key): item for key, item in value.items()}
+
+
+def _as_object_list(value: Any) -> list[Any]:
+    if not isinstance(value, list):
+        return []
+    return list(value)
+
+
 def _is_error_response(value: Any) -> bool:
     return isinstance(value, tuple)
 
@@ -213,8 +225,8 @@ def _build_strategy_compare(runtime: Any, row: dict[str, Any], metadata: dict[st
 
 def _build_memory_detail(runtime: Any, row: dict[str, Any]) -> dict[str, Any]:
     item = _memory_brief_row(row)
-    metadata = item.get("metadata") if isinstance(item.get("metadata"), dict) else {}
-    results = list(metadata.get("results") or [])
+    metadata = _as_object_dict(item.get("metadata"))
+    results = _as_object_list(metadata.get("results"))
     detailed_results = []
     optimization_cache: dict[str, list[dict[str, Any]]] = {}
     for result in results:
@@ -242,8 +254,8 @@ def _build_memory_detail(runtime: Any, row: dict[str, Any]) -> dict[str, Any]:
     return {
         "item": item,
         "details": {
-            "summary": metadata.get("summary") or {},
-            "runtime_summary": metadata.get("runtime_summary") or {},
+            "summary": _as_object_dict(metadata.get("summary")),
+            "runtime_summary": _as_object_dict(metadata.get("runtime_summary")),
             "results": detailed_results,
             "compare": _build_strategy_compare(runtime, row, metadata),
         },

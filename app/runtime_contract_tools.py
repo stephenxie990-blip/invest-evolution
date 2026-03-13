@@ -66,6 +66,12 @@ def build_openapi(contract: dict[str, Any]) -> dict[str, Any]:
     paths: dict[str, Any] = {}
     for endpoint in contract['endpoints']:
         path_item = paths.setdefault(endpoint['path'], {})
+        success_content_type = str(endpoint['success'].get('content_type') or 'application/json')
+        success_schema = (
+            {'type': 'string'}
+            if success_content_type == 'text/event-stream'
+            else _body_ref_schema(endpoint['success']['body_ref'], components)
+        )
         operation: dict[str, Any] = {
             'operationId': endpoint['id'].replace('.', '_'),
             'tags': [endpoint.get('group', 'default')],
@@ -75,8 +81,8 @@ def build_openapi(contract: dict[str, Any]) -> dict[str, Any]:
                 str(endpoint['success']['http_status']): {
                     'description': endpoint.get('summary', 'Success'),
                     'content': {
-                        'application/json': {
-                            'schema': _body_ref_schema(endpoint['success']['body_ref'], components),
+                        success_content_type: {
+                            'schema': success_schema,
                         }
                     },
                 }

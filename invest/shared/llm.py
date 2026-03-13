@@ -31,11 +31,11 @@ class LLMCaller:
 
     def __init__(
         self,
-        model: str = None,
-        api_key: str = None,
-        api_base: str = None,
-        timeout: int = None,
-        max_retries: int = None,
+        model: str | None = None,
+        api_key: str | None = None,
+        api_base: str | None = None,
+        timeout: int | None = None,
+        max_retries: int | None = None,
         dry_run: bool = False,
     ):
         default_fast = resolve_default_llm("fast")

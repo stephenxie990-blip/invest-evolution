@@ -1,4 +1,5 @@
 from pathlib import Path
+from typing import Any, cast
 from unittest.mock import MagicMock
 
 import config as config_module
@@ -75,7 +76,8 @@ def test_build_mock_provider_respects_history_window():
     from app.train import _build_mock_provider
     provider = _build_mock_provider()
     diag = provider.diagnose_training_data(provider.random_cutoff_date(), stock_count=30, min_history_days=200)
-    assert diag['eligible_stock_count'] > 0
+    eligible_stock_count = cast(int, diag['eligible_stock_count'])
+    assert eligible_stock_count > 0
 
 
 def test_set_llm_dry_run_updates_agent_llms_and_keeps_mock_alias(tmp_path):
@@ -168,16 +170,16 @@ def test_commander_result_dict_serializes_numpy_bool(tmp_path):
         initial_capital=100000,
         final_value=101000,
         return_pct=1.0,
-        is_profit=np.bool_(True),
+        is_profit=bool(np.bool_(True)),
         trade_history=[],
         params={'x': np.int64(1)},
         analysis='',
         data_mode='mock',
         selection_mode='meeting',
-        agent_used=np.bool_(True),
-        llm_used=np.bool_(False),
-        benchmark_passed=np.bool_(True),
-        review_applied=np.bool_(False),
+        agent_used=bool(np.bool_(True)),
+        llm_used=bool(np.bool_(False)),
+        benchmark_passed=bool(np.bool_(True)),
+        review_applied=bool(np.bool_(False)),
         config_snapshot_path='',
         optimization_events=[],
         audit_tags={'benchmark_passed': np.bool_(True)},
@@ -315,6 +317,7 @@ def test_run_cycles_marks_insufficient_data_when_all_cycles_skip(tmp_path):
 
     assert out['status'] == 'insufficient_data'
     assert out['results'][0]['status'] == 'no_data'
+    assert body.last_completed_task is not None
     assert body.last_completed_task['run_status'] == 'insufficient_data'
 
 
@@ -341,9 +344,11 @@ def test_run_cycles_marks_completed_with_skips_for_mixed_ok_and_skip(tmp_path):
         params={},
     )
 
+    state = {'calls': 0}
+
     def _side_effect():
-        calls = getattr(_side_effect, 'calls', 0)
-        _side_effect.calls = calls + 1
+        calls = int(state['calls'])
+        state['calls'] = calls + 1
         if calls == 0:
             return ok_result
         body.controller.last_cycle_meta = {
@@ -363,6 +368,7 @@ def test_run_cycles_marks_completed_with_skips_for_mixed_ok_and_skip(tmp_path):
 
     assert out['status'] == 'completed_with_skips'
     assert [item['status'] for item in out['results']] == ['ok', 'no_data']
+    assert body.last_completed_task is not None
     assert body.last_completed_task['run_status'] == 'completed_with_skips'
 
 
@@ -389,9 +395,11 @@ def test_run_cycles_marks_partial_failure_for_mixed_ok_and_error(tmp_path):
         params={},
     )
 
+    state = {'calls': 0}
+
     def _side_effect():
-        calls = getattr(_side_effect, 'calls', 0)
-        _side_effect.calls = calls + 1
+        calls = int(state['calls'])
+        state['calls'] = calls + 1
         if calls == 0:
             return ok_result
         raise RuntimeError('boom')
@@ -404,6 +412,7 @@ def test_run_cycles_marks_partial_failure_for_mixed_ok_and_error(tmp_path):
     assert out['status'] == 'partial_failure'
     assert out['results'][0]['status'] == 'ok'
     assert out['results'][1]['status'] == 'error'
+    assert body.last_completed_task is not None
     assert body.last_completed_task['run_status'] == 'partial_failure'
 
 
@@ -461,9 +470,11 @@ def test_run_continuous_report_counts_skipped_cycles(tmp_path):
         params={},
     )
 
+    state = {'calls': 0}
+
     def _side_effect():
-        calls = getattr(_side_effect, 'calls', 0)
-        _side_effect.calls = calls + 1
+        calls = int(state['calls'])
+        state['calls'] = calls + 1
         if calls == 0:
             controller.cycle_history.append(ok_result)
             controller.current_cycle_id = 1
@@ -521,7 +532,7 @@ def test_run_continuous_report_no_data_counts_attempts(tmp_path):
     assert report['skipped_cycles'] == 2
 
 
-def test_yaml_mutation_generates_candidate_without_auto_apply_by_default(tmp_path):
+def test_yaml_mutation_generates_candidate_without_auto_apply_by_default(tmp_path, monkeypatch):
     from app.train import SelfLearningController
     from invest.evolution.mutators import YamlConfigMutator
 
@@ -542,13 +553,13 @@ def test_yaml_mutation_generates_candidate_without_auto_apply_by_default(tmp_pat
 
     reloaded = {'called': False}
 
-    def _fake_reload(path):
+    def _fake_reload(path: str | None = None) -> None:
         reloaded['called'] = True
 
-    controller._reload_investment_model = _fake_reload
+    monkeypatch.setattr(controller, '_reload_investment_model', _fake_reload)
     auto_applied = bool(controller.auto_apply_mutation)
     if auto_applied:
-        controller._reload_investment_model(mutation['config_path'])
+        cast(Any, controller)._reload_investment_model(mutation['config_path'])
 
     assert controller.auto_apply_mutation is False
     assert Path(mutation['config_path']).exists()

@@ -447,7 +447,7 @@ class RuntimePathConfigService:
         payload["config_file_exists"] = self.config_path.exists()
         return payload
 
-    def default_payload(self) -> dict[str, str]:
+    def default_payload(self) -> dict[str, Any]:
         runtime_dir = self.project_root / "runtime"
         return {
             "training_output_dir": str(runtime_dir / "outputs" / "training"),

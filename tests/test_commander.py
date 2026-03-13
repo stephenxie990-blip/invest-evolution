@@ -4,6 +4,7 @@ Commander fusion tests.
 
 import json
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -230,7 +231,7 @@ def test_build_commander_tools_exposes_status_and_training_plan_tools(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_train_once_writes_plan_run_and_evaluation_artifacts(tmp_path):
+async def test_train_once_writes_plan_run_and_evaluation_artifacts(tmp_path, monkeypatch):
     cfg = CommanderConfig(
         workspace=tmp_path / "workspace",
         strategy_dir=tmp_path / "strategies",
@@ -247,7 +248,13 @@ async def test_train_once_writes_plan_run_and_evaluation_artifacts(tmp_path):
     )
     runtime = CommanderRuntime(cfg)
 
-    async def _fake_run_cycles(rounds: int, force_mock: bool, task_source: str):
+    async def _fake_run_cycles(
+        rounds: int = 1,
+        force_mock: bool = False,
+        task_source: str = "direct",
+        experiment_spec: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        del experiment_spec
         return {
             "status": "ok",
             "rounds": rounds,
@@ -255,7 +262,7 @@ async def test_train_once_writes_plan_run_and_evaluation_artifacts(tmp_path):
             "summary": {"total_cycles": 1},
         }
 
-    runtime.body.run_cycles = _fake_run_cycles
+    monkeypatch.setattr(runtime.body, "run_cycles", _fake_run_cycles)
     out = await runtime.train_once(rounds=2, mock=True)
 
     assert "training_lab" in out
@@ -273,7 +280,7 @@ async def test_train_once_writes_plan_run_and_evaluation_artifacts(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_execute_training_plan_runs_persisted_plan(tmp_path):
+async def test_execute_training_plan_runs_persisted_plan(tmp_path, monkeypatch):
     cfg = CommanderConfig(
         workspace=tmp_path / "workspace",
         strategy_dir=tmp_path / "strategies",
@@ -293,7 +300,13 @@ async def test_execute_training_plan_runs_persisted_plan(tmp_path):
 
     observed = {}
 
-    async def _fake_run_cycles(rounds: int, force_mock: bool, task_source: str):
+    async def _fake_run_cycles(
+        rounds: int = 1,
+        force_mock: bool = False,
+        task_source: str = "direct",
+        experiment_spec: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        del experiment_spec
         observed["rounds"] = rounds
         observed["force_mock"] = force_mock
         observed["task_source"] = task_source
@@ -304,7 +317,7 @@ async def test_execute_training_plan_runs_persisted_plan(tmp_path):
             "summary": {"total_cycles": 9},
         }
 
-    runtime.body.run_cycles = _fake_run_cycles
+    monkeypatch.setattr(runtime.body, "run_cycles", _fake_run_cycles)
     out = await runtime.execute_training_plan(plan["plan_id"])
 
     assert observed == {"rounds": 3, "force_mock": False, "task_source": "manual"}
@@ -316,7 +329,7 @@ async def test_execute_training_plan_runs_persisted_plan(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_execute_training_plan_passes_experiment_protocol_to_body(tmp_path):
+async def test_execute_training_plan_passes_experiment_protocol_to_body(tmp_path, monkeypatch):
     cfg = CommanderConfig(
         workspace=tmp_path / "workspace",
         strategy_dir=tmp_path / "strategies",
@@ -343,7 +356,12 @@ async def test_execute_training_plan_passes_experiment_protocol_to_body(tmp_path
 
     observed = {}
 
-    async def _fake_run_cycles(rounds: int, force_mock: bool, task_source: str, experiment_spec=None):
+    async def _fake_run_cycles(
+        rounds: int = 1,
+        force_mock: bool = False,
+        task_source: str = "direct",
+        experiment_spec: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         observed["rounds"] = rounds
         observed["force_mock"] = force_mock
         observed["task_source"] = task_source
@@ -355,7 +373,7 @@ async def test_execute_training_plan_passes_experiment_protocol_to_body(tmp_path
             "summary": {"total_cycles": 1},
         }
 
-    runtime.body.run_cycles = _fake_run_cycles
+    monkeypatch.setattr(runtime.body, "run_cycles", _fake_run_cycles)
     out = await runtime.execute_training_plan(plan["plan_id"])
 
     assert out["status"] == "completed"
@@ -934,6 +952,7 @@ async def test_ask_failure_records_error_last_task(tmp_path, monkeypatch):
 
     assert state == "initialized"
     assert current_task is None
+    assert last_task is not None
     assert last_task["type"] == "ask"
     assert last_task["status"] == "error"
     assert payload["runtime"]["current_task"] is None
@@ -1021,6 +1040,7 @@ def test_reload_strategies_resets_runtime_to_idle_and_persists_last_task(tmp_pat
     assert out["status"] == "ok"
     assert state == "idle"
     assert current_task is None
+    assert last_task is not None
     assert last_task["type"] == "reload_strategies"
     assert last_task["status"] == "ok"
     assert last_task["gene_count"] == out["count"]

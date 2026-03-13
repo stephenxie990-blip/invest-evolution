@@ -26,11 +26,12 @@ class MeetingRecorder:
             └── ...
     """
 
-    def __init__(self, base_dir: str = None):
+    def __init__(self, base_dir: str | None = None):
         if base_dir:
             self.base_dir = Path(base_dir)
         else:
-            self.base_dir = config.logs_dir / "meetings"
+            logs_dir = config.logs_dir or (config.output_dir / "logs" if config.output_dir is not None else Path("runtime/logs"))
+            self.base_dir = logs_dir / "meetings"
 
         self.selection_dir = self.base_dir / "selection"
         self.review_dir = self.base_dir / "review"

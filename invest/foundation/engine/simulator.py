@@ -1,6 +1,6 @@
 import logging
 import math
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, cast
 
 import pandas as pd
 
@@ -180,8 +180,8 @@ class SimulatedTrader:
         if ts_code not in self.stock_data:
             return None
         df = self.stock_data[ts_code].copy()
-        df = df[df["trade_date"] <= end_date]
-        return df.tail(days) if len(df) > days else df
+        df = cast(pd.DataFrame, df[df["trade_date"] <= end_date])
+        return cast(pd.DataFrame, df.tail(days)) if len(df) > days else df
 
     def get_total_value(self) -> float:
         total = self.cash
@@ -409,7 +409,7 @@ class SimulatedTrader:
         df_b = df[df["trade_date"] <= date]
         if len(df_b) < 20:
             return None
-        atr = self.dynamic_stop.calculate_atr(df_b)
+        atr = self.dynamic_stop.calculate_atr(cast(pd.DataFrame, df_b))
         if atr > 0:
             self.atr_cache[cache_key] = atr
         return atr if atr > 0 else None
@@ -433,7 +433,10 @@ class SimulatedTrader:
             }
             hs300_data = None
             if self.market_index_data is not None and not self.market_index_data.empty:
-                hs300_data = self.market_index_data[self.market_index_data["trade_date"] <= date].copy()
+                hs300_data = cast(
+                    pd.DataFrame,
+                    self.market_index_data[self.market_index_data["trade_date"] <= date].copy(),
+                )
             result = self.risk_controller.check_portfolio(
                 positions=positions,
                 initial_capital=self.initial_capital,
@@ -666,7 +669,7 @@ class SimulatedTrader:
 
         per_stock_pnl: Dict[str, float] = {}
         for t in self.trade_history:
-            if t.action == Action.SELL:
+            if t.action == Action.SELL and t.ts_code is not None:
                 per_stock_pnl[t.ts_code] = per_stock_pnl.get(t.ts_code, 0) + t.pnl
 
         em_summary = self.emergency_detector.get_summary()

@@ -68,6 +68,8 @@ def test_controller_bootstraps_llm_components_from_control_plane(monkeypatch, tm
     assert controller.llm_optimizer.llm.model == 'optimizer-model'
     assert controller.agents['trend_hunter'].llm.model == 'trend-model'
     assert controller.agents['evo_judge'].llm.model == 'judge-model'
+    assert controller.selection_meeting.llm is not None
+    assert controller.review_meeting.llm is not None
     assert controller.selection_meeting.llm.model == 'selection-fast-model'
     assert controller.review_meeting.llm.model == 'review-fast-model'
     assert getattr(controller.selection_meeting._debate, 'deep_llm').model == 'selection-deep-model'

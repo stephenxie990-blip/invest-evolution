@@ -130,7 +130,7 @@ def test_invalid_tool_args_do_not_execute_tool(tmp_path: Path):
         calls["count"] += 1
         raise AssertionError("tool should not execute for malformed args")
 
-    runtime.tools.execute = fail_if_called
+    setattr(runtime.tools, "execute", fail_if_called)
 
     first = SimpleNamespace(
         choices=[SimpleNamespace(message=SimpleNamespace(
@@ -151,7 +151,7 @@ def test_invalid_tool_args_do_not_execute_tool(tmp_path: Path):
         async def acompletion_raw(self, **kwargs):
             return self._responses.pop(0)
 
-    runtime.gateway = DummyGateway()
+    setattr(runtime, "gateway", DummyGateway())
     result = asyncio.run(runtime.process_direct("use tool"))
     assert result == "done"
     assert calls["count"] == 0
@@ -270,7 +270,7 @@ def test_llm_tool_loop_wraps_invest_tools_with_task_bus(tmp_path: Path):
         async def acompletion_raw(self, **kwargs):
             return self._responses.pop(0)
 
-    runtime.gateway = DummyGateway()
+    setattr(runtime, "gateway", DummyGateway())
     result = asyncio.run(runtime.process_direct("请帮我执行 invest echo"))
     payload = json.loads(result)
     assert payload["status"] == "ok"

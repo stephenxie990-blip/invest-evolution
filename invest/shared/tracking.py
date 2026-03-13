@@ -2,6 +2,7 @@ import json
 import os
 from dataclasses import dataclass
 from datetime import datetime
+from pathlib import Path
 from typing import Dict, List, Optional
 
 from config import config
@@ -67,8 +68,8 @@ class AgentTracker:
 
     def compute_accuracy(
         self,
-        agent_name: str = None,
-        last_n_cycles: int = None,
+        agent_name: str | None = None,
+        last_n_cycles: int | None = None,
     ) -> dict:
         """
         计算 Agent 预测准确率
@@ -141,10 +142,11 @@ class TraceLog:
     记录每轮决策的全过程，便于复盘和调试
     """
 
-    def __init__(self, log_dir: str = None):
-        self.log_dir = log_dir or str(config.logs_dir / "trace")
-        self.current_round = None
-        self.round_data = {}
+    def __init__(self, log_dir: str | None = None):
+        base_logs_dir = config.logs_dir or (config.output_dir / "logs" if config.output_dir is not None else Path("runtime/logs"))
+        self.log_dir = log_dir or str(base_logs_dir / "trace")
+        self.current_round: int | None = None
+        self.round_data: dict = {}
 
     def start_round(self, round_id: int, t0_date: str):
         """开始一轮"""

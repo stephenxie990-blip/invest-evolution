@@ -9,13 +9,18 @@ from app.runtime_artifact_reader import safe_read_json, safe_read_jsonl, safe_re
 
 
 def append_event_row(path: Path, event: str, payload: dict[str, Any], *, source: str = "runtime") -> dict[str, Any]:
+    normalized_payload = dict(payload or {})
     row = {
         "id": f"evt-{int(datetime.now().timestamp() * 1000)}",
         "ts": datetime.now().isoformat(),
         "event": str(event),
         "source": str(source),
-        "payload": payload or {},
+        "payload": normalized_payload,
     }
+    for key in ("session_key", "chat_id", "request_id", "channel", "stage"):
+        value = str(normalized_payload.get(key) or "").strip()
+        if value:
+            row[key] = value
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("a", encoding="utf-8") as handle:
         handle.write(json.dumps(row, ensure_ascii=False) + "\n")

@@ -102,8 +102,8 @@ class ModelSelectorAgent(InvestAgent):
         selected_model = str(result.get("selected_model") or fallback["selected_model"]).strip()
         if allowed_models and selected_model not in allowed_models:
             selected_model = fallback["selected_model"]
-        candidate_models = result.get("candidate_models") if isinstance(result.get("candidate_models"), list) else fallback["candidate_models"]
-        candidate_models = [str(item).strip() for item in candidate_models if str(item).strip()]
+        raw_candidate_models = result.get("candidate_models") if isinstance(result.get("candidate_models"), list) else fallback["candidate_models"]
+        candidate_models = [str(item).strip() for item in list(raw_candidate_models or []) if str(item).strip()]
         if allowed_models:
             candidate_models = [item for item in candidate_models if item in allowed_models]
         if not candidate_models:

@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import cast
 
 import pytest
 import pandas as pd
@@ -205,11 +206,13 @@ def test_data_manager_diagnose_training_data_reports_empty_repository(tmp_path):
     manager = DataManager(db_path=str(tmp_path / "empty.db"))
 
     diagnostics = manager.diagnose_training_data("20240105", stock_count=20, min_history_days=60)
+    issues = [str(item) for item in cast(list[object], diagnostics["issues"])]
+    suggestions = [str(item) for item in cast(list[object], diagnostics["suggestions"])]
 
     assert diagnostics["ready"] is False
     assert diagnostics["eligible_stock_count"] == 0
-    assert any("daily_bar" in issue for issue in diagnostics["issues"])
-    assert any("python3 -m market_data" in item for item in diagnostics["suggestions"])
+    assert any("daily_bar" in issue for issue in issues)
+    assert any("python3 -m market_data" in item for item in suggestions)
 
 
 def test_data_manager_diagnose_training_data_reports_eligible_counts(tmp_path):
@@ -244,10 +247,11 @@ def test_data_manager_diagnose_training_data_reports_eligible_counts(tmp_path):
 
     manager = DataManager(db_path=str(db_path))
     diagnostics = manager.diagnose_training_data("20240105", stock_count=5, min_history_days=60)
+    issues = [str(item) for item in cast(list[object], diagnostics["issues"])]
 
     assert diagnostics["ready"] is True
     assert diagnostics["eligible_stock_count"] == 2
-    assert any("低于目标 5 只" in issue for issue in diagnostics["issues"])
+    assert any("低于目标 5 只" in issue for issue in issues)
 
 
 def test_tushare_financial_snapshots_sync_into_canonical_schema(tmp_path, monkeypatch):
@@ -1177,7 +1181,8 @@ def test_data_manager_exposes_extended_dataset_services(tmp_path):
     assert len(capital_flow) == 1
     assert len(events) == 1
     assert len(intraday) == 1
-    assert summary["intraday_60m_count"] >= 1
+    intraday_count = cast(int, summary["intraday_60m_count"])
+    assert intraday_count >= 1
 
 
 def test_load_stock_data_can_attach_capital_flow(tmp_path):
@@ -1233,7 +1238,7 @@ def test_load_stock_data_raises_when_live_sources_unavailable_and_mock_not_expli
         def load_all_data_before(self, cutoff_date):
             raise RuntimeError('network down')
 
-    manager._online = FakeOnlineLoader()
+    setattr(manager, "_online", FakeOnlineLoader())
 
     with pytest.raises(DataSourceUnavailableError) as exc_info:
         manager.load_stock_data('20240108', stock_count=2, min_history_days=20, include_future_days=0)
@@ -1254,7 +1259,7 @@ def test_load_stock_data_uses_mock_only_when_allow_mock_fallback_enabled(tmp_pat
         def load_all_data_before(self, cutoff_date):
             raise RuntimeError('network down')
 
-    manager._online = FakeOnlineLoader()
+    setattr(manager, "_online", FakeOnlineLoader())
     stock_data = manager.load_stock_data('20240108', stock_count=2, min_history_days=20, include_future_days=0)
 
     assert stock_data

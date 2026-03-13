@@ -8,6 +8,12 @@ from .base import AgentConfig, InvestAgent
 logger = logging.getLogger(__name__)
 
 
+def _string_items(raw: Any, *, limit: int) -> list[str]:
+    if not isinstance(raw, list):
+        return []
+    return [str(item).strip() for item in raw if str(item).strip()][:limit]
+
+
 def _normalize_agent_weight_adjustments(raw: Any) -> dict[str, Any]:
     if isinstance(raw, dict):
         return dict(raw)
@@ -97,6 +103,9 @@ class StrategistAgent(InvestAgent):
         return self._review_algorithm(all_picks, regime)
 
     def _review_llm(self, all_picks: List[dict], regime: dict) -> dict:
+        llm = self.llm
+        if llm is None:
+            return self._review_algorithm(all_picks, regime)
         codes = [p["code"] for p in all_picks]
         user_msg = (
             f"当前市场状态: {regime.get('regime', 'unknown')}\n\n"
@@ -104,7 +113,7 @@ class StrategistAgent(InvestAgent):
             f"请评估这些股票的组合风险。"
         )
         try:
-            result = self.llm.call_json(self.config.system_prompt, user_msg)
+            result = llm.call_json(self.config.system_prompt, user_msg)
         except (ValueError, TypeError) as e:
             logger.warning(f"Strategist LLM调用异常(数据/参数): {e}")
             return self._review_algorithm(all_picks, regime)
@@ -252,8 +261,7 @@ class ReviewDecisionAgent(InvestAgent):
         return "\n".join(sections)
 
     def _validate_decision(self, result: dict, facts: dict) -> dict:
-        suggestions = result.get("strategy_suggestions") if isinstance(result.get("strategy_suggestions"), list) else []
-        result["strategy_suggestions"] = [str(item).strip() for item in suggestions if str(item).strip()][:6]
+        result["strategy_suggestions"] = _string_items(result.get("strategy_suggestions"), limit=6)
 
         if not isinstance(result.get("param_adjustments"), dict):
             result["param_adjustments"] = {}
@@ -513,7 +521,10 @@ class EvoJudgeAgent(InvestAgent):
         )
 
         try:
-            result = self.llm.call_json(self.config.system_prompt, user_msg)
+            llm = self.llm
+            if llm is None:
+                return quick_result
+            result = llm.call_json(self.config.system_prompt, user_msg)
             if not result.get("_parse_error"):
                 # 合并 LLM 建议和规则建议
                 result["suggestions"] = list(set(

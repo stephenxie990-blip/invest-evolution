@@ -1,4 +1,6 @@
 
+from typing import Any, cast
+
 from invest.agents import MarketRegimeAgent, ReviewDecisionAgent, TrendHunterAgent, ContrarianAgent
 from config import agent_config_registry
 
@@ -54,5 +56,5 @@ def test_strategist_review_report_does_not_emit_execution_params():
 
     agent = StrategistAgent(llm_caller=None)
     report = SimpleNamespace(regime="bull", selected_codes=["AAA"])
-    result = agent.review_report(report)
+    result = agent.review_report(cast(Any, report))
     assert isinstance(result.get("concerns", []), list)

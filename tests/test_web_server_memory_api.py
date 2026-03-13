@@ -42,11 +42,13 @@ def test_memory_store_search_matches_metadata(tmp_path):
 
     assert hits
     assert hits[-1]["id"] == rec.id
-    assert store.get(rec.id)["id"] == rec.id
+    stored = store.get(rec.id)
+    assert stored is not None
+    assert stored["id"] == rec.id
 
 
 @pytest.mark.asyncio
-async def test_train_once_appends_training_memory(tmp_path):
+async def test_train_once_appends_training_memory(tmp_path, monkeypatch):
     runtime = _make_runtime(tmp_path)
 
     async def fake_run_cycles(rounds=1, force_mock=False, task_source="direct"):
@@ -67,7 +69,7 @@ async def test_train_once_appends_training_memory(tmp_path):
             "summary": {"total_cycles": 1, "success_cycles": 1},
         }
 
-    runtime.body.run_cycles = fake_run_cycles
+    monkeypatch.setattr(runtime.body, "run_cycles", fake_run_cycles)
 
     await runtime.train_once(rounds=1, mock=True)
 

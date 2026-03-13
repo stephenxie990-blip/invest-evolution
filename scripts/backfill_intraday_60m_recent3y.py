@@ -7,6 +7,7 @@ import sys
 import time
 from datetime import datetime, timedelta
 from pathlib import Path
+from typing import Protocol
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
@@ -15,6 +16,16 @@ if str(PROJECT_ROOT) not in sys.path:
 import baostock as bs  # noqa: E402
 
 DB_PATH = PROJECT_ROOT / 'data' / 'stock_history.db'
+
+
+class _BaoStockResult(Protocol):
+    fields: list[str]
+
+    def next(self) -> bool:
+        ...
+
+    def get_row_data(self) -> list[str]:
+        ...
 
 
 def normalize_date(value: str) -> str:
@@ -91,10 +102,13 @@ def fetch_60m(code: str, start: str, end: str) -> list[tuple]:
     )
     if getattr(rs, 'error_code', '0') != '0':
         raise RuntimeError(getattr(rs, 'error_msg', 'unknown error'))
+    if rs is None:
+        return []
 
     records: list[tuple] = []
-    while rs.next():
-        row = dict(zip(rs.fields, rs.get_row_data()))
+    result: _BaoStockResult = rs
+    while result.next():
+        row = dict(zip(result.fields, result.get_row_data()))
         trade_date = normalize_date(row.get('date', ''))
         bar_time_raw = str(row.get('time', '')).strip()
         if not trade_date or not bar_time_raw:

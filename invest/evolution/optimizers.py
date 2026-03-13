@@ -1,7 +1,8 @@
 import logging
+import importlib
 import random
 from dataclasses import dataclass
-from typing import Callable, Dict, List, Tuple
+from typing import Any, Callable, Dict, List, Tuple
 
 import numpy as np
 
@@ -100,9 +101,9 @@ class BayesianOptimizer:
         self.n_iter = n_iter
         self.acquisition = acquisition
         self.gp = GaussianProcessModel()
-        self.best_params = None
+        self.best_params: Dict[str, float] | None = None
         self.best_fitness = float('-inf')
-        self.history = []
+        self.history: list[tuple[Dict[str, float], float]] = []
 
     def _sample_random(self) -> Dict[str, float]:
         """随机采样参数"""
@@ -127,24 +128,24 @@ class BayesianOptimizer:
         ei = (mean - best_y) * self._norm_cdf(z) + std * self._norm_pdf(z)
         return ei
 
-    def _norm_cdf(self, x):
+    def _norm_cdf(self, x: Any) -> Any:
         """正态分布CDF (使用erf)"""
         # 使用scipy或手动实现
         try:
-            from scipy import stats
+            stats = importlib.import_module("scipy.stats")
             return stats.norm.cdf(x)
         except ImportError:
             # 手动实现近似
             return 0.5 * (1 + np.sign(x) * np.sqrt(1 - np.exp(-2 * x * x / np.pi)))
 
-    def _norm_pdf(self, x):
+    def _norm_pdf(self, x: Any) -> Any:
         """正态分布PDF"""
         return np.exp(-0.5 * x ** 2) / np.sqrt(2 * np.pi)
 
     def optimize(
         self,
         fitness_func: Callable[[Dict[str, float]], float],
-    ) -> Tuple[Dict[str, float], float]:
+    ) -> Tuple[Dict[str, float], float, Dict[str, Tuple[float, float]]]:
         """
         贝叶斯优化
 
@@ -178,7 +179,7 @@ class BayesianOptimizer:
 
             # 计算采集函数值
             best_acq = float('-inf')
-            best_candidate = None
+            best_candidate: Dict[str, float] | None = None
 
             for candidate in candidates:
                 x = self._to_vector(candidate).reshape(1, -1)
@@ -194,6 +195,8 @@ class BayesianOptimizer:
                     best_candidate = candidate
 
             # 评估候选点
+            if best_candidate is None:
+                best_candidate = self._sample_random()
             fitness = fitness_func(best_candidate)
             self.history.append((best_candidate.copy(), fitness))
 
@@ -215,7 +218,8 @@ class BayesianOptimizer:
         logger.info(f"贝叶斯优化完成: 最优={self.best_fitness:.4f}")
         logger.info(f"参数置信区间: {param_ranges}")
 
-        return self.best_params, self.best_fitness, param_ranges
+        best_params = self.best_params or self._sample_random()
+        return best_params, self.best_fitness, param_ranges
 
 
 class GeneticOptimizer:
@@ -330,7 +334,7 @@ class GeneticOptimizer:
     def optimize(
         self,
         fitness_func: Callable[[Dict[str, float]], float],
-        param_ranges: Dict[str, Tuple[float, float]] = None,
+        param_ranges: Dict[str, Tuple[float, float]] | None = None,
     ) -> Tuple[Dict[str, float], float]:
         """
         遗传算法优化
@@ -387,7 +391,8 @@ class GeneticOptimizer:
                 logger.info(f"  代数 {gen+1}/{self.n_generations}: 最优={self.best_fitness:.4f}")
 
         logger.info(f"遗传算法完成: 最优={self.best_fitness:.4f}")
-        return self.best_params, self.best_fitness
+        best_params = self.best_params or self._initialize_population()[0]
+        return best_params, self.best_fitness
 
 
 class RobustnessValidator:
@@ -438,17 +443,17 @@ class RobustnessValidator:
 
         # 计算稳健性得分
         # 稳健性 = 周围参数的平均收益 / 最优参数收益
-        avg_perturbed = np.mean(perturbed_fitness)
-        stability_score = avg_perturbed / best_fitness if best_fitness > 0 else 0
+        avg_perturbed = float(np.mean(perturbed_fitness))
+        stability_score = avg_perturbed / best_fitness if best_fitness > 0 else 0.0
 
         # 额外检查：参数微调后收益是否剧变
-        fitness_variance = np.std(perturbed_fitness)
+        fitness_variance = float(np.std(perturbed_fitness))
         variance_penalty = min(fitness_variance / abs(best_fitness), 1.0) if best_fitness != 0 else 1.0
 
         # 最终稳健性得分
-        final_score = stability_score * (1 - variance_penalty * 0.5)
+        final_score = float(stability_score * (1 - variance_penalty * 0.5))
 
-        passed = final_score >= self.min_stability_score
+        passed = bool(final_score >= self.min_stability_score)
 
         logger.info(f"  最优收益: {best_fitness:.4f}")
         logger.info(f"  周围平均收益: {avg_perturbed:.4f}")

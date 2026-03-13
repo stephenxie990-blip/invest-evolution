@@ -36,6 +36,12 @@ from brain.tool_metadata import RUNTIME_OBSERVABILITY_TOOL_NAMES
 logger = logging.getLogger(__name__)
 
 
+def _dict_payload(value: Any) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        return {}
+    return {str(key): item for key, item in value.items()}
+
+
 class ToolArgumentParseError(ValueError):
     """Raised when tool-call arguments cannot be parsed into a JSON object."""
 
@@ -777,7 +783,7 @@ class BrainRuntime:
             "tools": names,
             "intent": inferred_intent,
         }
-        task_bus = dict(payload.get("task_bus") or {})
+        task_bus = _dict_payload(payload.get("task_bus"))
         if not task_bus:
             plan = self._recommended_plan_for_intent(intent=inferred_intent, tool_names=names, writes_state=writes_state, user_goal=user_goal)
             calls = list(tool_calls or self._tool_trace(names))
@@ -910,6 +916,10 @@ class BrainRuntime:
     @staticmethod
     def _event_human_label(event_name: str) -> str:
         mapping = {
+            "ask_started": "对话请求开始",
+            "ask_finished": "对话请求完成",
+            "task_started": "运行任务开始",
+            "task_finished": "运行任务完成",
             "training_started": "训练开始",
             "training_finished": "训练完成",
             "routing_started": "模型路由开始",
@@ -936,6 +946,45 @@ class BrainRuntime:
     def _event_detail_text(row: dict[str, Any]) -> str:
         payload = dict(row.get("payload") or {})
         event_name = str(row.get("event") or "")
+        if event_name == "ask_started":
+            channel = str(payload.get("channel") or "").strip()
+            message_length = payload.get("message_length")
+            details = []
+            if channel:
+                details.append(f"来源 {channel}")
+            if message_length not in (None, ""):
+                details.append(f"消息长度 {message_length}")
+            if details:
+                return "已接收对话请求，" + "，".join(details) + "。"
+            return "已接收新的对话请求。"
+        if event_name == "ask_finished":
+            intent = str(payload.get("intent") or "").strip()
+            status = str(payload.get("status") or "").strip()
+            risk_level = str(payload.get("risk_level") or "").strip()
+            details = []
+            if intent:
+                details.append(f"意图 {intent}")
+            if status:
+                details.append(f"状态 {status}")
+            if risk_level:
+                details.append(f"风险 {risk_level}")
+            if details:
+                return "对话处理结束，" + "，".join(details) + "。"
+            return "对话处理结束。"
+        if event_name == "task_started":
+            task_type = str(payload.get("type") or "").strip()
+            source = str(payload.get("source") or "").strip()
+            if task_type and source:
+                return f"开始执行 {task_type} 任务，来源 {source}。"
+            if task_type:
+                return f"开始执行 {task_type} 任务。"
+        if event_name == "task_finished":
+            task_type = str(payload.get("type") or "").strip()
+            status = str(payload.get("status") or "").strip()
+            if task_type and status:
+                return f"{task_type} 任务已结束，状态 {status}。"
+            if status:
+                return f"运行任务已结束，状态 {status}。"
         if event_name == "routing_decided":
             regime = str(payload.get("regime") or "").strip()
             selected_model = str(payload.get("selected_model") or "").strip()

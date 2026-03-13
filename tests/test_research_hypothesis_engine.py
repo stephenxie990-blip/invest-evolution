@@ -1,3 +1,5 @@
+from typing import Any, cast
+
 from invest.research.contracts import PolicySnapshot, ResearchSnapshot
 from invest.research.hypothesis_engine import build_research_hypothesis
 
@@ -65,7 +67,7 @@ def test_snapshot_builder_promotes_derived_fields_into_canonical_metadata():
     )
 
     snapshot = build_research_snapshot(
-        model_output=model_output,
+        model_output=cast(Any, model_output),
         security={"code": "sh.600001"},
         query_code="sh.600001",
         stock_data={"sh.600001": []},
@@ -103,7 +105,7 @@ def test_snapshot_builder_discards_noncanonical_derived_fields():
     )
 
     snapshot = build_research_snapshot(
-        model_output=model_output,
+        model_output=cast(Any, model_output),
         security={"code": "sh.600001"},
         query_code="sh.600001",
         stock_data={"sh.600001": []},

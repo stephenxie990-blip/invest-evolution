@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime, timedelta
-from typing import Any, Callable
+from typing import Any, Callable, cast
 
 from config import normalize_date
 from config.control_plane import get_runtime_data_policy
@@ -131,12 +131,15 @@ class MarketDataGateway:
         if source != "baostock":
             raise RuntimeError("60分钟线同步当前仅支持 --source baostock")
         service = self.create_ingestion_service()
-        return service.sync_intraday_bars_60m(
+        sync_intraday = getattr(service, "sync_intraday_bars_60m", None)
+        if not callable(sync_intraday):
+            raise RuntimeError("DataIngestionService missing sync_intraday_bars_60m implementation")
+        return cast(dict[str, Any], sync_intraday(
             start_date=start_date,
             end_date=end_date,
             stock_limit=stock_limit,
             offset=offset,
-        )
+        ))
 
     def sync_financials(
         self,

@@ -197,8 +197,8 @@ class LLMAnalyzer:
         benchmark_return: float,
         total_return: float,
         trades: List[TradeDetail],
-        factor_performance: List[FactorPerformance] = None,
-        stop_loss_analysis: StopLossAnalysis = None,
+        factor_performance: List[FactorPerformance] | None = None,
+        stop_loss_analysis: StopLossAnalysis | None = None,
     ) -> LLMAnalysisResult:
         """
         分析回测结果

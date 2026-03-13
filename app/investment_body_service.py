@@ -5,6 +5,8 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import threading
+import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, Callable, Optional
 
@@ -69,6 +71,8 @@ class InvestmentBodyService:
         )
         self._lock = asyncio.Lock()
         self._stop_event = asyncio.Event()
+        self._event_context_lock = threading.RLock()
+        self._active_event_context: dict[str, Any] = {}
 
         self.total_cycles = 0
         self.success_cycles = 0
@@ -92,11 +96,43 @@ class InvestmentBodyService:
         self.cfg.training_lock_file.unlink(missing_ok=True)
 
     def _emit_runtime_event(self, event: str, payload: dict[str, Any]) -> None:
+        payload = self._apply_event_context(payload)
         if self._runtime_event_sink:
             try:
                 self._runtime_event_sink(event, payload)
             except Exception:
                 logger.exception("Failed to emit runtime event: %s", event)
+
+    def _set_event_context(self, context: dict[str, Any] | None = None) -> None:
+        normalized: dict[str, Any] = {}
+        for key in ("session_key", "chat_id", "request_id", "channel"):
+            value = str((context or {}).get(key) or "").strip()
+            if value:
+                normalized[key] = value
+        with self._event_context_lock:
+            self._active_event_context = normalized
+
+    def _clear_event_context(self) -> None:
+        with self._event_context_lock:
+            self._active_event_context = {}
+
+    def _current_event_context(self) -> dict[str, Any]:
+        with self._event_context_lock:
+            return dict(self._active_event_context)
+
+    def _apply_event_context(self, payload: dict[str, Any] | None = None) -> dict[str, Any]:
+        normalized = dict(payload or {})
+        context = self._current_event_context()
+        for key, fallback in (
+            ("session_key", "runtime:train"),
+            ("chat_id", "training"),
+            ("request_id", f"req:{uuid.uuid4().hex[:16]}"),
+            ("channel", "runtime"),
+        ):
+            value = str(normalized.get(key) or context.get(key) or fallback).strip()
+            if value:
+                normalized[key] = value
+        return normalized
 
     @staticmethod
     def _derive_run_status(results: list[dict[str, Any]]) -> str:
@@ -256,6 +292,10 @@ class InvestmentBodyService:
         force_mock: bool = False,
         task_source: str = "direct",
         experiment_spec: dict[str, Any] | None = None,
+        session_key: str = "",
+        chat_id: str = "",
+        request_id: str = "",
+        channel: str = "",
     ) -> dict[str, Any]:
         if self._lock.locked():
             return {
@@ -269,7 +309,15 @@ class InvestmentBodyService:
         results: list[dict[str, Any]] = []
         task_started_at = datetime.now().isoformat()
         self.training_state = STATUS_TRAINING
-        self.current_task = {
+        self._set_event_context(
+            {
+                "session_key": session_key or f"{task_source}:training",
+                "chat_id": chat_id or str(task_source or "training"),
+                "request_id": request_id or f"req:{uuid.uuid4().hex[:16]}",
+                "channel": channel or str(task_source or "runtime"),
+            }
+        )
+        self.current_task = self._apply_event_context({
             "type": "training",
             "source": task_source,
             "rounds": rounds,
@@ -278,7 +326,7 @@ class InvestmentBodyService:
             "llm_mode": str(getattr(self.controller, "llm_mode", "live") or "live"),
             "started_at": task_started_at,
             "experiment_spec": _jsonable(dict(experiment_spec or {})),
-        }
+        })
         self._write_training_lock(self.current_task)
         self._emit_runtime_event(EVENT_TRAINING_STARTED, self.current_task)
 
@@ -330,16 +378,17 @@ class InvestmentBodyService:
         finally:
             run_status = self._derive_run_status(results)
             self.training_state = STATUS_IDLE
-            self.last_completed_task = {
+            self.last_completed_task = self._apply_event_context({
                 **(self.current_task or {}),
                 "finished_at": datetime.now().isoformat(),
                 "result_count": len(results),
                 "last_status": results[-1].get("status") if results else "empty",
                 "run_status": run_status,
-            }
+            })
             self.current_task = None
             self._clear_training_lock()
             self._emit_runtime_event(EVENT_TRAINING_FINISHED, self.last_completed_task or {})
+            self._clear_event_context()
 
         return _jsonable(
             {

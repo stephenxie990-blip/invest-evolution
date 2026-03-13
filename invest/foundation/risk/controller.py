@@ -128,8 +128,8 @@ class EmergencyDetector:
 
     def __init__(
         self,
-        single_stock_crash_pct: float = None,
-        rapid_loss_pct: float = None,
+        single_stock_crash_pct: float | None = None,
+        rapid_loss_pct: float | None = None,
         rapid_loss_days: Optional[int] = None,
         policy: Optional[Dict[str, Any]] = None,
     ):
@@ -278,9 +278,9 @@ class DynamicStopLoss:
     def calculate_atr(self, df: pd.DataFrame) -> float:
         if len(df) < self.atr_period + 1:
             return 0
-        high = df["high"].values
-        low = df["low"].values
-        close = df["close"].values
+        high = np.asarray(df["high"], dtype=float)
+        low = np.asarray(df["low"], dtype=float)
+        close = np.asarray(df["close"], dtype=float)
         tr = np.maximum(
             high[1:] - low[1:],
             np.maximum(np.abs(high[1:] - close[:-1]), np.abs(low[1:] - close[:-1])),
@@ -353,9 +353,9 @@ class PortfolioRiskManager:
     def check_market_state(self, hs300_data: Optional[pd.DataFrame]) -> str:
         if hs300_data is None or len(hs300_data) < self.market_ma_period:
             return "normal"
-        close = hs300_data["close"].values
-        ma = np.mean(close[-self.market_ma_period:])
-        current = close[-1]
+        close = np.asarray(hs300_data["close"], dtype=float)
+        ma = float(np.mean(close[-self.market_ma_period:]))
+        current = float(close[-1])
         if current > ma * self.market_bull_threshold:
             return "bull"
         if current < ma * self.market_bear_threshold:

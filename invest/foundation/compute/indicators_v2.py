@@ -396,9 +396,17 @@ def compute_indicator_snapshot(frame: pd.DataFrame) -> dict[str, Any]:
     sma_20 = _as_float(raw.get("sma_20"))
     ma_stack = "mixed"
     if all(value is not None for value in [latest_close, sma_5, sma_10, sma_20]):
-        if latest_close > sma_5 > sma_10 > sma_20:
+        assert latest_close is not None
+        assert sma_5 is not None
+        assert sma_10 is not None
+        assert sma_20 is not None
+        close_value = latest_close
+        sma_5_value = sma_5
+        sma_10_value = sma_10
+        sma_20_value = sma_20
+        if close_value > sma_5_value > sma_10_value > sma_20_value:
             ma_stack = "bullish"
-        elif latest_close < sma_5 < sma_10 < sma_20:
+        elif close_value < sma_5_value < sma_10_value < sma_20_value:
             ma_stack = "bearish"
 
     output = {

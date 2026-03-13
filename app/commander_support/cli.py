@@ -6,6 +6,7 @@ import argparse
 import asyncio
 import json
 import logging
+import queue
 import sys
 from typing import Any
 
@@ -61,6 +62,11 @@ def build_parser() -> argparse.ArgumentParser:
         default="auto",
         help="CLI output view: auto prints human receipt on TTY, json keeps full payload",
     )
+    p_ask.add_argument(
+        "--stream-events",
+        action="store_true",
+        help="Stream session-bound runtime events before printing the final reply",
+    )
 
     p_genes = sub.add_parser("strategies", help="List strategy genes")
     add_common_args(p_genes)
@@ -100,7 +106,53 @@ async def run_async(
         return 0
 
     if args.cmd == "ask":
-        reply = await runtime.ask(args.message, session_key="cli:direct", channel="cli", chat_id="direct")
+        session_key = "cli:direct"
+        chat_id = "direct"
+        reply = ""
+        summary_packet = None
+        if bool(getattr(args, "stream_events", False)):
+            request_id = runtime.new_request_id()
+            subscription_id, event_queue = runtime.subscribe_event_stream(
+                session_key=session_key,
+                chat_id=chat_id,
+                request_id=request_id,
+            )
+            try:
+                task = asyncio.create_task(
+                    runtime.ask(
+                        args.message,
+                        session_key=session_key,
+                        channel="cli",
+                        chat_id=chat_id,
+                        request_id=request_id,
+                    )
+                )
+                while True:
+                    try:
+                        packet = await asyncio.to_thread(event_queue.get, True, 0.2)
+                    except queue.Empty:
+                        if task.done():
+                            break
+                        continue
+                    text = str(
+                        packet.get("display_text")
+                        or packet.get("human_reply")
+                        or packet.get("broadcast_text")
+                        or packet.get("label")
+                        or packet.get("event")
+                        or ""
+                    ).strip()
+                    if text:
+                        print(text, flush=True)
+                summary_packet = runtime.build_stream_summary_packet(subscription_id)
+                summary_text = str(summary_packet.get("display_text") or "").strip()
+                if summary_text:
+                    print(summary_text, flush=True)
+                reply = await task
+            finally:
+                runtime.unsubscribe_event_stream(subscription_id)
+        else:
+            reply = await runtime.ask(args.message, session_key=session_key, channel="cli", chat_id=chat_id)
         if str(getattr(args, "view", "auto")) == "json":
             print(reply)
             return 0
@@ -108,6 +160,8 @@ async def run_async(
             payload = json.loads(reply) if isinstance(reply, str) else dict(reply or {})
         except Exception:
             payload = None
+        if isinstance(payload, dict) and summary_packet:
+            payload = runtime.merge_stream_summary_into_reply_payload(payload, summary_packet)
         display = build_human_display(payload) if isinstance(payload, dict) else {"available": False}
         selected_view = str(getattr(args, "view", "auto"))
         if selected_view == "human" or (selected_view == "auto" and sys.stdout.isatty() and display.get("available")):

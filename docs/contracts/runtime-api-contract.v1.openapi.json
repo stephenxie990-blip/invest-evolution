@@ -386,6 +386,98 @@
                   "chat_id": {
                     "type": "string",
                     "minLength": 1
+                  },
+                  "request_id": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/chat/stream": {
+      "post": {
+        "operationId": "chat_stream",
+        "tags": [
+          "chat"
+        ],
+        "summary": "Open a session-bound SSE stream for runtime events plus the final Commander reply.",
+        "description": "The stream first emits a connected event, then request-bound runtime events, then the final reply and done event.\nThis is event streaming for runtime state; it does not stream LLM tokens.",
+        "responses": {
+          "200": {
+            "description": "Open a session-bound SSE stream for runtime events plus the final Commander reply.",
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "message is required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/flatError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Commander runtime is not initialized or background loop is unavailable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/flatError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Unexpected command/runtime error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/flatError"
+                }
+              }
+            }
+          }
+        },
+        "x-runtime-required": true,
+        "x-runtime-preferred": true,
+        "x-latency": "medium",
+        "x-realtime": true,
+        "x-pagination": "none",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "message"
+                ],
+                "properties": {
+                  "message": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "session_key": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "chat_id": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "request_id": {
+                    "type": "string",
+                    "minLength": 1
                   }
                 }
               }
@@ -2569,6 +2661,9 @@
           },
           "chat_id": {
             "type": "string"
+          },
+          "request_id": {
+            "type": "string"
           }
         },
         "required": [
@@ -4289,7 +4384,6 @@
           "requires_confirmation": false,
           "confirmation_state": "not_applicable"
         },
-        "protocol": null,
         "feedback": {
           "summary": "当前任务已完成，计划与参数覆盖满足预期。"
         },

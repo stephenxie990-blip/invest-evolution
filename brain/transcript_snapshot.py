@@ -140,14 +140,21 @@ def build_transcript_snapshot(
         ),
     }
     if include_protocol:
-        snapshot["protocol"] = payload.get("protocol")
+        protocol = payload.get("protocol")
+        if protocol is not None:
+            snapshot["protocol"] = protocol
     if include_feedback:
-        snapshot["feedback"] = build_feedback_snapshot(payload)
+        feedback = build_feedback_snapshot(payload)
+        if feedback is not None:
+            snapshot["feedback"] = feedback
     if include_next_action:
-        snapshot["next_action"] = build_next_action_snapshot(payload)
+        next_action = build_next_action_snapshot(payload)
+        if next_action is not None:
+            snapshot["next_action"] = next_action
     for key in top_level_keys:
-        if key in payload:
-            snapshot[key] = payload.get(key)
+        value = payload.get(key)
+        if value is not None:
+            snapshot[key] = value
     if include_strategy and "strategy" in payload:
         snapshot["strategy"] = {
             "name": _nested_get(payload, "strategy", "name"),

@@ -42,6 +42,7 @@ def build_run_cycles_kwargs(
     rounds: int,
     mock: bool,
     experiment_spec: dict[str, Any],
+    request_context: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     run_cycles_kwargs = {
         "rounds": rounds,
@@ -52,6 +53,11 @@ def build_run_cycles_kwargs(
         run_cycles_signature = inspect.signature(run_cycles_callable)
         if "experiment_spec" in run_cycles_signature.parameters:
             run_cycles_kwargs["experiment_spec"] = experiment_spec
+        for key in ("session_key", "chat_id", "request_id", "channel"):
+            if key in run_cycles_signature.parameters:
+                run_cycles_kwargs[key] = str((request_context or {}).get(key) or "")
     except (TypeError, ValueError):
         run_cycles_kwargs["experiment_spec"] = experiment_spec
+        for key in ("session_key", "chat_id", "request_id", "channel"):
+            run_cycles_kwargs[key] = str((request_context or {}).get(key) or "")
     return run_cycles_kwargs

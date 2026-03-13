@@ -17,6 +17,9 @@ def extract_ask_result_metadata(response: Any) -> dict[str, Any]:
     protocol = dict(payload.get("protocol") or {})
     entrypoint = dict(payload.get("entrypoint") or {})
     next_action = dict(payload.get("next_action") or {})
+    task_bus = dict(payload.get("task_bus") or {})
+    gate = dict(task_bus.get("gate") or {})
+    confirmation = dict(gate.get("confirmation") or {})
     metadata: dict[str, Any] = {}
 
     status = str(payload.get("status") or "").strip()
@@ -34,6 +37,12 @@ def extract_ask_result_metadata(response: Any) -> dict[str, Any]:
         metadata["intent"] = str(entrypoint["intent"])
     if next_action.get("kind"):
         metadata["next_action_kind"] = str(next_action["kind"])
+    if gate.get("risk_level"):
+        metadata["risk_level"] = str(gate["risk_level"])
+    if "requires_confirmation" in gate:
+        metadata["requires_confirmation"] = bool(gate.get("requires_confirmation"))
+    if confirmation.get("state"):
+        metadata["confirmation_state"] = str(confirmation["state"])
     return metadata
 
 
@@ -45,12 +54,17 @@ def append_session_message(
     content: str,
     channel: str,
     chat_id: str,
+    request_id: str = "",
 ) -> None:
     memory.append(
         kind=kind,
         session_key=session_key,
         content=content,
-        metadata={"channel": channel, "chat_id": chat_id},
+        metadata={
+            "channel": channel,
+            "chat_id": chat_id,
+            **({"request_id": request_id} if str(request_id or "").strip() else {}),
+        },
     )
 
 
@@ -62,9 +76,16 @@ def record_runtime_ask_activity(
     session_key: str,
     channel: str,
     chat_id: str,
+    request_id: str = "",
     extra: dict[str, Any] | None = None,
 ) -> None:
-    payload = {"session_key": session_key, "channel": channel, "chat_id": chat_id, **dict(extra or {})}
+    payload = {
+        "session_key": session_key,
+        "channel": channel,
+        "chat_id": chat_id,
+        **({"request_id": request_id} if str(request_id or "").strip() else {}),
+        **dict(extra or {}),
+    }
     memory.append_audit(event, session_key, payload)
     append_runtime_event(event, payload)
 
@@ -75,6 +96,7 @@ async def execute_runtime_ask(
     session_key: str,
     channel: str,
     chat_id: str,
+    request_id: str,
     ensure_runtime_storage: Callable[[], None],
     begin_task: Callable[..., None],
     memory: Any,
@@ -95,12 +117,14 @@ async def execute_runtime_ask(
         content=message,
         channel=channel,
         chat_id=chat_id,
+        request_id=request_id,
     )
     record_ask_activity(
         event_ask_started,
         session_key=session_key,
         channel=channel,
         chat_id=chat_id,
+        request_id=request_id,
         extra={"message_length": len(message)},
     )
     try:
@@ -112,6 +136,7 @@ async def execute_runtime_ask(
             content=response or "",
             channel=channel,
             chat_id=chat_id,
+            request_id=request_id,
         )
         ask_result = extract_ask_result_metadata(response)
         record_ask_activity(
@@ -119,6 +144,7 @@ async def execute_runtime_ask(
             session_key=session_key,
             channel=channel,
             chat_id=chat_id,
+            request_id=request_id,
             extra={"message_length": len(message), **ask_result},
         )
         complete_runtime_task(status=status_ok)

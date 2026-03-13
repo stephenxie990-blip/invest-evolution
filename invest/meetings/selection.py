@@ -22,6 +22,7 @@ try:
 
     _HAS_DEBATE = True
 except ImportError:
+    DebateOrchestrator = None
     _HAS_DEBATE = False
 
 logger = logging.getLogger(__name__)
@@ -85,7 +86,7 @@ class SelectionMeeting:
         self._progress_lock = threading.Lock()
 
         self._debate: Optional[Any] = None
-        if _HAS_DEBATE and enable_debate and llm_caller is not None:
+        if _HAS_DEBATE and DebateOrchestrator is not None and enable_debate and llm_caller is not None:
             deep = deep_llm_caller or llm_caller
             self._debate = DebateOrchestrator(
                 fast_llm=llm_caller,
@@ -394,6 +395,8 @@ class SelectionMeeting:
         regime: Dict[str, Any],
     ) -> tuple[str, dict]:
         """在独立线程中对单只股票执行多空辩论。"""
+        if self._debate is None:
+            return code, {"verdict": "hold", "confidence": 0.5, "error": "debate_disabled"}
         try:
             result = self._debate.debate(stock_info, regime)
             return code, result

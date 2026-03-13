@@ -9,6 +9,7 @@ try:
     from invest.debate import RiskDebateOrchestrator
     _HAS_DEBATE = True
 except ImportError:
+    RiskDebateOrchestrator = None
     _HAS_DEBATE = False
 
 logger = logging.getLogger(__name__)
@@ -37,6 +38,25 @@ def _normalize_agent_weight_adjustments(raw: Any) -> dict[str, Any]:
             if agent:
                 normalized[agent] = item[1]
     return normalized
+
+
+def _string_items(raw: Any, *, limit: int) -> list[str]:
+    if not isinstance(raw, list):
+        return []
+    return [str(item).strip() for item in raw if str(item).strip()][:limit]
+
+
+def _dict_payload(raw: Any) -> dict[str, Any]:
+    if not isinstance(raw, dict):
+        return {}
+    return dict(raw)
+
+
+def _coerce_float(value: Any, default: float = 0.0) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
 
 
 
@@ -155,7 +175,7 @@ class ReviewMeeting:
         self.last_facts: Dict[str, Any] = {}
 
         self._risk_debate: Optional[Any] = None
-        if _HAS_DEBATE and enable_risk_debate and llm_caller is not None:
+        if _HAS_DEBATE and RiskDebateOrchestrator is not None and enable_risk_debate and llm_caller is not None:
             deep = deep_llm_caller or llm_caller
             self._risk_debate = RiskDebateOrchestrator(
                 fast_llm=llm_caller,
@@ -182,7 +202,7 @@ class ReviewMeeting:
         recent_results: List[dict],
         agent_accuracy: dict,
         current_params: dict,
-        regime_history: List[str] = None,
+        regime_history: List[str] | None = None,
     ) -> dict:
         """
         运行复盘会议
@@ -270,7 +290,7 @@ class ReviewMeeting:
         eval_report: EvalReport,
         agent_accuracy: dict,
         current_params: dict,
-        regime_history: List[str] = None,
+        regime_history: List[str] | None = None,
     ) -> dict:
         recent_results = [eval_report.to_dict()]
         decision = self._run_review(recent_results, agent_accuracy, current_params, regime_history=regime_history)
@@ -279,9 +299,9 @@ class ReviewMeeting:
             selected_codes=list(eval_report.selected_codes),
             confidence=1.0 if decision.get("strategy_suggestions") else 0.6,
             reasoning=str(decision.get("reasoning", "")),
-            strategy_suggestions=list(decision.get("strategy_suggestions", [])),
-            param_adjustments=dict(decision.get("param_adjustments", {})),
-            agent_weight_adjustments=dict(decision.get("agent_weight_adjustments", {})),
+            strategy_suggestions=_string_items(decision.get("strategy_suggestions"), limit=6),
+            param_adjustments=_dict_payload(decision.get("param_adjustments")),
+            agent_weight_adjustments=_dict_payload(decision.get("agent_weight_adjustments")),
             metadata={
                 "cycle_id": eval_report.cycle_id,
                 "benchmark_passed": eval_report.benchmark_passed,
@@ -326,7 +346,8 @@ class ReviewMeeting:
     def _extract_research_feedback(record: dict) -> dict:
         if not isinstance(record, dict):
             return {}
-        metadata = record.get("metadata") if isinstance(record.get("metadata"), dict) else {}
+        raw_metadata = record.get("metadata")
+        metadata = dict(raw_metadata) if isinstance(raw_metadata, dict) else {}
         feedback = metadata.get("research_feedback")
         if isinstance(feedback, dict) and feedback:
             return dict(feedback)
@@ -386,7 +407,7 @@ class ReviewMeeting:
             parts.append(f"T+20_hit_rate={self._format_ratio(t20.get('hit_rate'))}")
         if payload.get("brier_like_direction_score") is not None:
             try:
-                parts.append(f"brier={float(payload.get('brier_like_direction_score')):.3f}")
+                parts.append(f"brier={_coerce_float(payload.get('brier_like_direction_score')):.3f}")
             except (TypeError, ValueError):
                 pass
         return "；".join(parts)
@@ -732,10 +753,8 @@ class ReviewMeeting:
         )
 
     def _validate_strategy_analysis(self, result: dict) -> dict:
-        problems = result.get("problems") if isinstance(result.get("problems"), list) else []
-        suggestions = result.get("suggestions") if isinstance(result.get("suggestions"), list) else []
-        result["problems"] = [str(item).strip() for item in problems if str(item).strip()][:4]
-        result["suggestions"] = [str(item).strip() for item in suggestions if str(item).strip()][:4]
+        result["problems"] = _string_items(result.get("problems"), limit=4)
+        result["suggestions"] = _string_items(result.get("suggestions"), limit=4)
         result["confidence"] = self._normalize_confidence(result.get("confidence"))
         return result
 
@@ -745,16 +764,14 @@ class ReviewMeeting:
         result["param_adjustments"] = self._sanitize_adjustment_payload(result.get("param_adjustments", {}))
         if result.get("evolution_direction") not in {"aggressive", "conservative", "maintain"}:
             result["evolution_direction"] = "maintain"
-        suggestions = result.get("suggestions") if isinstance(result.get("suggestions"), list) else []
-        result["suggestions"] = [str(item).strip() for item in suggestions if str(item).strip()][:4]
+        result["suggestions"] = _string_items(result.get("suggestions"), limit=4)
         result["confidence"] = self._normalize_confidence(result.get("confidence"))
         if not isinstance(result.get("reasoning"), str):
             result["reasoning"] = ""
         return result
 
     def _validate_decision(self, result: dict, facts: dict) -> dict:
-        suggestions = result.get("strategy_suggestions") if isinstance(result.get("strategy_suggestions"), list) else []
-        result["strategy_suggestions"] = [str(item).strip() for item in suggestions if str(item).strip()][:6]
+        result["strategy_suggestions"] = _string_items(result.get("strategy_suggestions"), limit=6)
         if not isinstance(result.get("param_adjustments"), dict):
             result["param_adjustments"] = {}
 

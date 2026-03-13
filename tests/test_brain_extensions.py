@@ -148,7 +148,7 @@ def test_bridge_handle_survives_error_emit_failure(tmp_path: Path):
     def broken_emit(_message):
         raise OSError("disk full")
 
-    hub.file_channel.emit = broken_emit
+    setattr(hub.file_channel, "emit", broken_emit)
     msg = BridgeMessage(
         id="m1",
         channel="file",

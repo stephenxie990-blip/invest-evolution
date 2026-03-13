@@ -361,12 +361,13 @@ def test_api_chat_returns_structured_protocol_payload(client_with_runtime, monke
 
     seen = {}
 
-    async def fake_ask(message, session_key=None, channel=None, chat_id=None):
+    async def fake_ask(message, session_key=None, channel=None, chat_id=None, request_id=None):
         seen.update({
             'message': message,
             'session_key': session_key,
             'channel': channel,
             'chat_id': chat_id,
+            'request_id': request_id,
         })
         return json.dumps({
             'status': 'ok',
@@ -384,8 +385,10 @@ def test_api_chat_returns_structured_protocol_payload(client_with_runtime, monke
     assert payload['reply'] == '已完成分析'
     assert payload['session_key'] == seen['session_key']
     assert payload['chat_id'] == seen['chat_id']
+    assert payload['request_id'] == seen['request_id']
     assert seen['session_key'].startswith('api:chat:')
     assert seen['chat_id'].startswith('chat:')
+    assert seen['request_id'].startswith('req:')
     assert seen['channel'] == 'api'
     assert payload['feedback']['summary'] == '当前任务已完成，计划与参数覆盖满足预期。'
     assert payload['next_action']['kind'] == 'complete'
@@ -400,8 +403,8 @@ def test_api_chat_honors_explicit_session_identity(client_with_runtime):
 
     seen = {}
 
-    async def fake_ask(message, session_key=None, channel=None, chat_id=None):
-        seen.update({'session_key': session_key, 'chat_id': chat_id})
+    async def fake_ask(message, session_key=None, channel=None, chat_id=None, request_id=None):
+        seen.update({'session_key': session_key, 'chat_id': chat_id, 'request_id': request_id})
         return json.dumps({'reply': 'ok'}, ensure_ascii=False)
 
     runtime.ask = fake_ask
@@ -413,15 +416,18 @@ def test_api_chat_honors_explicit_session_identity(client_with_runtime):
 
     assert res.status_code == 200
     payload = res.get_json()
-    assert seen == {'session_key': 'api:chat:portfolio-1', 'chat_id': 'portfolio-1'}
+    assert seen['session_key'] == 'api:chat:portfolio-1'
+    assert seen['chat_id'] == 'portfolio-1'
+    assert seen['request_id'].startswith('req:')
     assert payload['session_key'] == 'api:chat:portfolio-1'
     assert payload['chat_id'] == 'portfolio-1'
+    assert payload['request_id'] == seen['request_id']
 
 
 def test_api_chat_surfaces_human_receipt_when_available(client_with_runtime):
     client, runtime = client_with_runtime
 
-    async def fake_ask(message, session_key=None, channel=None, chat_id=None):
+    async def fake_ask(message, session_key=None, channel=None, chat_id=None, request_id=None):
         return json.dumps(
             {
                 'status': 'ok',
@@ -453,7 +459,7 @@ def test_api_chat_surfaces_human_receipt_when_available(client_with_runtime):
 def test_api_chat_view_human_returns_plain_text(client_with_runtime):
     client, runtime = client_with_runtime
 
-    async def fake_ask(message, session_key=None, channel=None, chat_id=None):
+    async def fake_ask(message, session_key=None, channel=None, chat_id=None, request_id=None):
         return json.dumps(
             {
                 'status': 'ok',
@@ -479,6 +485,49 @@ def test_api_chat_rejects_unknown_view(client_with_runtime):
     res = client.post('/api/chat', data=json.dumps({'message': '你好', 'view': 'xml'}), content_type='application/json')
     assert res.status_code == 400
     assert 'view must be one of' in res.get_json()['error']
+
+
+def test_api_chat_stream_returns_session_bound_sse(client_with_runtime):
+    client, runtime = client_with_runtime
+
+    async def fake_ask(message, session_key=None, channel=None, chat_id=None, request_id=None):
+        runtime._append_runtime_event(
+            'module_log',
+            {
+                'module': 'dispatcher',
+                'title': '解析意图',
+                'message': '正在整理运行上下文',
+                'session_key': session_key,
+                'chat_id': chat_id,
+                'request_id': request_id,
+                'channel': channel,
+            },
+            source='brain',
+        )
+        return json.dumps(
+            {
+                'status': 'ok',
+                'reply': '已完成分析',
+                'message': '已完成分析',
+            },
+            ensure_ascii=False,
+        )
+
+    runtime.ask = fake_ask
+    res = client.post('/api/chat/stream', data=json.dumps({'message': '你好'}), content_type='application/json')
+
+    assert res.status_code == 200
+    assert res.mimetype == 'text/event-stream'
+    text = res.get_data(as_text=True)
+    assert 'event: connected' in text
+    assert 'event: runtime_event' in text
+    assert 'event: summary' in text
+    assert 'event: reply' in text
+    assert '"stream_kind": "module_update"' in text
+    assert '"phase_label": "模块处理"' in text
+    assert '"display_text": "模块处理：模块日志更新：dispatcher / 解析意图 / 正在整理运行上下文。"' in text
+    assert '本次共播报 1 条事件' in text
+    assert '模块日志更新：dispatcher / 解析意图 / 正在整理运行上下文。' in text
 
 
 def test_api_status_rejects_unknown_view(client_with_runtime):

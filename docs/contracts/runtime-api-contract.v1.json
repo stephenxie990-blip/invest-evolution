@@ -262,6 +262,9 @@
           },
           "chat_id": {
             "type": "string"
+          },
+          "request_id": {
+            "type": "string"
           }
         },
         "required": [
@@ -2100,6 +2103,10 @@
           "chat_id": {
             "type": "string",
             "minLength": 1
+          },
+          "request_id": {
+            "type": "string",
+            "minLength": 1
           }
         }
       },
@@ -2135,6 +2142,77 @@
       "realtime": false,
       "notes": [
         "Provide session_key/chat_id to continue a multi-turn API conversation; omit them for isolated one-shot requests."
+      ],
+      "runtime_preferred": true
+    },
+    {
+      "id": "chat.stream",
+      "group": "chat",
+      "method": "POST",
+      "path": "/api/chat/stream",
+      "summary": "Open a session-bound SSE stream for runtime events plus the final Commander reply.",
+      "runtime_required": true,
+      "replacement": null,
+      "query_params": [],
+      "path_params": [],
+      "request_body": {
+        "type": "object",
+        "required": [
+          "message"
+        ],
+        "properties": {
+          "message": {
+            "type": "string",
+            "minLength": 1
+          },
+          "session_key": {
+            "type": "string",
+            "minLength": 1
+          },
+          "chat_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "request_id": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "success": {
+        "http_status": 200,
+        "body_ref": "object",
+        "content_type": "text/event-stream"
+      },
+      "errors": [
+        {
+          "http_status": 400,
+          "body_ref": "flatError",
+          "cases": [
+            "message is required"
+          ]
+        },
+        {
+          "http_status": 503,
+          "body_ref": "flatError",
+          "cases": [
+            "Commander runtime is not initialized or background loop is unavailable."
+          ]
+        },
+        {
+          "http_status": 500,
+          "body_ref": "flatError",
+          "cases": [
+            "Unexpected command/runtime error."
+          ]
+        }
+      ],
+      "latency": "medium",
+      "pagination": "none",
+      "realtime": true,
+      "notes": [
+        "The stream first emits a connected event, then request-bound runtime events, then the final reply and done event.",
+        "This is event streaming for runtime state; it does not stream LLM tokens."
       ],
       "runtime_preferred": true
     },
@@ -3884,7 +3962,6 @@
           "requires_confirmation": false,
           "confirmation_state": "not_applicable"
         },
-        "protocol": null,
         "feedback": {
           "summary": "当前任务已完成，计划与参数覆盖满足预期。"
         },

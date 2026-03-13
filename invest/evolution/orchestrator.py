@@ -3,7 +3,7 @@ import logging
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 import numpy as np
 
@@ -76,7 +76,7 @@ class EnsembleSignal:
     date: str
     action: str          # BUY / SELL / HOLD
     confidence: float
-    contributions: Dict[str, any] = field(default_factory=dict)
+    contributions: Dict[str, Any] = field(default_factory=dict)
     reason: str = ""
 
 
@@ -210,7 +210,7 @@ class StrategyEnsemble:
             votes[sig] = votes.get(sig, 0) + w
             contributions[name] = {"signal": sig, "weight": w}
 
-        action = max(votes, key=votes.get)
+        action = max(votes, key=lambda key: votes[key])
         total  = sum(votes.values())
         conf   = votes[action] / total if total > 0 else 0
 
