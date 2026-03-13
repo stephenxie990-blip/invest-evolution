@@ -29,6 +29,17 @@ from pathlib import Path
 from typing import Any, Optional
 
 from brain.runtime import BrainRuntime
+from brain.planner_catalog import (
+    build_model_analytics_plan,
+    build_plugin_reload_plan,
+    build_runtime_diagnostics_plan,
+    build_runtime_events_summary_plan,
+    build_runtime_events_tail_plan,
+    build_runtime_status_plan,
+    build_strategy_plan,
+    build_training_lab_summary_plan,
+    build_training_plan_execution_plan,
+)
 from brain.task_bus import build_bounded_entrypoint, build_bounded_orchestration, build_bounded_policy, build_bounded_response_context, build_mutating_task_bus, build_readonly_task_bus, build_protocol_response
 from brain.schema_contract import (
     ARTIFACT_KINDS,
@@ -1878,26 +1889,30 @@ class CommanderRuntime:
         phase_stats = dict(phase_stats or {})
         if domain == "runtime":
             if operation == "status":
-                return [
-                    {"tool": runtime_tool, "args": {"detail": phase_stats.get("detail_mode", "fast")}},
-                    {"tool": "invest_events_summary", "args": {"limit": int(phase_stats.get("limit", 100) or 100)}},
-                    {"tool": "invest_runtime_diagnostics", "args": {"event_limit": int(phase_stats.get("event_limit", 50) or 50), "memory_limit": int(phase_stats.get("memory_limit", 20) or 20)}},
-                ]
+                return build_runtime_status_plan(
+                    primary_tool=runtime_tool,
+                    detail_mode=str(phase_stats.get("detail_mode", "fast") or "fast"),
+                    summary_limit=int(phase_stats.get("limit", 100) or 100),
+                    event_limit=int(phase_stats.get("event_limit", 50) or 50),
+                    memory_limit=int(phase_stats.get("memory_limit", 20) or 20),
+                )
             if operation == "get_events_tail":
-                return [
-                    {"tool": "invest_events_tail", "args": {"limit": int(phase_stats.get("limit", 50) or 50)}},
-                    {"tool": "invest_events_summary", "args": {"limit": int(phase_stats.get("limit", 100) or 100)}},
-                ]
+                return build_runtime_events_tail_plan(
+                    limit=int(phase_stats.get("limit", 50) or 50),
+                    summary_limit=int(phase_stats.get("limit", 100) or 100),
+                )
             if operation == "get_events_summary":
-                return [
-                    {"tool": "invest_events_summary", "args": {"limit": int(phase_stats.get("limit", 100) or 100)}},
-                    {"tool": "invest_runtime_diagnostics", "args": {"event_limit": int(phase_stats.get("event_limit", 50) or 50), "memory_limit": int(phase_stats.get("memory_limit", 20) or 20)}},
-                ]
+                return build_runtime_events_summary_plan(
+                    summary_limit=int(phase_stats.get("limit", 100) or 100),
+                    event_limit=int(phase_stats.get("event_limit", 50) or 50),
+                    memory_limit=int(phase_stats.get("memory_limit", 20) or 20),
+                )
             if operation == "get_runtime_diagnostics":
-                return [
-                    {"tool": "invest_runtime_diagnostics", "args": {"event_limit": int(phase_stats.get("event_limit", 50) or 50), "memory_limit": int(phase_stats.get("memory_limit", 20) or 20)}},
-                    {"tool": "invest_events_summary", "args": {"limit": int(phase_stats.get("limit", 100) or 100)}},
-                ]
+                return build_runtime_diagnostics_plan(
+                    summary_limit=int(phase_stats.get("limit", 100) or 100),
+                    event_limit=int(phase_stats.get("event_limit", 50) or 50),
+                    memory_limit=int(phase_stats.get("memory_limit", 20) or 20),
+                )
         if domain == "config":
             if operation == "get_control_plane":
                 return [
@@ -1996,52 +2011,22 @@ class CommanderRuntime:
                     {"tool": "invest_cron_remove", "args": self._planner_args(phase_stats=phase_stats, payload=payload, keys=["job_id"])},
                 ]
         if domain == "analytics":
-            if operation == "get_investment_models":
-                return [
-                    {"tool": "invest_investment_models", "args": {}},
-                    {"tool": "invest_model_routing_preview", "args": {}},
-                ]
-            if operation == "get_leaderboard":
-                return [
-                    {"tool": "invest_leaderboard", "args": {}},
-                    {"tool": "invest_investment_models", "args": {}},
-                ]
-            if operation == "get_allocator_preview":
-                return [
-                    {"tool": "invest_allocator", "args": {}},
-                    {"tool": "invest_leaderboard", "args": {}},
-                    {"tool": "invest_model_routing_preview", "args": {}},
-                ]
-            if operation == "get_model_routing_preview":
-                return [
-                    {"tool": "invest_model_routing_preview", "args": {}},
-                    {"tool": "invest_investment_models", "args": {}},
-                ]
+            if operation in {"get_investment_models", "get_leaderboard", "get_allocator_preview", "get_model_routing_preview"}:
+                return build_model_analytics_plan(operation)
         if domain == "training":
             if operation == "get_training_lab_summary":
-                return [
-                    {"tool": "invest_training_lab_summary", "args": {"limit": int(phase_stats.get("limit", 5) or 5)}},
-                    {"tool": "invest_training_runs_list", "args": {"limit": int(phase_stats.get("limit", 5) or 5)}},
-                    {"tool": "invest_training_evaluations_list", "args": {"limit": int(phase_stats.get("limit", 5) or 5)}},
-                ]
+                return build_training_lab_summary_plan(limit=int(phase_stats.get("limit", 5) or 5))
             if operation == "execute_training_plan":
-                return [
-                    {"tool": "invest_training_plan_execute", "args": self._planner_args(phase_stats=phase_stats, payload=payload, keys=["plan_id", "rounds", "mock"])},
-                    {"tool": "invest_training_evaluations_list", "args": {"limit": int(phase_stats.get("limit", 5) or 5)}},
-                    {"tool": "invest_training_lab_summary", "args": {"limit": int(phase_stats.get("limit", 5) or 5)}},
-                ]
+                execute_args = self._planner_args(phase_stats=phase_stats, payload=payload, keys=["plan_id", "rounds", "mock"])
+                return build_training_plan_execution_plan(
+                    plan_id=str(execute_args.get("plan_id") or "") or None,
+                    rounds=execute_args.get("rounds"),
+                    mock=execute_args.get("mock"),
+                    limit=int(phase_stats.get("limit", 5) or 5),
+                )
         if domain == "strategy":
-            if operation == "list_stock_strategies":
-                return [
-                    {"tool": "invest_stock_strategies", "args": {}},
-                    {"tool": "invest_list_strategies", "args": {"only_enabled": False}},
-                ]
-            if operation == "reload_strategies":
-                return [
-                    {"tool": "invest_list_strategies", "args": {"only_enabled": False}},
-                    {"tool": "invest_reload_strategies", "args": {}},
-                    {"tool": "invest_stock_strategies", "args": {}},
-                ]
+            if operation in {"list_stock_strategies", "reload_strategies"}:
+                return build_strategy_plan(operation)
         if domain == "research":
             if operation == "list_research_cases":
                 return [
@@ -2059,7 +2044,7 @@ class CommanderRuntime:
                     {"tool": "invest_research_cases", "args": {"limit": int(phase_stats.get("limit", 20) or 20), **self._planner_args(phase_stats=phase_stats, payload=payload, keys=["policy_id"]) }},
                 ]
         if domain == "plugin" and operation == "reload_plugins":
-            return [{"tool": "invest_plugins_reload", "args": {}}]
+            return build_plugin_reload_plan()
 
         return [{"tool": runtime_tool, "args": {}}]
 

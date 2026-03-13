@@ -10,6 +10,7 @@
 
 - 所有 LLM 密钥默认不写入 `config/evolution.yaml`。
 - 敏感项优先走环境变量，其次走 `config/evolution.local.yaml`。
+- `~/.codex/auth.json` 不再默认作为生产/通用回退；仅在本地显式设置 `INVEST_ALLOW_CODEX_AUTH_FALLBACK=true` 时才允许复用。
 - `/api/control_plane` 只返回掩码后的 provider 配置；`/api/evolution_config` 不暴露密钥。
 
 ### 发布前检查
@@ -26,6 +27,8 @@
 - 如需开放匿名只读访问，只允许 `WEB_API_PUBLIC_READ_ENABLED=true` 放开状态类接口。
 - 支持请求头：`Authorization: Bearer <token>` 或 `X-Invest-Token: <token>`。
 - 应用内置简单限流，可通过 `WEB_RATE_LIMIT_*` 环境变量调整。
+- `wsgi:app` 生产模式只支持单 worker gunicorn；必须设置 `GUNICORN_WORKERS=1`。
+- 反向代理必须向 `/api/*` 传递可信的 `X-Real-IP`；应用不会信任客户端自带的 `X-Forwarded-For` 来决定限流身份。
 - `GET /healthz` 为无鉴权最小存活检查。
 
 ### 发布前检查
@@ -33,6 +36,8 @@
 - [ ] 非回环部署时已设置 `WEB_API_TOKEN`。
 - [ ] 非回环部署时已设置 `WEB_API_REQUIRE_AUTH=true`。
 - [ ] 已确认 `WEB_API_PUBLIC_READ_ENABLED` 是否符合暴露策略。
+- [ ] 已确认 `GUNICORN_WORKERS=1`，且未改回多 worker。
+- [ ] Nginx / 反向代理已为 `/api/*` 正确转发 `X-Real-IP`。
 - [ ] Gunicorn / 反向代理启动命令已验证，不直接暴露 Flask 开发服务器。
 - [ ] `deploy/nginx/invest-evolution.conf`、`deploy/systemd/invest-evolution.service` 已按服务器路径调整。
 
@@ -43,13 +48,15 @@
 1. dataclass 默认值
 2. `config/evolution.yaml`
 3. `config/evolution.local.yaml`
-4. `INVEST_CONFIG_PATH` 指向的覆盖文件
-5. 环境变量
+4. `runtime/state/evolution.runtime.yaml`
+5. `INVEST_CONFIG_PATH` 指向的覆盖文件
+6. 环境变量
 
 ### 推荐分工
 
 - `config/evolution.yaml`：团队共享、非敏感、可审阅的运行参数
 - `config/evolution.local.yaml`：开发机本地密钥、个人覆盖项
+- `runtime/state/evolution.runtime.yaml`：Web 运行时改动写入层，不手工编辑、不入库
 - 环境变量：线上密钥、CI/CD、部署平台变量
 
 ## 4. 交互与观测发布门

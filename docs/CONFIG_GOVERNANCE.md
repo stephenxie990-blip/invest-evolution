@@ -9,8 +9,11 @@
 从高到低：
 
 1. 环境变量
-2. `config/evolution.yaml`
-3. `config/__init__.py` 默认值
+2. `INVEST_CONFIG_PATH` 指向的额外覆盖文件
+3. `runtime/state/evolution.runtime.yaml`
+4. `config/evolution.local.yaml`
+5. `config/evolution.yaml`
+6. `config/__init__.py` 默认值
 
 ### 1.2 Commander 运行时配置
 
@@ -28,7 +31,6 @@
 
 可编辑字段包括：
 
-- LLM 模型与 API 连接参数
 - debate 开关与轮数
 - 数据源
 - `max_stocks`、`simulation_days`、`min_history_days`
@@ -36,6 +38,14 @@
 - `investment_model`、`investment_model_config`
 - `allocator_enabled`、`allocator_top_n`
 - `stop_on_freeze`
+- Web API 鉴权与限流相关运行参数
+
+持久化位置：`runtime/state/evolution.runtime.yaml`
+
+不再由此服务负责的内容：
+
+- LLM provider / model / API key
+- `control_plane` 级别的组件绑定
 
 ### 2.2 运行路径配置
 
@@ -71,7 +81,7 @@
 
 ### 3.2 运行时效果
 
-- `evolution_config` 修改后会更新 live config，并写审计/快照
+- `evolution_config` 修改后会更新 live config，并写入 `runtime/state/evolution.runtime.yaml`、审计日志与快照
 - `runtime_paths` 修改后，若 Commander 已启动，会同步更新 live runtime paths
 - `agent_prompts` 修改后写回 JSON 文件，仅影响 Agent prompt；模型绑定统一走 `/api/control_plane`
 
@@ -133,7 +143,7 @@ Web 端适合修改阈值、路径、prompt，不适合修改领域代码与 sch
 
 例如：
 
-- `llm_api_key` 在查询接口中只返回 masked 版本
+- `web_api_token`、`/api/control_plane` 中的 `api_key` 只返回 masked 版本
 
 ### 6.3 路径覆盖必须标准化
 
@@ -153,7 +163,8 @@ Web `evolution_config` 更偏运行层，而不是替代模型 YAML。
 
 ## 7. 当前建议的使用方式
 
-- 需要改训练阈值或发布开关：走 `/api/evolution_config`；需要改模型/provider/key：走 `/api/control_plane`
+- 需要改训练阈值、路由策略、Web 鉴权/限流：走 `/api/evolution_config`
+- 需要改模型/provider/key：走 `/api/control_plane`
 - 需要把训练输出切到其他目录：走 `/api/runtime_paths`
 - 需要改 Agent prompt：走 `/api/agent_prompts`
 - 需要版本化关键模型策略：修改 `invest/models/configs/*.yaml` 并纳入 Git

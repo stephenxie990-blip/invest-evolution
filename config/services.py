@@ -3,12 +3,11 @@ from __future__ import annotations
 import json
 import os
 import shutil
-from dataclasses import asdict
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from config import EvolutionConfig, LOGS_DIR, OUTPUT_DIR, PROJECT_ROOT, RUNTIME_DIR, config, get_config_layer_paths, load_config
+from config import EvolutionConfig, PROJECT_ROOT, config, get_config_layer_paths, get_runtime_override_path
 
 try:
     import yaml
@@ -86,6 +85,10 @@ class EvolutionConfigService:
     def local_override_path(self) -> Path:
         return self.config_path.parent / "evolution.local.yaml"
 
+    @property
+    def runtime_override_path(self) -> Path:
+        return get_runtime_override_path(self.config_path)
+
     def _read_yaml_dict(self, path: Path) -> dict[str, Any]:
         if yaml is None or not path.exists():
             return {}
@@ -115,6 +118,8 @@ class EvolutionConfigService:
         return {
             "config_path": str(self.config_path),
             "config_file_exists": self.config_path.exists(),
+            "runtime_override_path": str(self.runtime_override_path),
+            "runtime_override_exists": self.runtime_override_path.exists(),
             "web_api_token_masked": web_api_token_masked,
             "web_api_require_auth": bool(getattr(cfg, "web_api_require_auth", False)),
             "web_api_public_read_enabled": bool(getattr(cfg, "web_api_public_read_enabled", False)),
@@ -156,6 +161,10 @@ class EvolutionConfigService:
             "audit_log_path": str(self.audit_log_path),
             "snapshot_dir": str(self.snapshot_dir),
         }
+
+    def _load_runtime_override(self) -> dict[str, Any]:
+        payload = self._read_yaml_dict(self.runtime_override_path)
+        return {k: v for k, v in payload.items() if k in self.EDITABLE_KEYS}
 
     def normalize_patch(self, patch: dict[str, Any]) -> dict[str, Any]:
         out = {k: v for k, v in patch.items() if k in self.EDITABLE_KEYS}
@@ -323,33 +332,28 @@ class EvolutionConfigService:
                 changed[key] = {"before": self._redact(key, old), "after": self._redact(key, value)}
                 setattr(self.live_config, key, value)
 
-        persisted = self._current_editable_values()
+        persisted = self._load_runtime_override()
+        persisted.update(normalized)
 
-        self.config_path.parent.mkdir(parents=True, exist_ok=True)
+        self.runtime_override_path.parent.mkdir(parents=True, exist_ok=True)
         backup = None
-        local_backup = None
-
-        if self.config_path.exists():
-            backup = self.config_path.with_suffix(".yaml.bak")
-            shutil.copy2(self.config_path, backup)
-        if self.local_override_path.exists():
-            local_backup = self.local_override_path.with_suffix(".yaml.bak")
-            shutil.copy2(self.local_override_path, local_backup)
+        if self.runtime_override_path.exists():
+            backup = self.runtime_override_path.with_suffix(".yaml.bak")
+            shutil.copy2(self.runtime_override_path, backup)
         try:
-            self.config_path.write_text(yaml.safe_dump(persisted, allow_unicode=True, sort_keys=True), encoding="utf-8")
-            self._write_snapshot(persisted)
+            self.runtime_override_path.write_text(
+                yaml.safe_dump(persisted, allow_unicode=True, sort_keys=True),
+                encoding="utf-8",
+            )
+            self._write_snapshot(self._current_editable_values())
             self._append_audit_log(source=source, changed=changed)
         except Exception:
             if backup and backup.exists():
-                shutil.copy2(backup, self.config_path)
-            if local_backup and local_backup.exists():
-                shutil.copy2(local_backup, self.local_override_path)
+                shutil.copy2(backup, self.runtime_override_path)
             raise
         finally:
             if backup and backup.exists():
                 backup.unlink(missing_ok=True)
-            if local_backup and local_backup.exists():
-                local_backup.unlink(missing_ok=True)
 
         return {
             "updated": sorted(changed.keys()),

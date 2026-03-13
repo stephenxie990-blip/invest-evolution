@@ -1,8 +1,8 @@
-import multiprocessing
 import os
 
 bind = os.environ.get("GUNICORN_BIND", "0.0.0.0:8080")
-workers = int(os.environ.get("GUNICORN_WORKERS", str(max(2, multiprocessing.cpu_count() // 2))))
+# Web API 当前以内嵌 Commander runtime 方式运行，必须保持单 worker。
+workers = int(os.environ.get("GUNICORN_WORKERS", "1"))
 threads = int(os.environ.get("GUNICORN_THREADS", "4"))
 timeout = int(os.environ.get("GUNICORN_TIMEOUT", "180"))
 graceful_timeout = int(os.environ.get("GUNICORN_GRACEFUL_TIMEOUT", "30"))

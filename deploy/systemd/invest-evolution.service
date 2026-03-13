@@ -9,6 +9,7 @@ User=invest
 Group=invest
 WorkingDirectory=/opt/invest-evolution
 EnvironmentFile=-/etc/default/invest-evolution
+# wsgi.py 会在导入时启动内嵌 Commander runtime，必须保持单 worker。
 ExecStart=/opt/invest-evolution/.venv/bin/gunicorn -c /opt/invest-evolution/gunicorn.conf.py wsgi:app
 Restart=always
 RestartSec=5

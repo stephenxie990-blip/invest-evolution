@@ -19,7 +19,8 @@ def test_config_service_writes_audit_and_snapshot(tmp_path: Path):
     payload = service.apply_patch({"max_stocks": 11, "enable_debate": False}, source="test")
 
     assert payload["updated"] == ["enable_debate", "max_stocks"]
-    assert (tmp_path / "config" / "evolution.yaml").exists()
+    assert not (tmp_path / "config" / "evolution.yaml").exists()
+    assert service.runtime_override_path.exists()
     assert service.audit_log_path.exists()
     assert service.snapshot_dir.exists()
 

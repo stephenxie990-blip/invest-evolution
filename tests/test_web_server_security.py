@@ -9,6 +9,25 @@ import web_server
 from commander import CommanderConfig, CommanderRuntime
 
 
+@pytest.fixture(autouse=True)
+def _reset_web_server_state():
+    original_runtime = web_server._runtime
+    original_loop = web_server._loop
+    original_rate_limit_events = web_server._rate_limit_events
+    original_shutdown_registered = web_server._runtime_shutdown_registered
+    try:
+        web_server._runtime = None
+        web_server._loop = None
+        web_server._rate_limit_events = {}
+        web_server._runtime_shutdown_registered = False
+        yield
+    finally:
+        web_server._runtime = original_runtime
+        web_server._loop = original_loop
+        web_server._rate_limit_events = original_rate_limit_events
+        web_server._runtime_shutdown_registered = original_shutdown_registered
+
+
 def _make_runtime(tmp_path):
     cfg = CommanderConfig(
         workspace=tmp_path / 'workspace',
@@ -117,6 +136,80 @@ def test_mutating_endpoint_still_requires_auth_when_public_reads_enabled(monkeyp
     assert res.status_code == 401
 
 
+def test_bootstrap_runtime_services_starts_runtime_once(monkeypatch):
+    callbacks = []
+    thread_names = []
+    registered = []
+    started = []
+
+    class FakeRuntime:
+        def __init__(self, cfg):
+            self.cfg = cfg
+
+        async def start(self):
+            started.append(
+                {
+                    'mock_mode': self.cfg.mock_mode,
+                    'autopilot_enabled': self.cfg.autopilot_enabled,
+                    'heartbeat_enabled': self.cfg.heartbeat_enabled,
+                    'bridge_enabled': self.cfg.bridge_enabled,
+                }
+            )
+
+    class FakeThread:
+        def __init__(self, *, target, args, name, daemon):
+            self.name = name
+
+        def start(self):
+            thread_names.append(self.name)
+
+    monkeypatch.setattr(
+        web_server.CommanderConfig,
+        'from_args',
+        lambda args: SimpleNamespace(
+            mock_mode=False,
+            autopilot_enabled=True,
+            heartbeat_enabled=True,
+            bridge_enabled=True,
+        ),
+    )
+    monkeypatch.setattr(web_server, 'CommanderRuntime', FakeRuntime)
+    monkeypatch.setattr(web_server, 'set_event_callback', callbacks.append)
+    monkeypatch.setattr(web_server.asyncio, 'new_event_loop', lambda: object())
+    monkeypatch.setattr(web_server.threading, 'Thread', FakeThread)
+    monkeypatch.setattr(web_server, '_run_async', lambda coro: asyncio.run(coro))
+    monkeypatch.setattr(web_server, '_register_runtime_shutdown', lambda: registered.append(True))
+
+    runtime = web_server.bootstrap_runtime_services(host='127.0.0.1', mock=True, source='cli')
+    runtime_again = web_server.bootstrap_runtime_services(host='127.0.0.1', mock=True, source='cli')
+
+    assert runtime is runtime_again
+    assert started == [{
+        'mock_mode': True,
+        'autopilot_enabled': False,
+        'heartbeat_enabled': False,
+        'bridge_enabled': False,
+    }]
+    assert len(callbacks) == 1
+    assert thread_names == ['web-event-loop:cli']
+    assert registered == [True]
+
+
+def test_bootstrap_runtime_services_requires_auth_for_non_loopback(monkeypatch):
+    monkeypatch.setattr(config_module.config, 'web_api_require_auth', False)
+    monkeypatch.setattr(config_module.config, 'web_api_token', '')
+
+    with pytest.raises(RuntimeError, match='WEB_API_REQUIRE_AUTH=true'):
+        web_server.bootstrap_runtime_services(host='0.0.0.0', source='cli')
+
+
+def test_bootstrap_runtime_services_rejects_multi_worker_wsgi(monkeypatch):
+    monkeypatch.setenv('GUNICORN_WORKERS', '2')
+
+    with pytest.raises(RuntimeError, match='single gunicorn worker'):
+        web_server.bootstrap_runtime_services(host='127.0.0.1', source='wsgi')
+
+
 def test_memory_detail_blocks_artifacts_outside_runtime_roots(tmp_path, monkeypatch):
     runtime = _make_runtime(tmp_path)
     monkeypatch.setattr(web_server, '_runtime', runtime)
@@ -176,6 +269,46 @@ def test_read_rate_limit_returns_429(monkeypatch):
     assert limited.get_json()['error'] == 'rate limit exceeded'
 
 
+def test_read_rate_limit_ignores_spoofed_x_forwarded_for(monkeypatch):
+    runtime = SimpleNamespace(status=lambda detail='fast': {'detail': detail, 'status': 'ok'})
+    monkeypatch.setattr(web_server, '_runtime', runtime)
+    monkeypatch.setattr(web_server, '_rate_limit_events', {})
+    monkeypatch.setattr(config_module.config, 'web_api_require_auth', False)
+    monkeypatch.setattr(config_module.config, 'web_rate_limit_enabled', True)
+    monkeypatch.setattr(config_module.config, 'web_rate_limit_window_sec', 60)
+    monkeypatch.setattr(config_module.config, 'web_rate_limit_read_max', 1)
+    monkeypatch.setattr(config_module.config, 'web_rate_limit_write_max', 20)
+    monkeypatch.setattr(config_module.config, 'web_rate_limit_heavy_max', 5)
+
+    client = web_server.app.test_client()
+
+    first = client.get('/api/status', headers={'X-Forwarded-For': '198.51.100.10'})
+    second = client.get('/api/status', headers={'X-Forwarded-For': '203.0.113.20'})
+
+    assert first.status_code == 200
+    assert second.status_code == 429
+
+
+def test_read_rate_limit_uses_x_real_ip_from_loopback_proxy(monkeypatch):
+    runtime = SimpleNamespace(status=lambda detail='fast': {'detail': detail, 'status': 'ok'})
+    monkeypatch.setattr(web_server, '_runtime', runtime)
+    monkeypatch.setattr(web_server, '_rate_limit_events', {})
+    monkeypatch.setattr(config_module.config, 'web_api_require_auth', False)
+    monkeypatch.setattr(config_module.config, 'web_rate_limit_enabled', True)
+    monkeypatch.setattr(config_module.config, 'web_rate_limit_window_sec', 60)
+    monkeypatch.setattr(config_module.config, 'web_rate_limit_read_max', 1)
+    monkeypatch.setattr(config_module.config, 'web_rate_limit_write_max', 20)
+    monkeypatch.setattr(config_module.config, 'web_rate_limit_heavy_max', 5)
+
+    client = web_server.app.test_client()
+
+    first = client.get('/api/status', headers={'X-Real-IP': '198.51.100.10'})
+    second = client.get('/api/status', headers={'X-Real-IP': '203.0.113.20'})
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+
+
 def test_heavy_rate_limit_returns_429_for_train(tmp_path, monkeypatch):
     runtime = _make_runtime(tmp_path)
     monkeypatch.setattr(web_server, '_runtime', runtime)
@@ -202,3 +335,32 @@ def test_heavy_rate_limit_returns_429_for_train(tmp_path, monkeypatch):
     second = client.post('/api/train', data=json.dumps({'rounds': 1, 'mock': True}), content_type='application/json')
     assert second.status_code == 429
     assert second.headers['Retry-After']
+
+
+def test_api_data_status_rejects_invalid_refresh_query(monkeypatch):
+    monkeypatch.setattr(config_module.config, 'web_api_require_auth', False)
+
+    client = web_server.app.test_client()
+    res = client.get('/api/data/status?refresh=bad')
+
+    assert res.status_code == 400
+    assert 'refresh must be a boolean' in res.get_json()['error']
+
+
+def test_api_allocator_rejects_invalid_top_n_query(monkeypatch):
+    called = {'value': False}
+
+    def _allocator_preview(**kwargs):
+        called['value'] = True
+        return {'status': 'ok'}
+
+    runtime = SimpleNamespace(get_allocator_preview=_allocator_preview)
+    monkeypatch.setattr(web_server, '_runtime', runtime)
+    monkeypatch.setattr(config_module.config, 'web_api_require_auth', False)
+
+    client = web_server.app.test_client()
+    res = client.get('/api/allocator?top_n=bad')
+
+    assert res.status_code == 400
+    assert 'top_n must be an integer' in res.get_json()['error']
+    assert called['value'] is False

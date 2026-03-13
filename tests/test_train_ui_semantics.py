@@ -497,6 +497,7 @@ def test_run_continuous_report_no_data_counts_attempts(tmp_path):
 
 def test_yaml_mutation_generates_candidate_without_auto_apply_by_default(tmp_path):
     from app.train import SelfLearningController
+    from invest.evolution.mutators import YamlConfigMutator
 
     controller = SelfLearningController(
         output_dir=str(tmp_path / 'training'),
@@ -504,6 +505,7 @@ def test_yaml_mutation_generates_candidate_without_auto_apply_by_default(tmp_pat
         config_audit_log_path=str(tmp_path / 'audit' / 'changes.jsonl'),
         config_snapshot_dir=str(tmp_path / 'snapshots'),
     )
+    controller.model_mutator = YamlConfigMutator(generations_dir=tmp_path / 'generations')
 
     mutation = controller.model_mutator.mutate(
         controller.model_config_path,

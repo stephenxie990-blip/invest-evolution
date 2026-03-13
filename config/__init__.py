@@ -46,7 +46,14 @@ WORKSPACE_DIR = RUNTIME_DIR / "workspace"
 # LLM 默认配置（优先环境变量，其次 fallback）
 # ===========================================================
 
+def _allow_codex_auth_fallback() -> bool:
+    raw = os.environ.get("INVEST_ALLOW_CODEX_AUTH_FALLBACK")
+    return str(raw or "").strip().lower() in {"1", "true", "t", "yes", "y", "on"}
+
+
 def _load_codex_openai_api_key() -> str:
+    if not _allow_codex_auth_fallback():
+        return ""
     auth_path = Path.home() / ".codex" / "auth.json"
     if not auth_path.exists():
         return ""
@@ -138,6 +145,11 @@ def _load_yaml_layer(path: Path) -> dict[str, Any]:
     return _expand_env_placeholders(data)
 
 
+def get_runtime_override_path(config_path: str | Path | None = None) -> Path:
+    primary = Path(config_path) if config_path else PROJECT_ROOT / "config" / "evolution.yaml"
+    return primary.parent.parent / "runtime" / "state" / "evolution.runtime.yaml"
+
+
 def get_config_layer_paths(config_path: str | Path | None = None) -> list[Path]:
     primary = Path(config_path) if config_path else PROJECT_ROOT / "config" / "evolution.yaml"
     config_dir = primary.parent
@@ -149,6 +161,10 @@ def get_config_layer_paths(config_path: str | Path | None = None) -> list[Path]:
     local_override = config_dir / "evolution.local.yaml"
     if local_override.exists() and local_override.resolve() != primary.resolve():
         layers.append(local_override)
+
+    runtime_override = get_runtime_override_path(primary)
+    if runtime_override.exists():
+        layers.append(runtime_override)
 
     extra_path = os.environ.get("INVEST_CONFIG_PATH")
     if extra_path:
@@ -346,14 +362,16 @@ class EvolutionConfig:
             import logging
             logging.getLogger(__name__).warning(
                 "LLM_API_KEY 未设置！LLM 功能将不可用。"
-                "请设置环境变量 `LLM_API_KEY`，或在 `~/.codex/auth.json` 中配置 `OPENAI_API_KEY`。"
+                "请设置环境变量 `LLM_API_KEY`。如需本地开发时复用 `~/.codex/auth.json`，"
+                "请显式设置 `INVEST_ALLOW_CODEX_AUTH_FALLBACK=true`。"
             )
 
 
 def load_config(config_path: str = None) -> EvolutionConfig:
     """从 YAML 或默认值加载配置。
 
-    优先级：环境变量 > INVEST_CONFIG_PATH > evolution.local.yaml > evolution.yaml > dataclass 默认值。
+    优先级：环境变量 > INVEST_CONFIG_PATH > evolution.runtime.yaml >
+    evolution.local.yaml > evolution.yaml > dataclass 默认值。
     """
     base_path = Path(config_path) if config_path else PROJECT_ROOT / "config" / "evolution.yaml"
 

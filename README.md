@@ -36,10 +36,11 @@
 
 ### 4. Web 控制台与 API
 
-- Dashboard / Chat / Train / Strategies / Cron / Memory / Agents / Data 等前端面板
+- 旧版 Dashboard / Chat / Train / Strategies / Cron / Memory / Agents / Data 页面已移除，`/app` 与 `/legacy` 仅保留 tombstone 提示
 - Flask API 覆盖状态、训练、训练实验室、策略、leaderboard、allocator、配置、数据查询与后台下载
 - SSE 事件流：`/api/events`
 - Web 模式默认关闭 autopilot / heartbeat / bridge，仅保留手动触发与监控
+- `wsgi:app` 现为受支持生产入口，但仅支持单 worker gunicorn，因为 Commander runtime 以内嵌方式启动
 
 ### 5. 数据层
 
@@ -176,13 +177,16 @@ python3 web_server.py --mock
 export WEB_API_TOKEN="<strong-random-token>"
 export WEB_API_REQUIRE_AUTH=true
 export WEB_API_PUBLIC_READ_ENABLED=false
+export GUNICORN_WORKERS=1
 pip install -e ".[prod]"
 gunicorn -c gunicorn.conf.py wsgi:app
 ```
 
 - 非回环地址部署时，若未开启 `WEB_API_REQUIRE_AUTH=true` 且未配置 `WEB_API_TOKEN`，服务会拒绝启动。
+- `wsgi:app` 会在导入时自动 bootstrap Commander runtime，因此 `GUNICORN_WORKERS` 必须保持为 `1`。
 - 鉴权支持 `Authorization: Bearer <token>` 或 `X-Invest-Token: <token>`。
 - 内置简单应用级限流，默认按窗口限制读 / 写 / 重型接口；可通过 `WEB_RATE_LIMIT_*` 环境变量调整。
+- 反向代理必须向 `/api/*` 转发可信的 `X-Real-IP`；应用不再信任客户端自带的 `X-Forwarded-For` 进行限流识别。
 - 健康检查：`GET /healthz`。
 - 自然语言交互入口：`POST /api/chat`。
 - 运行状态与事件流入口：`GET /api/status`、`GET /api/events`。
@@ -247,13 +251,15 @@ tests/               当前实现对应的回归测试
 1. `config/__init__.py` 中的默认值
 2. `config/evolution.yaml`
 3. `config/evolution.local.yaml`
-4. `INVEST_CONFIG_PATH` 指向的额外覆盖文件
-5. 环境变量
+4. `runtime/state/evolution.runtime.yaml`
+5. `INVEST_CONFIG_PATH` 指向的额外覆盖文件
+6. 环境变量
 
 建议约定：
 
 - `config/evolution.yaml`：共享、可审阅、非敏感配置
 - `config/evolution.local.yaml`：本地敏感项与个人覆盖项
+- `runtime/state/evolution.runtime.yaml`：由 `/api/evolution_config` 维护的运行时覆盖层，不手工编辑、不纳入版本控制
 - 环境变量：线上密钥与部署平台注入项
 
 推荐从示例文件开始：
@@ -262,6 +268,8 @@ tests/               当前实现对应的回归测试
 cp config/evolution.yaml.example config/evolution.yaml
 cp config/evolution.local.yaml.example config/evolution.local.yaml
 export LLM_API_KEY="<your-key>"
+# 如需本地开发时复用 ~/.codex/auth.json，显式开启：
+export INVEST_ALLOW_CODEX_AUTH_FALLBACK=true
 ```
 
 ### 常用环境变量
@@ -278,9 +286,10 @@ export LLM_API_KEY="<your-key>"
 
 ### Web 可改配置
 
-- `/api/evolution_config`：训练与模型级运行参数
+- `/api/evolution_config`：训练与 Web 运行参数；写入 `runtime/state/evolution.runtime.yaml`
+- `/api/control_plane`：LLM provider / model / API key 绑定
 - `/api/runtime_paths`：训练输出、会议日志、配置审计与快照路径
-- `/api/agent_configs`：Agent prompt / model 配置
+- `/api/agent_prompts`：Agent prompt 配置
 
 ## 测试
 

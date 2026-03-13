@@ -11,12 +11,14 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import atexit
 from collections import deque
 from datetime import datetime
 import time
 import hmac
 import json
 import logging
+import os
 from queue import Full, Queue
 import threading
 from pathlib import Path
@@ -69,6 +71,8 @@ _HEAVY_RATE_LIMIT_PATHS = {
     "/api/train",
     "/api/data/download",
 }
+_runtime_bootstrap_lock = threading.Lock()
+_runtime_shutdown_registered = False
 
 
 def _event_sink(event_type: str, data: dict):
@@ -159,6 +163,18 @@ def _parse_bool(value: Any, field_name: str) -> bool:
     raise ValueError(f"{field_name} must be a boolean")
 
 
+def _parse_int(value: Any, field_name: str, *, minimum: int | None = None, maximum: int | None = None) -> int:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{field_name} must be an integer") from exc
+    if minimum is not None and parsed < minimum:
+        raise ValueError(f"{field_name} must be >= {minimum}")
+    if maximum is not None and parsed > maximum:
+        raise ValueError(f"{field_name} must be <= {maximum}")
+    return parsed
+
+
 def _sync_runtime_path_config(runtime: CommanderRuntime, payload: dict[str, Any]) -> None:
     import config as config_module
 
@@ -218,17 +234,99 @@ def _jsonify_contract_payload(payload: Any, status_code: int = 200):
 
 def _runtime_not_ready_response():
     return jsonify({
-        "error": "Commander runtime is not initialized. Start server with `python web_server.py`.",
+        "error": "Commander runtime is not initialized. Start the supported web entrypoint so runtime bootstrap can complete.",
     }), 503
 
 
 def _parse_limit_arg(default: int = 20, maximum: int = 200) -> int:
     raw = request.args.get("limit", default)
-    try:
-        value = int(raw)
-    except (TypeError, ValueError):
-        raise ValueError("limit must be an integer")
+    value = _parse_int(raw, "limit")
     return max(1, min(maximum, value))
+
+
+def shutdown_runtime_services() -> None:
+    global _loop, _runtime
+
+    runtime = _runtime
+    loop = _loop
+    _runtime = None
+    _loop = None
+    if runtime is None:
+        return
+    if loop is not None:
+        try:
+            future = asyncio.run_coroutine_threadsafe(runtime.stop(), loop)
+            future.result(timeout=30)
+        except Exception:
+            logger.debug("Failed to stop commander runtime cleanly during shutdown", exc_info=True)
+        try:
+            loop.call_soon_threadsafe(loop.stop)
+        except Exception:
+            logger.debug("Failed to stop web event loop cleanly during shutdown", exc_info=True)
+
+
+def _register_runtime_shutdown() -> None:
+    global _runtime_shutdown_registered
+    if _runtime_shutdown_registered:
+        return
+    atexit.register(shutdown_runtime_services)
+    _runtime_shutdown_registered = True
+
+
+def bootstrap_runtime_services(*, host: str, mock: bool = False, source: str = "cli") -> CommanderRuntime:
+    global _loop, _runtime
+
+    with _runtime_bootstrap_lock:
+        if _runtime is not None and _loop is not None:
+            return _runtime
+
+        if not _is_loopback_host(host):
+            if not (_web_api_require_auth() and _web_api_token()):
+                raise RuntimeError(
+                    "Refusing to bind a non-loopback host without WEB_API_REQUIRE_AUTH=true and WEB_API_TOKEN configured."
+                )
+
+        if source == "wsgi":
+            workers = _configured_gunicorn_workers()
+            if workers != 1:
+                raise RuntimeError(
+                    "In-process Commander runtime only supports a single gunicorn worker. Set GUNICORN_WORKERS=1."
+                )
+
+        set_event_callback(_event_sink)
+
+        cfg = CommanderConfig.from_args(argparse.Namespace())
+        if mock:
+            cfg.mock_mode = True
+        cfg.autopilot_enabled = False
+        cfg.heartbeat_enabled = False
+        cfg.bridge_enabled = False
+
+        runtime = CommanderRuntime(cfg)
+        loop = asyncio.new_event_loop()
+        loop_thread = threading.Thread(
+            target=_start_event_loop,
+            args=(loop,),
+            name=f"web-event-loop:{source}",
+            daemon=True,
+        )
+
+        _runtime = runtime
+        _loop = loop
+        loop_thread.start()
+        try:
+            _run_async(runtime.start())
+        except Exception:
+            try:
+                loop.call_soon_threadsafe(loop.stop)
+            except Exception:
+                logger.debug("Failed to stop event loop after bootstrap error", exc_info=True)
+            _runtime = None
+            _loop = None
+            raise
+
+        _register_runtime_shutdown()
+        return runtime
 
 
 def _parse_detail_mode(
@@ -266,7 +364,29 @@ def _current_web_config():
 
 def _is_loopback_host(host: str) -> bool:
     normalized = str(host or "").strip().lower()
-    return normalized in {"127.0.0.1", "localhost", "::1"}
+    return normalized in {"127.0.0.1", "localhost", "::1", "[::1]"}
+
+
+def _parse_bind_host(bind: str) -> str:
+    token = str(bind or "").split(",", 1)[0].strip()
+    if not token:
+        return "127.0.0.1"
+    if token.startswith("unix:"):
+        return "localhost"
+    if token.startswith("[") and "]" in token:
+        return token[1:].split("]", 1)[0]
+    if token.count(":") == 1:
+        return token.rsplit(":", 1)[0]
+    return token
+
+
+def _configured_gunicorn_host() -> str:
+    return _parse_bind_host(os.environ.get("GUNICORN_BIND", "0.0.0.0:8080"))
+
+
+def _configured_gunicorn_workers() -> int:
+    raw = str(os.environ.get("GUNICORN_WORKERS", "1") or "1").strip()
+    return max(1, _parse_int(raw, "GUNICORN_WORKERS", minimum=1))
 
 
 def _web_api_token() -> str:
@@ -326,10 +446,12 @@ def _resolve_runtime_artifact_path(path_str: str) -> Path | None:
 
 
 def _client_identifier() -> str:
-    forwarded_for = str(request.headers.get("X-Forwarded-For", "") or "").split(",")[0].strip()
-    if forwarded_for:
-        return forwarded_for
-    return str(request.remote_addr or "unknown")
+    remote_addr = str(request.remote_addr or "").strip()
+    if _is_loopback_host(remote_addr):
+        real_ip = str(request.headers.get("X-Real-IP", "") or "").split(",", 1)[0].strip()
+        if real_ip:
+            return real_ip
+    return remote_addr or "unknown"
 
 
 def _rate_limit_bucket() -> tuple[str, int] | None:
@@ -770,9 +892,13 @@ def api_allocator():
     if runtime is None:
         return _runtime_not_ready_response()
     regime = str(request.args.get("regime", "oscillation") or "oscillation").strip().lower()
+    try:
+        top_n = _parse_int(request.args.get("top_n", 3), "top_n", minimum=1, maximum=4)
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
     return _jsonify_contract_payload(runtime.get_allocator_preview(
         regime=regime,
-        top_n=max(1, min(4, int(request.args.get("top_n", 3) or 3))),
+        top_n=top_n,
         as_of_date=datetime.now().strftime("%Y%m%d"),
     ))
 
@@ -1247,7 +1373,10 @@ def api_control_plane_update():
 
 @app.route("/api/data/status", methods=["GET"])
 def api_data_status():
-    refresh = _parse_bool(request.args.get("refresh", False), "refresh")
+    try:
+        refresh = _parse_bool(request.args.get("refresh", False), "refresh")
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
     runtime = _runtime
     if runtime is not None:
         return _jsonify_contract_payload(runtime.get_data_status(refresh=refresh))
@@ -1341,8 +1470,6 @@ def api_data_download():
 # ---------------------------------------------------------------------------
 
 def main() -> None:
-    global _loop, _runtime
-
     parser = argparse.ArgumentParser(description="投资进化系统 Web 前端")
     parser.add_argument("--port", type=int, default=8080, help="服务端口 (默认 8080)")
     parser.add_argument("--host", default="127.0.0.1", help="绑定地址 (默认 127.0.0.1)")
@@ -1354,35 +1481,11 @@ def main() -> None:
         format="%(asctime)s [%(levelname)s] %(message)s",
     )
 
+    bootstrap_runtime_services(host=args.host, mock=args.mock, source="cli")
     if not _is_loopback_host(args.host):
-        if not (_web_api_require_auth() and _web_api_token()):
-            raise RuntimeError(
-                "Refusing to bind a non-loopback host without WEB_API_REQUIRE_AUTH=true and WEB_API_TOKEN configured."
-            )
         logger.warning(
-            "Binding non-loopback host via Flask dev server. For production, prefer gunicorn with `wsgi:app`."
+            "Binding non-loopback host via Flask development server. Production should use gunicorn with a single worker."
         )
-
-    # Build commander runtime
-    cfg = CommanderConfig.from_args(argparse.Namespace())
-    if args.mock:
-        cfg.mock_mode = True
-    cfg.autopilot_enabled = False  # Web mode: manual trigger only
-    cfg.heartbeat_enabled = False
-    cfg.bridge_enabled = False
-
-    # 设置训练事件回调
-    set_event_callback(_event_sink)
-
-    _runtime = CommanderRuntime(cfg)
-
-    # Start async event loop in background thread
-    _loop = asyncio.new_event_loop()
-    t = threading.Thread(target=_start_event_loop, args=(_loop,), daemon=True)
-    t.start()
-
-    # Start cron service etc.
-    _run_async(_runtime.start())
 
     print(f"""
 ╔══════════════════════════════════════════════════╗

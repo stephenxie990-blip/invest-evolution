@@ -13,6 +13,17 @@ from pathlib import Path
 from typing import Any, Awaitable, Callable, Optional
 
 from app.llm_gateway import LLMGateway, LLMGatewayError, LLMUnavailableError
+from brain.planner_catalog import (
+    build_config_overview_plan,
+    build_data_focus_plan,
+    build_model_analytics_plan,
+    build_plugin_reload_plan,
+    build_runtime_status_plan,
+    build_strategy_plan,
+    build_training_execution_plan,
+    build_training_history_plan,
+    build_training_lab_summary_plan,
+)
 from brain.schema_contract import (
     MUTATING_DEFAULT_REASON_CODES,
     RISK_LEVEL_HIGH,
@@ -596,50 +607,11 @@ class BrainRuntime:
 
         if intent in {"training_execution", "training_lab_summary"}:
             if writes_state:
-                return [
-                    {"tool": "invest_quick_test", "args": {}},
-                    {"tool": "invest_training_plan_create", "args": {"rounds": rounds, "mock": mock, "goal": user_goal or "training request"}},
-                    {"tool": "invest_training_plan_execute", "args": {"plan_id": "<created_plan_id>"}},
-                    {"tool": "invest_training_evaluations_list", "args": {"limit": 5}},
-                    {"tool": "invest_training_lab_summary", "args": {"limit": 5}},
-                ]
-            return [
-                {"tool": "invest_training_runs_list", "args": {"limit": 5}},
-                {"tool": "invest_training_evaluations_list", "args": {"limit": 5}},
-                {"tool": "invest_training_lab_summary", "args": {"limit": 5}},
-            ]
+                return build_training_execution_plan(rounds=rounds, mock=mock, user_goal=user_goal, limit=5)
+            return build_training_history_plan(limit=5)
         if intent in {"config_management", "config_overview", "config_prompts", "runtime_paths"}:
             if intent == "config_overview":
-                primary_tool = {
-                    "prompts": "invest_agent_prompts_list",
-                    "paths": "invest_runtime_paths_get",
-                    "control_plane": "invest_control_plane_get",
-                }.get(config_focus, "invest_evolution_config_get")
-                base_plan = [
-                    {"tool": primary_tool, "args": {}},
-                    {"tool": "invest_control_plane_get", "args": {}},
-                    {"tool": "invest_evolution_config_get", "args": {}},
-                ]
-                if config_focus not in {"prompts", "paths", "control_plane"}:
-                    base_plan.append({"tool": "invest_runtime_paths_get", "args": {}})
-                deduped_plan: list[dict[str, Any]] = []
-                seen_tools: set[str] = set()
-                for item in base_plan:
-                    tool_name = str(item.get("tool") or "")
-                    if tool_name and tool_name not in seen_tools:
-                        deduped_plan.append(item)
-                        seen_tools.add(tool_name)
-                if writes_state:
-                    if config_focus == "prompts":
-                        deduped_plan.append({"tool": "invest_agent_prompts_update", "args": {"name": "<agent>", "system_prompt": "<prompt>"}})
-                    elif config_focus == "paths":
-                        deduped_plan.append({"tool": "invest_runtime_paths_update", "args": {"patch": {"<path_key>": "<new_path>"}, "confirm": False}})
-                    elif config_focus == "control_plane":
-                        deduped_plan.append({"tool": "invest_control_plane_update", "args": {"patch": {"<section>": "<value>"}, "confirm": False}})
-                    else:
-                        deduped_plan.append({"tool": "invest_evolution_config_update", "args": {"patch": {"<param>": "<value>"}, "confirm": False}})
-                    deduped_plan.append({"tool": "invest_runtime_diagnostics", "args": {"event_limit": 50, "memory_limit": 20}})
-                return deduped_plan
+                return build_config_overview_plan(config_focus=config_focus, writes_state=writes_state)
             if config_focus == "prompts":
                 plan = [{"tool": "invest_agent_prompts_list", "args": {}}]
                 if writes_state:
@@ -673,56 +645,25 @@ class BrainRuntime:
                 ])
             return plan
         if intent in {"data_operations", "data_status"}:
-            if data_focus == "capital_flow":
-                return [
-                    {"tool": "invest_data_status", "args": {"refresh": refresh}},
-                    {"tool": "invest_data_capital_flow", "args": {"limit": 200}},
-                ]
-            if data_focus == "dragon_tiger":
-                return [
-                    {"tool": "invest_data_status", "args": {"refresh": refresh}},
-                    {"tool": "invest_data_dragon_tiger", "args": {"limit": 200}},
-                ]
-            if data_focus == "intraday_60m":
-                return [
-                    {"tool": "invest_data_status", "args": {"refresh": refresh}},
-                    {"tool": "invest_data_intraday_60m", "args": {"limit": 500}},
-                ]
-            plan = [
-                {"tool": "invest_data_status", "args": {"refresh": refresh}},
-                {"tool": "invest_data_download", "args": {"action": "status"}},
-            ]
-            if writes_state or data_focus == "download":
-                plan.extend([
-                    {"tool": "invest_data_download", "args": {"action": "trigger", "confirm": False}},
-                    {"tool": "invest_data_status", "args": {"refresh": True}},
-                ])
-            return plan
+            return build_data_focus_plan(data_focus=data_focus, refresh=refresh, writes_state=writes_state)
         if intent == "stock_analysis":
             return [
                 {"tool": "invest_stock_strategies", "args": {}},
                 {"tool": "invest_ask_stock", "args": {"query": user_goal or "<stock>", "question": user_goal or "<question>", "strategy": strategy, "days": days}},
             ]
         if intent in {"runtime_observability", "runtime_status", "runtime_status_and_training", "runtime_diagnostics", "config_risk_diagnostics"}:
-            plan = [{"tool": "invest_quick_status", "args": {}}]
-            if any(token in str(user_goal or "") for token in ["深度", "slow", "deep"]):
-                plan[0] = {"tool": "invest_deep_status", "args": {}}
-            plan.extend([
-                {"tool": "invest_events_summary", "args": {"limit": 100}},
-                {"tool": "invest_runtime_diagnostics", "args": {"event_limit": 50, "memory_limit": 20}},
-            ])
-            return plan
+            primary_tool = "invest_deep_status" if any(token in str(user_goal or "") for token in ["深度", "slow", "deep"]) else "invest_quick_status"
+            return build_runtime_status_plan(
+                primary_tool=primary_tool,
+                detail_mode="fast",
+                summary_limit=100,
+                event_limit=50,
+                memory_limit=20,
+            )
         if intent == "strategy_inventory":
-            return [
-                {"tool": "invest_list_strategies", "args": {"only_enabled": False}},
-                {"tool": "invest_stock_strategies", "args": {}},
-            ]
+            return build_strategy_plan("strategy_inventory")
         if intent == "model_analytics":
-            return [
-                {"tool": "invest_investment_models", "args": {}},
-                {"tool": "invest_leaderboard", "args": {}},
-                {"tool": "invest_model_routing_preview", "args": {}},
-            ]
+            return build_model_analytics_plan("model_analytics")
         if intent == "memory_lookup":
             return [
                 {"tool": "invest_memory_search", "args": {"query": user_goal or "", "limit": 10}},
@@ -735,7 +676,7 @@ class BrainRuntime:
             return plan
         if intent == "plugin_management":
             return [
-                {"tool": "invest_plugins_reload", "args": {}},
+                *build_plugin_reload_plan(),
                 {"tool": "invest_runtime_diagnostics", "args": {"event_limit": 50, "memory_limit": 20}},
             ]
         return [{"tool": name, "args": {}} for name in tool_names]
