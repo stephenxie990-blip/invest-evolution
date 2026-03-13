@@ -211,8 +211,6 @@ gunicorn -c gunicorn.conf.py wsgi:app
 - `commander.py`
 - `train.py`
 - `web_server.py`
-- `llm_gateway.py`
-- `llm_router.py`
 
 ## 项目结构（与当前代码一致）
 

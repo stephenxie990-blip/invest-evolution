@@ -411,6 +411,186 @@ def test_stream_subscription_suppresses_duplicate_module_updates(runtime_with_db
         runtime_with_db.unsubscribe_event_stream(subscription_id)
 
 
+def test_stream_subscription_suppresses_intermediate_routing_updates(runtime_with_db):
+    subscription_id, event_queue = runtime_with_db.subscribe_event_stream(
+        session_key="api:chat:routing-1",
+        chat_id="routing-1",
+        request_id="req:routing-1",
+    )
+    try:
+        base_payload = {
+            "session_key": "api:chat:routing-1",
+            "chat_id": "routing-1",
+            "request_id": "req:routing-1",
+        }
+        runtime_with_db._append_runtime_event("routing_started", dict(base_payload), source="body")
+        runtime_with_db._append_runtime_event(
+            "regime_classified",
+            dict(base_payload, regime="oscillation"),
+            source="body",
+        )
+        runtime_with_db._append_runtime_event(
+            "routing_decided",
+            dict(base_payload, current_model="momentum", selected_model="mean_reversion", regime="oscillation"),
+            source="body",
+        )
+
+        routed_packet = event_queue.get(timeout=1)
+        assert routed_packet["event"] == "routing_decided"
+        assert routed_packet["stream_kind"] == "routing_update"
+
+        summary_packet = runtime_with_db.build_stream_summary_packet(subscription_id)
+        assert summary_packet["suppressed_count"] >= 2
+    finally:
+        runtime_with_db.unsubscribe_event_stream(subscription_id)
+
+
+def test_stream_routing_update_uses_single_decision_card(runtime_with_db):
+    subscription_id, event_queue = runtime_with_db.subscribe_event_stream(
+        session_key="api:chat:routing-card-1",
+        chat_id="routing-card-1",
+        request_id="req:routing-card-1",
+    )
+    try:
+        runtime_with_db._append_runtime_event(
+            "routing_decided",
+            {
+                "session_key": "api:chat:routing-card-1",
+                "chat_id": "routing-card-1",
+                "request_id": "req:routing-card-1",
+                "current_model": "momentum",
+                "selected_model": "mean_reversion",
+                "regime": "oscillation",
+                "regime_confidence": 0.82,
+                "decision_confidence": 0.74,
+                "decision_source": "hybrid",
+                "switch_applied": True,
+                "reasoning": "均值回归暴露更适合当前震荡市。",
+            },
+            source="body",
+        )
+
+        packet = event_queue.get(timeout=1)
+        assert packet["stream_kind"] == "routing_update"
+        assert packet["display_text"].startswith("模型路由决策；市场状态 oscillation")
+        assert "已从 momentum 切换到 mean_reversion" in packet["display_text"]
+        assert "决策来源 hybrid（置信度 74%）" in packet["display_text"]
+        assert "依据：均值回归暴露更适合当前震荡市。" in packet["display_text"]
+    finally:
+        runtime_with_db.unsubscribe_event_stream(subscription_id)
+
+
+def test_stream_routing_update_collapses_followup_switch_event(runtime_with_db):
+    subscription_id, event_queue = runtime_with_db.subscribe_event_stream(
+        session_key="api:chat:routing-card-2",
+        chat_id="routing-card-2",
+        request_id="req:routing-card-2",
+    )
+    try:
+        base_payload = {
+            "session_key": "api:chat:routing-card-2",
+            "chat_id": "routing-card-2",
+            "request_id": "req:routing-card-2",
+        }
+        runtime_with_db._append_runtime_event(
+            "routing_decided",
+            dict(
+                base_payload,
+                current_model="momentum",
+                selected_model="mean_reversion",
+                regime="oscillation",
+                switch_applied=True,
+                decision_source="rule",
+            ),
+            source="body",
+        )
+        runtime_with_db._append_runtime_event(
+            "model_switch_applied",
+            dict(base_payload, from_model="momentum", to_model="mean_reversion", reasoning="switch"),
+            source="body",
+        )
+
+        packet = event_queue.get(timeout=1)
+        assert packet["event"] == "routing_decided"
+        summary_packet = runtime_with_db.build_stream_summary_packet(subscription_id)
+        assert summary_packet["suppressed_count"] >= 1
+    finally:
+        runtime_with_db.unsubscribe_event_stream(subscription_id)
+
+
+def test_stream_routing_switch_blocked_still_emits_when_no_decision_packet(runtime_with_db):
+    subscription_id, event_queue = runtime_with_db.subscribe_event_stream(
+        session_key="api:chat:routing-card-3",
+        chat_id="routing-card-3",
+        request_id="req:routing-card-3",
+    )
+    try:
+        runtime_with_db._append_runtime_event(
+            "model_switch_blocked",
+            {
+                "session_key": "api:chat:routing-card-3",
+                "chat_id": "routing-card-3",
+                "request_id": "req:routing-card-3",
+                "current_model": "momentum",
+                "hold_reason": "guardrail: cooldown",
+                "reasoning": "近期切换过于频繁",
+            },
+            source="body",
+        )
+
+        packet = event_queue.get(timeout=1)
+        assert packet["event"] == "model_switch_blocked"
+        assert "保持原因：guardrail: cooldown" in packet["display_text"]
+    finally:
+        runtime_with_db.unsubscribe_event_stream(subscription_id)
+
+
+def test_stream_subscription_suppresses_repeated_meeting_chatter_but_keeps_decision(runtime_with_db):
+    subscription_id, event_queue = runtime_with_db.subscribe_event_stream(
+        session_key="api:chat:meeting-1",
+        chat_id="meeting-1",
+        request_id="req:meeting-1",
+    )
+    try:
+        base_payload = {
+            "session_key": "api:chat:meeting-1",
+            "chat_id": "meeting-1",
+            "request_id": "req:meeting-1",
+            "meeting": "selection_meeting",
+        }
+        runtime_with_db._append_runtime_event(
+            "meeting_speech",
+            dict(base_payload, speaker="alpha", speech="先看一下今天的候选池。"),
+            source="body",
+        )
+        runtime_with_db._append_runtime_event(
+            "meeting_speech",
+            dict(base_payload, speaker="beta", speech="我补充一些市场背景。"),
+            source="body",
+        )
+        runtime_with_db._append_runtime_event(
+            "meeting_speech",
+            dict(
+                base_payload,
+                speaker="chair",
+                speech="最终决定保留两只标的进入下一步。",
+                decision={"selected": ["AAA", "BBB"]},
+            ),
+            source="body",
+        )
+
+        first_packet = event_queue.get(timeout=1)
+        second_packet = event_queue.get(timeout=1)
+        assert first_packet["stream_kind"] == "meeting_update"
+        assert second_packet["stream_kind"] == "meeting_update"
+        assert second_packet["has_decision"] is True
+
+        summary_packet = runtime_with_db.build_stream_summary_packet(subscription_id)
+        assert summary_packet["suppressed_count"] >= 1
+    finally:
+        runtime_with_db.unsubscribe_event_stream(subscription_id)
+
+
 def test_stream_summary_can_merge_into_final_human_receipt(runtime_with_db):
     payload = {
         "status": "ok",
@@ -427,13 +607,29 @@ def test_stream_summary_can_merge_into_final_human_receipt(runtime_with_db):
     summary_packet = {
         "display_text": "本次共播报 3 条事件；主要阶段：模型路由 → 训练执行；最高风险：中风险，建议先核对关键参数或数据状态。。",
         "stream_kind": "summary",
+        "event_count": 3,
+        "suppressed_count": 1,
+        "phase_labels": ["模型路由", "训练执行"],
+        "artifact_names": ["cycle_003.json", "selection.md"],
+        "highest_risk_summary": "中风险，建议先核对关键参数或数据状态。",
+        "confirmation_summary": "当前无需人工确认，可以继续查看。",
+        "last_display_text": "训练执行：训练已完成。",
     }
 
     merged = runtime_with_db.merge_stream_summary_into_reply_payload(payload, summary_packet)
 
     assert merged["stream_summary"]["stream_kind"] == "summary"
+    assert "流式过程：" in merged["human_readable"]["receipt_text"]
+    assert "主要阶段：模型路由 → 训练执行" in merged["human_readable"]["receipt_text"]
+    assert "关键产物：cycle_003.json、selection.md" in merged["human_readable"]["receipt_text"]
     assert "流式过程摘要：" in merged["human_readable"]["receipt_text"]
+    assert any(section["label"] == "流式过程" for section in merged["human_readable"]["sections"])
+    assert any(section["label"] == "主要阶段" for section in merged["human_readable"]["sections"])
+    assert any(section["label"] == "流式风险与确认" for section in merged["human_readable"]["sections"])
+    assert any(section["label"] == "关键产物" for section in merged["human_readable"]["sections"])
     assert any(section["label"] == "流式过程摘要" for section in merged["human_readable"]["sections"])
+    assert "关键产物：cycle_003.json、selection.md" in merged["human_readable"]["facts"]
+    assert "最高风险：中风险，建议先核对关键参数或数据状态。" in merged["human_readable"]["risks"]
 
 
 @pytest.mark.asyncio

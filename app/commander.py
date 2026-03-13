@@ -226,6 +226,9 @@ class RuntimeEventSubscription:
     suppressed_count: int = 0
     last_display_by_key: dict[str, str] = field(default_factory=dict)
     last_progress_bucket_by_stage: dict[str, int] = field(default_factory=dict)
+    last_module_title_by_scope: dict[str, str] = field(default_factory=dict)
+    seen_meeting_updates: set[str] = field(default_factory=set)
+    routing_decision_emitted: bool = False
     collected_packets: list[dict[str, Any]] = field(default_factory=list)
 
 
@@ -651,6 +654,65 @@ class CommanderRuntime:
         }
         return int(mapping.get(str(stream_kind or ""), 40))
 
+    @staticmethod
+    def _format_confidence_value(value: Any) -> str:
+        try:
+            numeric = float(value)
+        except (TypeError, ValueError):
+            return ""
+        if numeric <= 1:
+            return f"{numeric:.0%}"
+        return f"{numeric:.2f}"
+
+    @staticmethod
+    def _stream_routing_decision_text(packet: dict[str, Any]) -> str:
+        event_name = str(packet.get("event") or "").strip()
+        regime = str(packet.get("regime") or "").strip()
+        current_model = str(packet.get("current_model") or "").strip()
+        selected_model = str(packet.get("selected_model") or "").strip()
+        decision_source = str(packet.get("decision_source") or "").strip()
+        hold_reason = str(packet.get("hold_reason") or "").strip()
+        reasoning = BrainRuntime._truncate_text(packet.get("reasoning"), limit=120)
+        regime_confidence = CommanderRuntime._format_confidence_value(packet.get("regime_confidence"))
+        decision_confidence = CommanderRuntime._format_confidence_value(packet.get("decision_confidence"))
+        switch_applied = bool(packet.get("switch_applied"))
+        hold_current = bool(packet.get("hold_current"))
+
+        parts: list[str] = ["模型路由决策"]
+        if regime:
+            regime_text = f"市场状态 {regime}"
+            if regime_confidence:
+                regime_text += f"（置信度 {regime_confidence}）"
+            parts.append(regime_text)
+
+        if selected_model and switch_applied and current_model and current_model != selected_model:
+            parts.append(f"已从 {current_model} 切换到 {selected_model}")
+        elif selected_model and hold_current and current_model:
+            parts.append(f"建议模型 {selected_model}，本次继续保持 {current_model}")
+        elif selected_model and current_model and selected_model == current_model:
+            parts.append(f"继续使用 {current_model}")
+        elif selected_model:
+            parts.append(f"建议模型 {selected_model}")
+        elif current_model:
+            parts.append(f"当前模型 {current_model}")
+
+        if decision_source:
+            source_text = f"决策来源 {decision_source}"
+            if decision_confidence:
+                source_text += f"（置信度 {decision_confidence}）"
+            parts.append(source_text)
+        elif decision_confidence:
+            parts.append(f"决策置信度 {decision_confidence}")
+
+        if hold_reason:
+            parts.append(f"保持原因：{hold_reason}")
+        elif event_name == "model_switch_blocked":
+            parts.append("本次未执行模型切换")
+
+        if reasoning:
+            parts.append(f"依据：{reasoning}")
+        return "；".join(part for part in parts if part) + "。"
+
     def _stream_display_text(self, packet: dict[str, Any]) -> str:
         stream_kind = str(packet.get("stream_kind") or "").strip()
         phase_label = str(packet.get("phase_label") or "").strip()
@@ -683,6 +745,8 @@ class CommanderRuntime:
             if artifact_summary:
                 parts.append(f"相关产物：{artifact_summary}")
             return "；".join(part for part in parts if part)
+        if stream_kind == "routing_update":
+            return self._stream_routing_decision_text(packet)
         if stream_kind in {"routing_update", "meeting_update", "agent_update", "module_update"}:
             if phase_label and base and not base.startswith(f"{phase_label}："):
                 return f"{phase_label}：{base}"
@@ -731,8 +795,24 @@ class CommanderRuntime:
             "channel": context.get("channel", ""),
             "agent": str(payload.get("agent") or "").strip(),
             "module": str(payload.get("module") or "").strip(),
+            "module_title": str(payload.get("title") or "").strip(),
             "meeting": str(payload.get("meeting") or "").strip(),
+            "speaker": str(payload.get("speaker") or "").strip(),
             "artifacts": artifacts,
+            "has_decision": bool(payload.get("decision")),
+            "suggestion_count": len(list(payload.get("suggestions") or [])) if isinstance(payload.get("suggestions"), list) else 0,
+            "pick_count": len(list(payload.get("picks") or [])) if isinstance(payload.get("picks"), list) else 0,
+            "current_model": str(payload.get("current_model") or "").strip(),
+            "selected_model": str(payload.get("selected_model") or "").strip(),
+            "selected_config": str(payload.get("selected_config") or "").strip(),
+            "regime": str(payload.get("regime") or "").strip(),
+            "decision_source": str(payload.get("decision_source") or "").strip(),
+            "hold_reason": str(payload.get("hold_reason") or "").strip(),
+            "reasoning": str(payload.get("reasoning") or "").strip(),
+            "switch_applied": bool(payload.get("switch_applied")),
+            "hold_current": bool(payload.get("hold_current")),
+            "regime_confidence": payload.get("regime_confidence"),
+            "decision_confidence": payload.get("decision_confidence"),
         }
         if payload.get("progress_pct") not in (None, ""):
             packet["progress_pct"] = payload.get("progress_pct")
@@ -772,6 +852,43 @@ class CommanderRuntime:
             ]
         )
 
+    @staticmethod
+    def _stream_text_has_terminal_signal(text: str) -> bool:
+        content = str(text or "").strip()
+        if not content:
+            return False
+        keywords = (
+            "完成",
+            "已完成",
+            "成功",
+            "失败",
+            "异常",
+            "结论",
+            "决议",
+            "决定",
+            "最终",
+            "切换",
+            "阻止",
+            "确认",
+            "产物",
+        )
+        return any(keyword in content for keyword in keywords)
+
+    @staticmethod
+    def _should_suppress_routing_update(packet: dict[str, Any]) -> bool:
+        event_name = str(packet.get("event") or "").strip()
+        return event_name in {"routing_started", "regime_classified"}
+
+    @staticmethod
+    def _meeting_packet_is_material(packet: dict[str, Any]) -> bool:
+        if bool(packet.get("has_decision")):
+            return True
+        if int(packet.get("suggestion_count") or 0) > 0:
+            return True
+        if int(packet.get("pick_count") or 0) > 0:
+            return True
+        return CommanderRuntime._stream_text_has_terminal_signal(str(packet.get("display_text") or ""))
+
     def _should_emit_stream_packet(
         self,
         subscription: RuntimeEventSubscription,
@@ -780,9 +897,20 @@ class CommanderRuntime:
         stream_kind = str(packet.get("stream_kind") or "").strip()
         display_text = str(packet.get("display_text") or "").strip()
         packet_key = self._stream_packet_key(packet)
+        event_name = str(packet.get("event") or "").strip()
         if display_text and subscription.last_display_by_key.get(packet_key) == display_text:
             subscription.suppressed_count += 1
             return False
+
+        if stream_kind == "routing_update" and self._should_suppress_routing_update(packet):
+            subscription.suppressed_count += 1
+            return False
+        if stream_kind == "routing_update":
+            if event_name == "routing_decided":
+                subscription.routing_decision_emitted = True
+            elif subscription.routing_decision_emitted and event_name in {"model_switch_applied", "model_switch_blocked"}:
+                subscription.suppressed_count += 1
+                return False
 
         if stream_kind == "agent_update" and packet.get("progress_pct") not in (None, ""):
             try:
@@ -797,6 +925,25 @@ class CommanderRuntime:
                 return False
             if bucket >= 0:
                 subscription.last_progress_bucket_by_stage[stage] = bucket
+
+        if stream_kind == "module_update":
+            stage = str(packet.get("stage") or "module").strip() or "module"
+            module = str(packet.get("module") or "").strip() or "module"
+            title = str(packet.get("module_title") or "").strip() or str(packet.get("label") or "").strip()
+            scope_key = f"{stage}|{module}"
+            previous_title = subscription.last_module_title_by_scope.get(scope_key)
+            if previous_title and previous_title == title and not self._stream_text_has_terminal_signal(display_text):
+                subscription.suppressed_count += 1
+                return False
+            if title:
+                subscription.last_module_title_by_scope[scope_key] = title
+
+        if stream_kind == "meeting_update":
+            meeting = str(packet.get("meeting") or "").strip() or str(packet.get("stage") or "meeting").strip() or "meeting"
+            if meeting in subscription.seen_meeting_updates and not self._meeting_packet_is_material(packet):
+                subscription.suppressed_count += 1
+                return False
+            subscription.seen_meeting_updates.add(meeting)
 
         if display_text:
             subscription.last_display_by_key[packet_key] = display_text
@@ -832,6 +979,7 @@ class CommanderRuntime:
 
         phase_labels: list[str] = []
         highest_risk = ""
+        highest_risk_summary = ""
         requires_confirmation = False
         confirmation_summary = ""
         artifact_names: list[str] = []
@@ -843,6 +991,7 @@ class CommanderRuntime:
             risk_level = str(packet.get("risk_level") or "").strip()
             if self._risk_rank(risk_level) > self._risk_rank(highest_risk):
                 highest_risk = risk_level
+                highest_risk_summary = self._stream_risk_summary(risk_level)
             if bool(packet.get("requires_confirmation")):
                 requires_confirmation = True
             confirmation_text = str(packet.get("confirmation_summary") or "").strip()
@@ -865,7 +1014,7 @@ class CommanderRuntime:
         if phase_labels:
             parts.append("主要阶段：" + " → ".join(phase_labels[:5]))
         if highest_risk:
-            parts.append("最高风险：" + self._stream_risk_summary(highest_risk))
+            parts.append("最高风险：" + highest_risk_summary)
         if requires_confirmation and confirmation_summary:
             parts.append("确认状态：" + confirmation_summary)
         if artifact_names:
@@ -888,9 +1037,87 @@ class CommanderRuntime:
             "suppressed_count": suppressed_count,
             "phase_labels": phase_labels,
             "highest_risk_level": highest_risk,
+            "highest_risk_summary": highest_risk_summary,
             "requires_confirmation": requires_confirmation,
+            "confirmation_summary": confirmation_summary,
             "artifact_names": artifact_names[:3],
+            "last_display_text": last_display_text,
         }
+
+    @staticmethod
+    def _upsert_human_section(
+        sections: list[dict[str, Any]],
+        section: dict[str, Any],
+        *,
+        after_labels: tuple[str, ...] = ("执行性质", "结论"),
+    ) -> list[dict[str, Any]]:
+        label = str(section.get("label") or "").strip()
+        if not label:
+            return list(sections or [])
+
+        normalized: list[dict[str, Any]] = []
+        insert_index: int | None = None
+        for item in list(sections or []):
+            if not isinstance(item, dict):
+                continue
+            item_label = str(item.get("label") or "").strip()
+            if item_label == label:
+                continue
+            normalized.append(item)
+            if item_label in after_labels:
+                insert_index = len(normalized)
+
+        if insert_index is None:
+            normalized.append(section)
+            return normalized
+
+        normalized.insert(insert_index, section)
+        return normalized
+
+    @staticmethod
+    def _append_unique_text(target: list[str], value: str) -> None:
+        text = str(value or "").strip()
+        if text and text not in target:
+            target.append(text)
+
+    @staticmethod
+    def _stream_summary_sections(summary: dict[str, Any]) -> list[dict[str, Any]]:
+        summary_text = str(summary.get("display_text") or "").strip()
+        event_count = int(summary.get("event_count") or 0)
+        suppressed_count = int(summary.get("suppressed_count") or 0)
+        phase_labels = [str(item) for item in list(summary.get("phase_labels") or []) if str(item or "").strip()]
+        artifact_names = [str(item) for item in list(summary.get("artifact_names") or []) if str(item or "").strip()]
+        highest_risk_summary = str(summary.get("highest_risk_summary") or "").strip()
+        confirmation_summary = str(summary.get("confirmation_summary") or "").strip()
+        last_display_text = str(summary.get("last_display_text") or "").strip()
+
+        sections: list[dict[str, Any]] = []
+        stream_items: list[str] = []
+        if event_count:
+            stream_items.append(f"本次共播报 {event_count} 条事件")
+        if suppressed_count:
+            stream_items.append(f"已合并/抑制 {suppressed_count} 条高频更新")
+        if last_display_text:
+            stream_items.append(f"最后播报：{last_display_text}")
+        if stream_items:
+            sections.append({"label": "流式过程", "items": stream_items, "text": summary_text})
+        elif summary_text:
+            sections.append({"label": "流式过程", "text": summary_text})
+
+        if phase_labels:
+            sections.append({"label": "主要阶段", "items": phase_labels})
+
+        risk_items: list[str] = []
+        if highest_risk_summary:
+            risk_items.append(f"最高风险：{highest_risk_summary}")
+        if confirmation_summary:
+            risk_items.append(f"确认状态：{confirmation_summary}")
+        if risk_items:
+            sections.append({"label": "流式风险与确认", "items": risk_items})
+
+        if artifact_names:
+            sections.append({"label": "关键产物", "items": artifact_names})
+        return sections
 
     @staticmethod
     def merge_stream_summary_into_reply_payload(
@@ -917,28 +1144,61 @@ class CommanderRuntime:
             }
 
         sections = list(human.get("sections") or [])
+        for section in CommanderRuntime._stream_summary_sections(summary):
+            sections = CommanderRuntime._upsert_human_section(sections, section)
         if not any(str(section.get("label") or "") == "流式过程摘要" for section in sections if isinstance(section, dict)):
-            sections.append({"label": "流式过程摘要", "text": summary_text})
+            sections = CommanderRuntime._upsert_human_section(
+                sections,
+                {"label": "流式过程摘要", "text": summary_text},
+                after_labels=("关键产物", "流式风险与确认", "主要阶段", "流式过程", "执行性质", "结论"),
+            )
         human["sections"] = sections
 
         bullets = [str(item) for item in list(human.get("bullets") or []) if str(item or "").strip()]
         stream_bullet = f"流式过程摘要：{summary_text}"
-        if stream_bullet not in bullets:
-            bullets.append(stream_bullet)
+        CommanderRuntime._append_unique_text(bullets, stream_bullet)
+        phase_labels = [str(item) for item in list(summary.get("phase_labels") or []) if str(item or "").strip()]
+        if phase_labels:
+            CommanderRuntime._append_unique_text(bullets, "主要阶段：" + " → ".join(phase_labels[:5]))
         human["bullets"] = bullets
 
         facts = [str(item) for item in list(human.get("facts") or []) if str(item or "").strip()]
-        if stream_bullet not in facts:
-            facts.append(stream_bullet)
+        CommanderRuntime._append_unique_text(facts, stream_bullet)
+        artifact_names = [str(item) for item in list(summary.get("artifact_names") or []) if str(item or "").strip()]
+        if artifact_names:
+            CommanderRuntime._append_unique_text(facts, "关键产物：" + "、".join(artifact_names[:3]))
+        if phase_labels:
+            CommanderRuntime._append_unique_text(facts, "主要阶段：" + " → ".join(phase_labels[:5]))
         human["facts"] = facts
 
+        risks = [str(item) for item in list(human.get("risks") or []) if str(item or "").strip()]
+        highest_risk_summary = str(summary.get("highest_risk_summary") or "").strip()
+        if highest_risk_summary:
+            CommanderRuntime._append_unique_text(risks, "最高风险：" + highest_risk_summary)
+        confirmation_summary = str(summary.get("confirmation_summary") or "").strip()
+        if confirmation_summary:
+            CommanderRuntime._append_unique_text(risks, "确认状态：" + confirmation_summary)
+        if risks:
+            human["risks"] = risks
+
+        suggested_actions = [str(item) for item in list(human.get("suggested_actions") or []) if str(item or "").strip()]
+        if bool(summary.get("requires_confirmation")):
+            CommanderRuntime._append_unique_text(suggested_actions, "如需继续执行，请先人工确认后再继续。")
+        human["suggested_actions"] = suggested_actions
+
         receipt_text = str(human.get("receipt_text") or "").strip()
-        summary_line = "流式过程摘要：" + summary_text
-        if receipt_text:
-            if summary_line not in receipt_text:
-                receipt_text = receipt_text + "\n" + summary_line
-        else:
-            receipt_text = summary_line
+        receipt_lines = [line for line in receipt_text.splitlines() if str(line or "").strip()]
+        for line in [
+            "流式过程：" + summary_text,
+            ("主要阶段：" + " → ".join(phase_labels[:5])) if phase_labels else "",
+            ("关键产物：" + "、".join(artifact_names[:3])) if artifact_names else "",
+            ("流式风险：" + highest_risk_summary) if highest_risk_summary else "",
+            ("流式确认：" + confirmation_summary) if confirmation_summary else "",
+            "流式过程摘要：" + summary_text,
+        ]:
+            if line and line not in receipt_lines:
+                receipt_lines.append(line)
+        receipt_text = "\n".join(receipt_lines) if receipt_lines else ("流式过程摘要：" + summary_text)
         human["receipt_text"] = receipt_text
         human["stream_summary"] = summary
         body["human_readable"] = human

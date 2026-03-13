@@ -55,6 +55,9 @@ def test_runtime_contract_endpoint_returns_machine_readable_contract():
     assert payload['components']['schemas']['chatStreamConnected']['properties']['status']['enum'] == ['connected']
     assert payload['components']['schemas']['chatStreamRuntimeEvent']['properties']['stream_kind']['type'] == 'string'
     assert payload['components']['schemas']['chatStreamSummary']['properties']['event_count']['type'] == 'integer'
+    assert payload['components']['schemas']['chatStreamSummary']['properties']['highest_risk_summary']['type'] == 'string'
+    assert payload['components']['schemas']['chatStreamSummary']['properties']['confirmation_summary']['type'] == 'string'
+    assert payload['components']['schemas']['chatStreamSummary']['properties']['last_display_text']['type'] == 'string'
     assert payload['components']['schemas']['chatStreamReply']['properties']['stream_summary']['$ref'] == '#/components/schemas/chatStreamSummary'
     assert payload['components']['schemas']['chatStreamDone']['properties']['status']['enum'] == ['completed']
     assert payload['components']['schemas']['chatStreamError']['properties']['error']['type'] == 'string'

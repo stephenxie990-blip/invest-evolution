@@ -492,14 +492,23 @@
           "highest_risk_level": {
             "type": "string"
           },
+          "highest_risk_summary": {
+            "type": "string"
+          },
           "requires_confirmation": {
             "type": "boolean"
+          },
+          "confirmation_summary": {
+            "type": "string"
           },
           "artifact_names": {
             "type": "array",
             "items": {
               "type": "string"
             }
+          },
+          "last_display_text": {
+            "type": "string"
           }
         },
         "required": [
@@ -516,8 +525,11 @@
           "suppressed_count",
           "phase_labels",
           "highest_risk_level",
+          "highest_risk_summary",
           "requires_confirmation",
-          "artifact_names"
+          "confirmation_summary",
+          "artifact_names",
+          "last_display_text"
         ],
         "additionalProperties": false
       },

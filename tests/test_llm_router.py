@@ -9,7 +9,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 def test_llm_router_from_config():
     """LLMRouter.from_config() 能正确创建双轨 caller"""
     from config import EvolutionConfig
-    from llm_router import LLMRouter
+    from app.llm_router import LLMRouter
     from invest.shared import LLMCaller
 
     cfg = EvolutionConfig()
@@ -22,7 +22,7 @@ def test_llm_router_from_config():
 def test_llm_router_shared_when_same_model():
     """当 fast 和 deep 模型相同时，router.fast() is router.deep() 成立"""
     from config import EvolutionConfig
-    from llm_router import LLMRouter
+    from app.llm_router import LLMRouter
 
     cfg = EvolutionConfig()
     cfg.llm_fast_model = "model-a"
@@ -35,7 +35,7 @@ def test_llm_router_shared_when_same_model():
 def test_llm_router_separate_when_different_models():
     """当 fast 和 deep 模型不同时，返回不同实例"""
     from config import EvolutionConfig
-    from llm_router import LLMRouter
+    from app.llm_router import LLMRouter
 
     cfg = EvolutionConfig()
     cfg.llm_fast_model = "model-fast"
@@ -48,7 +48,7 @@ def test_llm_router_separate_when_different_models():
 def test_llm_router_get_stats():
     """get_stats() 返回正确结构"""
     from config import EvolutionConfig
-    from llm_router import LLMRouter
+    from app.llm_router import LLMRouter
 
     cfg = EvolutionConfig()
     router = LLMRouter.from_config(cfg, dry_run=True)
@@ -62,7 +62,7 @@ def test_llm_router_get_stats():
 def test_dry_run_routing():
     """dry_run 模式下 fast 和 deep 均能正常返回占位响应"""
     from config import EvolutionConfig
-    from llm_router import LLMRouter
+    from app.llm_router import LLMRouter
 
     cfg = EvolutionConfig()
     router = LLMRouter.from_config(cfg, dry_run=True)

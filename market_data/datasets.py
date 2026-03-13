@@ -363,9 +363,12 @@ def _prepare_training_frames(
             pd.Series,
             cast(pd.Series, bench.set_index("trade_date")["close"]).pct_change(20).mul(100),
         )
-    combined["relative_strength_hs300"] = _numeric_series(combined, "relative_strength_hs300").fillna(
-        cast(pd.Series, combined["momentum20"]).sub(benchmark_returns.reindex(trade_date_series).values)
-    )
+    if not benchmark_returns.empty:
+        # 使用 map 将 benchmark_returns 映射到 trade_date_series（处理重复日期）
+        benchmark_mapped = trade_date_series.map(benchmark_returns)
+        combined["relative_strength_hs300"] = _numeric_series(combined, "relative_strength_hs300").fillna(
+            cast(pd.Series, combined["momentum20"]).sub(benchmark_mapped)
+        )
     t_enrich = time.perf_counter()
 
     ordered = [

@@ -15,8 +15,6 @@
 - `commander.py` -> 转发到 `app.commander`
 - `train.py` -> 转发到 `app.train`
 - `web_server.py` -> 转发到 `app.web_server`
-- `llm_gateway.py` -> 转发到 `app.llm_gateway`
-- `llm_router.py` -> 转发到 `app.llm_router`
 
 ### 2.2 独立工具脚本
 
@@ -65,4 +63,4 @@
 ## 5. 剩余清理建议
 
 - `allocator` / `leaderboard` 已并入 `scripts/cli/`，后续如有更多独立工具脚本，也应优先进入该目录
-- `llm_gateway.py` / `llm_router.py` 当前仍建议保留为根层极薄兼容壳，因为测试和潜在外部导入仍直接依赖它们
+- 根层 `llm_gateway.py` / `llm_router.py` 已移除，后续若新增 LLM 相关能力，应继续只维护 `app/` 内正式实现

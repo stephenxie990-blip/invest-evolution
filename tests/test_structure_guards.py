@@ -77,8 +77,6 @@ def test_root_python_surface_is_intentional():
     allowed = {
         'commander.py',
         'gunicorn.conf.py',
-        'llm_gateway.py',
-        'llm_router.py',
         'train.py',
         'web_server.py',
         'wsgi.py',
