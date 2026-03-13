@@ -46,10 +46,16 @@ from invest.models.defaults import COMMON_PARAM_DEFAULTS
 from invest.research.case_store import ResearchCaseStore
 from invest.services import EvolutionService, ReviewMeetingService, SelectionMeetingService
 from app.training.optimization import trigger_loss_optimization
-from app.training.controller_services import FreezeGateService, TrainingFeedbackService, TrainingPersistenceService
+from app.training.controller_services import (
+    FreezeGateService,
+    TrainingFeedbackService,
+    TrainingLLMRuntimeService,
+    TrainingPersistenceService,
+)
 from app.training.cycle_services import TrainingCycleDataService
 from app.training.execution_services import TrainingExecutionService
 from app.training.lifecycle_services import TrainingLifecycleService
+from app.training.observability_services import TrainingObservabilityService
 from app.training.outcome_services import TrainingOutcomeService
 from app.training.policy_services import TrainingPolicyService
 from app.training.review_services import TrainingReviewService
@@ -304,6 +310,8 @@ class SelfLearningController:
         self.evolution_engine = EvolutionEngine(population_size=10)
         self.strategy_evaluator = StrategyEvaluator()
         self.benchmark_evaluator = BenchmarkEvaluator()
+        self.training_llm_runtime_service = TrainingLLMRuntimeService()
+        self.training_observability_service = TrainingObservabilityService()
         self.execution_policy: Dict[str, Any] = {}
         self.train_policy: Dict[str, Any] = {}
         self.freeze_gate_policy: Dict[str, Any] = {}
@@ -726,73 +734,21 @@ class SelfLearningController:
 
 
     def _apply_experiment_llm_overrides(self, llm_spec: Dict[str, Any] | None = None) -> None:
-        llm_spec = dict(llm_spec or {})
-        timeout = llm_spec.get("timeout")
-        max_retries = llm_spec.get("max_retries")
-        dry_run = llm_spec.get("dry_run")
-
-        targets = [self.llm_caller]
-        for agent in self.agents.values():
-            llm = getattr(agent, "llm", None)
-            if llm is not None:
-                targets.append(llm)
-        for component in (self.selection_meeting, self.review_meeting, self.llm_optimizer):
-            llm = getattr(component, "llm", None)
-            if llm is not None:
-                targets.append(llm)
-
-        seen = set()
-        for llm in targets:
-            if llm is None or id(llm) in seen:
-                continue
-            seen.add(id(llm))
-            if hasattr(llm, "apply_runtime_limits"):
-                llm.apply_runtime_limits(timeout=timeout, max_retries=max_retries)
-            if dry_run is not None and hasattr(llm, "dry_run"):
-                llm.dry_run = bool(dry_run)
+        self.training_llm_runtime_service.apply_experiment_overrides(self, llm_spec)
 
     def set_llm_dry_run(self, enabled: bool = True) -> None:
         """统一切换 LLM 调用 dry-run 模式。"""
-        dry_run = bool(enabled)
-        self.llm_mode = "dry_run" if dry_run else "live"
-        if hasattr(self.llm_caller, "dry_run"):
-            self.llm_caller.dry_run = dry_run
-        for agent in self.agents.values():
-            llm = getattr(agent, "llm", None)
-            if llm is not None and hasattr(llm, "dry_run"):
-                llm.dry_run = dry_run
-        for component in (self.selection_meeting, self.review_meeting, self.llm_optimizer):
-            llm = getattr(component, "llm", None)
-            if llm is not None and hasattr(llm, "dry_run"):
-                llm.dry_run = dry_run
+        self.training_llm_runtime_service.set_dry_run(self, enabled)
 
     def set_mock_mode(self, enabled: bool = True) -> None:
         """兼容别名：mock mode 仅表示 LLM dry-run，不再代表数据源选择。"""
-        self.set_llm_dry_run(enabled)
+        self.training_llm_runtime_service.set_dry_run(self, enabled)
 
     def _refresh_model_routing_coordinator(self) -> None:
         self.training_routing_service.refresh_routing_coordinator(self)
 
     def refresh_runtime_from_config(self) -> None:
-        previous_model = self.model_name
-        previous_config_path = self.model_config_path
-        self.model_name = str(getattr(config, "investment_model", self.model_name) or self.model_name)
-        self.model_config_path = str(getattr(config, "investment_model_config", self.model_config_path) or self.model_config_path)
-        self.allocator_enabled = bool(getattr(config, "allocator_enabled", self.allocator_enabled))
-        self.allocator_top_n = int(getattr(config, "allocator_top_n", self.allocator_top_n) or self.allocator_top_n)
-        self.model_routing_enabled = bool(getattr(config, "model_routing_enabled", self.model_routing_enabled) or self.allocator_enabled)
-        self.model_routing_mode = str(getattr(config, "model_routing_mode", self.model_routing_mode) or self.model_routing_mode).strip().lower()
-        self.model_routing_allowed_models = [str(item).strip() for item in (getattr(config, "model_routing_allowed_models", self.model_routing_allowed_models) or []) if str(item).strip()]
-        self.model_switch_cooldown_cycles = int(getattr(config, "model_switch_cooldown_cycles", self.model_switch_cooldown_cycles) or self.model_switch_cooldown_cycles)
-        self.model_switch_min_confidence = float(getattr(config, "model_switch_min_confidence", self.model_switch_min_confidence) or self.model_switch_min_confidence)
-        self.model_switch_hysteresis_margin = float(getattr(config, "model_switch_hysteresis_margin", self.model_switch_hysteresis_margin) or self.model_switch_hysteresis_margin)
-        self.model_routing_agent_override_enabled = bool(getattr(config, "model_routing_agent_override_enabled", self.model_routing_agent_override_enabled))
-        self.model_routing_agent_override_max_gap = float(getattr(config, "model_routing_agent_override_max_gap", self.model_routing_agent_override_max_gap) or self.model_routing_agent_override_max_gap)
-        self.model_routing_policy = dict(getattr(config, "model_routing_policy", self.model_routing_policy) or {})
-        self._refresh_model_routing_coordinator()
-        if previous_model != self.model_name or previous_config_path != self.model_config_path:
-            self.current_params = {}
-            self._reload_investment_model(self.model_config_path)
+        self.training_routing_service.sync_runtime_from_config(self)
 
     def preview_model_routing(
         self,
@@ -811,143 +767,27 @@ class SelfLearningController:
         )
 
     def _reload_investment_model(self, config_path: Optional[str] = None) -> None:
-        if config_path:
-            self.model_config_path = str(config_path)
-        self.investment_model = create_investment_model(
-            self.model_name,
-            config_path=self.model_config_path,
-            runtime_overrides=self.current_params,
-        )
-        self._sync_runtime_policy_from_model()
+        self.training_routing_service.reload_investment_model(self, config_path)
 
     def _sync_runtime_policy_from_model(self) -> None:
         self.training_policy_service.sync_runtime_policy(self)
 
 
     def _maybe_apply_allocator(self, stock_data: Dict[str, Any], cutoff_date: str, cycle_id: int) -> None:
-        if not self.model_routing_enabled or self.model_routing_mode == "off":
-            return
-        self._emit_agent_status(
-            "ModelRouter",
-            "running",
-            "正在评估市场状态并为本轮训练选择投资模型...",
-            cycle_id=cycle_id,
-            stage="model_routing",
-            progress_pct=22,
-            step=2,
-            total_steps=6,
-        )
-        emit_event("routing_started", {
-            **self._event_context(cycle_id),
-            "current_model": self.model_name,
-            "routing_mode": self.model_routing_mode,
-        })
-        decision = self.training_routing_service.route_model(
+        self.training_routing_service.apply_model_routing(
             self,
             stock_data=stock_data,
             cutoff_date=cutoff_date,
-            current_model=self.model_name,
-            data_manager=self.data_manager,
-            output_dir=self.output_dir,
-            allowed_models=self.experiment_allowed_models or self.model_routing_allowed_models,
-            current_cycle_id=cycle_id,
-        )
-        self.last_routing_decision = decision.to_dict()
-        self.routing_history.append(dict(self.last_routing_decision))
-        self.last_allocation_plan = dict(decision.allocation_plan or {})
-        emit_event("regime_classified", {
-            **self._event_context(cycle_id),
-            "regime": decision.regime,
-            "confidence": decision.regime_confidence,
-            "source": decision.regime_source,
-            "reasoning": (decision.evidence.get("rule_result") or {}).get("reasoning") or decision.reasoning,
-        })
-        emit_event("routing_decided", {
-            **self._event_context(cycle_id),
-            "current_model": decision.current_model,
-            "selected_model": decision.selected_model,
-            "selected_config": decision.selected_config,
-            "candidate_models": decision.candidate_models,
-            "candidate_weights": decision.candidate_weights,
-            "regime": decision.regime,
-            "regime_confidence": decision.regime_confidence,
-            "decision_confidence": decision.decision_confidence,
-            "decision_source": decision.decision_source,
-            "switch_applied": decision.switch_applied,
-            "hold_current": decision.hold_current,
-            "hold_reason": decision.hold_reason,
-            "reasoning": decision.reasoning,
-            "guardrail_checks": decision.guardrail_checks,
-        })
-        previous_model = self.model_name
-        if decision.switch_applied and decision.selected_model != self.model_name:
-            self.current_params = {}
-            self.model_name = decision.selected_model
-            self.model_config_path = decision.selected_config
-            self._reload_investment_model(self.model_config_path)
-            self.last_model_switch_cycle_id = cycle_id
-            emit_event("model_switch_applied", {
-                **self._event_context(cycle_id),
-                "from_model": previous_model,
-                "to_model": self.model_name,
-                "reasoning": decision.reasoning,
-            })
-        elif decision.hold_current and decision.selected_model == previous_model:
-            emit_event("model_switch_blocked", {
-                **self._event_context(cycle_id),
-                "current_model": previous_model,
-                "candidate_models": decision.candidate_models,
-                "hold_reason": decision.hold_reason,
-                "reasoning": decision.reasoning,
-            })
-        self._emit_agent_status(
-            "ModelRouter",
-            "completed",
-            f"router 识别 {decision.regime} 市场，当前主模型 {self.model_name}",
             cycle_id=cycle_id,
-            stage="model_routing",
-            progress_pct=24,
-            step=2,
-            total_steps=6,
-            details=self.last_routing_decision,
-            thinking=self._thinking_excerpt(decision.reasoning),
-        )
-        self._emit_module_log(
-            "model_routing",
-            "模型路由完成",
-            decision.reasoning,
-            cycle_id=cycle_id,
-            kind="routing_decision",
-            details=self.last_routing_decision,
-            metrics={
-                "switch_applied": decision.switch_applied,
-                "hold_current": decision.hold_current,
-                "cash_reserve_hint": decision.cash_reserve_hint,
-                "decision_confidence": decision.decision_confidence,
-            },
+            event_emitter=emit_event,
         )
 
     def _thinking_excerpt(self, reasoning: Any, limit: int = 200) -> str:
         """将多种推理结果安全转换为前端展示文本。"""
-        if not reasoning:
-            return ""
-        if isinstance(reasoning, dict):
-            candidate = reasoning.get("reasoning") or reasoning.get("summary") or reasoning.get("regime") or ""
-            return str(candidate)[:limit]
-        if isinstance(reasoning, (list, tuple)):
-            return "；".join(str(item) for item in reasoning[:5])[:limit]
-        return str(reasoning)[:limit]
+        return self.training_observability_service.thinking_excerpt(reasoning, limit=limit)
 
     def _event_context(self, cycle_id: int | None = None) -> Dict[str, Any]:
-        meta = dict(self.last_cycle_meta or {})
-        ctx: Dict[str, Any] = {"timestamp": datetime.now().isoformat()}
-        if cycle_id is not None:
-            ctx["cycle_id"] = cycle_id
-        elif meta.get("cycle_id") is not None:
-            ctx["cycle_id"] = meta.get("cycle_id")
-        if meta.get("cutoff_date"):
-            ctx["cutoff_date"] = meta.get("cutoff_date")
-        return ctx
+        return self.training_observability_service.event_context(self, cycle_id)
 
     def _emit_agent_status(
         self,
@@ -965,29 +805,22 @@ class SelfLearningController:
         details: Any = None,
         **extra: Any,
     ) -> None:
-        payload = {
-            **self._event_context(cycle_id),
-            "agent": agent,
-            "status": status,
-            "message": message,
-        }
-        if stage:
-            payload["stage"] = stage
-        if progress_pct is not None:
-            payload["progress_pct"] = int(progress_pct)
-        if step is not None:
-            payload["step"] = int(step)
-        if total_steps is not None:
-            payload["total_steps"] = int(total_steps)
-        if thinking:
-            payload["thinking"] = thinking
-        if selected_stocks:
-            payload["selected_stocks"] = list(selected_stocks)
-        if details is not None:
-            payload["details"] = details
-        payload.update(extra)
-        emit_event("agent_status", payload)
-        emit_event("agent_progress", dict(payload))
+        self.training_observability_service.emit_agent_status(
+            self,
+            event_emitter=emit_event,
+            agent=agent,
+            status=status,
+            message=message,
+            cycle_id=cycle_id,
+            stage=stage,
+            progress_pct=progress_pct,
+            step=step,
+            total_steps=total_steps,
+            thinking=thinking,
+            selected_stocks=selected_stocks,
+            details=details,
+            **extra,
+        )
 
     def _emit_module_log(
         self,
@@ -1002,20 +835,19 @@ class SelfLearningController:
         metrics: dict[str, Any] | None = None,
         **extra: Any,
     ) -> None:
-        payload = {
-            **self._event_context(cycle_id),
-            "module": module,
-            "title": title,
-            "message": message,
-            "kind": kind,
-            "level": level,
-        }
-        if details is not None:
-            payload["details"] = details
-        if metrics:
-            payload["metrics"] = metrics
-        payload.update(extra)
-        emit_event("module_log", payload)
+        self.training_observability_service.emit_module_log(
+            self,
+            event_emitter=emit_event,
+            module=module,
+            title=title,
+            message=message,
+            cycle_id=cycle_id,
+            kind=kind,
+            level=level,
+            details=details,
+            metrics=metrics,
+            **extra,
+        )
 
     def _emit_meeting_speech(
         self,
@@ -1031,128 +863,37 @@ class SelfLearningController:
         confidence: Any = None,
         **extra: Any,
     ) -> None:
-        payload = {
-            **self._event_context(cycle_id),
-            "meeting": meeting,
-            "speaker": speaker,
-            "speech": str(speech or "").strip(),
-        }
-        if role:
-            payload["role"] = role
-        if picks:
-            payload["picks"] = picks
-        if suggestions:
-            payload["suggestions"] = suggestions
-        if decision:
-            payload["decision"] = decision
-        if confidence is not None:
-            payload["confidence"] = confidence
-        payload.update(extra)
-        emit_event("meeting_speech", payload)
+        self.training_observability_service.emit_meeting_speech(
+            self,
+            event_emitter=emit_event,
+            meeting=meeting,
+            speaker=speaker,
+            speech=speech,
+            cycle_id=cycle_id,
+            role=role,
+            picks=picks,
+            suggestions=suggestions,
+            decision=decision,
+            confidence=confidence,
+            **extra,
+        )
 
     def _handle_selection_progress(self, payload: dict[str, Any]) -> None:
-        agent = str(payload.get("agent") or "SelectionMeeting")
-        status = str(payload.get("status") or "running")
-        stage = str(payload.get("stage") or "selection")
-        progress_pct = payload.get("progress_pct")
-        if progress_pct is None:
-            progress_pct = {
-                "TrendHunter": 38,
-                "Contrarian": 46,
-                "SelectionMeeting": 54,
-            }.get(agent, 40)
-            if status == "completed":
-                progress_pct = min(100, int(progress_pct) + 8)
-            elif status == "error":
-                progress_pct = int(progress_pct)
-        self._emit_agent_status(
-            agent,
-            status,
-            str(payload.get("message") or ""),
-            stage=stage,
-            progress_pct=int(progress_pct),
-            step=payload.get("step"),
-            total_steps=payload.get("total_steps"),
-            thinking=self._thinking_excerpt(payload.get("speech") or payload.get("reasoning") or payload.get("overall_view")),
-            details=payload.get("details"),
-            picks=payload.get("picks"),
-        )
-        speech = str(payload.get("speech") or payload.get("overall_view") or "").strip()
-        if speech:
-            self._emit_meeting_speech(
-                "selection",
-                agent,
-                speech,
-                role="selector",
-                picks=payload.get("picks"),
-                confidence=payload.get("confidence"),
-            )
-        picks = payload.get("picks") or []
-        if picks:
-            self._emit_module_log(
-                "selection",
-                f"{agent} 输出候选",
-                f"推荐 {len(picks)} 只候选股票",
-                kind="selection_candidates",
-                details=picks[:10],
-                metrics={"candidate_count": len(picks)},
-            )
+        self.training_observability_service.handle_selection_progress(self, payload)
 
     def _handle_review_progress(self, payload: dict[str, Any]) -> None:
-        agent = str(payload.get("agent") or "ReviewMeeting")
-        status = str(payload.get("status") or "running")
-        stage = str(payload.get("stage") or "review")
-        progress_pct = payload.get("progress_pct")
-        if progress_pct is None:
-            progress_pct = {
-                "Strategist": 82,
-                "EvoJudge": 88,
-                "ReviewDecision": 92,
-                "ReviewMeeting": 95,
-            }.get(agent, 85)
-        self._emit_agent_status(
-            agent,
-            status,
-            str(payload.get("message") or ""),
-            stage=stage,
-            progress_pct=int(progress_pct),
-            thinking=self._thinking_excerpt(payload.get("speech") or payload.get("reasoning")),
-            details=payload.get("details"),
-        )
-        speech = str(payload.get("speech") or payload.get("reasoning") or "").strip()
-        if speech:
-            self._emit_meeting_speech(
-                "review",
-                agent,
-                speech,
-                role="reviewer",
-                suggestions=payload.get("suggestions"),
-                decision=payload.get("decision"),
-                confidence=payload.get("confidence"),
-            )
-        suggestions = payload.get("suggestions") or []
-        if suggestions or payload.get("decision"):
-            self._emit_module_log(
-                "review",
-                f"{agent} 复盘输出",
-                str(payload.get("message") or ""),
-                kind="review_update",
-                details=suggestions or payload.get("decision"),
-            )
+        self.training_observability_service.handle_review_progress(self, payload)
 
     def _mark_cycle_skipped(self, cycle_id: int, cutoff_date: str, stage: str, reason: str, **extra: Any) -> None:
-        meta = {
-            "status": "no_data",
-            "cycle_id": cycle_id,
-            "cutoff_date": cutoff_date,
-            "stage": stage,
-            "reason": reason,
-            "timestamp": datetime.now().isoformat(),
+        self.training_observability_service.mark_cycle_skipped(
+            self,
+            event_emitter=emit_event,
+            cycle_id=cycle_id,
+            cutoff_date=cutoff_date,
+            stage=stage,
+            reason=reason,
             **extra,
-        }
-        self.last_cycle_meta = meta
-        self._emit_module_log(stage, f"周期 #{cycle_id} 已跳过", reason, cycle_id=cycle_id, kind="cycle_skipped", level="warn", details=extra or None)
-        emit_event("cycle_skipped", meta)
+        )
 
     def run_training_cycle(self) -> Optional[TrainingResult]:
         """

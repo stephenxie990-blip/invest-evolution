@@ -4,10 +4,16 @@ from typing import cast
 
 from config import config
 from app.train import SelfLearningController, TrainingResult
-from app.training.controller_services import FreezeGateService, TrainingFeedbackService, TrainingPersistenceService
+from app.training.controller_services import (
+    FreezeGateService,
+    TrainingFeedbackService,
+    TrainingLLMRuntimeService,
+    TrainingPersistenceService,
+)
 from app.training.cycle_services import TrainingCycleContext, TrainingCycleDataService, TrainingDataLoadResult
 from app.training.execution_services import TrainingExecutionService
 from app.training.lifecycle_services import TrainingLifecycleService
+from app.training.observability_services import TrainingObservabilityService
 from app.training.outcome_services import TrainingOutcomeService
 from app.training.policy_services import TrainingPolicyService
 from app.training.review_services import TrainingReviewService
@@ -46,11 +52,13 @@ def test_controller_exposes_training_services(tmp_path):
     controller = _make_controller(tmp_path)
 
     assert isinstance(controller.training_feedback_service, TrainingFeedbackService)
+    assert isinstance(controller.training_llm_runtime_service, TrainingLLMRuntimeService)
     assert isinstance(controller.freeze_gate_service, FreezeGateService)
     assert isinstance(controller.training_persistence_service, TrainingPersistenceService)
     assert isinstance(controller.training_cycle_data_service, TrainingCycleDataService)
     assert isinstance(controller.training_execution_service, TrainingExecutionService)
     assert isinstance(controller.training_lifecycle_service, TrainingLifecycleService)
+    assert isinstance(controller.training_observability_service, TrainingObservabilityService)
     assert isinstance(controller.training_outcome_service, TrainingOutcomeService)
     assert isinstance(controller.training_policy_service, TrainingPolicyService)
     assert isinstance(controller.training_review_service, TrainingReviewService)
@@ -119,6 +127,55 @@ def test_training_execution_service_returns_none_when_selection_stage_short_circ
     assert captured['selection_kwargs']['cutoff_date'] == '20240201'
 
 
+def test_thinking_excerpt_delegates_to_observability_service(monkeypatch, tmp_path):
+    controller = _make_controller(tmp_path)
+    captured = {}
+
+    def fake_excerpt(reasoning, limit=200):
+        captured['reasoning'] = reasoning
+        captured['limit'] = limit
+        return 'delegated-thinking'
+
+    monkeypatch.setattr(controller.training_observability_service, 'thinking_excerpt', fake_excerpt)
+
+    payload = {'reasoning': 'risk control'}
+    result = controller._thinking_excerpt(payload, limit=42)  # pylint: disable=protected-access
+
+    assert result == 'delegated-thinking'
+    assert captured['reasoning'] == payload
+    assert captured['limit'] == 42
+
+
+def test_training_observability_service_marks_cycle_skipped():
+    service = TrainingObservabilityService()
+    emitted = []
+    logs = []
+
+    class DummyController:
+        last_cycle_meta = {}
+
+        @staticmethod
+        def _emit_module_log(*args, **kwargs):
+            logs.append((args, kwargs))
+
+    controller = DummyController()
+    service.mark_cycle_skipped(
+        controller,
+        event_emitter=lambda event_type, payload: emitted.append((event_type, payload)),
+        cycle_id=12,
+        cutoff_date='20240201',
+        stage='selection',
+        reason='无可交易标的',
+        suggestions=['扩大样本窗口'],
+    )
+
+    assert controller.last_cycle_meta['cycle_id'] == 12
+    assert controller.last_cycle_meta['stage'] == 'selection'
+    assert emitted[0][0] == 'cycle_skipped'
+    assert emitted[0][1]['reason'] == '无可交易标的'
+    assert logs[0][0][0] == 'selection'
+
+
 def test_feedback_plan_delegates_to_service(monkeypatch, tmp_path):
     controller = _make_controller(tmp_path)
     captured = {}
@@ -137,6 +194,114 @@ def test_feedback_plan_delegates_to_service(monkeypatch, tmp_path):
     assert captured['owner'] is controller
     assert captured['cycle_id'] == 7
     assert captured['feedback']['sample_count'] == 8
+
+
+def test_apply_experiment_llm_overrides_delegates_to_llm_runtime_service(monkeypatch, tmp_path):
+    controller = _make_controller(tmp_path)
+    captured = {}
+
+    def fake_apply(owner, llm_spec=None):
+        captured['owner'] = owner
+        captured['llm_spec'] = dict(llm_spec or {})
+
+    monkeypatch.setattr(
+        controller.training_llm_runtime_service,
+        'apply_experiment_overrides',
+        fake_apply,
+    )
+
+    controller._apply_experiment_llm_overrides({'dry_run': True, 'timeout': 9})  # pylint: disable=protected-access
+
+    assert captured['owner'] is controller
+    assert captured['llm_spec']['dry_run'] is True
+    assert captured['llm_spec']['timeout'] == 9
+
+
+def test_set_llm_dry_run_delegates_to_llm_runtime_service(monkeypatch, tmp_path):
+    controller = _make_controller(tmp_path)
+    captured = {}
+
+    def fake_set(owner, enabled=True):
+        captured['owner'] = owner
+        captured['enabled'] = enabled
+
+    monkeypatch.setattr(controller.training_llm_runtime_service, 'set_dry_run', fake_set)
+
+    controller.set_llm_dry_run(True)
+
+    assert captured['owner'] is controller
+    assert captured['enabled'] is True
+
+
+def test_set_mock_mode_delegates_to_llm_runtime_service(monkeypatch, tmp_path):
+    controller = _make_controller(tmp_path)
+    captured = {}
+
+    def fake_set(owner, enabled=True):
+        captured['owner'] = owner
+        captured['enabled'] = enabled
+
+    monkeypatch.setattr(controller.training_llm_runtime_service, 'set_dry_run', fake_set)
+
+    controller.set_mock_mode(False)
+
+    assert captured['owner'] is controller
+    assert captured['enabled'] is False
+
+
+def test_refresh_runtime_from_config_delegates_to_routing_service(monkeypatch, tmp_path):
+    controller = _make_controller(tmp_path)
+    captured = {}
+
+    def fake_sync(owner):
+        captured['owner'] = owner
+
+    monkeypatch.setattr(controller.training_routing_service, 'sync_runtime_from_config', fake_sync)
+
+    controller.refresh_runtime_from_config()
+
+    assert captured['owner'] is controller
+
+
+def test_reload_investment_model_delegates_to_routing_service(monkeypatch, tmp_path):
+    controller = _make_controller(tmp_path)
+    captured = {}
+
+    def fake_reload(owner, config_path=None):
+        captured['owner'] = owner
+        captured['config_path'] = config_path
+
+    monkeypatch.setattr(controller.training_routing_service, 'reload_investment_model', fake_reload)
+
+    controller._reload_investment_model('cfg.yaml')  # pylint: disable=protected-access
+
+    assert captured['owner'] is controller
+    assert captured['config_path'] == 'cfg.yaml'
+
+
+def test_maybe_apply_allocator_delegates_to_routing_service(monkeypatch, tmp_path):
+    controller = _make_controller(tmp_path)
+    captured = {}
+
+    def fake_apply(owner, *, stock_data, cutoff_date, cycle_id, event_emitter):
+        captured['owner'] = owner
+        captured['stock_data'] = dict(stock_data)
+        captured['cutoff_date'] = cutoff_date
+        captured['cycle_id'] = cycle_id
+        captured['event_emitter'] = event_emitter
+
+    monkeypatch.setattr(controller.training_routing_service, 'apply_model_routing', fake_apply)
+
+    controller._maybe_apply_allocator(  # pylint: disable=protected-access
+        {'sh.600519': {'rows': 3}},
+        '20240201',
+        5,
+    )
+
+    assert captured['owner'] is controller
+    assert captured['stock_data']['sh.600519']['rows'] == 3
+    assert captured['cutoff_date'] == '20240201'
+    assert captured['cycle_id'] == 5
 
 
 def test_runtime_policy_sync_delegates_to_policy_service(monkeypatch, tmp_path):
@@ -978,6 +1143,187 @@ def test_training_routing_service_refreshes_controller_coordinator():
     assert coordinator.min_confidence == 0.7
     assert coordinator.cooldown_cycles == 3
     assert coordinator.hysteresis_margin == 0.12
+
+
+def test_training_llm_runtime_service_applies_runtime_overrides_and_dry_run():
+    service = TrainingLLMRuntimeService()
+
+    class DummyLLM:
+        def __init__(self):
+            self.dry_run = False
+            self.calls = []
+
+        def apply_runtime_limits(self, *, timeout=None, max_retries=None):
+            self.calls.append({'timeout': timeout, 'max_retries': max_retries})
+
+    shared = DummyLLM()
+    optimizer_llm = DummyLLM()
+
+    class DummyController:
+        llm_caller = shared
+        llm_mode = 'live'
+        agents = {
+            'trend_hunter': SimpleNamespace(llm=shared),
+            'strategist': SimpleNamespace(llm=DummyLLM()),
+        }
+        selection_meeting = SimpleNamespace(llm=DummyLLM())
+        review_meeting = SimpleNamespace(llm=DummyLLM())
+        llm_optimizer = SimpleNamespace(llm=optimizer_llm)
+
+    controller = DummyController()
+    service.apply_experiment_overrides(
+        controller,
+        {'timeout': 11, 'max_retries': 2, 'dry_run': True},
+    )
+    service.set_dry_run(controller, False)
+
+    assert shared.calls == [{'timeout': 11, 'max_retries': 2}]
+    assert controller.agents['strategist'].llm.calls == [{'timeout': 11, 'max_retries': 2}]
+    assert controller.selection_meeting.llm.calls == [{'timeout': 11, 'max_retries': 2}]
+    assert optimizer_llm.calls == [{'timeout': 11, 'max_retries': 2}]
+    assert controller.llm_mode == 'live'
+    assert shared.dry_run is False
+
+
+def test_training_routing_service_sync_runtime_from_config_reloads_on_model_change(monkeypatch):
+    service = TrainingRoutingService()
+    refresh_calls = {}
+    reload_calls = {}
+
+    monkeypatch.setattr(config, 'investment_model', 'value_quality')
+    monkeypatch.setattr(config, 'investment_model_config', 'configs/value.yaml')
+    monkeypatch.setattr(config, 'allocator_enabled', True)
+    monkeypatch.setattr(config, 'allocator_top_n', 4)
+    monkeypatch.setattr(config, 'model_routing_enabled', True)
+    monkeypatch.setattr(config, 'model_routing_mode', 'hybrid')
+    monkeypatch.setattr(config, 'model_routing_allowed_models', ['value_quality', 'momentum'])
+    monkeypatch.setattr(config, 'model_switch_cooldown_cycles', 6)
+    monkeypatch.setattr(config, 'model_switch_min_confidence', 0.72)
+    monkeypatch.setattr(config, 'model_switch_hysteresis_margin', 0.11)
+    monkeypatch.setattr(config, 'model_routing_agent_override_enabled', True)
+    monkeypatch.setattr(config, 'model_routing_agent_override_max_gap', 0.22)
+    monkeypatch.setattr(config, 'model_routing_policy', {'bull_avg_change_20d': 4.5})
+
+    def fake_refresh(owner):
+        refresh_calls['owner'] = owner
+
+    def fake_reload(owner, config_path=None):
+        reload_calls['owner'] = owner
+        reload_calls['config_path'] = config_path
+
+    monkeypatch.setattr(service, 'refresh_routing_coordinator', fake_refresh)
+    monkeypatch.setattr(service, 'reload_investment_model', fake_reload)
+
+    class DummyController:
+        model_name = 'momentum'
+        model_config_path = 'configs/momentum.yaml'
+        allocator_enabled = False
+        allocator_top_n = 3
+        model_routing_enabled = False
+        model_routing_mode = 'rule'
+        model_routing_allowed_models = ['momentum']
+        model_switch_cooldown_cycles = 2
+        model_switch_min_confidence = 0.6
+        model_switch_hysteresis_margin = 0.08
+        model_routing_agent_override_enabled = False
+        model_routing_agent_override_max_gap = 0.18
+        model_routing_policy = {}
+        current_params = {'position_size': 0.2}
+
+    controller = DummyController()
+    service.sync_runtime_from_config(controller)
+
+    assert refresh_calls['owner'] is controller
+    assert reload_calls['owner'] is controller
+    assert reload_calls['config_path'] == 'configs/value.yaml'
+    assert controller.model_name == 'value_quality'
+    assert controller.current_params == {}
+    assert controller.model_routing_mode == 'hybrid'
+
+
+def test_training_routing_service_apply_model_routing_updates_state_and_emits_events(monkeypatch):
+    service = TrainingRoutingService()
+    events = []
+
+    decision = SimpleNamespace(
+        regime='bull',
+        regime_confidence=0.83,
+        regime_source='rule',
+        evidence={'rule_result': {'reasoning': 'trend improving'}},
+        reasoning='trend improving',
+        current_model='momentum',
+        selected_model='momentum',
+        selected_config='configs/momentum.yaml',
+        candidate_models=['momentum', 'value_quality'],
+        candidate_weights={'momentum': 0.7, 'value_quality': 0.3},
+        decision_confidence=0.79,
+        decision_source='router',
+        switch_applied=False,
+        hold_current=False,
+        hold_reason='',
+        guardrail_checks={'cooldown': True},
+        allocation_plan={'top_n': 2},
+        cash_reserve_hint=0.15,
+        to_dict=lambda: {
+            'selected_model': 'momentum',
+            'selected_config': 'configs/momentum.yaml',
+            'regime': 'bull',
+        },
+    )
+
+    monkeypatch.setattr(service, 'route_model', lambda *args, **kwargs: decision)
+
+    class DummyController:
+        model_routing_enabled = True
+        model_routing_mode = 'rule'
+        model_name = 'momentum'
+        data_manager = object()
+        output_dir = 'outputs/training'
+        experiment_allowed_models = []
+        model_routing_allowed_models = ['momentum', 'value_quality']
+        last_routing_decision = {}
+        routing_history = []
+        last_allocation_plan = {}
+        current_params = {'position_size': 0.2}
+        model_config_path = 'configs/momentum.yaml'
+        last_model_switch_cycle_id = None
+
+        @staticmethod
+        def _event_context(cycle_id=None):
+            return {'cycle_id': cycle_id, 'timestamp': '2026-03-14T00:00:00'}
+
+        @staticmethod
+        def _thinking_excerpt(text):
+            return str(text)
+
+        @staticmethod
+        def _emit_agent_status(*args, **kwargs):
+            events.append(('agent_status', args, kwargs))
+
+        @staticmethod
+        def _emit_module_log(*args, **kwargs):
+            events.append(('module_log', args, kwargs))
+
+        @staticmethod
+        def _sync_runtime_policy_from_model():
+            raise AssertionError('should not reload when switch_applied is false')
+
+    controller = DummyController()
+    service.apply_model_routing(
+        controller,
+        stock_data={'sh.600519': {'rows': 5}},
+        cutoff_date='20240201',
+        cycle_id=4,
+        event_emitter=lambda event_type, payload: events.append((event_type, payload)),
+    )
+
+    assert controller.last_routing_decision['regime'] == 'bull'
+    assert controller.last_allocation_plan['top_n'] == 2
+    assert controller.routing_history[0]['selected_model'] == 'momentum'
+    event_types = [item[0] for item in events]
+    assert 'routing_started' in event_types
+    assert 'regime_classified' in event_types
+    assert 'routing_decided' in event_types
 
 
 def test_training_review_service_applies_review_decision():

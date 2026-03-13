@@ -22,6 +22,58 @@ from app.training.reporting import (
 logger = logging.getLogger(__name__)
 
 
+class TrainingLLMRuntimeService:
+    """Coordinates controller-wide LLM runtime settings."""
+
+    @staticmethod
+    def _iter_unique_llms(controller: Any) -> list[Any]:
+        targets = [getattr(controller, "llm_caller", None)]
+        for agent in dict(getattr(controller, "agents", {}) or {}).values():
+            llm = getattr(agent, "llm", None)
+            if llm is not None:
+                targets.append(llm)
+        for component in (
+            getattr(controller, "selection_meeting", None),
+            getattr(controller, "review_meeting", None),
+            getattr(controller, "llm_optimizer", None),
+        ):
+            llm = getattr(component, "llm", None)
+            if llm is not None:
+                targets.append(llm)
+
+        seen: set[int] = set()
+        unique_targets: list[Any] = []
+        for llm in targets:
+            if llm is None or id(llm) in seen:
+                continue
+            seen.add(id(llm))
+            unique_targets.append(llm)
+        return unique_targets
+
+    def apply_experiment_overrides(
+        self,
+        controller: Any,
+        llm_spec: Dict[str, Any] | None = None,
+    ) -> None:
+        payload = dict(llm_spec or {})
+        timeout = payload.get("timeout")
+        max_retries = payload.get("max_retries")
+        dry_run = payload.get("dry_run")
+
+        for llm in self._iter_unique_llms(controller):
+            if hasattr(llm, "apply_runtime_limits"):
+                llm.apply_runtime_limits(timeout=timeout, max_retries=max_retries)
+            if dry_run is not None and hasattr(llm, "dry_run"):
+                llm.dry_run = bool(dry_run)
+
+    def set_dry_run(self, controller: Any, enabled: bool = True) -> None:
+        dry_run = bool(enabled)
+        controller.llm_mode = "dry_run" if dry_run else "live"
+        for llm in self._iter_unique_llms(controller):
+            if hasattr(llm, "dry_run"):
+                llm.dry_run = dry_run
+
+
 class TrainingFeedbackService:
     @staticmethod
     def feedback_brief(plan: Dict[str, Any] | None = None, *, triggered: bool = False) -> Dict[str, Any]:

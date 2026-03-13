@@ -6,6 +6,7 @@ from typing import Any
 
 from config import OUTPUT_DIR, config, normalize_date
 from invest.leaderboard import write_leaderboard
+from invest.models import create_investment_model
 from invest.router import ModelRoutingCoordinator
 
 logger = logging.getLogger(__name__)
@@ -13,6 +14,100 @@ logger = logging.getLogger(__name__)
 
 class TrainingRoutingService:
     """Coordinates leaderboard refresh and model-routing decisions."""
+
+    def sync_runtime_from_config(self, controller: Any) -> None:
+        previous_model = controller.model_name
+        previous_config_path = controller.model_config_path
+        controller.model_name = str(
+            getattr(config, "investment_model", controller.model_name) or controller.model_name
+        )
+        controller.model_config_path = str(
+            getattr(config, "investment_model_config", controller.model_config_path)
+            or controller.model_config_path
+        )
+        controller.allocator_enabled = bool(
+            getattr(config, "allocator_enabled", controller.allocator_enabled)
+        )
+        controller.allocator_top_n = int(
+            getattr(config, "allocator_top_n", controller.allocator_top_n)
+            or controller.allocator_top_n
+        )
+        controller.model_routing_enabled = bool(
+            getattr(config, "model_routing_enabled", controller.model_routing_enabled)
+            or controller.allocator_enabled
+        )
+        controller.model_routing_mode = str(
+            getattr(config, "model_routing_mode", controller.model_routing_mode)
+            or controller.model_routing_mode
+        ).strip().lower()
+        controller.model_routing_allowed_models = [
+            str(item).strip()
+            for item in (
+                getattr(
+                    config,
+                    "model_routing_allowed_models",
+                    controller.model_routing_allowed_models,
+                )
+                or []
+            )
+            if str(item).strip()
+        ]
+        controller.model_switch_cooldown_cycles = int(
+            getattr(
+                config,
+                "model_switch_cooldown_cycles",
+                controller.model_switch_cooldown_cycles,
+            )
+            or controller.model_switch_cooldown_cycles
+        )
+        controller.model_switch_min_confidence = float(
+            getattr(
+                config,
+                "model_switch_min_confidence",
+                controller.model_switch_min_confidence,
+            )
+            or controller.model_switch_min_confidence
+        )
+        controller.model_switch_hysteresis_margin = float(
+            getattr(
+                config,
+                "model_switch_hysteresis_margin",
+                controller.model_switch_hysteresis_margin,
+            )
+            or controller.model_switch_hysteresis_margin
+        )
+        controller.model_routing_agent_override_enabled = bool(
+            getattr(
+                config,
+                "model_routing_agent_override_enabled",
+                controller.model_routing_agent_override_enabled,
+            )
+        )
+        controller.model_routing_agent_override_max_gap = float(
+            getattr(
+                config,
+                "model_routing_agent_override_max_gap",
+                controller.model_routing_agent_override_max_gap,
+            )
+            or controller.model_routing_agent_override_max_gap
+        )
+        controller.model_routing_policy = dict(
+            getattr(config, "model_routing_policy", controller.model_routing_policy) or {}
+        )
+        self.refresh_routing_coordinator(controller)
+        if previous_model != controller.model_name or previous_config_path != controller.model_config_path:
+            controller.current_params = {}
+            self.reload_investment_model(controller, controller.model_config_path)
+
+    def reload_investment_model(self, controller: Any, config_path: str | None = None) -> None:
+        if config_path:
+            controller.model_config_path = str(config_path)
+        controller.investment_model = create_investment_model(
+            controller.model_name,
+            config_path=controller.model_config_path,
+            runtime_overrides=controller.current_params,
+        )
+        controller._sync_runtime_policy_from_model()
 
     def build_routing_coordinator(self, owner: Any) -> ModelRoutingCoordinator:
         return ModelRoutingCoordinator(
@@ -71,6 +166,135 @@ class TrainingRoutingService:
             current_cycle_id=int(getattr(controller, "current_cycle_id", 0) or 0) + 1,
         )
         return decision.to_dict()
+
+    def apply_model_routing(
+        self,
+        controller: Any,
+        *,
+        stock_data: dict[str, Any],
+        cutoff_date: str,
+        cycle_id: int,
+        event_emitter: Any,
+    ) -> None:
+        if not controller.model_routing_enabled or controller.model_routing_mode == "off":
+            return
+        controller._emit_agent_status(
+            "ModelRouter",
+            "running",
+            "正在评估市场状态并为本轮训练选择投资模型...",
+            cycle_id=cycle_id,
+            stage="model_routing",
+            progress_pct=22,
+            step=2,
+            total_steps=6,
+        )
+        event_emitter(
+            "routing_started",
+            {
+                **controller._event_context(cycle_id),
+                "current_model": controller.model_name,
+                "routing_mode": controller.model_routing_mode,
+            },
+        )
+        decision = self.route_model(
+            controller,
+            stock_data=stock_data,
+            cutoff_date=cutoff_date,
+            current_model=controller.model_name,
+            data_manager=controller.data_manager,
+            output_dir=controller.output_dir,
+            allowed_models=controller.experiment_allowed_models or controller.model_routing_allowed_models,
+            current_cycle_id=cycle_id,
+        )
+        controller.last_routing_decision = decision.to_dict()
+        controller.routing_history.append(dict(controller.last_routing_decision))
+        controller.last_allocation_plan = dict(decision.allocation_plan or {})
+        event_emitter(
+            "regime_classified",
+            {
+                **controller._event_context(cycle_id),
+                "regime": decision.regime,
+                "confidence": decision.regime_confidence,
+                "source": decision.regime_source,
+                "reasoning": (
+                    decision.evidence.get("rule_result") or {}
+                ).get("reasoning")
+                or decision.reasoning,
+            },
+        )
+        event_emitter(
+            "routing_decided",
+            {
+                **controller._event_context(cycle_id),
+                "current_model": decision.current_model,
+                "selected_model": decision.selected_model,
+                "selected_config": decision.selected_config,
+                "candidate_models": decision.candidate_models,
+                "candidate_weights": decision.candidate_weights,
+                "regime": decision.regime,
+                "regime_confidence": decision.regime_confidence,
+                "decision_confidence": decision.decision_confidence,
+                "decision_source": decision.decision_source,
+                "switch_applied": decision.switch_applied,
+                "hold_current": decision.hold_current,
+                "hold_reason": decision.hold_reason,
+                "reasoning": decision.reasoning,
+                "guardrail_checks": decision.guardrail_checks,
+            },
+        )
+        previous_model = controller.model_name
+        if decision.switch_applied and decision.selected_model != controller.model_name:
+            controller.current_params = {}
+            controller.model_name = decision.selected_model
+            controller.model_config_path = decision.selected_config
+            self.reload_investment_model(controller, controller.model_config_path)
+            controller.last_model_switch_cycle_id = cycle_id
+            event_emitter(
+                "model_switch_applied",
+                {
+                    **controller._event_context(cycle_id),
+                    "from_model": previous_model,
+                    "to_model": controller.model_name,
+                    "reasoning": decision.reasoning,
+                },
+            )
+        elif decision.hold_current and decision.selected_model == previous_model:
+            event_emitter(
+                "model_switch_blocked",
+                {
+                    **controller._event_context(cycle_id),
+                    "current_model": previous_model,
+                    "candidate_models": decision.candidate_models,
+                    "hold_reason": decision.hold_reason,
+                    "reasoning": decision.reasoning,
+                },
+            )
+        controller._emit_agent_status(
+            "ModelRouter",
+            "completed",
+            f"router 识别 {decision.regime} 市场，当前主模型 {controller.model_name}",
+            cycle_id=cycle_id,
+            stage="model_routing",
+            progress_pct=24,
+            step=2,
+            total_steps=6,
+            details=controller.last_routing_decision,
+            thinking=controller._thinking_excerpt(decision.reasoning),
+        )
+        controller._emit_module_log(
+            "model_routing",
+            "模型路由完成",
+            decision.reasoning,
+            cycle_id=cycle_id,
+            kind="routing_decision",
+            details=controller.last_routing_decision,
+            metrics={
+                "switch_applied": decision.switch_applied,
+                "hold_current": decision.hold_current,
+                "cash_reserve_hint": decision.cash_reserve_hint,
+                "decision_confidence": decision.decision_confidence,
+            },
+        )
 
     def route_model(
         self,

@@ -3,6 +3,7 @@
 from app.training.controller_services import (
     FreezeGateService,
     TrainingFeedbackService,
+    TrainingLLMRuntimeService,
     TrainingPersistenceService,
 )
 from app.training.cycle_services import (
@@ -12,6 +13,7 @@ from app.training.cycle_services import (
 )
 from app.training.execution_services import TrainingExecutionService
 from app.training.lifecycle_services import TrainingLifecycleService
+from app.training.observability_services import TrainingObservabilityService
 from app.training.outcome_services import TrainingOutcomeService
 from app.training.policy_services import TrainingPolicyService
 from app.training.review_services import TrainingReviewService
@@ -22,6 +24,7 @@ from app.training.simulation_services import TrainingSimulationService
 
 __all__ = [
     "TrainingFeedbackService",
+    "TrainingLLMRuntimeService",
     "TrainingPersistenceService",
     "FreezeGateService",
     "TrainingCycleContext",
@@ -29,6 +32,7 @@ __all__ = [
     "TrainingCycleDataService",
     "TrainingExecutionService",
     "TrainingLifecycleService",
+    "TrainingObservabilityService",
     "TrainingOutcomeService",
     "TrainingPolicyService",
     "TrainingReviewService",
