@@ -869,8 +869,6 @@ def test_read_runtime_lock_payload_handles_invalid_json_with_warning(tmp_path, c
 
 
 def test_persist_state_uses_lightweight_snapshot(tmp_path, monkeypatch):
-    import app.commander as commander_module
-
     cfg = CommanderConfig(
         workspace=tmp_path / "workspace",
         strategy_dir=tmp_path / "strategies",
@@ -894,7 +892,6 @@ def test_persist_state_uses_lightweight_snapshot(tmp_path, monkeypatch):
     monkeypatch.setattr(runtime, "list_training_plans", _boom)
     monkeypatch.setattr(runtime, "list_training_runs", _boom)
     monkeypatch.setattr(runtime, "list_training_evaluations", _boom)
-    monkeypatch.setattr(commander_module, "read_event_rows", _boom)
     monkeypatch.setattr(runtime, "_collect_data_status", lambda detail_mode: {"status": "ok", "detail_mode": detail_mode})
 
     runtime._persist_state()

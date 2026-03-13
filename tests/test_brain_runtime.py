@@ -215,6 +215,7 @@ def test_brain_runtime_fallback_prompt_prefers_quick_status(tmp_path):
     )
 
     result = asyncio.run(runtime.process_direct("hello"))
+    assert "control-plane" in result
     assert "invest_quick_status" in result
 
 

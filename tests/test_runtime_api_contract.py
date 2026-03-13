@@ -42,7 +42,8 @@ def test_runtime_contract_endpoint_returns_machine_readable_contract():
     assert res.status_code == 200
     payload = res.get_json()
     assert payload['contract_id'] == 'runtime-v1'
-    assert payload['frontend_shell_mount'] == '/api/chat'
+    assert payload['runtime_entrypoint'] == '/api/chat'
+    assert payload['removed_web_shell_mount'] == '/'
     assert payload['components']['schemas']['responseFeedback']['properties']['summary']['type'] == 'string'
     assert payload['components']['schemas']['responseNextAction']['properties']['kind']['type'] == 'string'
     assert payload['components']['schemas']['responseEnvelope']['properties']['feedback']['$ref'] == '#/components/schemas/responseFeedback'
@@ -130,3 +131,12 @@ def test_generated_contract_derivatives_validate_against_main_contract():
     for endpoint in contract['endpoints']:
         path_item = openapi['paths'][endpoint['path']]
         assert endpoint['method'].lower() in path_item
+
+
+def test_runtime_contract_removes_legacy_frontend_keys():
+    contract = json.loads(CONTRACT_PATH.read_text(encoding='utf-8'))
+
+    assert 'frontend_shell_mount' not in contract
+    assert 'legacy_shell_mount' not in contract
+    assert 'frontend_preferred_flows' not in contract
+    assert all('frontend_preferred' not in endpoint for endpoint in contract['endpoints'])

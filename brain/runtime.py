@@ -250,7 +250,8 @@ class BrainRuntime:
 
         if not self.gateway.available:
             fallback = (
-                "LLM is not configured. Provide COMMANDER_API_KEY/LLM_API_KEY or use explicit tool calls: "
+                "LLM is not configured. Check control-plane default bindings or provider api_key, "
+                "or use explicit tool calls: "
                 "`/tool invest_quick_status {}` / `/tool invest_train {\"rounds\":1,\"mock\":true}`"
             )
             self._append_turn(session, {"role": "user", "content": content}, {"role": "assistant", "content": fallback})
@@ -319,7 +320,7 @@ class BrainRuntime:
                     tool_choice="auto",
                 )
             except LLMUnavailableError:
-                return "LLM is not configured. Provide COMMANDER_API_KEY/LLM_API_KEY or use explicit tool calls."
+                return "LLM is not configured. Check control-plane default bindings or provider api_key, or use explicit tool calls."
             except LLMGatewayError as exc:
                 logger.warning("brain runtime llm error: %s", exc)
                 return "LLM request failed. Try explicit tool mode or retry later."

@@ -519,21 +519,6 @@ def _enforce_rate_limit():
     return response
 
 
-def _removed_web_ui_response(path: str):
-    payload = {
-        "error": "web ui has been removed",
-        "removed_path": path,
-        "message": "请改用 /api/chat、/api/status、/api/events 或 commander CLI。",
-        "entrypoints": {
-            "chat": "/api/chat",
-            "status": "/api/status",
-            "events": "/api/events",
-            "healthz": "/healthz",
-        },
-    }
-    return jsonify(payload), 410
-
-
 def _status_snapshot(detail_mode: str) -> dict[str, Any] | tuple[Any, int]:
     runtime = _runtime
     if runtime is None:
@@ -563,17 +548,6 @@ def index():
             "healthz": "/healthz",
         },
     })
-
-
-@app.route("/legacy")
-def legacy_index():
-    return _removed_web_ui_response("/legacy")
-
-
-@app.route("/app")
-@app.route("/app/<path:asset_path>")
-def frontend_app(asset_path: str = ""):
-    return _removed_web_ui_response("/app" if not asset_path else f"/app/{asset_path}")
 
 
 # ---- Contracts ----

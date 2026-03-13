@@ -357,14 +357,10 @@ class EvolutionConfig:
         for d in (self.output_dir, self.case_library_dir, self.logs_dir, self.memory_dir):
             Path(d).mkdir(parents=True, exist_ok=True)
 
-        # API Key 检查
-        if not self.llm_api_key:
-            import logging
-            logging.getLogger(__name__).warning(
-                "LLM_API_KEY 未设置！LLM 功能将不可用。"
-                "请设置环境变量 `LLM_API_KEY`。如需本地开发时复用 `~/.codex/auth.json`，"
-                "请显式设置 `INVEST_ALLOW_CODEX_AUTH_FALLBACK=true`。"
-            )
+        # 不在配置初始化阶段做 LLM 缺失告警。
+        # 当前系统的 LLM 入口已由 control-plane 统一管理，
+        # import-time 的老式 `LLM_API_KEY` 告警容易与真实生效配置脱节，
+        # 并且会在纯内建/显式工具路径中制造噪音。
 
 
 def load_config(config_path: str = None) -> EvolutionConfig:

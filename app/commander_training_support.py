@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import json
+from datetime import datetime
+from pathlib import Path
 from typing import Any
 
 from app.commander_workflow_support import jsonable
@@ -10,6 +13,7 @@ from app.lab.evaluation import (
     build_training_evaluation_summary,
     build_training_memory_summary,
 )
+from market_data import DataSourceUnavailableError
 
 
 def build_commander_promotion_summary(
@@ -194,3 +198,226 @@ def attach_training_lab_paths(payload: dict[str, Any], lab: dict[str, Any]) -> N
             "promotion": summarize_training_evaluation_brief(lab["evaluation"]),
         },
     }
+
+
+def load_leaderboard_snapshot(training_output_dir: str | Path) -> dict[str, Any]:
+    path = Path(training_output_dir).parent / "leaderboard.json"
+    if not path.exists():
+        return {}
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
+def record_training_lab_artifacts(
+    *,
+    training_lab: Any,
+    build_training_evaluation_summary: Any,
+    new_run_id: Any,
+    plan: dict[str, Any],
+    payload: dict[str, Any],
+    status: str,
+    error: str = "",
+) -> dict[str, Any]:
+    run_id = new_run_id()
+    eval_payload = build_training_evaluation_summary(payload, plan=plan, run_id=run_id, error=error)
+    return training_lab.record_training_lab_artifacts(
+        payload=payload,
+        plan=plan,
+        status=status,
+        eval_payload=eval_payload,
+        run_id=run_id,
+        error=error,
+    )
+
+
+def append_training_memory(
+    memory: Any,
+    payload: dict[str, Any],
+    *,
+    rounds: int,
+    mock: bool,
+    status: str,
+    error: str = "",
+) -> None:
+    entry = build_training_memory_entry(
+        payload,
+        rounds=rounds,
+        mock=mock,
+        status=status,
+        error=error,
+    )
+    memory.append(
+        kind="training_run",
+        session_key="runtime:train",
+        content=str(entry.get("content") or ""),
+        metadata=dict(entry.get("metadata") or {}),
+    )
+
+
+def mark_training_plan_running(
+    *,
+    plan: dict[str, Any],
+    plan_path: Path,
+    write_json_artifact: Any,
+    begin_task: Any,
+    set_runtime_state: Any,
+    memory: Any,
+    rounds: int,
+    mock: bool,
+    plan_id: str,
+    training_state: str,
+) -> None:
+    plan["status"] = "running"
+    plan["started_at"] = datetime.now().isoformat()
+    write_json_artifact(plan_path, plan)
+    begin_task(
+        "train_plan",
+        str(plan.get("source", "manual")),
+        rounds=rounds,
+        mock=mock,
+        plan_id=plan_id,
+    )
+    set_runtime_state(training_state)
+    memory.append_audit(
+        "train_requested",
+        "runtime:train",
+        {"rounds": rounds, "mock": mock, "plan_id": plan_id},
+    )
+
+
+def finalize_training_execution(
+    *,
+    plan: dict[str, Any],
+    payload: dict[str, Any],
+    status: str,
+    rounds: int,
+    mock: bool,
+    plan_id: str,
+    record_training_lab_artifacts_impl: Any,
+    attach_training_lab_paths_impl: Any,
+    append_training_memory_impl: Any,
+    complete_runtime_task: Any,
+    idle_state: str,
+    busy_state: str,
+    error_state: str,
+    error: str = "",
+    wrap_training_execution_payload: Any | None = None,
+) -> dict[str, Any]:
+    lab = record_training_lab_artifacts_impl(
+        plan=plan,
+        payload=payload,
+        status=status,
+        error=error,
+    )
+    attach_training_lab_paths_impl(payload, lab)
+    append_training_memory_impl(
+        payload,
+        rounds=rounds,
+        mock=mock,
+        status=status,
+        error=error,
+    )
+    state = error_state if status == error_state else (busy_state if status == busy_state else idle_state)
+    complete_runtime_task(
+        state=state,
+        status=status,
+        rounds=rounds,
+        mock=mock,
+        plan_id=plan_id,
+    )
+    if wrap_training_execution_payload is None:
+        return payload
+    return wrap_training_execution_payload(
+        payload,
+        plan_id=str(plan_id),
+        rounds=rounds,
+        mock=mock,
+    )
+
+
+async def execute_training_plan_flow(
+    *,
+    plan_path: Path,
+    plan: dict[str, Any],
+    experiment_spec: dict[str, Any],
+    rounds: int,
+    mock: bool,
+    plan_id: str,
+    body: Any,
+    body_snapshot: Any,
+    build_run_cycles_kwargs: Any,
+    write_json_artifact: Any,
+    begin_task: Any,
+    set_runtime_state: Any,
+    memory: Any,
+    record_training_lab_artifacts_impl: Any,
+    attach_training_lab_paths_impl: Any,
+    append_training_memory_impl: Any,
+    complete_runtime_task: Any,
+    wrap_training_execution_payload: Any,
+    ok_status: str,
+    busy_state: str,
+    idle_state: str,
+    training_state: str,
+    error_state: str,
+) -> dict[str, Any]:
+    mark_training_plan_running(
+        plan=plan,
+        plan_path=plan_path,
+        write_json_artifact=write_json_artifact,
+        begin_task=begin_task,
+        set_runtime_state=set_runtime_state,
+        memory=memory,
+        rounds=rounds,
+        mock=mock,
+        plan_id=plan_id,
+        training_state=training_state,
+    )
+    try:
+        run_cycles_kwargs = build_run_cycles_kwargs(
+            plan=plan,
+            rounds=rounds,
+            mock=mock,
+            experiment_spec=experiment_spec,
+        )
+        payload = await body.run_cycles(**run_cycles_kwargs)
+        if data_error := body._extract_data_source_error(payload):
+            raise DataSourceUnavailableError.from_payload(data_error)
+        status = str(payload.get("status", ok_status))
+        return finalize_training_execution(
+            plan=plan,
+            payload=payload,
+            status=status,
+            rounds=rounds,
+            mock=mock,
+            plan_id=plan_id,
+            record_training_lab_artifacts_impl=record_training_lab_artifacts_impl,
+            attach_training_lab_paths_impl=attach_training_lab_paths_impl,
+            append_training_memory_impl=append_training_memory_impl,
+            complete_runtime_task=complete_runtime_task,
+            idle_state=idle_state,
+            busy_state=busy_state,
+            error_state=error_state,
+            wrap_training_execution_payload=wrap_training_execution_payload,
+        )
+    except Exception as exc:
+        error_payload = {"results": [], "summary": body_snapshot()}
+        finalize_training_execution(
+            plan=plan,
+            payload=error_payload,
+            status=error_state,
+            rounds=rounds,
+            mock=mock,
+            plan_id=plan_id,
+            record_training_lab_artifacts_impl=record_training_lab_artifacts_impl,
+            attach_training_lab_paths_impl=attach_training_lab_paths_impl,
+            append_training_memory_impl=append_training_memory_impl,
+            complete_runtime_task=complete_runtime_task,
+            idle_state=idle_state,
+            busy_state=busy_state,
+            error_state=error_state,
+            error=str(exc),
+        )
+        raise

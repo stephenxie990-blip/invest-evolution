@@ -42,6 +42,18 @@ def _parameter_schema(param: dict[str, Any]) -> dict[str, Any]:
     return schema
 
 
+def _normalize_contract_source(source_contract: dict[str, Any]) -> dict[str, Any]:
+    contract = deepcopy(source_contract)
+
+    compatibility = dict(contract.get('compatibility') or {})
+    recommendation = str(compatibility.get('error_normalization_recommendation') or '')
+    if recommendation:
+        compatibility['error_normalization_recommendation'] = recommendation.replace('Frontend SDK', 'Client SDK')
+        contract['compatibility'] = compatibility
+
+    return contract
+
+
 def build_openapi(contract: dict[str, Any]) -> dict[str, Any]:
     components = {
         **deepcopy(contract['components']['error_schemas']),
@@ -70,7 +82,7 @@ def build_openapi(contract: dict[str, Any]) -> dict[str, Any]:
                 }
             },
             'x-runtime-required': bool(endpoint.get('runtime_required', False)),
-            'x-runtime-preferred': bool(endpoint.get('frontend_preferred', False)),
+            'x-runtime-preferred': bool(endpoint.get('runtime_preferred', False)),
             'x-latency': endpoint.get('latency', 'unknown'),
             'x-realtime': bool(endpoint.get('realtime', False)),
             'x-pagination': endpoint.get('pagination', 'none'),
@@ -182,7 +194,7 @@ def build_contract_schema() -> dict[str, Any]:
             'path': {'type': 'string'},
             'summary': {'type': 'string'},
             'runtime_required': {'type': 'boolean'},
-            'frontend_preferred': {'type': 'boolean'},
+            'runtime_preferred': {'type': 'boolean'},
             'replacement': {'type': ['string', 'null']},
             'query_params': {'type': 'array', 'items': param_schema},
             'path_params': {'type': 'array', 'items': param_schema},
@@ -215,7 +227,7 @@ def build_contract_schema() -> dict[str, Any]:
             'notes': {'type': 'array', 'items': {'type': 'string'}},
         },
         'required': [
-            'id', 'group', 'method', 'path', 'summary', 'runtime_required', 'frontend_preferred',
+            'id', 'group', 'method', 'path', 'summary', 'runtime_required', 'runtime_preferred',
             'replacement', 'query_params', 'path_params', 'request_body', 'success', 'errors',
             'latency', 'pagination', 'realtime', 'notes',
         ],
@@ -231,12 +243,12 @@ def build_contract_schema() -> dict[str, Any]:
             'version': {'type': 'string'},
             'published_at': {'type': 'string'},
             'api_base': {'type': 'string'},
-            'frontend_shell_mount': {'type': 'string'},
-            'legacy_shell_mount': {'type': 'string'},
+            'runtime_entrypoint': {'type': 'string'},
+            'removed_web_shell_mount': {'type': 'string'},
             'contract_endpoint': {'type': 'string'},
             'goals': {'type': 'array', 'items': {'type': 'string'}},
             'compatibility': {'type': 'object', 'additionalProperties': {'type': ['string', 'boolean', 'number', 'null', 'object', 'array']}},
-            'frontend_preferred_flows': {'type': 'object', 'additionalProperties': {'type': 'array', 'items': {'type': 'string'}}},
+            'preferred_runtime_flows': {'type': 'object', 'additionalProperties': {'type': 'array', 'items': {'type': 'string'}}},
             'components': {
                 'type': 'object',
                 'properties': {
@@ -270,15 +282,15 @@ def build_contract_schema() -> dict[str, Any]:
             },
         },
         'required': [
-            'contract_id', 'version', 'published_at', 'api_base', 'frontend_shell_mount', 'legacy_shell_mount',
-            'contract_endpoint', 'goals', 'compatibility', 'frontend_preferred_flows', 'components', 'sse', 'endpoints', 'transcript_snapshots',
+            'contract_id', 'version', 'published_at', 'api_base', 'runtime_entrypoint', 'removed_web_shell_mount',
+            'contract_endpoint', 'goals', 'compatibility', 'preferred_runtime_flows', 'components', 'sse', 'endpoints', 'transcript_snapshots',
         ],
         'additionalProperties': False,
     }
 
 
 def build_contract_documents(source_contract: dict[str, Any] | None = None) -> dict[Path, dict[str, Any]]:
-    contract = deepcopy(source_contract or load_contract_source())
+    contract = _normalize_contract_source(source_contract or load_contract_source())
     contract['transcript_snapshots'] = build_contract_transcript_snapshots()
     schema = build_contract_schema()
     openapi = build_openapi(contract)

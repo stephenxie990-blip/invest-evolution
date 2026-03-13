@@ -17,10 +17,10 @@
     "api_base": {
       "type": "string"
     },
-    "frontend_shell_mount": {
+    "runtime_entrypoint": {
       "type": "string"
     },
-    "legacy_shell_mount": {
+    "removed_web_shell_mount": {
       "type": "string"
     },
     "contract_endpoint": {
@@ -45,7 +45,7 @@
         ]
       }
     },
-    "frontend_preferred_flows": {
+    "preferred_runtime_flows": {
       "type": "object",
       "additionalProperties": {
         "type": "array",
@@ -134,7 +134,7 @@
           "runtime_required": {
             "type": "boolean"
           },
-          "frontend_preferred": {
+          "runtime_preferred": {
             "type": "boolean"
           },
           "replacement": {
@@ -280,7 +280,7 @@
           "path",
           "summary",
           "runtime_required",
-          "frontend_preferred",
+          "runtime_preferred",
           "replacement",
           "query_params",
           "path_params",
@@ -320,12 +320,12 @@
     "version",
     "published_at",
     "api_base",
-    "frontend_shell_mount",
-    "legacy_shell_mount",
+    "runtime_entrypoint",
+    "removed_web_shell_mount",
     "contract_endpoint",
     "goals",
     "compatibility",
-    "frontend_preferred_flows",
+    "preferred_runtime_flows",
     "components",
     "sse",
     "endpoints",

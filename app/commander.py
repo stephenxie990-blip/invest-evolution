@@ -16,12 +16,8 @@ import json
 import logging
 import os
 import socket
-from copy import deepcopy
-
-import textwrap
 import threading
 from dataclasses import dataclass, field
-from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional
 
@@ -41,20 +37,22 @@ from brain.plugins import PluginLoader
 from config import PROJECT_ROOT, RUNTIME_DIR, OUTPUT_DIR, LOGS_DIR, MEMORY_DIR, SESSIONS_DIR, WORKSPACE_DIR, config
 from config.control_plane import resolve_component_llm, resolve_default_llm
 from config.services import EvolutionConfigService, RuntimePathConfigService
-from market_data import DataSourceUnavailableError
 from invest.meetings import MeetingRecorder
 from app.lab.artifacts import TrainingLabArtifactStore
 from app.investment_body_service import InvestmentBodyService
 from app.commander_status_support import (
-    build_runtime_status_payload,
-    build_training_lab_status,
+    build_persisted_status_payload,
     collect_data_status,
+    normalize_status_detail,
 )
 from app.commander_training_support import (
+    append_training_memory,
     attach_training_lab_paths,
     build_commander_promotion_summary,
     build_commander_training_evaluation_summary,
-    build_training_memory_entry,
+    execute_training_plan_flow,
+    load_leaderboard_snapshot,
+    record_training_lab_artifacts,
     summarize_research_feedback_promotion,
     summarize_training_evaluation_brief,
 )
@@ -67,6 +65,21 @@ from app.commander_identity_support import (
     build_commander_soul,
     build_commander_system_prompt,
     build_heartbeat_tasks_markdown,
+)
+from app.commander_ask_support import (
+    execute_runtime_ask,
+    record_runtime_ask_activity,
+)
+from app.commander_config_support import (
+    apply_runtime_path_overrides as apply_runtime_path_overrides_impl,
+    build_commander_config_from_args,
+    relocate_commander_state_paths,
+    sync_runtime_path_config as sync_runtime_path_config_impl,
+)
+from app.commander_cli import (
+    build_parser as build_commander_cli_parser,
+    run_async as run_commander_cli_async,
+    run_cli_main,
 )
 from app.commander_runtime_state_support import (
     acquire_runtime_lock,
@@ -81,8 +94,23 @@ from app.commander_runtime_state_support import (
 from app.commander_runtime_lifecycle_support import (
     drain_runtime_notifications,
     ensure_runtime_storage,
+    load_persisted_runtime_state,
     persist_runtime_state,
     setup_cron_callback,
+    start_runtime_background_services,
+    stop_runtime_background_services,
+    write_commander_identity_artifacts,
+)
+from app.commander_runtime_query_support import (
+    get_events_summary_response,
+    get_events_tail_response,
+    get_runtime_diagnostics_response,
+    get_status_response,
+    get_training_lab_summary_response,
+)
+from app.commander_plugin_support import (
+    load_plugin_tools,
+    register_fusion_tools as register_fusion_tools_impl,
 )
 from app.commander_services import (
     get_allocator_payload,
@@ -107,13 +135,10 @@ from app.commander_services import (
 from app.commander_observability import (
     append_event_row,
     build_memory_detail,
-    build_runtime_diagnostics,
     memory_brief_row,
-    read_event_rows,
-    summarize_event_rows,
 )
 from app.commander_domain_catalog import get_domain_agent_kind, get_domain_tools
-from app.strategy_gene_registry import StrategyGene, StrategyGeneRegistry
+from app.strategy_gene_registry import StrategyGeneRegistry
 from app.commander_workflow_support import (
     attach_bounded_workflow_response,
     jsonable as _jsonable,
@@ -180,57 +205,21 @@ def _commander_llm_default(field_name: str, fallback: str = "") -> str:
     return str(value or fallback)
 
 
-def _extract_ask_result_metadata(response: Any) -> dict[str, Any]:
-    try:
-        payload = json.loads(response) if isinstance(response, str) else dict(response or {})
-    except Exception:
-        return {}
-    if not isinstance(payload, dict):
-        return {}
-
-    protocol = dict(payload.get("protocol") or {})
-    entrypoint = dict(payload.get("entrypoint") or {})
-    next_action = dict(payload.get("next_action") or {})
-    metadata: dict[str, Any] = {}
-
-    status = str(payload.get("status") or "").strip()
-    if status:
-        metadata["status"] = status
-    if protocol.get("domain"):
-        metadata["domain"] = str(protocol["domain"])
-    if protocol.get("operation"):
-        metadata["operation"] = str(protocol["operation"])
-    if protocol.get("schema_version"):
-        metadata["protocol_schema_version"] = str(protocol["schema_version"])
-    if entrypoint.get("kind"):
-        metadata["entrypoint_kind"] = str(entrypoint["kind"])
-    if entrypoint.get("intent"):
-        metadata["intent"] = str(entrypoint["intent"])
-    if next_action.get("kind"):
-        metadata["next_action_kind"] = str(next_action["kind"])
-    return metadata
-
 def _apply_runtime_path_overrides(cfg: "CommanderConfig", overrides: dict[str, Any]) -> "CommanderConfig":
-    for key in RuntimePathConfigService.EDITABLE_KEYS:
-        if value := overrides.get(key):
-            setattr(cfg, key, Path(value).expanduser().resolve())
-    cfg.__post_init__()
-    return cfg
+    return apply_runtime_path_overrides_impl(
+        cfg,
+        overrides,
+        editable_keys=RuntimePathConfigService.EDITABLE_KEYS,
+    )
 
 
 def _sync_runtime_path_config(runtime: "CommanderRuntime", payload: dict[str, Any]) -> None:
-    import config as config_module
-
-    _apply_runtime_path_overrides(runtime.cfg, payload)
-    controller = runtime.body.controller
-    controller.output_dir = Path(runtime.cfg.training_output_dir)
-    controller.output_dir.mkdir(parents=True, exist_ok=True)
-    controller.meeting_recorder = MeetingRecorder(base_dir=str(runtime.cfg.meeting_log_dir))
-    controller.config_service = EvolutionConfigService(
-        project_root=config_module.PROJECT_ROOT,
-        live_config=config_module.config,
-        audit_log_path=Path(runtime.cfg.config_audit_log_path),
-        snapshot_dir=Path(runtime.cfg.config_snapshot_dir),
+    sync_runtime_path_config_impl(
+        runtime,
+        payload,
+        editable_keys=RuntimePathConfigService.EDITABLE_KEYS,
+        meeting_recorder_cls=MeetingRecorder,
+        evolution_config_service_cls=EvolutionConfigService,
     )
 
 
@@ -290,49 +279,24 @@ class CommanderConfig:
     mock_mode: bool = field(default_factory=lambda: os.environ.get("COMMANDER_MOCK", "0") != "0")
 
     def __post_init__(self):
-        default_state_dir = RUNTIME_DIR / "state"
-        state_parent_changed = self.state_file.parent != OUTPUT_DIR / "commander"
-        if self.runtime_state_dir == default_state_dir and state_parent_changed:
-            self.runtime_state_dir = self.state_file.parent
-        if self.training_output_dir == OUTPUT_DIR / "training" and state_parent_changed:
-            self.training_output_dir = self.state_file.parent / "training"
-        if self.meeting_log_dir == LOGS_DIR / "meetings" and state_parent_changed:
-            self.meeting_log_dir = self.state_file.parent / "meetings"
-        for attr, filename in _STATE_DIR_RELOCATIONS.items():
-            if getattr(self, attr) == default_state_dir / filename:
-                setattr(self, attr, self.runtime_state_dir / filename)
+        relocate_commander_state_paths(
+            self,
+            default_state_dir=RUNTIME_DIR / "state",
+            default_state_parent=OUTPUT_DIR / "commander",
+            default_training_output_dir=OUTPUT_DIR / "training",
+            default_meeting_log_dir=LOGS_DIR / "meetings",
+            state_dir_relocations=_STATE_DIR_RELOCATIONS,
+        )
 
     @classmethod
     def from_args(cls, args: argparse.Namespace) -> "CommanderConfig":
-        cfg = cls()
-        runtime_paths = RuntimePathConfigService(project_root=PROJECT_ROOT).load_overrides()
-        _apply_runtime_path_overrides(cfg, runtime_paths)
-
-        if workspace := getattr(args, "workspace", None):
-            cfg.workspace = Path(workspace).expanduser().resolve()
-        if strategy_dir := getattr(args, "strategy_dir", None):
-            cfg.strategy_dir = Path(strategy_dir).expanduser().resolve()
-
-        if model := getattr(args, "model", None):
-            cfg.model = model
-        if api_key := getattr(args, "api_key", None):
-            cfg.api_key = api_key
-        if api_base := getattr(args, "api_base", None):
-            cfg.api_base = api_base
-
-        if getattr(args, "mock", False):
-            cfg.mock_mode = True
-        if getattr(args, "no_autopilot", False):
-            cfg.autopilot_enabled = False
-        if getattr(args, "no_heartbeat", False):
-            cfg.heartbeat_enabled = False
-
-        if train_interval_sec := getattr(args, "train_interval_sec", None):
-            cfg.training_interval_sec = max(60, int(train_interval_sec))
-        if heartbeat_interval_sec := getattr(args, "heartbeat_interval_sec", None):
-            cfg.heartbeat_interval_sec = max(60, int(heartbeat_interval_sec))
-
-        return cfg
+        return build_commander_config_from_args(
+            cls,
+            args,
+            path_config_service_cls=RuntimePathConfigService,
+            project_root=PROJECT_ROOT,
+            apply_runtime_overrides=_apply_runtime_path_overrides,
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -415,12 +379,8 @@ class CommanderRuntime:
         return append_event_row(self.cfg.runtime_events_path, event, payload, source=source)
 
     def _restore_persisted_state(self) -> None:
-        if not self.cfg.state_file.exists():
-            return
-        try:
-            payload = json.loads(self.cfg.state_file.read_text(encoding="utf-8"))
-        except Exception:
-            logger.warning("Failed to restore persisted commander state from %s", self.cfg.state_file, exc_info=True)
+        payload = load_persisted_runtime_state(self.cfg.state_file, logger=logger)
+        if payload is None:
             return
         runtime_payload = dict(payload.get("runtime") or {})
         body_payload = dict(payload.get("body") or {})
@@ -494,9 +454,19 @@ class CommanderRuntime:
         chat_id: str,
         extra: dict[str, Any] | None = None,
     ) -> None:
-        payload = {"session_key": session_key, "channel": channel, "chat_id": chat_id, **dict(extra or {})}
-        self.memory.append_audit(event, session_key, payload)
-        self._append_runtime_event(event, payload, source="brain")
+        record_runtime_ask_activity(
+            memory=self.memory,
+            append_runtime_event=lambda event_name, payload: self._append_runtime_event(
+                event_name,
+                payload,
+                source="brain",
+            ),
+            event=event,
+            session_key=session_key,
+            channel=channel,
+            chat_id=chat_id,
+            extra=extra,
+        )
 
     def _read_runtime_lock_payload(self) -> dict[str, Any]:
         return read_runtime_lock_payload(self.cfg.runtime_lock_file, logger=logger)
@@ -539,16 +509,17 @@ class CommanderRuntime:
             self.strategy_registry.reload()
             self._load_plugins(persist=False)
             self._write_commander_identity()
-
-            await self.cron.start()
-            if self.cfg.heartbeat_enabled:
-                await self.heartbeat.start()
-            if self.cfg.bridge_enabled:
-                await self.bridge.start()
-
-            self._notify_task = asyncio.create_task(self._drain_notifications())
-            if self.cfg.autopilot_enabled:
-                self._autopilot_task = asyncio.create_task(self.body.autopilot_loop(self.cfg.training_interval_sec))
+            self._notify_task, self._autopilot_task = await start_runtime_background_services(
+                cron=self.cron,
+                heartbeat=self.heartbeat,
+                bridge=self.bridge,
+                heartbeat_enabled=self.cfg.heartbeat_enabled,
+                bridge_enabled=self.cfg.bridge_enabled,
+                drain_notifications=self._drain_notifications,
+                autopilot_enabled=self.cfg.autopilot_enabled,
+                autopilot_loop=self.body.autopilot_loop,
+                training_interval_sec=self.cfg.training_interval_sec,
+            )
 
             self._started = True
             self._complete_runtime_task(state=STATUS_IDLE, status=STATUS_OK)
@@ -564,21 +535,15 @@ class CommanderRuntime:
             return
         self._begin_task("stop", "system")
         self._set_runtime_state(RUNTIME_STATE_STOPPING)
-
-        self.body.stop()
-        if self._autopilot_task:
-            self._autopilot_task.cancel()
-            await asyncio.gather(self._autopilot_task, return_exceptions=True)
-            self._autopilot_task = None
-        if self._notify_task:
-            self._notify_task.cancel()
-            await asyncio.gather(self._notify_task, return_exceptions=True)
-            self._notify_task = None
-
-        self.bridge.stop()
-        self.heartbeat.stop()
-        self.cron.stop()
-        await self.brain.close()
+        self._notify_task, self._autopilot_task = await stop_runtime_background_services(
+            body=self.body,
+            autopilot_task=self._autopilot_task,
+            notify_task=self._notify_task,
+            bridge=self.bridge,
+            heartbeat=self.heartbeat,
+            cron=self.cron,
+            brain=self.brain,
+        )
         self._started = False
         self._release_runtime_lock()
         self._complete_runtime_task(state=RUNTIME_STATE_STOPPED, status=STATUS_OK)
@@ -590,42 +555,22 @@ class CommanderRuntime:
         channel: str = "cli",
         chat_id: str = "direct",
     ) -> str:
-        self._ensure_runtime_storage()
-        self._begin_task("ask", channel, session_key=session_key, chat_id=chat_id)
-        self.memory.append(
-            kind="user",
-            session_key=session_key,
-            content=message,
-            metadata={"channel": channel, "chat_id": chat_id},
-        )
-        self._record_ask_activity(
-            EVENT_ASK_STARTED,
+        return await execute_runtime_ask(
+            message=message,
             session_key=session_key,
             channel=channel,
             chat_id=chat_id,
-            extra={"message_length": len(message)},
+            ensure_runtime_storage=self._ensure_runtime_storage,
+            begin_task=self._begin_task,
+            memory=self.memory,
+            record_ask_activity=self._record_ask_activity,
+            process_direct=self.brain.process_direct,
+            complete_runtime_task=self._complete_runtime_task,
+            status_ok=STATUS_OK,
+            status_error=STATUS_ERROR,
+            event_ask_started=EVENT_ASK_STARTED,
+            event_ask_finished=EVENT_ASK_FINISHED,
         )
-        try:
-            response = await self.brain.process_direct(message, session_key=session_key)
-            self.memory.append(
-                kind="assistant",
-                session_key=session_key,
-                content=response or "",
-                metadata={"channel": channel, "chat_id": chat_id},
-            )
-            ask_result = _extract_ask_result_metadata(response)
-            self._record_ask_activity(
-                EVENT_ASK_FINISHED,
-                session_key=session_key,
-                channel=channel,
-                chat_id=chat_id,
-                extra={"message_length": len(message), **ask_result},
-            )
-            self._complete_runtime_task(status=STATUS_OK)
-            return response
-        except Exception:
-            self._complete_runtime_task(status=STATUS_ERROR)
-            raise
 
     def _lab_counts(self) -> dict[str, int]:
         return self.training_lab.counts()
@@ -1266,59 +1211,34 @@ class CommanderRuntime:
         )
 
     def get_events_tail(self, *, limit: int = 50) -> dict[str, Any]:
-        rows = read_event_rows(self.cfg.runtime_events_path, limit=limit)
-        return self._attach_domain_readonly_workflow(
-            {"count": len(rows), "items": rows},
-            domain="runtime",
-            operation="get_events_tail",
-            runtime_tool="invest_events_tail",
-            phase="events_tail_read",
-            phase_stats={"count": len(rows), "limit": int(limit)},
+        return get_events_tail_response(
+            self,
+            limit=limit,
+            attach_domain_readonly_workflow=self._attach_domain_readonly_workflow,
         )
 
     def get_events_summary(self, *, limit: int = 100) -> dict[str, Any]:
-        rows = read_event_rows(self.cfg.runtime_events_path, limit=limit)
-        payload = {"status": STATUS_OK, "summary": summarize_event_rows(rows), "items": rows}
-        return self._attach_domain_readonly_workflow(
-            payload,
-            domain="runtime",
-            operation="get_events_summary",
-            runtime_tool="invest_events_summary",
-            phase="events_summary_read",
-            phase_stats={"count": len(rows), "limit": int(limit)},
+        return get_events_summary_response(
+            self,
+            limit=limit,
+            ok_status=STATUS_OK,
+            attach_domain_readonly_workflow=self._attach_domain_readonly_workflow,
         )
 
     def get_runtime_diagnostics(self, *, event_limit: int = 50, memory_limit: int = 20) -> dict[str, Any]:
-        payload = build_runtime_diagnostics(self, event_limit=event_limit, memory_limit=memory_limit)
-        return self._attach_domain_readonly_workflow(
-            payload,
-            domain="runtime",
-            operation="get_runtime_diagnostics",
-            runtime_tool="invest_runtime_diagnostics",
-            phase="diagnostics_build",
-            phase_stats={"event_limit": int(event_limit), "memory_limit": int(memory_limit)},
+        return get_runtime_diagnostics_response(
+            self,
+            event_limit=event_limit,
+            memory_limit=memory_limit,
+            attach_domain_readonly_workflow=self._attach_domain_readonly_workflow,
         )
 
     def get_training_lab_summary(self, *, limit: int = 5) -> dict[str, Any]:
-        payload = {
-            "status": STATUS_OK,
-            **self._lab_counts(),
-            "latest_plans": self.list_training_plans(limit=limit).get("items", []),
-            "latest_runs": self.list_training_runs(limit=limit).get("items", []),
-            "latest_evaluations": self.list_training_evaluations(limit=limit).get("items", []),
-        }
-        return self._attach_domain_readonly_workflow(
-            payload,
-            domain="training",
-            operation="get_training_lab_summary",
-            runtime_tool="invest_training_lab_summary",
-            phase="lab_summary_read",
-            phase_stats={
-                "limit": int(limit),
-                "plan_count": int(payload.get("plan_count", 0)),
-                "run_count": int(payload.get("run_count", 0)),
-                "evaluation_count": int(payload.get("evaluation_count", 0)),
-            },
+        return get_training_lab_summary_response(
+            self,
+            limit=limit,
+            ok_status=STATUS_OK,
+            attach_domain_readonly_workflow=self._attach_domain_readonly_workflow,
         )
 
     def list_research_cases(self, *, limit: int = 20, policy_id: str = '', symbol: str = '', as_of_date: str = '', horizon: str = '') -> dict[str, Any]:
@@ -1398,13 +1318,7 @@ class CommanderRuntime:
         )
 
     def _load_leaderboard_snapshot(self) -> dict[str, Any]:
-        path = Path(self.cfg.training_output_dir).parent / "leaderboard.json"
-        if not path.exists():
-            return {}
-        try:
-            return json.loads(path.read_text(encoding="utf-8"))
-        except Exception:
-            return {}
+        return load_leaderboard_snapshot(self.cfg.training_output_dir)
 
     def _build_promotion_summary(
         self,
@@ -1438,30 +1352,24 @@ class CommanderRuntime:
         )
 
     def _record_training_lab_artifacts(self, *, plan: dict[str, Any], payload: dict[str, Any], status: str, error: str = "") -> dict[str, Any]:
-        run_id = self._new_training_run_id()
-        eval_payload = self._build_training_evaluation_summary(payload, plan=plan, run_id=run_id, error=error)
-        return self.training_lab.record_training_lab_artifacts(
-            payload=payload,
+        return record_training_lab_artifacts(
+            training_lab=self.training_lab,
+            build_training_evaluation_summary=self._build_training_evaluation_summary,
+            new_run_id=self._new_training_run_id,
             plan=plan,
+            payload=payload,
             status=status,
-            eval_payload=eval_payload,
-            run_id=run_id,
             error=error,
         )
 
     def _append_training_memory(self, payload: dict[str, Any], *, rounds: int, mock: bool, status: str, error: str = "") -> None:
-        entry = build_training_memory_entry(
+        append_training_memory(
+            self.memory,
             payload,
             rounds=rounds,
             mock=mock,
             status=status,
             error=error,
-        )
-        self.memory.append(
-            kind="training_run",
-            session_key="runtime:train",
-            content=str(entry.get("content") or ""),
-            metadata=dict(entry.get("metadata") or {}),
         )
 
     def _load_training_plan_artifact(self, plan_id: str) -> tuple[Path, dict[str, Any]]:
@@ -1544,48 +1452,31 @@ class CommanderRuntime:
         self._ensure_runtime_storage()
         plan_path, plan = self._load_training_plan_artifact(str(plan_id))
         experiment_spec, rounds, mock = self._build_experiment_spec_from_plan(plan)
-
-        plan["status"] = "running"
-        plan["started_at"] = datetime.now().isoformat()
-        self._write_json_artifact(plan_path, plan)
-        self._begin_task("train_plan", str(plan.get("source", "manual")), rounds=rounds, mock=mock, plan_id=plan_id)
-        self._set_runtime_state(STATUS_TRAINING)
-        self.memory.append_audit("train_requested", "runtime:train", {"rounds": rounds, "mock": mock, "plan_id": plan_id})
-        try:
-            run_cycles_kwargs = self._build_run_cycles_kwargs(
-                plan=plan,
-                rounds=rounds,
-                mock=mock,
-                experiment_spec=experiment_spec,
-            )
-            out = await self.body.run_cycles(**run_cycles_kwargs)
-            if data_error := self.body._extract_data_source_error(out):
-                raise DataSourceUnavailableError.from_payload(data_error)
-            status = str(out.get("status", STATUS_OK))
-            lab = self._record_training_lab_artifacts(plan=plan, payload=out, status=status)
-            self._attach_training_lab_paths(out, lab)
-            self._append_training_memory(out, rounds=rounds, mock=mock, status=status)
-            self._complete_runtime_task(
-                state=STATUS_IDLE if status != STATUS_BUSY else STATUS_BUSY,
-                status=status,
-                rounds=rounds,
-                mock=mock,
-                plan_id=plan_id,
-            )
-            return self._wrap_training_execution_payload(out, plan_id=str(plan_id), rounds=rounds, mock=mock)
-        except Exception as exc:
-            error_payload = {"results": [], "summary": self.body.snapshot()}
-            lab = self._record_training_lab_artifacts(plan=plan, payload=error_payload, status=STATUS_ERROR, error=str(exc))
-            self._attach_training_lab_paths(error_payload, lab)
-            self._append_training_memory(error_payload, rounds=rounds, mock=mock, status=STATUS_ERROR, error=str(exc))
-            self._complete_runtime_task(
-                state=STATUS_ERROR,
-                status=STATUS_ERROR,
-                rounds=rounds,
-                mock=mock,
-                plan_id=plan_id,
-            )
-            raise
+        return await execute_training_plan_flow(
+            plan_path=plan_path,
+            plan=plan,
+            experiment_spec=experiment_spec,
+            rounds=rounds,
+            mock=mock,
+            plan_id=str(plan_id),
+            body=self.body,
+            body_snapshot=self.body.snapshot,
+            build_run_cycles_kwargs=self._build_run_cycles_kwargs,
+            write_json_artifact=self._write_json_artifact,
+            begin_task=self._begin_task,
+            set_runtime_state=self._set_runtime_state,
+            memory=self.memory,
+            record_training_lab_artifacts_impl=self._record_training_lab_artifacts,
+            attach_training_lab_paths_impl=self._attach_training_lab_paths,
+            append_training_memory_impl=self._append_training_memory,
+            complete_runtime_task=self._complete_runtime_task,
+            wrap_training_execution_payload=self._wrap_training_execution_payload,
+            ok_status=STATUS_OK,
+            busy_state=STATUS_BUSY,
+            idle_state=STATUS_IDLE,
+            training_state=STATUS_TRAINING,
+            error_state=STATUS_ERROR,
+        )
 
     def reload_strategies(self) -> dict[str, Any]:
         self._ensure_runtime_storage()
@@ -1610,95 +1501,19 @@ class CommanderRuntime:
 
     @staticmethod
     def _normalize_status_detail(detail: str) -> str:
-        detail_mode = str(detail or "fast").strip().lower()
-        return detail_mode if detail_mode in {"fast", "slow"} else "fast"
+        return normalize_status_detail(detail)
 
     def _collect_data_status(self, detail_mode: str) -> dict[str, Any]:
         return collect_data_status(detail_mode)
 
-    def _collect_status_event_rows(self, *, limit: int = 20) -> list[dict[str, Any]]:
-        return read_event_rows(self.cfg.runtime_events_path, limit=limit)
-
-    def _collect_training_lab_status(self, *, include_recent: bool) -> dict[str, Any]:
-        latest_plans: list[dict[str, Any]] = []
-        latest_runs: list[dict[str, Any]] = []
-        latest_evaluations: list[dict[str, Any]] = []
-        if include_recent:
-            latest_plans = list(self.list_training_plans(limit=3).get("items", []))
-            latest_runs = list(self.list_training_runs(limit=3).get("items", []))
-            latest_evaluations = list(self.list_training_evaluations(limit=3).get("items", []))
-        return build_training_lab_status(
-            lab_counts=self._lab_counts(),
-            latest_plans=latest_plans,
-            latest_runs=latest_runs,
-            latest_evaluations=latest_evaluations,
-            include_recent=include_recent,
-        )
-
-    def _build_status_payload(
-        self,
-        *,
-        detail_mode: str,
-        event_rows: list[dict[str, Any]] | None = None,
-        include_recent_training_lab: bool = True,
-    ) -> dict[str, Any]:
-        runtime_state, current_task, last_task = self._snapshot_runtime_fields()
-        strategy_items = [gene.to_dict() for gene in self.strategy_registry.genes]
-        return build_runtime_status_payload(
-            detail_mode=detail_mode,
-            instance_id=self.instance_id,
-            workspace=str(self.cfg.workspace),
-            strategy_dir=str(self.cfg.strategy_dir),
-            model=self.cfg.model,
-            autopilot_enabled=self.cfg.autopilot_enabled,
-            heartbeat_enabled=self.cfg.heartbeat_enabled,
-            training_interval_sec=self.cfg.training_interval_sec,
-            heartbeat_interval_sec=self.cfg.heartbeat_interval_sec,
-            runtime_state=runtime_state,
-            started=self._started,
-            current_task=current_task,
-            last_task=last_task,
-            runtime_lock_file=self.cfg.runtime_lock_file,
-            runtime_lock_active=self.cfg.runtime_lock_file.exists(),
-            training_lock_file=self.cfg.training_lock_file,
-            training_lock_active=self.cfg.training_lock_file.exists(),
-            brain_tool_count=len(self.brain.tools),
-            brain_session_count=self.brain.session_count,
-            cron_status=self.cron.status(),
-            body_snapshot=self.body.snapshot(),
-            memory_stats=self.memory.stats(),
-            bridge_status=self.bridge.status(),
-            plugin_tool_names=self._plugin_tool_names,
-            strategies=strategy_items,
-            enabled_strategy_count=len(self.strategy_registry.list_genes(only_enabled=True)),
-            config_payload=self.config_service.get_masked_payload(),
-            data_status=self._collect_data_status(detail_mode),
-            event_rows=list(event_rows or []),
-            training_lab_status=self._collect_training_lab_status(include_recent=include_recent_training_lab),
-        )
-
     def _build_persisted_state_payload(self) -> dict[str, Any]:
-        return self._build_status_payload(
-            detail_mode=self._normalize_status_detail("fast"),
-            event_rows=[],
-            include_recent_training_lab=False,
-        )
+        return build_persisted_status_payload(self)
 
     def status(self, *, detail: str = "fast") -> dict[str, Any]:
-        detail_mode = self._normalize_status_detail(detail)
-        event_rows = self._collect_status_event_rows(limit=20)
-        payload = self._build_status_payload(
-            detail_mode=detail_mode,
-            event_rows=event_rows,
-            include_recent_training_lab=True,
-        )
-        return self._attach_domain_readonly_workflow(
-            payload,
-            domain="runtime",
-            operation="status",
-            runtime_tool="invest_deep_status" if detail_mode == "slow" else "invest_quick_status",
-            phase="status_refresh" if detail_mode == "slow" else "status_read",
-            phase_stats={"detail_mode": detail_mode, "event_count": len(event_rows)},
+        return get_status_response(
+            self,
+            detail=detail,
+            attach_domain_readonly_workflow=self._attach_domain_readonly_workflow,
         )
 
     def add_cron_job(
@@ -1765,24 +1580,21 @@ class CommanderRuntime:
             await asyncio.sleep(1)
 
     def _register_fusion_tools(self) -> None:
-        for tool in build_commander_tools(self):
-            self.brain.tools.register(tool)
-        self._load_plugins(persist=False)
+        register_fusion_tools_impl(
+            self,
+            build_tools=build_commander_tools,
+            load_plugins=self._load_plugins,
+        )
 
     def _load_plugins(self, persist: bool = True) -> dict[str, Any]:
-        for name in list(self._plugin_tool_names):
-            self.brain.tools.unregister(name)
-        self._plugin_tool_names.clear()
-
-        loaded = []
-        for tool in self.plugin_loader.load_tools():
-            self.brain.tools.register(tool)
-            self._plugin_tool_names.add(tool.name)
-            loaded.append(tool.name)
-
-        if persist:
-            self._persist_state()
-        return {"count": len(loaded), "tools": loaded, "plugin_dir": str(self.cfg.plugin_dir)}
+        return load_plugin_tools(
+            brain_tools=self.brain.tools,
+            plugin_loader=self.plugin_loader,
+            plugin_tool_names=self._plugin_tool_names,
+            plugin_dir=self.cfg.plugin_dir,
+            persist=persist,
+            persist_state=self._persist_state,
+        )
 
     def reload_plugins(self) -> dict[str, Any]:
         self._ensure_runtime_storage()
@@ -1850,18 +1662,14 @@ class CommanderRuntime:
         )
 
     def _write_commander_identity(self) -> None:
-        soul_file = self.cfg.workspace / "SOUL.md"
-        heartbeat_file = self.cfg.workspace / "HEARTBEAT.md"
-
-        soul = build_commander_soul(
+        write_commander_identity_artifacts(
+            self.cfg.workspace,
             strategy_dir=str(self.cfg.strategy_dir),
             quick_status_tool_name=INVEST_QUICK_STATUS_TOOL_NAME,
             strategy_summary=self.strategy_registry.to_summary(),
+            build_soul=build_commander_soul,
+            build_heartbeat=build_heartbeat_tasks_markdown,
         )
-        soul_file.write_text(soul, encoding="utf-8")
-
-        if not heartbeat_file.exists():
-            heartbeat_file.write_text(build_heartbeat_tasks_markdown(), encoding="utf-8")
 
 
 # ---------------------------------------------------------------------------
@@ -1869,99 +1677,22 @@ class CommanderRuntime:
 # ---------------------------------------------------------------------------
 
 def _build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Unified Commander for Invest Evolution")
-    sub = parser.add_subparsers(dest="cmd", required=True)
-
-    def add_common_args(p: argparse.ArgumentParser) -> None:
-        p.add_argument("--workspace", help="Workspace path for commander runtime")
-        p.add_argument("--strategy-dir", help="Strategy gene directory (md/json/py)")
-        p.add_argument("--model", help="LLM model id, e.g. minimax/MiniMax-M2.5-highspeed")
-        p.add_argument("--api-key", help="LLM API key")
-        p.add_argument("--api-base", help="LLM API base URL")
-        p.add_argument("--mock", action="store_true", help="Enable mock data mode")
-
-    p_run = sub.add_parser("run", help="Start 24/7 commander daemon")
-    add_common_args(p_run)
-    p_run.add_argument("--interactive", action="store_true", help="Enable stdin chat while daemon runs")
-    p_run.add_argument("--no-autopilot", action="store_true", help="Disable periodic auto-training")
-    p_run.add_argument("--no-heartbeat", action="store_true", help="Disable heartbeat loop")
-    p_run.add_argument("--train-interval-sec", type=int, help="Autopilot interval seconds")
-    p_run.add_argument("--heartbeat-interval-sec", type=int, help="Heartbeat interval seconds")
-
-    p_status = sub.add_parser("status", help="Print commander status snapshot")
-    add_common_args(p_status)
-    p_status.add_argument("--detail", choices=["fast", "slow"], default="fast", help="Status detail mode")
-
-    p_train = sub.add_parser("train-once", help="Run training cycles once")
-    add_common_args(p_train)
-    p_train.add_argument("--rounds", type=int, default=1, help="Number of cycles to run")
-
-    p_ask = sub.add_parser("ask", help="Send one message to fused commander brain")
-    add_common_args(p_ask)
-    p_ask.add_argument("-m", "--message", required=True, help="User message")
-
-    p_genes = sub.add_parser("strategies", help="List strategy genes")
-    add_common_args(p_genes)
-    p_genes.add_argument("--reload", action="store_true", help="Reload strategy genes from disk")
-    p_genes.add_argument("--only-enabled", action="store_true", help="Show only enabled genes")
-
-    return parser
+    return build_commander_cli_parser()
 
 
 async def _run_async(args: argparse.Namespace) -> int:
-    cfg = CommanderConfig.from_args(args)
-    runtime = CommanderRuntime(cfg)
-
-    if args.cmd == "status":
-        print(json.dumps(runtime.status(detail=getattr(args, "detail", "fast")), ensure_ascii=False, indent=2))
-        return 0
-
-    if args.cmd == "train-once":
-        out = await runtime.train_once(rounds=max(1, int(args.rounds)), mock=cfg.mock_mode)
-        print(json.dumps(out, ensure_ascii=False, indent=2))
-        return 0
-
-    if args.cmd == "ask":
-        reply = await runtime.ask(args.message, session_key="cli:direct", channel="cli", chat_id="direct")
-        print(reply)
-        return 0
-
-    if args.cmd == "strategies":
-        if args.reload:
-            runtime.reload_strategies()
-        genes = runtime.strategy_registry.list_genes(only_enabled=bool(args.only_enabled))
-        print(
-            json.dumps(
-                {"count": len(genes), "items": [g.to_dict() for g in genes]},
-                ensure_ascii=False,
-                indent=2,
-            )
-        )
-        return 0
-
-    if args.cmd == "run":
-        try:
-            await runtime.serve_forever(interactive=bool(args.interactive))
-            return 0
-        finally:
-            await runtime.stop()
-
-    raise ValueError(f"Unknown command: {args.cmd}")
+    return await run_commander_cli_async(
+        args,
+        config_cls=CommanderConfig,
+        runtime_cls=CommanderRuntime,
+    )
 
 
 def main() -> int:
-    parser = _build_parser()
-    args = parser.parse_args()
-
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s [%(levelname)s] %(message)s",
+    return run_cli_main(
+        config_cls=CommanderConfig,
+        runtime_cls=CommanderRuntime,
     )
-
-    try:
-        return asyncio.run(_run_async(args))
-    except KeyboardInterrupt:
-        return 130
 
 
 if __name__ == "__main__":
