@@ -244,7 +244,7 @@
           "chat"
         ],
         "summary": "Send a natural-language message to Commander.",
-        "description": "Send a natural-language message to Commander.",
+        "description": "Provide session_key/chat_id to continue a multi-turn API conversation; omit them for isolated one-shot requests.",
         "responses": {
           "200": {
             "description": "Send a natural-language message to Commander.",
@@ -303,6 +303,14 @@
                 ],
                 "properties": {
                   "message": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "session_key": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "chat_id": {
                     "type": "string",
                     "minLength": 1
                   }
@@ -2482,6 +2490,12 @@
           "task_bus": {
             "type": "object",
             "additionalProperties": true
+          },
+          "session_key": {
+            "type": "string"
+          },
+          "chat_id": {
+            "type": "string"
           }
         },
         "required": [

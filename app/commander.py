@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-import json
 import logging
 import os
 import socket
@@ -43,7 +42,6 @@ from app.investment_body_service import InvestmentBodyService
 from app.commander_status_support import (
     build_persisted_status_payload,
     collect_data_status,
-    normalize_status_detail,
 )
 from app.commander_training_support import (
     append_training_memory,
@@ -108,6 +106,14 @@ from app.commander_runtime_query_support import (
     get_status_response,
     get_training_lab_summary_response,
 )
+from app.commander_runtime_mutation_support import (
+    add_cron_job_response,
+    list_cron_jobs_response,
+    reload_plugins_response,
+    reload_strategies_response,
+    remove_cron_job_response,
+    serve_forever_loop,
+)
 from app.commander_plugin_support import (
     load_plugin_tools,
     register_fusion_tools as register_fusion_tools_impl,
@@ -138,7 +144,7 @@ from app.commander_observability import (
     memory_brief_row,
 )
 from app.commander_domain_catalog import get_domain_agent_kind, get_domain_tools
-from app.strategy_gene_registry import StrategyGeneRegistry
+from app.strategy_gene_registry import StrategyGene, StrategyGeneRegistry
 from app.commander_workflow_support import (
     attach_bounded_workflow_response,
     jsonable as _jsonable,
@@ -152,6 +158,14 @@ from app.stock_analysis import StockAnalysisService
 from invest.research.case_store import ResearchCaseStore
 
 logger = logging.getLogger(__name__)
+
+__all__ = [
+    "CommanderConfig",
+    "CommanderRuntime",
+    "StrategyGene",
+    "StrategyGeneRegistry",
+    "main",
+]
 
 _RUNTIME_FIELD_UNSET = object()
 
@@ -1479,29 +1493,18 @@ class CommanderRuntime:
         )
 
     def reload_strategies(self) -> dict[str, Any]:
-        self._ensure_runtime_storage()
-        self._begin_task("reload_strategies", "direct")
-        self._set_runtime_state(RUNTIME_STATE_RELOADING_STRATEGIES)
-        self.strategy_registry.ensure_default_templates()
-        genes = self.strategy_registry.reload()
-        self._write_commander_identity()
-        self._complete_runtime_task(state=STATUS_IDLE, status=STATUS_OK, gene_count=len(genes))
-        return self._attach_domain_mutating_workflow(
-            {
-                "status": STATUS_OK,
-                "count": len(genes),
-                "genes": [g.to_dict() for g in genes],
-            },
-            domain="strategy",
-            operation="reload_strategies",
-            runtime_tool="invest_reload_strategies",
-            phase="strategy_reload",
-            phase_stats={"gene_count": len(genes)},
+        return reload_strategies_response(
+            self,
+            ensure_runtime_storage=self._ensure_runtime_storage,
+            begin_task=self._begin_task,
+            set_runtime_state=self._set_runtime_state,
+            write_commander_identity=self._write_commander_identity,
+            complete_runtime_task=self._complete_runtime_task,
+            attach_domain_mutating_workflow=self._attach_domain_mutating_workflow,
+            reloading_state=RUNTIME_STATE_RELOADING_STRATEGIES,
+            idle_state=STATUS_IDLE,
+            ok_status=STATUS_OK,
         )
-
-    @staticmethod
-    def _normalize_status_detail(detail: str) -> str:
-        return normalize_status_detail(detail)
 
     def _collect_data_status(self, detail_mode: str) -> dict[str, Any]:
         return collect_data_status(detail_mode)
@@ -1526,58 +1529,41 @@ class CommanderRuntime:
         channel: str = "cli",
         to: str = "commander",
     ) -> dict[str, Any]:
-        job = self.cron.add_job(name=name, message=message, every_sec=int(every_sec), deliver=bool(deliver), channel=str(channel), to=str(to))
-        self._persist_state()
-        return self._attach_domain_mutating_workflow(
-            {"status": STATUS_OK, "job": job.to_dict()},
-            domain="scheduler",
-            operation="add_cron_job",
-            runtime_tool="invest_cron_add",
-            phase="cron_add",
-            phase_stats={"job_id": getattr(job, 'id', ''), "every_sec": int(every_sec)},
+        return add_cron_job_response(
+            self,
+            name=name,
+            message=message,
+            every_sec=every_sec,
+            deliver=deliver,
+            channel=channel,
+            to=to,
+            persist_state=self._persist_state,
+            attach_domain_mutating_workflow=self._attach_domain_mutating_workflow,
+            ok_status=STATUS_OK,
         )
 
     def list_cron_jobs(self) -> dict[str, Any]:
-        rows = [j.to_dict() for j in self.cron.list_jobs()]
-        return self._attach_domain_readonly_workflow(
-            {"count": len(rows), "items": rows},
-            domain="scheduler",
-            operation="list_cron_jobs",
-            runtime_tool="invest_cron_list",
-            phase="cron_list",
-            phase_stats={"count": len(rows)},
+        return list_cron_jobs_response(
+            self,
+            attach_domain_readonly_workflow=self._attach_domain_readonly_workflow,
         )
 
     def remove_cron_job(self, job_id: str) -> dict[str, Any]:
-        ok = self.cron.remove_job(str(job_id))
-        self._persist_state()
-        return self._attach_domain_mutating_workflow(
-            {"status": STATUS_OK if ok else STATUS_NOT_FOUND, "job_id": str(job_id)},
-            domain="scheduler",
-            operation="remove_cron_job",
-            runtime_tool="invest_cron_remove",
-            phase="cron_remove",
-            phase_stats={"job_id": str(job_id), "removed": bool(ok)},
+        return remove_cron_job_response(
+            self,
+            job_id=job_id,
+            persist_state=self._persist_state,
+            attach_domain_mutating_workflow=self._attach_domain_mutating_workflow,
+            ok_status=STATUS_OK,
+            not_found_status=STATUS_NOT_FOUND,
         )
 
     async def serve_forever(self, interactive: bool = False) -> None:
-        await self.start()
-
-        if interactive:
-            print("Commander interactive mode. Type 'exit' to quit.")
-            while True:
-                line = await asyncio.to_thread(input, "commander> ")
-                cmd = line.strip()
-                if not cmd:
-                    continue
-                if cmd.lower() in {"exit", "quit", "/exit", ":q"}:
-                    break
-                reply = await self.ask(cmd, session_key="cli:commander", channel="cli", chat_id="commander")
-                print(reply)
-            return
-
-        while True:
-            await asyncio.sleep(1)
+        await serve_forever_loop(
+            start_runtime=self.start,
+            ask_runtime=self.ask,
+            interactive=interactive,
+        )
 
     def _register_fusion_tools(self) -> None:
         register_fusion_tools_impl(
@@ -1594,18 +1580,16 @@ class CommanderRuntime:
             plugin_dir=self.cfg.plugin_dir,
             persist=persist,
             persist_state=self._persist_state,
+            logger=logger,
         )
 
     def reload_plugins(self) -> dict[str, Any]:
-        self._ensure_runtime_storage()
-        payload = self._load_plugins(persist=True)
-        return self._attach_domain_mutating_workflow(
-            {"status": STATUS_OK, **payload},
-            domain="plugin",
-            operation="reload_plugins",
-            runtime_tool="invest_plugins_reload",
-            phase="plugin_reload",
-            phase_stats={"plugin_count": int(payload.get("count", 0))},
+        return reload_plugins_response(
+            self,
+            ensure_runtime_storage=self._ensure_runtime_storage,
+            load_plugins=self._load_plugins,
+            attach_domain_mutating_workflow=self._attach_domain_mutating_workflow,
+            ok_status=STATUS_OK,
         )
 
     def _ensure_runtime_storage(self) -> None:

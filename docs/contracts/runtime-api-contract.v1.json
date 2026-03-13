@@ -256,6 +256,12 @@
           "task_bus": {
             "type": "object",
             "additionalProperties": true
+          },
+          "session_key": {
+            "type": "string"
+          },
+          "chat_id": {
+            "type": "string"
           }
         },
         "required": [
@@ -1995,6 +2001,14 @@
           "message": {
             "type": "string",
             "minLength": 1
+          },
+          "session_key": {
+            "type": "string",
+            "minLength": 1
+          },
+          "chat_id": {
+            "type": "string",
+            "minLength": 1
           }
         }
       },
@@ -2028,7 +2042,9 @@
       "latency": "medium",
       "pagination": "none",
       "realtime": false,
-      "notes": [],
+      "notes": [
+        "Provide session_key/chat_id to continue a multi-turn API conversation; omit them for isolated one-shot requests."
+      ],
       "runtime_preferred": true
     },
     {
@@ -3790,7 +3806,7 @@
     }
   },
   "runtime_entrypoint": "/api/chat",
-  "removed_web_shell_mount": "/",
+  "removed_web_shell_mount": "/app",
   "preferred_runtime_flows": {
     "runtime_observability": [
       "GET /api/lab/status/quick",

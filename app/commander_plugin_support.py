@@ -25,17 +25,32 @@ def load_plugin_tools(
     plugin_dir: Path,
     persist: bool,
     persist_state: Callable[[], None],
+    logger: Any | None = None,
 ) -> dict[str, Any]:
     for name in list(plugin_tool_names):
         brain_tools.unregister(name)
     plugin_tool_names.clear()
 
     loaded: list[str] = []
+    skipped_conflicts: list[str] = []
     for tool in plugin_loader.load_tools():
+        if brain_tools.get(tool.name) is not None:
+            skipped_conflicts.append(tool.name)
+            if logger is not None:
+                logger.warning(
+                    "Skipping plugin tool %s because it conflicts with an existing runtime tool",
+                    tool.name,
+                )
+            continue
         brain_tools.register(tool)
         plugin_tool_names.add(tool.name)
         loaded.append(tool.name)
 
     if persist:
         persist_state()
-    return {"count": len(loaded), "tools": loaded, "plugin_dir": str(plugin_dir)}
+    return {
+        "count": len(loaded),
+        "tools": loaded,
+        "plugin_dir": str(plugin_dir),
+        "skipped_conflicts": skipped_conflicts,
+    }

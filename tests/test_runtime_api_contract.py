@@ -43,12 +43,14 @@ def test_runtime_contract_endpoint_returns_machine_readable_contract():
     payload = res.get_json()
     assert payload['contract_id'] == 'runtime-v1'
     assert payload['runtime_entrypoint'] == '/api/chat'
-    assert payload['removed_web_shell_mount'] == '/'
+    assert payload['removed_web_shell_mount'] == '/app'
     assert payload['components']['schemas']['responseFeedback']['properties']['summary']['type'] == 'string'
     assert payload['components']['schemas']['responseNextAction']['properties']['kind']['type'] == 'string'
     assert payload['components']['schemas']['responseEnvelope']['properties']['feedback']['$ref'] == '#/components/schemas/responseFeedback'
     assert payload['components']['schemas']['statusWrappedConfig']['properties']['feedback']['$ref'] == '#/components/schemas/responseFeedback'
     assert payload['components']['schemas']['chatReply']['properties']['next_action']['$ref'] == '#/components/schemas/responseNextAction'
+    assert payload['components']['schemas']['chatReply']['properties']['session_key']['type'] == 'string'
+    assert payload['components']['schemas']['chatReply']['properties']['chat_id']['type'] == 'string'
     assert payload['transcript_snapshots']['schema_version'] == 'transcript_snapshots.v1'
     assert 'ask_stock' in payload['transcript_snapshots']['examples']
     assert payload['transcript_snapshots']['examples']['ask_stock']['entrypoint']['domain'] == 'stock'
@@ -57,6 +59,9 @@ def test_runtime_contract_endpoint_returns_machine_readable_contract():
     assert '#/components/sse_schemas/routingDecision' in payload['sse']['event_refs']
     train_endpoint = next(endpoint for endpoint in payload['endpoints'] if endpoint['path'] == '/api/train' and endpoint['method'] == 'POST')
     assert train_endpoint['request_body']['properties']['mock']['default'] is False
+    chat_endpoint = next(endpoint for endpoint in payload['endpoints'] if endpoint['path'] == '/api/chat' and endpoint['method'] == 'POST')
+    assert chat_endpoint['request_body']['properties']['session_key']['type'] == 'string'
+    assert chat_endpoint['request_body']['properties']['chat_id']['type'] == 'string'
     cycle_complete = payload['components']['sse_schemas']['cycleComplete']['data']['properties']
     assert 'requested_data_mode' in cycle_complete
     assert 'effective_data_mode' in cycle_complete

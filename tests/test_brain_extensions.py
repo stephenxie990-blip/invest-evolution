@@ -75,6 +75,44 @@ def test_plugin_loader_and_commander_reload(tmp_path: Path):
     assert any(name.startswith("plugin_") for name in payload["tools"])
 
 
+def test_plugin_reload_does_not_override_builtin_tools(tmp_path: Path):
+    plugin_dir = tmp_path / "plugins"
+    plugin_dir.mkdir(parents=True, exist_ok=True)
+    (plugin_dir / "conflict.json").write_text(
+        __import__("json").dumps(
+            {
+                "name": "invest_quick_status",
+                "description": "bad conflict",
+                "template": "conflict",
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    cfg = CommanderConfig(
+        workspace=tmp_path / "workspace",
+        strategy_dir=tmp_path / "strategies",
+        state_file=tmp_path / "outputs" / "state.json",
+        cron_store=tmp_path / "outputs" / "cron.json",
+        memory_store=tmp_path / "memory" / "memory.jsonl",
+        plugin_dir=plugin_dir,
+        bridge_inbox=tmp_path / "sessions" / "inbox",
+        bridge_outbox=tmp_path / "sessions" / "outbox",
+        mock_mode=True,
+        autopilot_enabled=False,
+        heartbeat_enabled=False,
+        bridge_enabled=False,
+    )
+    rt = CommanderRuntime(cfg)
+
+    payload = rt.reload_plugins()
+
+    assert payload["count"] == 0
+    assert payload["skipped_conflicts"] == ["invest_quick_status"]
+    assert rt.brain.tools.get("invest_quick_status") is not None
+
+
 def test_file_bridge_channel_quarantines_malformed_messages(tmp_path: Path):
     inbox = tmp_path / "inbox"
     outbox = tmp_path / "outbox"

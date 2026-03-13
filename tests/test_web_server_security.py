@@ -68,14 +68,16 @@ def test_root_returns_api_entrypoint_summary():
     assert payload['entrypoints']['chat'] == '/api/chat'
 
 
-def test_removed_web_ui_routes_are_absent():
+def test_removed_web_ui_routes_return_tombstone():
     client = web_server.app.test_client()
 
     legacy = client.get('/legacy')
     app_shell = client.get('/app')
 
-    assert legacy.status_code == 404
-    assert app_shell.status_code == 404
+    assert legacy.status_code == 410
+    assert app_shell.status_code == 410
+    assert legacy.get_json()['error'] == 'web ui has been removed'
+    assert app_shell.get_json()['removed_path'] == '/app'
 
 
 def test_api_status_requires_auth_when_enabled(monkeypatch):

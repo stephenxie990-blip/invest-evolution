@@ -23,6 +23,7 @@ from queue import Full, Queue
 import threading
 from pathlib import Path
 from typing import Any
+import uuid
 
 from flask import Flask, jsonify, request, Response, stream_with_context
 
@@ -34,11 +35,8 @@ from app.runtime_contract_catalog import (
     load_runtime_contract_document,
 )
 from app.runtime_artifact_reader import resolve_runtime_artifact_path, safe_read_json, safe_read_jsonl, safe_read_text
-from invest.allocator import build_allocation_plan
-from invest.leaderboard import write_leaderboard
-from invest.models import list_models
 from app.train import set_event_callback
-from config.services import EvolutionConfigService, RuntimePathConfigService
+from config.services import EvolutionConfigService
 from invest.meetings import MeetingRecorder
 from market_data import DataSourceUnavailableError
 
@@ -242,6 +240,30 @@ def _parse_limit_arg(default: int = 20, maximum: int = 200) -> int:
     raw = request.args.get("limit", default)
     value = _parse_int(raw, "limit")
     return max(1, min(maximum, value))
+
+
+def _removed_web_ui_response(path: str):
+    payload = {
+        "error": "web ui has been removed",
+        "removed_path": path,
+        "message": "请改用 /api/chat、/api/status、/api/events 或 commander CLI。",
+        "entrypoints": {
+            "chat": "/api/chat",
+            "status": "/api/status",
+            "events": "/api/events",
+            "healthz": "/healthz",
+        },
+    }
+    return jsonify(payload), 410
+
+
+def _normalize_chat_session_token(value: Any, *, field_name: str, prefix: str) -> str:
+    token = str(value or "").strip()
+    if not token:
+        return f"{prefix}:{uuid.uuid4().hex}"
+    if len(token) > 120:
+        raise ValueError(f"{field_name} must be <= 120 characters")
+    return token
 
 
 def shutdown_runtime_services() -> None:
@@ -550,6 +572,17 @@ def index():
     })
 
 
+@app.route("/legacy")
+def legacy_index():
+    return _removed_web_ui_response("/legacy")
+
+
+@app.route("/app")
+@app.route("/app/<path:asset_path>")
+def frontend_app(asset_path: str = ""):
+    return _removed_web_ui_response("/app" if not asset_path else f"/app/{asset_path}")
+
+
 # ---- Contracts ----
 
 @app.route("/api/contracts")
@@ -659,8 +692,21 @@ def api_chat():
     if not message:
         return jsonify({"error": "message is required"}), 400
     try:
+        session_key = _normalize_chat_session_token(
+            data.get("session_key"),
+            field_name="session_key",
+            prefix="api:chat",
+        )
+        chat_id = _normalize_chat_session_token(
+            data.get("chat_id"),
+            field_name="chat_id",
+            prefix="chat",
+        )
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    try:
         reply = _run_async(
-            runtime.ask(message, session_key="api:chat", channel="api", chat_id="chat")
+            runtime.ask(message, session_key=session_key, channel="api", chat_id=chat_id)
         )
         try:
             payload = json.loads(reply) if isinstance(reply, str) else dict(reply or {})
@@ -670,6 +716,8 @@ def api_chat():
             payload = {"reply": str(reply)}
         payload.setdefault("reply", str(payload.get("message") or reply))
         payload.setdefault("message", str(payload.get("reply") or ""))
+        payload.setdefault("session_key", session_key)
+        payload.setdefault("chat_id", chat_id)
         return jsonify(payload)
     except Exception as exc:
         logger.exception("Chat error")
@@ -882,7 +930,6 @@ def api_model_routing_preview():
     runtime = _runtime
     if runtime is None:
         return _runtime_not_ready_response()
-    controller = runtime.body.controller
     cutoff_date = str(request.args.get("cutoff_date", "") or "").strip() or None
     try:
         stock_count = int(request.args.get("stock_count", 0) or 0) or None

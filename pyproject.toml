@@ -21,7 +21,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8.0"]
+dev = ["pytest>=8.0", "ruff>=0.11", "pyright>=1.1"]
 prod = ["gunicorn>=23.0"]
 
 [project.scripts]
@@ -36,6 +36,32 @@ testpaths = ["tests"]
 python_files = ["test_*.py"]
 pythonpath = ["."]
 addopts = "-q"
+
+[tool.ruff]
+exclude = [
+  ".git",
+  ".pytest_cache",
+  ".venv",
+  "external",
+  "frontend/node_modules",
+  "runtime",
+  "历史归档区",
+  "项目收口备份0312",
+]
+
+[tool.pyright]
+venvPath = "."
+venv = ".venv"
+exclude = [
+  "**/.git",
+  "**/.pytest_cache",
+  "**/.venv",
+  "**/external",
+  "**/frontend/node_modules",
+  "**/runtime",
+  "**/历史归档区",
+  "**/项目收口备份0312",
+]
 
 [tool.setuptools]
 py-modules = [

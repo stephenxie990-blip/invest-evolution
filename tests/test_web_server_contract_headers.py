@@ -181,7 +181,15 @@ def test_api_data_download_runtime_confirmed_emits_contract_headers(client_with_
 def test_api_chat_returns_structured_protocol_payload(client_with_runtime, monkeypatch):
     client, runtime = client_with_runtime
 
+    seen = {}
+
     async def fake_ask(message, session_key=None, channel=None, chat_id=None):
+        seen.update({
+            'message': message,
+            'session_key': session_key,
+            'channel': channel,
+            'chat_id': chat_id,
+        })
         return json.dumps({
             'status': 'ok',
             'reply': '已完成分析',
@@ -196,6 +204,34 @@ def test_api_chat_returns_structured_protocol_payload(client_with_runtime, monke
     assert res.status_code == 200
     payload = res.get_json()
     assert payload['reply'] == '已完成分析'
+    assert payload['session_key'] == seen['session_key']
+    assert payload['chat_id'] == seen['chat_id']
+    assert seen['session_key'].startswith('api:chat:')
+    assert seen['chat_id'].startswith('chat:')
+    assert seen['channel'] == 'api'
     assert payload['feedback']['summary'] == '当前任务已完成，计划与参数覆盖满足预期。'
     assert payload['next_action']['kind'] == 'complete'
     assert payload['task_bus']['schema_version'] == 'task_bus.v2'
+
+
+def test_api_chat_honors_explicit_session_identity(client_with_runtime):
+    client, runtime = client_with_runtime
+
+    seen = {}
+
+    async def fake_ask(message, session_key=None, channel=None, chat_id=None):
+        seen.update({'session_key': session_key, 'chat_id': chat_id})
+        return json.dumps({'reply': 'ok'}, ensure_ascii=False)
+
+    runtime.ask = fake_ask
+    res = client.post(
+        '/api/chat',
+        data=json.dumps({'message': '继续', 'session_key': 'api:chat:portfolio-1', 'chat_id': 'portfolio-1'}),
+        content_type='application/json',
+    )
+
+    assert res.status_code == 200
+    payload = res.get_json()
+    assert seen == {'session_key': 'api:chat:portfolio-1', 'chat_id': 'portfolio-1'}
+    assert payload['session_key'] == 'api:chat:portfolio-1'
+    assert payload['chat_id'] == 'portfolio-1'
