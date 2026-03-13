@@ -175,6 +175,11 @@ def test_memory_api_detail_returns_training_artifacts(tmp_path, monkeypatch):
     assert items[-1]["ts"]
     assert items[-1]["training_run"] is True
 
+    list_human = client.get("/api/memory?view=human")
+    assert list_human.status_code == 200
+    assert list_human.mimetype == "text/plain"
+    assert "结论：已返回" in list_human.get_data(as_text=True)
+
     detail_res = client.get(f"/api/memory/{rec.id}")
     assert detail_res.status_code == 200
     body = detail_res.get_json()
@@ -188,3 +193,8 @@ def test_memory_api_detail_returns_training_artifacts(tmp_path, monkeypatch):
     assert body["details"]["compare"]["selected_stocks"]["removed"] == ["000002.SZ", "000003.SZ"]
     assert body["details"]["compare"]["flags"]["selection_mode"]["changed"] is False
     assert body["details"]["compare"]["params"]["changed_count"] == 3
+
+    detail_human = client.get(f"/api/memory/{rec.id}?view=human")
+    assert detail_human.status_code == 200
+    assert detail_human.mimetype == "text/plain"
+    assert f"记录 ID：{rec.id}" in detail_human.get_data(as_text=True)

@@ -237,6 +237,79 @@
         "x-realtime": true
       }
     },
+    "/api/events/summary": {
+      "get": {
+        "operationId": "events_summary",
+        "tags": [
+          "events"
+        ],
+        "summary": "Return a pollable recent-event summary with optional human-readable rendering.",
+        "description": "Suitable for polling when SSE consumption is unnecessary.\nJSON responses also include `human_reply` and `display` fields for agent or human relay.",
+        "responses": {
+          "200": {
+            "description": "Return a pollable recent-event summary with optional human-readable rendering.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/eventsSummary"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "limit must be an integer; view must be one of: json, human",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/flatError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Commander runtime is not initialized.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/flatError"
+                }
+              }
+            }
+          }
+        },
+        "x-runtime-required": true,
+        "x-runtime-preferred": true,
+        "x-latency": "fast",
+        "x-realtime": false,
+        "x-pagination": "limit-only",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 50
+            },
+            "description": ""
+          },
+          {
+            "name": "view",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "json",
+                "human"
+              ],
+              "default": "json"
+            },
+            "description": ""
+          }
+        ]
+      }
+    },
     "/api/chat": {
       "post": {
         "operationId": "chat_ask",
@@ -2614,6 +2687,37 @@
           "items"
         ],
         "additionalProperties": false
+      },
+      "eventsSummary": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string"
+          },
+          "summary": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          },
+          "feedback": {
+            "$ref": "#/components/schemas/responseFeedback"
+          },
+          "next_action": {
+            "$ref": "#/components/schemas/responseNextAction"
+          }
+        },
+        "required": [
+          "status",
+          "summary",
+          "items"
+        ],
+        "additionalProperties": true
       },
       "trainingExecution": {
         "type": "object",

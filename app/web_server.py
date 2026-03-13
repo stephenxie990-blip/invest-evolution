@@ -250,6 +250,42 @@ def _parse_view_arg(value: Any, *, default: str = "json") -> str:
     return view
 
 
+def _attach_display_payload(payload: Any) -> dict[str, Any]:
+    body = dict(payload or {}) if isinstance(payload, dict) else {"reply": str(payload)}
+    display = build_human_display(body)
+    body.setdefault("human_reply", str(display.get("text") or body.get("reply") or body.get("message") or ""))
+    body.setdefault(
+        "display",
+        {
+            "available": bool(display.get("available")),
+            "title": str(display.get("title") or ""),
+            "summary": str(display.get("summary") or ""),
+            "text": str(display.get("text") or ""),
+            "sections": list(display.get("sections") or []),
+            "suggested_actions": list(display.get("suggested_actions") or []),
+            "recommended_next_step": str(display.get("recommended_next_step") or ""),
+            "risk_level": str(display.get("risk_level") or ""),
+            "synthesized": bool(display.get("synthesized")),
+        },
+    )
+    return body
+
+
+def _respond_with_display(payload: Any, *, status_code: int = 200, view: str = "json"):
+    enriched = _attach_display_payload(payload)
+    if view == "human":
+        return Response(
+            str(enriched.get("human_reply") or ""),
+            status=int(status_code),
+            mimetype="text/plain; charset=utf-8",
+        )
+    return _jsonify_contract_payload(enriched, status_code=status_code)
+
+
+def _request_view_arg(*, default: str = "json") -> str:
+    return _parse_view_arg(request.args.get("view", default), default=default)
+
+
 def _removed_web_ui_response(path: str):
     payload = {
         "error": "web ui has been removed",
@@ -560,9 +596,13 @@ def _status_response(*, detail_mode: str, route_mode: str | None = None):
     snapshot = _status_snapshot(detail_mode)
     if isinstance(snapshot, tuple):
         return snapshot
+    try:
+        view = _parse_view_arg(request.args.get("view", "json"))
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
     if route_mode is None:
-        return _jsonify_contract_payload(snapshot)
-    return _jsonify_contract_payload({"mode": route_mode, "snapshot": snapshot})
+        return _respond_with_display(snapshot, view=view)
+    return _respond_with_display({"mode": route_mode, "snapshot": snapshot}, view=view)
 
 
 @app.route("/")
@@ -687,6 +727,19 @@ def api_events():
     )
 
 
+@app.route("/api/events/summary")
+def api_events_summary():
+    runtime = _runtime
+    if runtime is None:
+        return _runtime_not_ready_response()
+    try:
+        view = _request_view_arg()
+        limit = _parse_limit_arg(default=50, maximum=200)
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    return _respond_with_display(runtime.get_events_summary(limit=limit), view=view)
+
+
 # ---- Chat ----
 
 @app.route("/api/chat", methods=["POST"])
@@ -727,24 +780,7 @@ def api_chat():
         payload.setdefault("message", str(payload.get("reply") or ""))
         payload.setdefault("session_key", session_key)
         payload.setdefault("chat_id", chat_id)
-        display = build_human_display(payload)
-        payload.setdefault("human_reply", str(display.get("text") or payload.get("reply") or ""))
-        payload.setdefault(
-            "display",
-            {
-                "available": bool(display.get("available")),
-                "title": str(display.get("title") or ""),
-                "summary": str(display.get("summary") or ""),
-                "text": str(display.get("text") or ""),
-                "sections": list(display.get("sections") or []),
-                "suggested_actions": list(display.get("suggested_actions") or []),
-                "recommended_next_step": str(display.get("recommended_next_step") or ""),
-                "risk_level": str(display.get("risk_level") or ""),
-            },
-        )
-        if view == "human":
-            return Response(str(payload.get("human_reply") or ""), mimetype="text/plain; charset=utf-8")
-        return jsonify(payload)
+        return _respond_with_display(payload, view=view)
     except ValueError as exc:
         return jsonify({"error": str(exc)}), 400
     except Exception as exc:
@@ -762,6 +798,10 @@ def api_train():
 
     data = request.get_json(force=True) or {}
     try:
+        view = _parse_view_arg(data.get("view", request.args.get("view", "json")))
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    try:
         rounds = max(1, min(100, int(data.get("rounds", 1))))
     except (TypeError, ValueError):
         return jsonify({"error": "rounds must be an integer"}), 400
@@ -771,7 +811,7 @@ def api_train():
         return jsonify({"error": str(exc)}), 400
     try:
         result = _run_async(runtime.train_once(rounds=rounds, mock=mock))
-        return _jsonify_contract_payload(result)
+        return _respond_with_display(result, view=view)
     except DataSourceUnavailableError as exc:
         logger.warning("Train data source unavailable: %s", exc)
         return _data_source_unavailable_response(exc)
@@ -837,10 +877,14 @@ def api_training_plan_list():
     if runtime is None:
         return _runtime_not_ready_response()
     try:
+        view = _request_view_arg()
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    try:
         limit = _parse_limit_arg()
     except ValueError as exc:
         return jsonify({"error": str(exc)}), 400
-    return _jsonify_contract_payload(runtime.list_training_plans(limit=limit))
+    return _respond_with_display(runtime.list_training_plans(limit=limit), view=view)
 
 
 @app.route("/api/lab/training/plans/<plan_id>")
@@ -849,7 +893,11 @@ def api_training_plan_get(plan_id: str):
     if runtime is None:
         return _runtime_not_ready_response()
     try:
-        return _jsonify_contract_payload(runtime.get_training_plan(plan_id))
+        view = _request_view_arg()
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    try:
+        return _respond_with_display(runtime.get_training_plan(plan_id), view=view)
     except FileNotFoundError as exc:
         return jsonify({"error": str(exc)}), 404
 
@@ -878,10 +926,14 @@ def api_training_run_list():
     if runtime is None:
         return _runtime_not_ready_response()
     try:
+        view = _request_view_arg()
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    try:
         limit = _parse_limit_arg()
     except ValueError as exc:
         return jsonify({"error": str(exc)}), 400
-    return _jsonify_contract_payload(runtime.list_training_runs(limit=limit))
+    return _respond_with_display(runtime.list_training_runs(limit=limit), view=view)
 
 
 @app.route("/api/lab/training/runs/<run_id>")
@@ -890,7 +942,11 @@ def api_training_run_get(run_id: str):
     if runtime is None:
         return _runtime_not_ready_response()
     try:
-        return _jsonify_contract_payload(runtime.get_training_run(run_id))
+        view = _request_view_arg()
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    try:
+        return _respond_with_display(runtime.get_training_run(run_id), view=view)
     except FileNotFoundError as exc:
         return jsonify({"error": str(exc)}), 404
 
@@ -901,10 +957,14 @@ def api_training_evaluation_list():
     if runtime is None:
         return _runtime_not_ready_response()
     try:
+        view = _request_view_arg()
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    try:
         limit = _parse_limit_arg()
     except ValueError as exc:
         return jsonify({"error": str(exc)}), 400
-    return _jsonify_contract_payload(runtime.list_training_evaluations(limit=limit))
+    return _respond_with_display(runtime.list_training_evaluations(limit=limit), view=view)
 
 
 @app.route("/api/lab/training/evaluations/<run_id>")
@@ -913,7 +973,11 @@ def api_training_evaluation_get(run_id: str):
     if runtime is None:
         return _runtime_not_ready_response()
     try:
-        return _jsonify_contract_payload(runtime.get_training_evaluation(run_id))
+        view = _request_view_arg()
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    try:
+        return _respond_with_display(runtime.get_training_evaluation(run_id), view=view)
     except FileNotFoundError as exc:
         return jsonify({"error": str(exc)}), 404
 
@@ -925,7 +989,11 @@ def api_investment_models():
     runtime = _runtime
     if runtime is None:
         return _runtime_not_ready_response()
-    return _jsonify_contract_payload(runtime.get_investment_models())
+    try:
+        view = _request_view_arg()
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    return _respond_with_display(runtime.get_investment_models(), view=view)
 
 
 @app.route("/api/leaderboard")
@@ -933,7 +1001,11 @@ def api_leaderboard():
     runtime = _runtime
     if runtime is None:
         return _runtime_not_ready_response()
-    return _jsonify_contract_payload(runtime.get_leaderboard())
+    try:
+        view = _request_view_arg()
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    return _respond_with_display(runtime.get_leaderboard(), view=view)
 
 
 @app.route("/api/allocator")
@@ -941,16 +1013,23 @@ def api_allocator():
     runtime = _runtime
     if runtime is None:
         return _runtime_not_ready_response()
+    try:
+        view = _request_view_arg()
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
     regime = str(request.args.get("regime", "oscillation") or "oscillation").strip().lower()
     try:
         top_n = _parse_int(request.args.get("top_n", 3), "top_n", minimum=1, maximum=4)
     except ValueError as exc:
         return jsonify({"error": str(exc)}), 400
-    return _jsonify_contract_payload(runtime.get_allocator_preview(
-        regime=regime,
-        top_n=top_n,
-        as_of_date=datetime.now().strftime("%Y%m%d"),
-    ))
+    return _respond_with_display(
+        runtime.get_allocator_preview(
+            regime=regime,
+            top_n=top_n,
+            as_of_date=datetime.now().strftime("%Y%m%d"),
+        ),
+        view=view,
+    )
 
 
 @app.route("/api/model-routing/preview")
@@ -995,11 +1074,15 @@ def api_strategies():
     runtime = _runtime
     if runtime is None:
         return _runtime_not_ready_response()
+    try:
+        view = _request_view_arg()
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
     genes = runtime.strategy_registry.list_genes()
-    return jsonify({
+    return _respond_with_display({
         "count": len(genes),
         "items": [g.to_dict() for g in genes],
-    })
+    }, view=view)
 
 
 @app.route("/api/strategies/reload", methods=["POST"])
@@ -1018,8 +1101,12 @@ def api_cron_list():
     runtime = _runtime
     if runtime is None:
         return _runtime_not_ready_response()
+    try:
+        view = _request_view_arg()
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
     rows = [j.to_dict() for j in runtime.cron.list_jobs()]
-    return jsonify({"count": len(rows), "items": rows})
+    return _respond_with_display({"count": len(rows), "items": rows}, view=view)
 
 
 @app.route("/api/cron", methods=["POST"])
@@ -1271,6 +1358,10 @@ def api_memory():
     if runtime is None:
         return _runtime_not_ready_response()
 
+    try:
+        view = _request_view_arg()
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
     query = request.args.get("q", "")
     try:
         limit = min(200, max(1, int(request.args.get("limit", 20))))
@@ -1278,7 +1369,7 @@ def api_memory():
         return jsonify({"error": "limit must be an integer"}), 400
     rows = runtime.memory.search(query=query, limit=limit)
     items = [_memory_brief_row(row) for row in rows]
-    return jsonify({"count": len(items), "items": items})
+    return _respond_with_display({"count": len(items), "items": items}, view=view)
 
 
 @app.route("/api/memory/<record_id>")
@@ -1286,22 +1377,30 @@ def api_memory_detail(record_id: str):
     runtime = _runtime
     if runtime is None:
         return _runtime_not_ready_response()
+    try:
+        view = _request_view_arg()
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
     row = runtime.memory.get(record_id)
     if row is None:
         return jsonify({"error": "memory record not found"}), 404
-    return jsonify(_build_memory_detail(row))
+    return _respond_with_display(_build_memory_detail(row), view=view)
 
 
 # ---- Agent Prompts ----
 
 @app.route("/api/agent_prompts", methods=["GET"])
 def api_agent_prompts_list():
+    try:
+        view = _request_view_arg()
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
     runtime = _runtime
     if runtime is not None:
-        return _jsonify_contract_payload(runtime.list_agent_prompts())
+        return _respond_with_display(runtime.list_agent_prompts(), view=view)
     import config as config_module
     from app.commander_support.services import list_agent_prompts_payload
-    return jsonify(list_agent_prompts_payload(project_root=config_module.PROJECT_ROOT))
+    return _respond_with_display(list_agent_prompts_payload(project_root=config_module.PROJECT_ROOT), view=view)
 
 
 @app.route("/api/agent_prompts", methods=["POST"])
@@ -1328,12 +1427,16 @@ def api_agent_prompts_update():
 
 @app.route("/api/runtime_paths", methods=["GET"])
 def api_runtime_paths_get():
+    try:
+        view = _request_view_arg()
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
     runtime = _runtime
     if runtime is not None:
-        return _jsonify_contract_payload(runtime.get_runtime_paths())
+        return _respond_with_display(runtime.get_runtime_paths(), view=view)
     import config as config_module
     from app.commander_support.services import get_runtime_paths_payload
-    return jsonify(get_runtime_paths_payload(None, project_root=config_module.PROJECT_ROOT))
+    return _respond_with_display(get_runtime_paths_payload(None, project_root=config_module.PROJECT_ROOT), view=view)
 
 
 @app.route("/api/runtime_paths", methods=["POST"])
@@ -1357,12 +1460,19 @@ def api_runtime_paths_update():
 
 @app.route("/api/evolution_config", methods=["GET"])
 def api_evolution_config_get():
+    try:
+        view = _request_view_arg()
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
     runtime = _runtime
     if runtime is not None:
-        return _jsonify_contract_payload(runtime.get_evolution_config())
+        return _respond_with_display(runtime.get_evolution_config(), view=view)
     import config as config_module
     from app.commander_support.services import get_evolution_config_payload
-    return jsonify(get_evolution_config_payload(project_root=config_module.PROJECT_ROOT, live_config=config_module.config))
+    return _respond_with_display(
+        get_evolution_config_payload(project_root=config_module.PROJECT_ROOT, live_config=config_module.config),
+        view=view,
+    )
 
 
 @app.route("/api/evolution_config", methods=["POST"])
@@ -1393,12 +1503,16 @@ def api_evolution_config_update():
 
 @app.route("/api/control_plane", methods=["GET"])
 def api_control_plane_get():
+    try:
+        view = _request_view_arg()
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
     runtime = _runtime
     if runtime is not None:
-        return _jsonify_contract_payload(runtime.get_control_plane())
+        return _respond_with_display(runtime.get_control_plane(), view=view)
     import config as config_module
     from app.commander_support.services import get_control_plane_payload
-    return jsonify(get_control_plane_payload(project_root=config_module.PROJECT_ROOT))
+    return _respond_with_display(get_control_plane_payload(project_root=config_module.PROJECT_ROOT), view=view)
 
 
 @app.route("/api/control_plane", methods=["POST"])
@@ -1423,14 +1537,15 @@ def api_control_plane_update():
 @app.route("/api/data/status", methods=["GET"])
 def api_data_status():
     try:
+        view = _parse_view_arg(request.args.get("view", "json"))
         refresh = _parse_bool(request.args.get("refresh", False), "refresh")
     except ValueError as exc:
         return jsonify({"error": str(exc)}), 400
     runtime = _runtime
     if runtime is not None:
-        return _jsonify_contract_payload(runtime.get_data_status(refresh=refresh))
+        return _respond_with_display(runtime.get_data_status(refresh=refresh), view=view)
     from app.commander_support.services import get_data_status_payload
-    return jsonify(get_data_status_payload(refresh=refresh))
+    return _respond_with_display(get_data_status_payload(refresh=refresh), view=view)
 
 @app.route("/api/data/capital_flow", methods=["GET"])
 def api_data_capital_flow():

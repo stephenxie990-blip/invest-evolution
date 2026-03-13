@@ -10,6 +10,7 @@ from brain.schema_contract import (
     COVERAGE_SCHEMA_VERSION,
     TASK_BUS_SCHEMA_VERSION,
 )
+from app.commander_support.observability import append_event_row
 from commander import CommanderConfig, CommanderRuntime
 from market_data.repository import MarketDataRepository
 
@@ -89,6 +90,65 @@ def test_api_status_emits_contract_headers(client_with_runtime):
     _assert_contract_headers(res, domain='runtime', operation='status')
 
 
+def test_api_status_view_human_returns_plain_text(client_with_runtime):
+    client, _runtime = client_with_runtime
+
+    res = client.get('/api/status?view=human')
+
+    assert res.status_code == 200
+    assert res.mimetype == 'text/plain'
+    text = res.get_data(as_text=True)
+    assert '结论：' in text
+    assert '现状：' in text
+
+
+def test_api_events_summary_emits_contract_headers(client_with_runtime):
+    client, runtime = client_with_runtime
+    append_event_row(
+        runtime.cfg.runtime_events_path,
+        'routing_decided',
+        {'current_model': 'deepseek-chat', 'reasoning': 'test'},
+        source='runtime',
+    )
+
+    res = client.get('/api/events/summary')
+
+    assert res.status_code == 200
+    payload = res.get_json()
+    assert payload['status'] == 'ok'
+    assert payload['summary']['count'] == 1
+    assert len(payload['items']) == 1
+    _assert_contract_headers(res, domain='runtime', operation='get_events_summary')
+
+
+def test_api_events_summary_view_human_returns_plain_text(client_with_runtime):
+    client, runtime = client_with_runtime
+    append_event_row(
+        runtime.cfg.runtime_events_path,
+        'routing_decided',
+        {'current_model': 'deepseek-chat', 'reasoning': 'test'},
+        source='runtime',
+    )
+
+    res = client.get('/api/events/summary?view=human')
+
+    assert res.status_code == 200
+    assert res.mimetype == 'text/plain'
+    text = res.get_data(as_text=True)
+    assert '结论：' in text
+    assert '条目数：1' in text
+    assert '事件数：1' in text or '现状：' in text
+
+
+def test_api_events_summary_rejects_unknown_view(client_with_runtime):
+    client, _runtime = client_with_runtime
+
+    res = client.get('/api/events/summary?view=xml')
+
+    assert res.status_code == 400
+    assert 'view must be one of' in res.get_json()['error']
+
+
 def test_api_lab_status_quick_emits_contract_headers_for_snapshot_payload(client_with_runtime):
     client, _runtime = client_with_runtime
 
@@ -110,6 +170,103 @@ def test_api_data_status_emits_contract_headers(client_with_runtime):
     _assert_contract_headers(res, domain='data', operation='get_data_status')
 
 
+def test_api_data_status_view_human_returns_plain_text(client_with_runtime):
+    client, _runtime = client_with_runtime
+
+    res = client.get('/api/data/status?view=human')
+
+    assert res.status_code == 200
+    assert res.mimetype == 'text/plain'
+    assert '结论：' in res.get_data(as_text=True)
+
+
+def test_api_investment_models_view_human_returns_plain_text(client_with_runtime):
+    client, _runtime = client_with_runtime
+
+    res = client.get('/api/investment-models?view=human')
+
+    assert res.status_code == 200
+    assert res.mimetype == 'text/plain'
+    text = res.get_data(as_text=True)
+    assert '结论：' in text
+    assert '条目数：' in text
+
+
+def test_api_control_plane_view_human_returns_plain_text(client_with_runtime):
+    client, _runtime = client_with_runtime
+
+    res = client.get('/api/control_plane?view=human')
+
+    assert res.status_code == 200
+    assert res.mimetype == 'text/plain'
+    text = res.get_data(as_text=True)
+    assert '结论：' in text
+    assert '默认模型提供方：' in text or '风险提示：' in text
+
+
+def test_api_runtime_paths_view_human_returns_plain_text(client_with_runtime):
+    client, _runtime = client_with_runtime
+
+    res = client.get('/api/runtime_paths?view=human')
+
+    assert res.status_code == 200
+    assert res.mimetype == 'text/plain'
+    text = res.get_data(as_text=True)
+    assert '结论：' in text
+    assert '训练输出目录已配置：' in text or '现状：' in text
+
+
+def test_api_training_plan_list_view_human_returns_plain_text(client_with_runtime):
+    client, runtime = client_with_runtime
+    runtime.create_training_plan(rounds=1, mock=True, goal='demo')
+
+    res = client.get('/api/lab/training/plans?view=human')
+
+    assert res.status_code == 200
+    assert res.mimetype == 'text/plain'
+    text = res.get_data(as_text=True)
+    assert '结论：已返回 1 条记录。' in text
+    assert '条目数：1' in text
+
+
+def test_api_training_plan_get_view_human_returns_plain_text(client_with_runtime):
+    client, runtime = client_with_runtime
+    plan = runtime.create_training_plan(rounds=2, mock=True, goal='demo')
+
+    res = client.get(f"/api/lab/training/plans/{plan['plan_id']}?view=human")
+
+    assert res.status_code == 200
+    assert res.mimetype == 'text/plain'
+    text = res.get_data(as_text=True)
+    assert f"训练计划：{plan['plan_id']}" in text
+    assert '计划轮数：2' in text
+
+
+def test_api_strategies_view_human_returns_plain_text(client_with_runtime):
+    client, _runtime = client_with_runtime
+
+    res = client.get('/api/strategies?view=human')
+
+    assert res.status_code == 200
+    assert res.mimetype == 'text/plain'
+    text = res.get_data(as_text=True)
+    assert '结论：已返回' in text
+    assert '条目数：' in text
+
+
+def test_api_cron_list_view_human_returns_plain_text(client_with_runtime):
+    client, runtime = client_with_runtime
+    runtime.cron.add_job(name='heartbeat', message='ping', every_sec=60, deliver=False, channel='web', to='commander')
+
+    res = client.get('/api/cron?view=human')
+
+    assert res.status_code == 200
+    assert res.mimetype == 'text/plain'
+    text = res.get_data(as_text=True)
+    assert '结论：已返回 1 条记录。' in text
+    assert '条目数：1' in text
+
+
 def test_api_train_emits_contract_headers_for_training_workflow(client_with_runtime, monkeypatch):
     client, runtime = client_with_runtime
 
@@ -129,6 +286,27 @@ def test_api_train_emits_contract_headers_for_training_workflow(client_with_runt
     assert payload['status'] == 'confirmation_required'
     assert payload['pending'] == {'rounds': 2, 'mock': False}
     _assert_contract_headers(res, domain='training', operation='train_once')
+
+
+def test_api_train_view_human_returns_plain_text(client_with_runtime, monkeypatch):
+    client, runtime = client_with_runtime
+
+    async def fake_train_once(rounds=1, mock=False):
+        return runtime.build_training_confirmation_required(rounds=rounds, mock=mock)
+
+    runtime.train_once = fake_train_once
+
+    res = client.post(
+        '/api/train?view=human',
+        data=json.dumps({'rounds': 2, 'mock': False}),
+        content_type='application/json',
+    )
+
+    assert res.status_code == 200
+    assert res.mimetype == 'text/plain'
+    text = res.get_data(as_text=True)
+    assert '结论：' in text
+    assert '风险提示：' in text
 
 
 def test_api_data_download_runtime_requires_confirmation_and_headers(client_with_runtime):
@@ -299,5 +477,12 @@ def test_api_chat_view_human_returns_plain_text(client_with_runtime):
 def test_api_chat_rejects_unknown_view(client_with_runtime):
     client, _runtime = client_with_runtime
     res = client.post('/api/chat', data=json.dumps({'message': '你好', 'view': 'xml'}), content_type='application/json')
+    assert res.status_code == 400
+    assert 'view must be one of' in res.get_json()['error']
+
+
+def test_api_status_rejects_unknown_view(client_with_runtime):
+    client, _runtime = client_with_runtime
+    res = client.get('/api/status?view=xml')
     assert res.status_code == 400
     assert 'view must be one of' in res.get_json()['error']

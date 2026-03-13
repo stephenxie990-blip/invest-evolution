@@ -381,6 +381,37 @@
         ],
         "additionalProperties": false
       },
+      "eventsSummary": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string"
+          },
+          "summary": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          },
+          "feedback": {
+            "$ref": "#/components/schemas/responseFeedback"
+          },
+          "next_action": {
+            "$ref": "#/components/schemas/responseNextAction"
+          }
+        },
+        "required": [
+          "status",
+          "summary",
+          "items"
+        ],
+        "additionalProperties": true
+      },
       "trainingExecution": {
         "type": "object",
         "description": "Result of executing a training plan or the convenience /api/train shortcut.",
@@ -1979,6 +2010,66 @@
       "notes": [
         "Initial event is `connected`.",
         "Keepalive comments are emitted when idle."
+      ],
+      "runtime_preferred": true
+    },
+    {
+      "id": "events.summary",
+      "group": "events",
+      "method": "GET",
+      "path": "/api/events/summary",
+      "summary": "Return a pollable recent-event summary with optional human-readable rendering.",
+      "runtime_required": true,
+      "replacement": null,
+      "query_params": [
+        {
+          "name": "limit",
+          "type": "integer",
+          "required": false,
+          "default": 50,
+          "minimum": 1,
+          "maximum": 200
+        },
+        {
+          "name": "view",
+          "type": "string",
+          "required": false,
+          "default": "json",
+          "enum": [
+            "json",
+            "human"
+          ]
+        }
+      ],
+      "path_params": [],
+      "request_body": null,
+      "success": {
+        "http_status": 200,
+        "body_ref": "eventsSummary"
+      },
+      "errors": [
+        {
+          "http_status": 400,
+          "body_ref": "flatError",
+          "cases": [
+            "limit must be an integer",
+            "view must be one of: json, human"
+          ]
+        },
+        {
+          "http_status": 503,
+          "body_ref": "flatError",
+          "cases": [
+            "Commander runtime is not initialized."
+          ]
+        }
+      ],
+      "latency": "fast",
+      "pagination": "limit-only",
+      "realtime": false,
+      "notes": [
+        "Suitable for polling when SSE consumption is unnecessary.",
+        "JSON responses also include `human_reply` and `display` fields for agent or human relay."
       ],
       "runtime_preferred": true
     },
