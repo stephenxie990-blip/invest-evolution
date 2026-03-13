@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import time
 import uuid
 from dataclasses import dataclass, asdict
 from pathlib import Path
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -26,6 +29,7 @@ class MemoryStore:
         self.path = Path(path)
         self.max_records = max(100, int(max_records))
         self.audit_path = self.path.with_name(self.path.stem + "_audit.jsonl")
+        self._last_load_warning_signature: tuple[str, int, str] | None = None
         if create:
             self.ensure_storage()
 
@@ -90,7 +94,8 @@ class MemoryStore:
         if self.audit_path.exists():
             try:
                 audit_records = len([line for line in self.audit_path.read_text(encoding="utf-8").splitlines() if line.strip()])
-            except Exception:
+            except OSError as exc:
+                logger.warning("Failed to read memory audit log %s: %s", self.audit_path, exc)
                 audit_records = 0
         return {
             "path": str(self.path),
@@ -106,7 +111,8 @@ class MemoryStore:
         if isinstance(metadata, dict) and metadata:
             try:
                 haystacks.append(json.dumps(metadata, ensure_ascii=False, sort_keys=True))
-            except Exception:
+            except (TypeError, ValueError) as exc:
+                logger.debug("Failed to serialize memory metadata for search: %s", exc)
                 haystacks.append(str(metadata))
         needle = str(query or "").strip().lower()
         if not needle:
@@ -117,15 +123,37 @@ class MemoryStore:
         if not self.path.exists():
             return []
         rows: list[dict[str, Any]] = []
-        for line in self.path.read_text(encoding="utf-8").splitlines():
+        invalid_rows = 0
+        first_error = ""
+        first_line_no = 0
+        for line_no, line in enumerate(self.path.read_text(encoding="utf-8").splitlines(), start=1):
             s = line.strip()
             if not s:
                 continue
             try:
                 rows.append(json.loads(s))
-            except Exception:
+            except json.JSONDecodeError as exc:
+                invalid_rows += 1
+                if not first_error:
+                    first_error = str(exc)
+                    first_line_no = line_no
                 continue
+        if invalid_rows:
+            self._warn_invalid_rows(invalid_rows, first_line_no, first_error)
         return rows
+
+    def _warn_invalid_rows(self, invalid_rows: int, first_line_no: int, first_error: str) -> None:
+        signature = (str(self.path), invalid_rows, first_error)
+        if signature == self._last_load_warning_signature:
+            return
+        self._last_load_warning_signature = signature
+        logger.warning(
+            "Skipped %s invalid memory rows in %s; first error at line %s: %s",
+            invalid_rows,
+            self.path,
+            first_line_no,
+            first_error,
+        )
 
     def _truncate_if_needed(self) -> None:
         rows = self._load_all()

@@ -1,9 +1,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, cast
 
 import pandas as pd
 
@@ -26,6 +25,10 @@ DEFAULT_ROUTING_POLICY: Dict[str, Any] = {
 }
 
 DEFAULT_ROUTING_ALLOWED_MODELS = list_models()
+
+
+def _numeric_series(frame: pd.DataFrame, column: str) -> pd.Series:
+    return cast(pd.Series, pd.to_numeric(frame[column], errors="coerce"))
 
 
 @dataclass
@@ -78,10 +81,17 @@ class MarketObservationService:
         if "trade_date" not in frame.columns or "close" not in frame.columns:
             return {}
         frame["trade_date"] = frame["trade_date"].astype(str)
-        frame = frame[frame["trade_date"] <= str(cutoff_date)].sort_values("trade_date")
+        frame = cast(
+            pd.DataFrame,
+            frame.loc[frame["trade_date"] <= str(cutoff_date)].copy(),
+        )
+        frame = cast(
+            pd.DataFrame,
+            frame.set_index("trade_date").sort_index().reset_index(),
+        )
         if len(frame) < 25:
             return {}
-        close = pd.to_numeric(frame["close"], errors="coerce").dropna()
+        close = _numeric_series(frame, "close").dropna()
         if len(close) < 25:
             return {}
         latest = float(close.iloc[-1])

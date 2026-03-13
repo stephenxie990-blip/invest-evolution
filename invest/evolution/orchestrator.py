@@ -7,7 +7,6 @@ from typing import Dict, List, Optional
 
 import numpy as np
 
-from .engine import EvolutionEngine
 from .llm_optimizer import LLMOptimizer
 
 logger = logging.getLogger(__name__)

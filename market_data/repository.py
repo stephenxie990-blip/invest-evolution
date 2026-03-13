@@ -1,7 +1,9 @@
+import json
 import logging
 import os
 import sqlite3
 from contextlib import contextmanager
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Iterable, Mapping, Optional, Sequence
 
@@ -721,8 +723,6 @@ class MarketDataRepository:
             updated_at = meta.get(_STATUS_SUMMARY_UPDATED_AT_KEY, "")
             if raw_snapshot and updated_at:
                 try:
-                    import json
-                    from datetime import datetime
                     age = (datetime.now() - datetime.fromisoformat(updated_at)).total_seconds()
                     if age <= max(0, int(max_age_seconds)):
                         payload = json.loads(raw_snapshot)
@@ -730,13 +730,11 @@ class MarketDataRepository:
                             payload["db_path"] = str(self.db_path.absolute())
                             payload["size_mb"] = round(self.db_path.stat().st_size / (1024 * 1024), 2) if self.db_path.exists() else 0.0
                             return payload
-                except Exception:
-                    pass
+                except (TypeError, ValueError, json.JSONDecodeError, OSError) as exc:
+                    logger.warning("Ignoring invalid status summary snapshot for %s: %s", self.db_path, exc)
 
         summary = self._compute_status_summary()
         try:
-            import json
-            from datetime import datetime
             snapshot = dict(summary)
             snapshot.pop("db_path", None)
             snapshot.pop("size_mb", None)
@@ -744,8 +742,8 @@ class MarketDataRepository:
                 _STATUS_SUMMARY_SNAPSHOT_KEY: json.dumps(snapshot, ensure_ascii=False),
                 _STATUS_SUMMARY_UPDATED_AT_KEY: datetime.now().isoformat(timespec="seconds"),
             })
-        except Exception:
-            pass
+        except (TypeError, ValueError, OSError) as exc:
+            logger.warning("Failed to persist status summary snapshot for %s: %s", self.db_path, exc)
         return summary
 
     def list_security_codes(self) -> list[str]:

@@ -7,16 +7,15 @@ import os
 import random
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any, Dict, Optional, Protocol
+from typing import Dict, Iterable, Mapping, Optional, Protocol, cast
 
-import sqlite3
 
 import numpy as np
 import pandas as pd
 
 from config import PROJECT_ROOT, config, normalize_date
 from config.control_plane import get_runtime_data_policy
-from .datasets import CapitalFlowDatasetService, EventDatasetService, IntradayDatasetBuilder, T0DatasetBuilder, TrainingDatasetBuilder, WebDatasetService
+from .datasets import CapitalFlowDatasetService, EventDatasetService, IntradayDatasetBuilder, TrainingDatasetBuilder, WebDatasetService
 from .gateway import MarketDataGateway
 from .ingestion import DataIngestionService
 from .quality import DataQualityService
@@ -48,6 +47,56 @@ DEFAULT_STOCK_POOL = [
     "sh.601857",
     "sz.000001",
 ]
+
+
+class _BaoStockResult(Protocol):
+    fields: list[str]
+
+    def next(self) -> bool:
+        ...
+
+    def get_row_data(self) -> list[str]:
+        ...
+
+
+def _dict_of_objects(value: object) -> dict[str, object]:
+    if not isinstance(value, Mapping):
+        return {}
+    return {str(key): cast(object, item) for key, item in value.items()}
+
+
+def _dict_of_bools(value: object) -> dict[str, bool]:
+    if not isinstance(value, Mapping):
+        return {}
+    return {str(key): bool(item) for key, item in value.items()}
+
+
+def _string_list(value: object) -> list[str]:
+    if isinstance(value, (str, bytes)) or not isinstance(value, Iterable):
+        return []
+    return [str(item) for item in value if str(item).strip()]
+
+
+def _int_value(value: object, default: int = 0) -> int:
+    if isinstance(value, bool):
+        return int(value)
+    if isinstance(value, (int, float, str, bytes)):
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return default
+    return default
+
+
+def _float_value(value: object, default: float = 0.0) -> float:
+    if isinstance(value, bool):
+        return float(value)
+    if isinstance(value, (int, float, str, bytes)):
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return default
+    return default
 
 
 def _default_db_path() -> Path:
@@ -154,8 +203,8 @@ class DataSourceUnavailableError(RuntimeError):
         allow_mock_fallback: bool = False,
     ) -> None:
         normalized_cutoff = normalize_date(cutoff_date)
-        offline_payload = dict(offline_diagnostics or {})
-        suggestion_items = [str(item) for item in (suggestions or offline_payload.get("suggestions") or []) if str(item).strip()]
+        offline_payload = _dict_of_objects(offline_diagnostics or {})
+        suggestion_items = _string_list(suggestions or offline_payload.get("suggestions"))
         payload = {
             "error": str(message),
             "error_code": self.error_code,
@@ -184,13 +233,13 @@ class DataSourceUnavailableError(RuntimeError):
         return cls(
             str(payload.get("error") or "训练数据源不可用"),
             cutoff_date=str(payload.get("cutoff_date") or "19700101"),
-            stock_count=int(payload.get("stock_count") or 1),
-            min_history_days=int(payload.get("min_history_days") or 1),
+            stock_count=_int_value(payload.get("stock_count"), 1),
+            min_history_days=_int_value(payload.get("min_history_days"), 1),
             requested_data_mode=str(payload.get("requested_data_mode") or "live"),
-            available_sources=dict(payload.get("available_sources") or {}),
-            offline_diagnostics=dict(payload.get("offline_diagnostics") or {}),
+            available_sources=_dict_of_bools(payload.get("available_sources")),
+            offline_diagnostics=_dict_of_objects(payload.get("offline_diagnostics")),
             online_error=str(payload.get("online_error") or ""),
-            suggestions=list(payload.get("suggestions") or []),
+            suggestions=_string_list(payload.get("suggestions")),
             allow_mock_fallback=bool(payload.get("allow_mock_fallback", False)),
         )
 
@@ -243,43 +292,6 @@ class MockDataProvider:
             "date_range": {"min": dates[0], "max": dates[-1]},
             "quality_checks": {},
         }
-
-    def _ensure_point_in_time_derivatives(
-        self,
-        *,
-        cutoff_date: str,
-        stock_count: int,
-        min_history_days: int,
-        include_future_days: int,
-        include_capital_flow: bool = False,
-    ) -> None:
-        self._gateway.ensure_runtime_derivatives(
-            repository=self._offline.repository,
-            cutoff_date=cutoff_date,
-            stock_count=stock_count,
-            min_history_days=min_history_days,
-            include_future_days=include_future_days,
-            include_capital_flow=include_capital_flow,
-        )
-
-    def get_benchmark_daily_values(self, trading_dates: list[str], index_code: str = "sh.000300") -> list[float]:
-        if not trading_dates:
-            return []
-        df = self._offline.repository.query_index_bars(index_codes=[index_code], start_date=min(trading_dates), end_date=max(trading_dates))
-        if df.empty:
-            return []
-        frame = df.copy()
-        frame["trade_date"] = frame["trade_date"].astype(str)
-        frame = frame.sort_values("trade_date").drop_duplicates("trade_date", keep="last")
-        frame = frame.set_index("trade_date")
-        closes = frame["close"].astype(float)
-        aligned = closes.reindex(trading_dates).ffill().bfill()
-        return [float(x) for x in aligned.tolist() if x is not None]
-
-    def get_market_index_frame(self, index_code: str = "sh.000300", start_date: str | None = None, end_date: str | None = None) -> pd.DataFrame:
-        if not self._offline.available:
-            return pd.DataFrame()
-        return self._offline.repository.query_index_bars(index_codes=[index_code], start_date=start_date, end_date=end_date)
 
     def load_stock_data(
         self,
@@ -341,10 +353,13 @@ class EvolutionDataLoader:
                 )
                 if getattr(rs, "error_code", "0") != "0":
                     continue
+                if rs is None:
+                    continue
 
-                rows = []
-                while rs.next():
-                    rows.append(dict(zip(rs.fields, rs.get_row_data())))
+                result = cast(_BaoStockResult, rs)
+                rows: list[dict[str, str]] = []
+                while result.next():
+                    rows.append(dict(zip(result.fields, result.get_row_data())))
                 if not rows:
                     continue
 
@@ -354,9 +369,12 @@ class EvolutionDataLoader:
                 df["turnover"] = pd.to_numeric(df.get("turn"), errors="coerce")
                 for column in ("open", "high", "low", "close", "volume", "amount"):
                     df[column] = pd.to_numeric(df[column], errors="coerce")
-                stock_data[code] = df[
-                    ["date", "trade_date", "open", "high", "low", "close", "volume", "amount", "pct_chg", "turnover", "code"]
-                ]
+                stock_data[code] = cast(
+                    pd.DataFrame,
+                    df[
+                        ["date", "trade_date", "open", "high", "low", "close", "volume", "amount", "pct_chg", "turnover", "code"]
+                    ],
+                )
         finally:
             bs.logout()
 
@@ -445,8 +463,8 @@ class DataManager:
         offline_diagnostics: dict[str, object] | None = None,
         online_error: str = "",
     ) -> DataSourceUnavailableError:
-        diagnostics = dict(offline_diagnostics or self.last_diagnostics or {})
-        suggestions = [str(item) for item in diagnostics.get("suggestions", []) if str(item).strip()]
+        diagnostics = _dict_of_objects(offline_diagnostics or self.last_diagnostics or {})
+        suggestions = _string_list(diagnostics.get("suggestions"))
         if not suggestions:
             suggestions = [
                 "优先检查本地离线库覆盖范围，必要时先执行数据同步。",
@@ -471,13 +489,15 @@ class DataManager:
 
     def _get_cached_quality_audit(self) -> dict[str, object]:
         now_ts = datetime.now().timestamp()
-        cached_at = float(self._quality_audit_cache.get("cached_at", 0.0) or 0.0)
+        cached_at = _float_value(self._quality_audit_cache.get("cached_at"), 0.0)
         payload = self._quality_audit_cache.get("payload")
-        if payload and (now_ts - cached_at) <= _DEFAULT_QUALITY_CACHE_TTL_SECONDS:
-            return dict(payload)
-        payload = self._quality_service.audit()
-        self._quality_audit_cache = {"cached_at": now_ts, "payload": dict(payload)}
-        return dict(payload)
+        cached_payload = _dict_of_objects(payload)
+        if cached_payload and (now_ts - cached_at) <= _DEFAULT_QUALITY_CACHE_TTL_SECONDS:
+            return cached_payload
+        fresh_payload = self._quality_service.audit()
+        fresh_dict = _dict_of_objects(fresh_payload)
+        self._quality_audit_cache = {"cached_at": now_ts, "payload": fresh_dict}
+        return fresh_dict
 
     def random_cutoff_date(self, min_date: str = "20180101", max_date: str | None = None) -> str:
         if self._provider is not None:
@@ -578,8 +598,8 @@ class DataManager:
 
         cutoff = normalize_date(cutoff_date)
         quality = self._get_cached_quality_audit()
-        status = quality["status"]
-        date_range = quality["date_range"]
+        status = _dict_of_objects(quality.get("status"))
+        date_range = _dict_of_objects(quality.get("date_range"))
         eligible_count = self._offline.repository.count_codes_with_history(
             cutoff_date=cutoff,
             min_history_days=min_history_days,
@@ -588,26 +608,32 @@ class DataManager:
         issues: list[str] = []
         suggestions: list[str] = []
 
-        if status["stock_count"] <= 0:
+        stock_count_value = _int_value(status.get("stock_count"))
+        kline_count = _int_value(status.get("kline_count"))
+        financial_count = _int_value(status.get("financial_count"))
+        index_kline_count = _int_value(status.get("index_kline_count"))
+        date_range_max = str(date_range.get("max") or "")
+
+        if stock_count_value <= 0:
             issues.append("security_master 为空")
             suggestions.append("先执行 python3 -m market_data --source baostock --start 20180101 初始化股票主数据")
-        if status["kline_count"] <= 0:
+        if kline_count <= 0:
             issues.append("daily_bar 为空")
             suggestions.append("先执行 python3 -m market_data --source baostock --start 20180101 下载历史日线")
-        if status["kline_count"] > 0 and eligible_count <= 0:
+        if kline_count > 0 and eligible_count <= 0:
             issues.append(f"截至 {cutoff} 没有股票满足至少 {int(min_history_days)} 个交易日历史")
             suggestions.append("降低 min_history_days，或把 start 日期调早后重新补数")
         if eligible_count > 0 and eligible_count < target_stock_count:
             issues.append(f"满足历史长度要求的股票只有 {eligible_count} 只，低于目标 {target_stock_count} 只")
             suggestions.append("扩大数据覆盖范围，或临时下调 max_stocks")
-        if date_range.get("max") and date_range["max"] < cutoff:
-            issues.append(f"离线库最新日期 {date_range['max']} 早于训练截断日 {cutoff}")
+        if date_range_max and date_range_max < cutoff:
+            issues.append(f"离线库最新日期 {date_range_max} 早于训练截断日 {cutoff}")
             suggestions.append("补齐最近日线，避免训练截断日超出离线库覆盖范围")
 
-        ready = status["kline_count"] > 0 and eligible_count > 0
-        if status.get("financial_count", 0) <= 0:
+        ready = kline_count > 0 and eligible_count > 0
+        if financial_count <= 0:
             suggestions.append("可选：执行 python3 -m market_data --source akshare --financials 补齐财务快照；如已配置 TUSHARE_TOKEN 也可使用 tushare")
-        if status.get("index_kline_count", 0) <= 0:
+        if index_kline_count <= 0:
             suggestions.append("先执行 python3 -m market_data --source baostock 补齐指数日线")
 
         diagnostics = {
@@ -621,7 +647,7 @@ class DataManager:
             "offline_available": self._offline.available,
             "status": status,
             "date_range": date_range,
-            "quality_checks": quality["checks"],
+            "quality_checks": _dict_of_objects(quality.get("checks")),
         }
         self.last_diagnostics = diagnostics
         return diagnostics
@@ -717,7 +743,7 @@ class DataManager:
                 offline_diagnostics["cutoff_date"],
                 offline_diagnostics["eligible_stock_count"],
                 offline_diagnostics["target_stock_count"],
-                "; ".join(str(x) for x in offline_diagnostics["issues"]) or "none",
+                "; ".join(_string_list(offline_diagnostics.get("issues"))) or "none",
             )
         else:
             try:

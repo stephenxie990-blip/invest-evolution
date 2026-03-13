@@ -10,6 +10,35 @@ from typing import Sequence
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 CONTRACT_CHECK_CMD = [sys.executable, 'scripts/generate_runtime_contract_derivatives.py', '--check']
+CRITICAL_RUFF_TARGETS = [
+    'market_data/quality.py',
+    'market_data/repository.py',
+    'brain/memory.py',
+    'brain/scheduler.py',
+    'invest/meetings/selection.py',
+    'invest/meetings/review.py',
+    'app/lab/artifacts.py',
+    'app/commander_support/services.py',
+    'tests/test_brain_scheduler.py',
+    'tests/test_brain_extensions.py',
+    'tests/test_data_unification.py',
+    'tests/test_governance_phase_a_f.py',
+    'tests/test_train_ui_semantics.py',
+    'tests/test_schema_contracts.py',
+    'tests/test_lab_artifacts.py',
+    'tests/test_commander_unified_entry.py',
+    'tests/test_v2_web_models_api.py',
+    'tests/test_web_model_routing_api.py',
+]
+CRITICAL_PYRIGHT_TARGETS = [
+    'market_data/quality.py',
+    'market_data/repository.py',
+    'brain/memory.py',
+    'brain/scheduler.py',
+    'app/lab/artifacts.py',
+    'app/commander.py',
+    'app/commander_support/services.py',
+]
 
 FOCUSED_PROTOCOL_TESTS = [
     'tests/test_schema_contracts.py',
@@ -53,6 +82,8 @@ def build_freeze_gate_steps(*, mode: str = 'full') -> list[FreezeGateStep]:
     steps = [
         FreezeGateStep(name='contract-drift-check', command=CONTRACT_CHECK_CMD),
         FreezeGateStep(name='focused-protocol-regression', command=['uv', 'run', 'pytest', '-q', *FOCUSED_PROTOCOL_TESTS]),
+        FreezeGateStep(name='critical-ruff-check', command=['uv', 'run', 'ruff', 'check', *CRITICAL_RUFF_TARGETS]),
+        FreezeGateStep(name='critical-pyright-check', command=['uv', 'run', 'pyright', *CRITICAL_PYRIGHT_TARGETS]),
     ]
     if normalized_mode == 'full':
         steps.append(FreezeGateStep(name='full-regression-suite', command=['uv', 'run', 'pytest', '-q', *FULL_REGRESSION_TESTS]))

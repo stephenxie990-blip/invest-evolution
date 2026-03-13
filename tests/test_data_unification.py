@@ -1,3 +1,5 @@
+from datetime import datetime
+
 import pytest
 import pandas as pd
 
@@ -1040,6 +1042,72 @@ def test_web_data_status_refresh_query_switches_detail_mode(tmp_path, monkeypatc
     assert slow.status_code == 200
     assert fast.get_json()["detail_mode"] == "fast"
     assert slow.get_json()["detail_mode"] == "slow"
+
+
+def test_status_summary_invalid_snapshot_logs_warning_and_recomputes(tmp_path, caplog):
+    repo = MarketDataRepository(tmp_path / "status_invalid.db")
+    repo.initialize_schema()
+    repo.upsert_security_master([{"code": "sh.600001", "name": "Foo", "list_date": "20200101", "source": "test"}])
+    repo.upsert_daily_bars([
+        {
+            "code": "sh.600001",
+            "trade_date": "20240108",
+            "open": 10,
+            "high": 11,
+            "low": 9,
+            "close": 10.5,
+            "volume": 1000,
+            "amount": 5000,
+            "pct_chg": 0.5,
+            "turnover": 1.2,
+            "source": "test",
+        }
+    ])
+    repo.upsert_meta(
+        {
+            "status_summary_snapshot": '{"broken":',
+            "status_summary_updated_at": datetime.now().isoformat(timespec="seconds"),
+        }
+    )
+
+    with caplog.at_level("WARNING"):
+        status = repo.get_status_summary(use_snapshot=True, max_age_seconds=30)
+
+    assert status["kline_count"] == 1
+    assert "Ignoring invalid status summary snapshot" in caplog.text
+
+
+def test_quality_audit_invalid_snapshot_logs_warning_and_recomputes(tmp_path, caplog):
+    repo = MarketDataRepository(tmp_path / "quality_invalid.db")
+    repo.initialize_schema()
+    repo.upsert_security_master([{"code": "sh.600001", "name": "Foo", "list_date": "20200101", "source": "test"}])
+    repo.upsert_daily_bars([
+        {
+            "code": "sh.600001",
+            "trade_date": "20240108",
+            "open": 10,
+            "high": 11,
+            "low": 9,
+            "close": 10.5,
+            "volume": 1000,
+            "amount": 5000,
+            "pct_chg": 0.5,
+            "turnover": 1.2,
+            "source": "test",
+        }
+    ])
+    repo.upsert_meta(
+        {
+            "quality_audit_snapshot": '{"broken":',
+            "quality_audit_updated_at": datetime.now().isoformat(timespec="seconds"),
+        }
+    )
+
+    with caplog.at_level("WARNING"):
+        payload = DataQualityService(repository=repo).audit(use_snapshot=True, max_age_seconds=30)
+
+    assert payload["healthy"] is True
+    assert "Ignoring invalid quality audit snapshot" in caplog.text
 
 
 def test_data_manager_exposes_extended_dataset_services(tmp_path):

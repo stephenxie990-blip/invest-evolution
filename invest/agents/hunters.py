@@ -1,13 +1,9 @@
 import logging
 import re
-from typing import Any, Dict, List, Optional
+from typing import Dict, List, Optional
 
 from invest.contracts import AgentContext
 from invest.shared import (
-    LLMCaller,
-    compute_bb_position,
-    compute_macd_signal,
-    compute_rsi,
     format_stock_table,
 )
 from .base import AgentConfig, InvestAgent, RegimeResult
@@ -188,12 +184,18 @@ class TrendHunterAgent(InvestAgent):
                 continue
 
             ts = 0.0
-            if s["ma_trend"] == "多头":  ts += 0.3
-            if s["macd"] == "金叉":      ts += 0.3
-            elif s["macd"] == "看多":    ts += 0.15
-            if s["vol_ratio"] > 1.0:     ts += 0.1
-            if 40 <= s["rsi"] <= 65:     ts += 0.15
-            if s["change_20d"] > 0:      ts += 0.15
+            if s["ma_trend"] == "多头":
+                ts += 0.3
+            if s["macd"] == "金叉":
+                ts += 0.3
+            elif s["macd"] == "看多":
+                ts += 0.15
+            if s["vol_ratio"] > 1.0:
+                ts += 0.1
+            if 40 <= s["rsi"] <= 65:
+                ts += 0.15
+            if s["change_20d"] > 0:
+                ts += 0.15
 
             s_copy = dict(s)
             s_copy["trend_score"] = round(ts, 3)
@@ -229,7 +231,7 @@ class TrendHunterAgent(InvestAgent):
             f"以下是{len(candidates)}只趋势候选股的技术指标：\n\n"
             f"{format_stock_table(candidates)}\n\n"
             + (f"{memory_section}\n\n" if memory_section else "")
-            + f"请从中选择3-5只最有上涨潜力的股票。"
+            + "请从中选择3-5只最有上涨潜力的股票。"
         )
 
         try:
@@ -351,20 +353,32 @@ class ContrarianAgent(InvestAgent):
         """算法预筛：RSI<40，BB位置<0.4，5日跌幅 -15%~0%"""
         candidates = []
         for s in summaries:
-            if s["rsi"] >= 40:       continue
-            if s["bb_pos"] >= 0.4:   continue
-            if s["change_5d"] > 0:   continue
-            if s["change_5d"] < -15: continue
+            if s["rsi"] >= 40:
+                continue
+            if s["bb_pos"] >= 0.4:
+                continue
+            if s["change_5d"] > 0:
+                continue
+            if s["change_5d"] < -15:
+                continue
 
             cs = 0.0
-            if s["rsi"] < 30:   cs += 0.35
-            elif s["rsi"] < 35: cs += 0.25
-            elif s["rsi"] < 40: cs += 0.15
-            if s["bb_pos"] < 0.2:   cs += 0.25
-            elif s["bb_pos"] < 0.3: cs += 0.15
-            if s["vol_ratio"] > 1.2: cs += 0.15
-            if s["change_5d"] < -5:  cs += 0.15
-            if s["change_20d"] > s["change_5d"] * 3: cs += 0.1
+            if s["rsi"] < 30:
+                cs += 0.35
+            elif s["rsi"] < 35:
+                cs += 0.25
+            elif s["rsi"] < 40:
+                cs += 0.15
+            if s["bb_pos"] < 0.2:
+                cs += 0.25
+            elif s["bb_pos"] < 0.3:
+                cs += 0.15
+            if s["vol_ratio"] > 1.2:
+                cs += 0.15
+            if s["change_5d"] < -5:
+                cs += 0.15
+            if s["change_20d"] > s["change_5d"] * 3:
+                cs += 0.1
 
             s_copy = dict(s)
             s_copy["contrarian_score"] = round(cs, 3)
@@ -396,7 +410,7 @@ class ContrarianAgent(InvestAgent):
             f"以下是{len(candidates)}只超跌候选股的技术指标：\n\n"
             f"{format_stock_table(candidates)}\n\n"
             + (f"{memory_section}\n\n" if memory_section else "")
-            + f"请从中选择2-4只最有反弹潜力的股票。"
+            + "请从中选择2-4只最有反弹潜力的股票。"
         )
 
         try:

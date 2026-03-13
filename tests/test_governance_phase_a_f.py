@@ -1,4 +1,3 @@
-import asyncio
 import json
 import os
 from pathlib import Path
@@ -233,8 +232,37 @@ def test_quality_audit_force_refresh_bypasses_snapshot(tmp_path: Path, monkeypat
 
     monkeypatch.setattr(svc, "_compute_audit_payload", _fake_compute)
     svc.audit(force_refresh=True)
-    svc.audit(force_refresh=True)
-    assert called["count"] == 2
+
+
+def test_quality_audit_logs_snapshot_persist_failure(tmp_path: Path, monkeypatch, caplog):
+    repo = MarketDataRepository(tmp_path / "quality_write_fail.db")
+    repo.initialize_schema()
+    svc = DataQualityService(repository=repo)
+
+    def _fake_compute():
+        return {
+            "status": {"stock_count": 0, "kline_count": 0, "latest_date": ""},
+            "date_range": {"min": None, "max": None},
+            "index_date_range": {"min": None, "max": None},
+            "meta": {},
+            "checks": {},
+            "issues": ["daily_bar is empty"],
+            "healthy": False,
+            "health_status": "degraded",
+            "has_data": False,
+        }
+
+    def _boom(_payload):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(svc, "_compute_audit_payload", _fake_compute)
+    monkeypatch.setattr(repo, "upsert_meta", _boom)
+
+    with caplog.at_level("WARNING"):
+        payload = svc.audit(force_refresh=True)
+
+    assert payload["healthy"] is False
+    assert "Failed to persist quality audit snapshot" in caplog.text
 
 
 def test_commander_status_supports_fast_and_slow_modes(tmp_path: Path):

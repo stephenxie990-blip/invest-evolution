@@ -2,7 +2,7 @@ import logging
 import os
 import time
 from datetime import datetime, timedelta
-from typing import Any, Sequence
+from typing import Any, Protocol, Sequence, cast
 
 import numpy as np
 import pandas as pd
@@ -13,6 +13,16 @@ from .quality import DataQualityService
 from .repository import MarketDataRepository
 
 logger = logging.getLogger(__name__)
+
+
+class _BaoStockResult(Protocol):
+    fields: list[str]
+
+    def next(self) -> bool:
+        ...
+
+    def get_row_data(self) -> list[str]:
+        ...
 
 
 def _format_bs_date(value: str) -> str:
@@ -90,6 +100,12 @@ def _latest_trade_date(repository: MarketDataRepository) -> str:
         return normalize_date(latest)
     latest = repository.get_status_summary(use_snapshot=False).get("latest_date", "")
     return normalize_date(latest or datetime.now().strftime("%Y%m%d"))
+
+
+def _series_from_column(df: pd.DataFrame, column: str, *, dtype: str = "object") -> pd.Series:
+    if column in df.columns:
+        return cast(pd.Series, df[column])
+    return pd.Series(pd.NA, index=df.index, dtype=dtype)
 
 
 def _merge_financial_frames(*frames) -> dict[str, dict[str, Any]]:
@@ -247,21 +263,24 @@ def _fetch_capital_flow_history_with_session(session: requests.Session, code: st
         "_x",
         "_y",
     ]
-    return frame[[
-        "日期",
-        "收盘价",
-        "涨跌幅",
-        "主力净流入-净额",
-        "主力净流入-净占比",
-        "超大单净流入-净额",
-        "超大单净流入-净占比",
-        "大单净流入-净额",
-        "大单净流入-净占比",
-        "中单净流入-净额",
-        "中单净流入-净占比",
-        "小单净流入-净额",
-        "小单净流入-净占比",
-    ]]
+    return cast(
+        pd.DataFrame,
+        frame[[
+            "日期",
+            "收盘价",
+            "涨跌幅",
+            "主力净流入-净额",
+            "主力净流入-净占比",
+            "超大单净流入-净额",
+            "超大单净流入-净占比",
+            "大单净流入-净额",
+            "大单净流入-净占比",
+            "中单净流入-净额",
+            "中单净流入-净占比",
+            "小单净流入-净额",
+            "小单净流入-净占比",
+        ]],
+    )
 
 
 def _akshare_call(func, /, *args, retries: int = 2, sleep_seconds: float = 0.6, **kwargs):
@@ -398,10 +417,13 @@ class DataIngestionService:
                 if getattr(rs, "error_code", "0") != "0":
                     logger.warning("Baostock K线下载失败: %s %s", code, getattr(rs, "error_msg", ""))
                     continue
+                if rs is None:
+                    continue
 
+                result = cast(_BaoStockResult, rs)
                 records: list[dict[str, Any]] = []
-                while rs.next():
-                    row = dict(zip(rs.fields, rs.get_row_data()))
+                while result.next():
+                    row = dict(zip(result.fields, result.get_row_data()))
                     records.append(
                         {
                             "code": row.get("code", code),
@@ -475,10 +497,13 @@ class DataIngestionService:
                 if getattr(rs, "error_code", "0") != "0":
                     logger.warning("Baostock 指数K线下载失败: %s %s", code, getattr(rs, "error_msg", ""))
                     continue
+                if rs is None:
+                    continue
 
+                result = cast(_BaoStockResult, rs)
                 records: list[dict[str, Any]] = []
-                while rs.next():
-                    row = dict(zip(rs.fields, rs.get_row_data()))
+                while result.next():
+                    row = dict(zip(result.fields, result.get_row_data()))
                     records.append(
                         {
                             "index_code": row.get("code", code),
@@ -530,7 +555,9 @@ class DataIngestionService:
         end = normalize_date(end_date or stock_end or index_end or start)
         stock_df = self.repository.query_daily_bars(start_date=start, end_date=end)
         index_df = self.repository.query_index_bars(start_date=start, end_date=end)
-        dates = sorted(set(stock_df.get("trade_date", pd.Series(dtype=str)).astype(str).tolist()) | set(index_df.get("trade_date", pd.Series(dtype=str)).astype(str).tolist()))
+        stock_dates = _series_from_column(stock_df, "trade_date", dtype="string").astype(str).tolist()
+        index_dates = _series_from_column(index_df, "trade_date", dtype="string").astype(str).tolist()
+        dates = sorted(set(stock_dates) | set(index_dates))
         records: list[dict[str, Any]] = []
         for idx, trade_date in enumerate(dates):
             records.append(
@@ -678,8 +705,8 @@ class DataIngestionService:
             sub["momentum20"] = sub["close"].pct_change(20) * 100
             sub["momentum60"] = sub["close"].pct_change(60) * 100
             sub["volatility20"] = sub["pct_chg"].rolling(20).std()
-            vol_mean20 = sub["volume"].rolling(20).mean()
-            sub["volume_ratio"] = sub["volume"] / vol_mean20.replace(0, np.nan)
+            vol_mean20 = cast(pd.Series, sub["volume"].rolling(20).mean())
+            sub["volume_ratio"] = sub["volume"] / cast(pd.Series, vol_mean20.replace(0, np.nan))
             sub["turnover_mean20"] = sub["turnover"].rolling(20).mean()
             roll_max60 = sub["close"].rolling(60).max()
             sub["drawdown60"] = (sub["close"] / roll_max60 - 1.0) * 100
@@ -753,7 +780,7 @@ class DataIngestionService:
 
             records: list[dict[str, Any]] = []
             for _, row in frame.iterrows():
-                local_code = _simple_symbol_to_local(row.get("股票代码"))
+                local_code = _simple_symbol_to_local(str(row.get("股票代码") or ""))
                 if not local_code or local_code not in target_set:
                     continue
                 publish_date = _normalize_loose_date(row.get("最新公告日期"))
@@ -778,7 +805,7 @@ class DataIngestionService:
             total_rows += self.repository.upsert_financial_snapshots(records)
 
         if industry_updates:
-            securities_map = {row["code"]: row for row in self.repository.query_securities(industry_updates.keys())}
+            securities_map = {row["code"]: row for row in self.repository.query_securities(list(industry_updates))}
             patched = []
             for code, industry in industry_updates.items():
                 base = dict(securities_map.get(code, {"code": code}))
@@ -983,7 +1010,7 @@ class DataIngestionService:
             return {"row_count": 0, "source": "akshare", "latest_date": end}
         records: list[dict[str, Any]] = []
         for _, row in frame.iterrows():
-            local_code = _simple_symbol_to_local(row.get("代码"))
+            local_code = _simple_symbol_to_local(str(row.get("代码") or ""))
             if not local_code:
                 continue
             records.append(

@@ -117,8 +117,10 @@ class StrategistAgent(InvestAgent):
 
         if result.get("risk_level") not in ("low", "medium", "high"):
             result["risk_level"] = "medium"
-        if not isinstance(result.get("concerns"), list): result["concerns"] = []
-        if not isinstance(result.get("suggestions"), list): result["suggestions"] = []
+        if not isinstance(result.get("concerns"), list):
+            result["concerns"] = []
+        if not isinstance(result.get("suggestions"), list):
+            result["suggestions"] = []
 
         logger.info(f"📊 Strategist: 风险等级 {result['risk_level']}")
         return result

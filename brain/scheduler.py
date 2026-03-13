@@ -14,10 +14,11 @@ from pathlib import Path
 from typing import Any, Awaitable, Callable, Optional
 
 logger = logging.getLogger(__name__)
+MILLISECONDS_PER_SECOND = 1000
 
 
 def _now_ms() -> int:
-    return int(time.time() * 1000)
+    return int(time.time() * MILLISECONDS_PER_SECOND)
 
 
 @dataclass
@@ -96,7 +97,7 @@ class CronService:
             deliver=deliver,
             channel=channel,
             to=to,
-            next_run_at_ms=now + max(1, int(every_sec)) * 1000,
+            next_run_at_ms=now + max(1, int(every_sec)) * MILLISECONDS_PER_SECOND,
         )
         self.jobs.append(job)
         self._save()
@@ -138,7 +139,7 @@ class CronService:
             job.last_error = str(exc)
             logger.exception("Cron job failed: %s", job.id)
 
-        job.next_run_at_ms = _now_ms() + max(1, int(job.every_sec)) * 1000
+        job.next_run_at_ms = _now_ms() + max(1, int(job.every_sec)) * MILLISECONDS_PER_SECOND
         self._save()
 
     def _load(self) -> None:
@@ -148,12 +149,14 @@ class CronService:
 
         try:
             data = json.loads(self.store_path.read_text(encoding="utf-8"))
-        except Exception:
+        except (OSError, json.JSONDecodeError) as exc:
+            self._quarantine_corrupt_store(exc)
             self.jobs = []
             return
 
         raw_jobs = data.get("jobs", []) if isinstance(data, dict) else []
         jobs: list[CronJob] = []
+        invalid_jobs = 0
         for item in raw_jobs:
             try:
                 job = CronJob(
@@ -165,7 +168,7 @@ class CronService:
                     deliver=bool(item.get("deliver", False)),
                     channel=item.get("channel", "cli"),
                     to=item.get("to", "commander"),
-                    next_run_at_ms=int(item.get("next_run_at_ms") or (_now_ms() + 3600 * 1000)),
+                    next_run_at_ms=int(item.get("next_run_at_ms") or (_now_ms() + 3600 * MILLISECONDS_PER_SECOND)),
                     last_run_at_ms=int(item.get("last_run_at_ms", 0)),
                     last_status=item.get("last_status", ""),
                     last_error=item.get("last_error", ""),
@@ -173,9 +176,24 @@ class CronService:
                     updated_at_ms=int(item.get("updated_at_ms", _now_ms())),
                 )
                 jobs.append(job)
-            except Exception:
+            except (KeyError, TypeError, ValueError) as exc:
+                invalid_jobs += 1
+                logger.warning("Skipping invalid cron job payload from %s: %s", self.store_path, exc)
                 continue
+        if invalid_jobs:
+            logger.warning("Skipped %s invalid cron jobs while loading %s", invalid_jobs, self.store_path)
         self.jobs = jobs
+
+    def _quarantine_corrupt_store(self, exc: Exception) -> None:
+        logger.error("Failed to load cron store %s: %s", self.store_path, exc)
+        try:
+            quarantine_path = self.store_path.with_name(
+                f"{self.store_path.stem}.corrupt.{int(time.time())}{self.store_path.suffix}"
+            )
+            self.store_path.rename(quarantine_path)
+            logger.warning("Moved corrupt cron store to %s", quarantine_path)
+        except OSError as move_exc:
+            logger.warning("Failed to quarantine corrupt cron store %s: %s", self.store_path, move_exc)
 
     def _save(self) -> None:
         self.store_path.parent.mkdir(parents=True, exist_ok=True)
@@ -238,7 +256,8 @@ class HeartbeatService:
 
         try:
             content = self.heartbeat_file.read_text(encoding="utf-8")
-        except Exception:
+        except OSError as exc:
+            logger.warning("Failed to read heartbeat file %s: %s", self.heartbeat_file, exc)
             return
 
         tasks = self._extract_tasks(content)

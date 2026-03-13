@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, cast
 
 import pandas as pd
 
@@ -16,12 +16,16 @@ from .indicators import (
 )
 
 
+def _numeric_close_series(frame: pd.DataFrame) -> pd.Series:
+    return cast(pd.Series, pd.to_numeric(frame["close"], errors="coerce")).dropna()
+
+
 def compute_stock_summary(df: pd.DataFrame, code: str, cutoff_norm: str, summary_scoring: Optional[dict] = None) -> Optional[dict]:
     try:
         sub = filter_by_cutoff(df, cutoff_norm)
         if len(sub) < 30:
             return None
-        close = pd.to_numeric(sub["close"], errors="coerce").dropna()
+        close = _numeric_close_series(sub)
         if len(close) < 30 or close.iloc[-1] <= 0:
             return None
         latest = float(close.iloc[-1])
@@ -112,7 +116,7 @@ def compute_market_stats(stock_data: Dict[str, pd.DataFrame], cutoff_date: str, 
         sub = filter_by_cutoff(df, cutoff_norm)
         if len(sub) < 30:
             continue
-        close = pd.to_numeric(sub["close"], errors="coerce").dropna()
+        close = _numeric_close_series(sub)
         if len(close) < 30 or close.iloc[-1] <= 0:
             continue
         latest = float(close.iloc[-1])

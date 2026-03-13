@@ -1,5 +1,5 @@
 import logging
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass
 from typing import Dict, List, Optional
 
 from .benchmark import BenchmarkEvaluator
@@ -377,31 +377,6 @@ class PerformanceAnalyzer:
 # ============================================================
 # freeze_evaluator.py
 # ============================================================
-
-"""
-固化评估器
-
-修正后的固化条件：
-1. 10轮中≥7轮盈利
-2. 总累计收益 > 沪深300收益（超额收益）
-3. 最大回撤 < 15%
-4. Sharpe Ratio > 1.0
-5. 至少覆盖1段牛市 + 1段熊市
-6. 在独立Out-of-Sample数据上验证
-"""
-
-import sys
-import os
-import logging
-from pathlib import Path
-from typing import Dict, List, Optional
-from dataclasses import dataclass, field
-from datetime import datetime, timedelta
-import json
-
-import pandas as pd
-import numpy as np
-
 logger = logging.getLogger(__name__)
 
 

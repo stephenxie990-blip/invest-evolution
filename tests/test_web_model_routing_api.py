@@ -68,6 +68,7 @@ def test_investment_models_api_exposes_routing_state(tmp_path, monkeypatch):
 
     assert res.status_code == 200
     payload = res.get_json()
+    assert payload["count"] == len(payload["items"])
     assert payload['routing']['enabled'] is True
     assert payload['routing']['mode'] == 'rule'
     assert payload['routing']['allowed_models'] == ['momentum', 'mean_reversion']

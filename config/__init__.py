@@ -198,14 +198,20 @@ def _apply_env_overrides(data: dict[str, Any]) -> dict[str, Any]:
         "web_rate_limit_heavy_max": ("WEB_RATE_LIMIT_HEAVY_MAX", int),
     }
     merged = dict(data)
-    for field, (env_name, caster) in env_map.items():
+    for field_name, (env_name, caster) in env_map.items():
         raw = os.environ.get(env_name)
         if raw is None or str(raw).strip() == "":
             continue
         try:
-            merged[field] = caster(raw)
+            merged[field_name] = caster(raw)
         except (TypeError, ValueError):
-            logger.warning("Invalid %s=%r for %s; keep existing value %r", env_name, raw, field, merged.get(field))
+            logger.warning(
+                "Invalid %s=%r for %s; keep existing value %r",
+                env_name,
+                raw,
+                field_name,
+                merged.get(field_name),
+            )
     return merged
 
 
@@ -389,9 +395,6 @@ config = load_config()
 # 行业映射注册表（Single Source of Truth）
 # ===========================================================
 
-import json as _json
-
-
 class IndustryRegistry:
     """
     统一行业映射注册表
@@ -426,7 +429,7 @@ class IndustryRegistry:
         self._override_map = {}
         if self._path.exists():
             with open(self._path, encoding="utf-8") as f:
-                self._override_map = _json.load(f)
+                self._override_map = json.load(f)
 
     def _load(self):
         self._load_db()

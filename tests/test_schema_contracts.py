@@ -117,12 +117,6 @@ def test_task_bus_contract_golden_snapshot():
         "response_envelope": {
             "keys": ["status", "reply", "message", "feedback", "next_action", "task_bus"],
         },
-        "next_action": {
-            "keys": ["kind", "label", "description", "requires_confirmation", "suggested_params"],
-        },
-        "response_envelope": {
-            "keys": ["status", "reply", "message", "feedback", "next_action", "task_bus"],
-        },
     }
     assert task_bus_contract() == expected
 

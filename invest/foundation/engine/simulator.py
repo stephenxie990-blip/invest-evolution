@@ -1,12 +1,10 @@
 import logging
 import math
-from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Tuple
 
-import numpy as np
 import pandas as pd
 
-from invest.shared import PositionPlan, TradingPlan, compute_rsi
+from invest.shared import TradingPlan
 from .contracts import (
     Action,
     EmergencyAction,
@@ -15,8 +13,7 @@ from .contracts import (
     SimulationResult,
     TradeRecord,
 )
-from .helpers import TradingScheduler
-from ..risk.controller import DynamicStopLoss, EmergencyDetector, RiskController
+from ..risk.controller import EmergencyDetector, RiskController
 
 logger = logging.getLogger(__name__)
 

@@ -66,6 +66,7 @@ def test_runtime_exposes_analysis_config_data_and_observability(runtime_with_db)
     runtime = runtime_with_db
 
     models = runtime.get_investment_models()
+    assert models["count"] == len(models["items"])
     assert "items" in models
 
     control_plane = runtime.get_control_plane()
@@ -147,7 +148,11 @@ async def test_runtime_ask_combines_status_and_recent_training(runtime_with_db):
     assert payload["human_readable"]["bullets"]
     assert payload["human_readable"]["facts"]
     assert payload["human_readable"]["suggested_actions"]
+    assert payload["human_readable"]["operation_nature"] == "本次属于只读分析，不会改动系统状态。"
+    assert payload["human_readable"]["confirmation_summary"] == "当前无需人工确认，可以直接继续查看或追问。"
     assert payload["human_readable"]["receipt_text"].startswith("结论：")
+    assert "执行性质：" in payload["human_readable"]["receipt_text"]
+    assert "确认要求：" in payload["human_readable"]["receipt_text"]
     assert payload["human_readable"]["sections"][0]["label"] == "结论"
     assert payload["task_bus"]["audit"]["used_tools"] == ["invest_quick_status", "invest_training_lab_summary"]
 
@@ -169,6 +174,31 @@ async def test_runtime_ask_config_query_does_not_misroute_to_stock(runtime_with_
 
 
 @pytest.mark.asyncio
+async def test_runtime_event_explanation_humanizes_routing_decision(runtime_with_db):
+    runtime_with_db._append_runtime_event(
+        "routing_decided",
+        {
+            "current_model": "momentum",
+            "selected_model": "mean_reversion",
+            "regime": "oscillation",
+            "switch_applied": True,
+        },
+        source="body",
+    )
+    result = await runtime_with_db.ask("请解释最近发生了什么", session_key="test:routing-human")
+    payload = json.loads(result)
+    human = payload["human_readable"]
+
+    assert human["latest_event"]["event"] == "routing_decided"
+    assert human["latest_event"]["label"] == "模型路由完成"
+    assert human["latest_event"]["broadcast_text"].startswith("模型路由完成：")
+    assert human["event_timeline"][0].startswith("模型路由完成：")
+    assert "oscillation" in human["event_explanation"]
+    assert "mean_reversion" in human["event_explanation"]
+    assert any("事件细节：" in item for item in human["facts"])
+
+
+@pytest.mark.asyncio
 async def test_runtime_ask_training_confirmation_human_receipt_explains_next_step(runtime_with_db):
     result = await runtime_with_db.ask("请帮我真实训练2轮", session_key="test:train-human")
     payload = json.loads(result)
@@ -177,10 +207,14 @@ async def test_runtime_ask_training_confirmation_human_receipt_explains_next_ste
     assert payload["status"] == "confirmation_required"
     assert human["title"] == "训练实验室摘要"
     assert human["risk_level"] == "high"
+    assert human["operation_nature"] == "本次属于写操作，可能会改动系统状态、配置或运行工件。"
+    assert human["confirmation_summary"] == "当前仍需人工确认，系统不会直接执行写入动作。"
     assert human["suggested_actions"]
     assert any("确认" in item for item in human["suggested_actions"])
     assert human["recommended_next_step"] == "补充确认后重试"
+    assert any(section["label"] == "执行性质" for section in human["sections"])
     assert "风险提示：" in human["receipt_text"]
+    assert "确认要求：" in human["receipt_text"]
 
 
 @pytest.mark.asyncio

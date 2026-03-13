@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from datetime import datetime
 from typing import Any
 
@@ -9,6 +10,8 @@ from .repository import MarketDataRepository
 _QUALITY_AUDIT_SNAPSHOT_KEY = "quality_audit_snapshot"
 _QUALITY_AUDIT_UPDATED_AT_KEY = "quality_audit_updated_at"
 _QUALITY_AUDIT_MAX_AGE_SECONDS = 300
+
+logger = logging.getLogger(__name__)
 
 
 class DataQualityService:
@@ -62,7 +65,7 @@ class DataQualityService:
             issues.append("security_master is empty")
         if not checks["has_daily_bars"]:
             issues.append("daily_bar is empty")
-        if checks["date_range_valid"] and date_range[0] > date_range[1]:
+        if checks["date_range_valid"] and date_range[0] and date_range[1] and date_range[0] > date_range[1]:
             issues.append("date range is invalid")
         healthy = not issues
         return {
@@ -90,8 +93,12 @@ class DataQualityService:
                         if isinstance(payload, dict):
                             payload.setdefault("meta", self.repository.get_meta(self.META_KEYS))
                             return payload
-                except Exception:
-                    pass
+                except (TypeError, ValueError, json.JSONDecodeError) as exc:
+                    logger.warning(
+                        "Ignoring invalid quality audit snapshot in %s: %s",
+                        self.repository.db_path,
+                        exc,
+                    )
         result = self._compute_audit_payload()
         try:
             snapshot = dict(result)
@@ -99,8 +106,12 @@ class DataQualityService:
                 _QUALITY_AUDIT_SNAPSHOT_KEY: json.dumps(snapshot, ensure_ascii=False),
                 _QUALITY_AUDIT_UPDATED_AT_KEY: datetime.now().isoformat(timespec="seconds"),
             })
-        except Exception:
-            pass
+        except (TypeError, ValueError, OSError) as exc:
+            logger.warning(
+                "Failed to persist quality audit snapshot for %s: %s",
+                self.repository.db_path,
+                exc,
+            )
         return result
 
     def persist_audit(self, *, force_refresh: bool = True) -> dict[str, Any]:

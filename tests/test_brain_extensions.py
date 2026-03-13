@@ -16,6 +16,18 @@ def test_memory_store_append_search(tmp_path: Path):
     assert "600519" in hits[0]["content"]
 
 
+def test_memory_store_logs_invalid_rows_and_keeps_valid_entries(tmp_path: Path, caplog):
+    store = MemoryStore(tmp_path / "memory.jsonl", max_records=10)
+    store.path.write_text('{"id":"ok","content":"hello"}\n{"bad":\n', encoding="utf-8")
+
+    with caplog.at_level("WARNING"):
+        rows = store.recent(limit=5)
+
+    assert len(rows) == 1
+    assert rows[0]["id"] == "ok"
+    assert "Skipped 1 invalid memory rows" in caplog.text
+
+
 def test_file_bridge_channel_roundtrip(tmp_path: Path):
     inbox = tmp_path / "inbox"
     outbox = tmp_path / "outbox"

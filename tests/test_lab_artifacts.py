@@ -28,7 +28,8 @@ def test_training_lab_artifact_store_roundtrip(tmp_path: Path):
         llm={'timeout': 7, 'max_retries': 1},
         plan_id='plan_demo',
     )
-    store.write_json_artifact(store.plan_path(plan['plan_id']), plan)
+    written_path = store.write_json_artifact(store.plan_path(plan['plan_id']), plan)
+    assert written_path == store.plan_path(plan['plan_id'])
 
     eval_payload = {
         'run_id': 'run_demo',

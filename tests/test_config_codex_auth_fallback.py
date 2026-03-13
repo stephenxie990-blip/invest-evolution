@@ -21,6 +21,8 @@ def test_config_reads_codex_auth_when_llm_api_key_env_missing(monkeypatch, tmp_p
         module_path,
         submodule_search_locations=[str(module_path.parent)],
     )
+    assert spec is not None
+    assert spec.loader is not None
     module = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = module
     try:
@@ -48,6 +50,8 @@ def test_config_does_not_read_codex_auth_without_opt_in(monkeypatch, tmp_path):
         module_path,
         submodule_search_locations=[str(module_path.parent)],
     )
+    assert spec is not None
+    assert spec.loader is not None
     module = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = module
     try:
@@ -74,6 +78,8 @@ def test_config_no_longer_warns_eagerly_when_llm_key_missing(monkeypatch, tmp_pa
         module_path,
         submodule_search_locations=[str(module_path.parent)],
     )
+    assert spec is not None
+    assert spec.loader is not None
     module = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = module
     try:

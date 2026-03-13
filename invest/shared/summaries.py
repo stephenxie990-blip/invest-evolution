@@ -1,7 +1,6 @@
 import logging
-from typing import Dict, List
+from typing import List
 
-import pandas as pd
 
 from invest.foundation.compute import compute_market_stats, summarize_stocks
 

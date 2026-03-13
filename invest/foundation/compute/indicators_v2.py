@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections import deque
 from dataclasses import dataclass
 from math import sqrt
-from typing import Any, Deque, Generic, Iterable, Optional, TypeVar
+from typing import Any, Deque, Generic, Optional, TypeVar
 
 import pandas as pd
 
@@ -67,7 +67,7 @@ class BaseIndicator:
         self._reset_state()
 
     def _reset_state(self) -> None:
-        pass
+        """Hook for subclasses that keep extra rolling state beyond window/current values."""
 
     def update(self, input_value: Any) -> Any:
         value = self._compute(input_value)

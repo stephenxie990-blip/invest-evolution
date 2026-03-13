@@ -214,6 +214,32 @@ def test_selection_meeting_progress_callback_emits():
     assert events and events[0]['agent'] == 'TrendHunter'
 
 
+def test_selection_meeting_progress_callback_logs_failure(caplog):
+    from invest.meetings.selection import SelectionMeeting
+
+    def _boom(_payload):
+        raise RuntimeError("callback failed")
+
+    meeting = SelectionMeeting(llm_caller=None, progress_callback=_boom)
+    with caplog.at_level("WARNING"):
+        meeting._notify_progress({'agent': 'TrendHunter', 'status': 'running', 'message': 'x'})
+
+    assert "Selection progress callback failed" in caplog.text
+
+
+def test_review_meeting_progress_callback_logs_failure(caplog):
+    from invest.meetings.review import ReviewMeeting
+
+    def _boom(_payload):
+        raise RuntimeError("callback failed")
+
+    meeting = ReviewMeeting(progress_callback=_boom)
+    with caplog.at_level("WARNING"):
+        meeting._notify_progress({'agent': 'Reviewer', 'status': 'running', 'message': 'x'})
+
+    assert "Review progress callback failed" in caplog.text
+
+
 def test_save_cycle_result_persists_structured_trades(tmp_path):
     import json
     from app.train import TrainingResult

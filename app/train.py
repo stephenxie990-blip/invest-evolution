@@ -26,7 +26,6 @@ import json
 import logging
 import os
 import random
-from copy import deepcopy
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -46,7 +45,7 @@ from invest.agents import (
     ReviewDecisionAgent, StrategistAgent, EvoJudgeAgent
 )
 from invest.meetings import SelectionMeeting, ReviewMeeting, MeetingRecorder
-from invest.contracts import EvalReport, ModelOutput, ModelRoutingDecision
+from invest.contracts import EvalReport
 from invest.leaderboard import write_leaderboard
 from invest.router import ModelRoutingCoordinator
 from invest.models import create_investment_model, resolve_model_config_path
@@ -131,7 +130,7 @@ class ReinforcementLearningOptimizer:
         if state not in self.q_table:
             self.q_table[state] = {"increase": 0.0, "decrease": 0.0, "keep": 0.0}
 
-        action   = max(self.q_table[state], key=self.q_table[state].get)
+        action = max(self.q_table[state].items(), key=lambda item: item[1])[0]
         new_params = params.copy()
 
         if action == "increase":
@@ -345,7 +344,9 @@ class SelfLearningController:
             max_risk_discuss_rounds=max(1, int(getattr(config, "max_risk_discuss_rounds", 1) or 1)),
             progress_callback=self._handle_review_progress,
         )
-        self.meeting_recorder = MeetingRecorder(base_dir=meeting_log_dir)
+        self.meeting_recorder = MeetingRecorder(
+            base_dir=str(meeting_log_dir or (OUTPUT_DIR / "meetings"))
+        )
         self.config_service = EvolutionConfigService(
             project_root=PROJECT_ROOT,
             live_config=config,
@@ -519,8 +520,14 @@ class SelfLearningController:
         max_date = protocol.get("max_date") or protocol.get("date_range", {}).get("max") if isinstance(protocol.get("date_range"), dict) else protocol.get("max_date")
         self.experiment_min_date = normalize_date(str(min_date)) if min_date else None
         self.experiment_max_date = normalize_date(str(max_date)) if max_date else None
-        self.experiment_min_history_days = int(dataset.get("min_history_days")) if dataset.get("min_history_days") is not None else None
-        self.experiment_simulation_days = int(dataset.get("simulation_days")) if dataset.get("simulation_days") is not None else None
+        min_history_days_value = dataset.get("min_history_days")
+        simulation_days_value = dataset.get("simulation_days")
+        self.experiment_min_history_days = (
+            int(min_history_days_value) if min_history_days_value is not None else None
+        )
+        self.experiment_simulation_days = (
+            int(simulation_days_value) if simulation_days_value is not None else None
+        )
         allowed_models = model_scope.get("allowed_models") or []
         self.experiment_allowed_models = [str(name) for name in allowed_models if str(name).strip()]
         self.experiment_llm = llm
@@ -1132,12 +1139,13 @@ class SelfLearningController:
             method = getattr(self.data_manager, method_name, None)
             if not callable(method):
                 continue
-            diagnostics = method(
+            raw_diagnostics = method(
                 cutoff_date=cutoff_date,
                 stock_count=config.max_stocks,
                 min_history_days=min_history_days,
             )
-            if isinstance(diagnostics, dict):
+            if isinstance(raw_diagnostics, dict):
+                diagnostics = dict(raw_diagnostics)
                 break
 
         if not isinstance(diagnostics, dict):
@@ -1191,7 +1199,7 @@ class SelfLearningController:
             self._emit_module_log(
                 "data_loading",
                 "训练数据源不可用",
-                error_payload["error"],
+                str(error_payload.get("error") or ""),
                 cycle_id=cycle_id,
                 kind="data_source_unavailable",
                 level="error",
@@ -1544,7 +1552,11 @@ class SelfLearningController:
             for t in sim_result.trade_history
         ]
 
-        daily_values = [r.get("total_value") for r in sim_result.daily_records if r.get("total_value") is not None]
+        daily_values = [
+            float(r.get("total_value") or 0.0)
+            for r in sim_result.daily_records
+            if isinstance(r, dict) and r.get("total_value") is not None
+        ]
         benchmark_metrics = None
         if len(daily_values) >= 2:
             aligned_benchmark = benchmark_daily_values if len(benchmark_daily_values) == len(daily_values) else None

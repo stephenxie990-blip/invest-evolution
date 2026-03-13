@@ -4,11 +4,11 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Dict, List, Optional, TypedDict
 
-_MODEL_ALIAS_FAST = {"", "fast"}
-_MODEL_ALIAS_DEEP = {"deep"}
-
 from config.control_plane import build_component_llm_caller
 from invest.shared import LLMCaller
+
+_MODEL_ALIAS_FAST = {"", "fast"}
+_MODEL_ALIAS_DEEP = {"deep"}
 
 logger = logging.getLogger(__name__)
 

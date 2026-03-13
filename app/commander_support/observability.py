@@ -153,7 +153,11 @@ def _build_strategy_compare(runtime: Any, row: dict[str, Any], metadata: dict[st
 
 def build_memory_detail(runtime: Any, row: dict[str, Any]) -> dict[str, Any]:
     item = memory_brief_row(row)
-    metadata = item.get("metadata") if isinstance(item.get("metadata"), dict) else {}
+    metadata: dict[str, Any] = (
+        dict(item.get("metadata") or {})
+        if isinstance(item.get("metadata"), dict)
+        else {}
+    )
     results = list(metadata.get("results") or [])
     detailed_results = []
     optimization_cache: dict[str, list[dict[str, Any]]] = {}

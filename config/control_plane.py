@@ -267,11 +267,11 @@ def build_component_llm_caller(
         project_root=project_root,
     )
     return LLMCaller(
-        model=resolved.model or None,
-        api_key=resolved.api_key or None,
-        api_base=resolved.api_base or None,
-        timeout=timeout,
-        max_retries=max_retries,
+        model=str(resolved.model or ""),
+        api_key=str(resolved.api_key or ""),
+        api_base=str(resolved.api_base or ""),
+        timeout=int(timeout or 60),
+        max_retries=int(max_retries or 2),
         dry_run=dry_run,
     )
 
@@ -309,11 +309,11 @@ def build_default_llm_caller(
     from invest.shared import LLMCaller
 
     return LLMCaller(
-        model=resolved.model or None,
-        api_key=resolved.api_key or None,
-        api_base=resolved.api_base or None,
-        timeout=timeout,
-        max_retries=max_retries,
+        model=str(resolved.model or ""),
+        api_key=str(resolved.api_key or ""),
+        api_base=str(resolved.api_base or ""),
+        timeout=int(timeout or 60),
+        max_retries=int(max_retries or 2),
         dry_run=dry_run,
     )
 

@@ -6,7 +6,7 @@ from invest.contracts import EvalReport, StrategyAdvice
 from invest.foundation.risk import sanitize_risk_params
 
 try:
-    from invest.debate import DebateOrchestrator, RiskDebateOrchestrator
+    from invest.debate import RiskDebateOrchestrator
     _HAS_DEBATE = True
 except ImportError:
     _HAS_DEBATE = False
@@ -169,8 +169,13 @@ class ReviewMeeting:
             return
         try:
             self.progress_callback(dict(payload))
-        except Exception:
-            logger.debug("review progress callback failed", exc_info=True)
+        except Exception as exc:
+            logger.warning(
+                "Review progress callback failed for keys=%s: %s",
+                sorted(payload.keys()),
+                exc,
+                exc_info=exc,
+            )
 
     def _run_review(
         self,
@@ -584,9 +589,11 @@ class ReviewMeeting:
     def _strategist_fallback(self, facts: dict) -> dict:
         problems, suggestions = [], []
         if facts.get("win_rate", 0) < float(self._policy_value('fallback.strategy.win_rate_low', 0.4) or 0.4):
-            problems.append("胜率过低"); suggestions.append("收紧选股标准")
+            problems.append("胜率过低")
+            suggestions.append("收紧选股标准")
         if facts.get("avg_return", 0) < float(self._policy_value('fallback.strategy.avg_return_low', -3.0) or -3.0):
-            problems.append("平均亏损过大"); suggestions.append("降低仓位")
+            problems.append("平均亏损过大")
+            suggestions.append("降低仓位")
         recommendation = dict(dict(facts.get("research_feedback") or {}).get("recommendation") or {})
         bias = str(recommendation.get("bias") or "")
         if bias == "tighten_risk":

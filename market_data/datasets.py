@@ -2,7 +2,7 @@ import logging
 import random
 import time
 from datetime import datetime, timedelta
-from typing import Any, Dict, Sequence
+from typing import Any, Dict, Sequence, cast
 
 import numpy as np
 import pandas as pd
@@ -61,6 +61,30 @@ _TRAINING_PRE_CUTOFF_BUFFER = 30
 _TRAINING_MIN_LOOKBACK = 60
 
 
+def _series_from_column(df: pd.DataFrame, column: str, *, dtype: str = "object") -> pd.Series:
+    if column in df.columns:
+        return cast(pd.Series, df[column])
+    return pd.Series(pd.NA, index=df.index, dtype=dtype)
+
+
+def _numeric_series(df: pd.DataFrame, column: str) -> pd.Series:
+    return cast(
+        pd.Series,
+        pd.to_numeric(_series_from_column(df, column, dtype="float64"), errors="coerce"),
+    )
+
+
+def _datetime_series(values: Any, *, fmt: str | None = None, index: pd.Index | None = None) -> pd.Series:
+    converted = pd.to_datetime(values, format=fmt, errors="coerce")
+    if isinstance(converted, pd.Series):
+        return converted
+    return pd.Series(converted, index=index)
+
+
+def _records_frame(rows: Any) -> pd.DataFrame:
+    return pd.DataFrame(list(rows or []))
+
+
 # ---------------------------------------------------------------------------
 # Date helpers
 # ---------------------------------------------------------------------------
@@ -99,13 +123,15 @@ def normalize_stock_frame(df: pd.DataFrame, code: str) -> pd.DataFrame:
         else:
             result[column] = pd.NA
 
-    computed_pct = result["close"].pct_change().fillna(0) * 100
-    if result["pct_chg"].isna().all():
+    close_series = _numeric_series(result, "close")
+    pct_chg_series = _numeric_series(result, "pct_chg")
+    computed_pct = close_series.pct_change().fillna(0) * 100
+    if bool(pct_chg_series.isna().all()):
         result["pct_chg"] = computed_pct
     else:
-        result["pct_chg"] = result["pct_chg"].fillna(computed_pct)
+        result["pct_chg"] = pct_chg_series.fillna(computed_pct)
 
-    dt = pd.to_datetime(result["trade_date"], format="%Y%m%d", errors="coerce")
+    dt = _datetime_series(_series_from_column(result, "trade_date"), fmt="%Y%m%d", index=result.index)
     result["date"] = dt.dt.strftime("%Y-%m-%d").fillna(result["trade_date"])
     ordered = [
         "date",
@@ -121,7 +147,10 @@ def normalize_stock_frame(df: pd.DataFrame, code: str) -> pd.DataFrame:
         "code",
     ]
     extra = [column for column in result.columns if column not in ordered]
-    return result.sort_values("trade_date").reset_index(drop=True)[ordered + extra]
+    return cast(
+        pd.DataFrame,
+        result.sort_values(by=["trade_date"]).reset_index(drop=True)[ordered + extra],
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -191,58 +220,92 @@ def _prepare_training_frames(
         if column in combined.columns:
             combined[column] = pd.to_numeric(combined[column], errors="coerce")
 
-    hist_counts = (
+    hist_counts = cast(
+        pd.Series,
         combined.assign(_history_flag=(combined["trade_date"] <= cutoff_norm).astype(int))
         .groupby("code", observed=True)["_history_flag"]
         .sum()
     )
-    valid_codes = hist_counts[hist_counts >= max(1, int(min_history_days))].index.tolist()
+    valid_codes = [
+        str(code)
+        for code, history_count in hist_counts.items()
+        if int(history_count) >= max(1, int(min_history_days))
+    ]
     if not valid_codes:
         return {}
 
-    combined = combined[combined["code"].isin(valid_codes)].copy()
-    combined["date"] = pd.to_datetime(combined["trade_date"], format="%Y%m%d", errors="coerce").dt.strftime("%Y-%m-%d").fillna(combined["trade_date"])
+    combined = cast(pd.DataFrame, combined[combined["code"].isin(valid_codes)].copy())
+    trade_date_series = _series_from_column(combined, "trade_date")
+    combined["date"] = _datetime_series(
+        trade_date_series,
+        fmt="%Y%m%d",
+        index=combined.index,
+    ).dt.strftime("%Y-%m-%d").fillna(trade_date_series)
     groupby_code = combined.groupby("code", observed=True, sort=False)
-    computed_pct = groupby_code["close"].pct_change().mul(100)
+    computed_pct = cast(pd.Series, groupby_code["close"].pct_change().mul(100))
     combined["pct_chg"] = combined["pct_chg"].fillna(computed_pct).fillna(0.0)
     t_filter = time.perf_counter()
 
-    security_df = pd.DataFrame(repository.query_securities(valid_codes))
+    security_df = _records_frame(repository.query_securities(valid_codes))
     if not security_df.empty:
-        security_df = security_df[["code", "name", "industry", "list_date", "delist_date", "is_st"]].rename(columns={"is_st": "is_st_master"})
-        combined = combined.merge(security_df, on="code", how="left")
+        security_df = security_df.reindex(
+            columns=["code", "name", "industry", "list_date", "delist_date", "is_st"]
+        ).rename(columns={"is_st": "is_st_master"})
+        combined = cast(pd.DataFrame, combined.merge(security_df, on="code", how="left"))
 
-    financial_df = pd.DataFrame(repository.query_latest_financial_snapshots(valid_codes, cutoff_norm))
+    financial_df = _records_frame(
+        repository.query_latest_financial_snapshots(valid_codes, cutoff_norm)
+    )
     if not financial_df.empty:
-        financial_df = financial_df[
-            ["code", "report_date", "publish_date", "roe", "net_profit", "revenue", "total_assets", "market_cap"]
-        ].rename(
+        financial_df = financial_df.reindex(
+            columns=["code", "report_date", "publish_date", "roe", "net_profit", "revenue", "total_assets", "market_cap"]
+        ).rename(
             columns={
                 "report_date": "financial_report_date",
                 "publish_date": "financial_publish_date",
             }
         )
-        combined = combined.merge(financial_df, on="code", how="left")
+        combined = cast(pd.DataFrame, combined.merge(financial_df, on="code", how="left"))
 
-    is_st_master = pd.to_numeric(_column_or_na(combined, "is_st_master"), errors="coerce").fillna(0).astype(int)
-    list_dt = pd.to_datetime(_column_or_na(combined, "list_date", dtype="object"), format="%Y%m%d", errors="coerce")
-    trade_dt = pd.to_datetime(combined["trade_date"], format="%Y%m%d", errors="coerce")
-    derived_is_new = ((trade_dt - list_dt).dt.days <= 90).fillna(False).astype(int)
-    limit_pct = np.where(
+    is_st_master = _numeric_series(combined, "is_st_master").fillna(0).astype(int)
+    list_dt = _datetime_series(
+        _column_or_na(combined, "list_date", dtype="object"),
+        fmt="%Y%m%d",
+        index=combined.index,
+    )
+    trade_dt = _datetime_series(
+        _series_from_column(combined, "trade_date"),
+        fmt="%Y%m%d",
+        index=combined.index,
+    )
+    derived_is_new = cast(pd.Series, (trade_dt - list_dt).dt.days <= 90).fillna(False).astype(int)
+    limit_pct = pd.Series(
+        np.where(
         is_st_master.eq(1),
         4.8,
-        np.where(combined["code"].str.startswith(("sz.300", "sh.688")), 19.5, 9.5),
+        np.where(
+            _series_from_column(combined, "code").astype(str).str.startswith(("sz.300", "sh.688")),
+            19.5,
+            9.5,
+        ),
+        ),
+        index=combined.index,
     )
 
-    is_st_series = pd.to_numeric(_column_or_na(combined, "is_st"), errors="coerce")
-    is_new_series = pd.to_numeric(_column_or_na(combined, "is_new_stock_window"), errors="coerce")
-    limit_up_series = pd.to_numeric(_column_or_na(combined, "is_limit_up"), errors="coerce")
-    limit_down_series = pd.to_numeric(_column_or_na(combined, "is_limit_down"), errors="coerce")
+    is_st_series = _numeric_series(combined, "is_st")
+    is_new_series = _numeric_series(combined, "is_new_stock_window")
+    limit_up_series = _numeric_series(combined, "is_limit_up")
+    limit_down_series = _numeric_series(combined, "is_limit_down")
+    pct_chg_series = _numeric_series(combined, "pct_chg")
 
     combined["is_st"] = is_st_series.fillna(is_st_master).astype(int)
     combined["is_new_stock_window"] = is_new_series.fillna(derived_is_new).astype(int)
-    combined["is_limit_up"] = limit_up_series.fillna((combined["pct_chg"] >= limit_pct).fillna(False).astype(int)).astype(int)
-    combined["is_limit_down"] = limit_down_series.fillna((combined["pct_chg"] <= -limit_pct).fillna(False).astype(int)).astype(int)
+    combined["is_limit_up"] = limit_up_series.fillna(
+        cast(pd.Series, pct_chg_series >= limit_pct).fillna(False).astype(int)
+    ).astype(int)
+    combined["is_limit_down"] = limit_down_series.fillna(
+        cast(pd.Series, pct_chg_series <= -limit_pct).fillna(False).astype(int)
+    ).astype(int)
 
     groupby_code = combined.groupby("code", observed=True, sort=False)
     close_group = groupby_code["close"]
@@ -250,40 +313,58 @@ def _prepare_training_frames(
     volume_group = groupby_code["volume"]
     turnover_group = groupby_code["turnover"]
 
-    ma5 = close_group.rolling(5).mean().reset_index(level=0, drop=True)
-    ma10 = close_group.rolling(10).mean().reset_index(level=0, drop=True)
-    ma20 = close_group.rolling(20).mean().reset_index(level=0, drop=True)
-    ma60 = close_group.rolling(60).mean().reset_index(level=0, drop=True)
-    momentum20 = close_group.pct_change(20).mul(100)
-    momentum60 = close_group.pct_change(60).mul(100)
-    volatility20 = pct_group.rolling(20).std().reset_index(level=0, drop=True)
-    volume_mean20 = volume_group.rolling(20).mean().reset_index(level=0, drop=True)
-    turnover_mean20 = turnover_group.rolling(20).mean().reset_index(level=0, drop=True)
-    roll_max60 = close_group.rolling(60).max().reset_index(level=0, drop=True)
-    prior_high20 = close_group.rolling(20).max().reset_index(level=0, drop=True)
-    prior_high20 = prior_high20.groupby(combined["code"], observed=True).shift(1).reindex(combined.index)
+    ma5 = cast(pd.Series, close_group.rolling(5).mean().reset_index(level=0, drop=True))
+    ma10 = cast(pd.Series, close_group.rolling(10).mean().reset_index(level=0, drop=True))
+    ma20 = cast(pd.Series, close_group.rolling(20).mean().reset_index(level=0, drop=True))
+    ma60 = cast(pd.Series, close_group.rolling(60).mean().reset_index(level=0, drop=True))
+    momentum20 = cast(pd.Series, close_group.pct_change(20).mul(100))
+    momentum60 = cast(pd.Series, close_group.pct_change(60).mul(100))
+    volatility20 = cast(pd.Series, pct_group.rolling(20).std().reset_index(level=0, drop=True))
+    volume_mean20 = cast(pd.Series, volume_group.rolling(20).mean().reset_index(level=0, drop=True))
+    turnover_mean20 = cast(pd.Series, turnover_group.rolling(20).mean().reset_index(level=0, drop=True))
+    roll_max60 = cast(pd.Series, close_group.rolling(60).max().reset_index(level=0, drop=True))
+    prior_high20 = cast(pd.Series, close_group.rolling(20).max().reset_index(level=0, drop=True))
+    prior_high20 = cast(
+        pd.Series,
+        prior_high20.groupby(_series_from_column(combined, "code"), observed=True).shift(1).reindex(combined.index),
+    )
 
-    combined["ma5"] = pd.to_numeric(_column_or_na(combined, "ma5"), errors="coerce").fillna(ma5)
-    combined["ma10"] = pd.to_numeric(_column_or_na(combined, "ma10"), errors="coerce").fillna(ma10)
-    combined["ma20"] = pd.to_numeric(_column_or_na(combined, "ma20"), errors="coerce").fillna(ma20)
-    combined["ma60"] = pd.to_numeric(_column_or_na(combined, "ma60"), errors="coerce").fillna(ma60)
-    combined["momentum20"] = pd.to_numeric(_column_or_na(combined, "momentum20"), errors="coerce").fillna(momentum20)
-    combined["momentum60"] = pd.to_numeric(_column_or_na(combined, "momentum60"), errors="coerce").fillna(momentum60)
-    combined["volatility20"] = pd.to_numeric(_column_or_na(combined, "volatility20"), errors="coerce").fillna(volatility20)
-    combined["volume_ratio"] = pd.to_numeric(_column_or_na(combined, "volume_ratio"), errors="coerce").fillna(combined["volume"] / volume_mean20.replace(0, np.nan))
-    combined["turnover_mean20"] = pd.to_numeric(_column_or_na(combined, "turnover_mean20"), errors="coerce").fillna(turnover_mean20)
-    combined["drawdown60"] = pd.to_numeric(_column_or_na(combined, "drawdown60"), errors="coerce").fillna((combined["close"] / roll_max60 - 1.0) * 100)
-    breakout20 = pd.to_numeric(_column_or_na(combined, "breakout20"), errors="coerce")
-    combined["breakout20"] = breakout20.fillna((combined["close"] > prior_high20).fillna(False).astype(int)).astype(int)
+    close_series = _numeric_series(combined, "close")
+    volume_series = _numeric_series(combined, "volume")
+    combined["ma5"] = _numeric_series(combined, "ma5").fillna(ma5)
+    combined["ma10"] = _numeric_series(combined, "ma10").fillna(ma10)
+    combined["ma20"] = _numeric_series(combined, "ma20").fillna(ma20)
+    combined["ma60"] = _numeric_series(combined, "ma60").fillna(ma60)
+    combined["momentum20"] = _numeric_series(combined, "momentum20").fillna(momentum20)
+    combined["momentum60"] = _numeric_series(combined, "momentum60").fillna(momentum60)
+    combined["volatility20"] = _numeric_series(combined, "volatility20").fillna(volatility20)
+    combined["volume_ratio"] = _numeric_series(combined, "volume_ratio").fillna(
+        volume_series / volume_mean20.replace(0, np.nan)
+    )
+    combined["turnover_mean20"] = _numeric_series(combined, "turnover_mean20").fillna(turnover_mean20)
+    combined["drawdown60"] = _numeric_series(combined, "drawdown60").fillna(
+        (close_series / roll_max60 - 1.0) * 100
+    )
+    breakout20 = _numeric_series(combined, "breakout20")
+    combined["breakout20"] = breakout20.fillna(
+        cast(pd.Series, close_series > prior_high20).fillna(False).astype(int)
+    ).astype(int)
 
-    benchmark_df = repository.query_index_bars(index_codes=["sh.000300"], start_date=str(combined["trade_date"].min()), end_date=end_date)
+    benchmark_df = repository.query_index_bars(
+        index_codes=["sh.000300"],
+        start_date=str(trade_date_series.min()),
+        end_date=end_date,
+    )
     benchmark_returns = pd.Series(dtype=float)
     if not benchmark_df.empty:
-        bench = benchmark_df.sort_values("trade_date").copy()
-        bench["close"] = pd.to_numeric(bench["close"], errors="coerce")
-        benchmark_returns = bench.set_index("trade_date")["close"].pct_change(20).mul(100)
-    combined["relative_strength_hs300"] = pd.to_numeric(_column_or_na(combined, "relative_strength_hs300"), errors="coerce").fillna(
-        combined["momentum20"].sub(benchmark_returns.reindex(combined["trade_date"]).values)
+        bench = cast(pd.DataFrame, benchmark_df.sort_values(by=["trade_date"]).copy())
+        bench["close"] = _numeric_series(bench, "close")
+        benchmark_returns = cast(
+            pd.Series,
+            cast(pd.Series, bench.set_index("trade_date")["close"]).pct_change(20).mul(100),
+        )
+    combined["relative_strength_hs300"] = _numeric_series(combined, "relative_strength_hs300").fillna(
+        cast(pd.Series, combined["momentum20"]).sub(benchmark_returns.reindex(trade_date_series).values)
     )
     t_enrich = time.perf_counter()
 
@@ -322,7 +403,7 @@ def _prepare_training_frames(
     extra = [column for column in combined.columns if column not in ordered]
     combined["code"] = combined["code"].astype("category")
     stock_data = {
-        str(code): group.reset_index(drop=True)[ordered + extra]
+        str(code): cast(pd.DataFrame, group.reset_index(drop=True)[ordered + extra])
         for code, group in combined.groupby("code", observed=True, sort=False)
     }
     t_split = time.perf_counter()
@@ -523,7 +604,7 @@ def _attach_point_in_time_context(
         for row in repository.query_latest_financial_snapshots(codes, cutoff_date)
     }
 
-    code_series = combined["code"]
+    code_series = _series_from_column(combined, "code").astype(str)
     for key in ("name", "industry", "list_date", "delist_date"):
         lookup = {c: meta.get(key) for c, meta in securities.items()}
         combined[key] = code_series.map(lookup)
@@ -800,7 +881,6 @@ class CapitalFlowDatasetService:
     ) -> Dict[str, pd.DataFrame]:
         if not stock_frames:
             return stock_frames
-        codes = list(stock_frames.keys())
         all_dates = [
             frame["trade_date"].astype(str)
             for frame in stock_frames.values()
@@ -808,8 +888,8 @@ class CapitalFlowDatasetService:
         ]
         if not all_dates:
             return stock_frames
-        start_date = min(series.min() for series in all_dates)
-        end_date = max(series.max() for series in all_dates)
+        start_date = str(min(series.min() for series in all_dates))
+        end_date = str(max(series.max() for series in all_dates))
         return _attach_point_in_time_context(
             self.repository,
             stock_frames,
@@ -880,7 +960,7 @@ class EventDatasetService:
         return {
             "row_count": int(len(frame)),
             "stock_count": (
-                int(frame["code"].nunique()) if not frame.empty else 0
+                int(_series_from_column(frame, "code").nunique()) if not frame.empty else 0
             ),
             "latest_date": (
                 str(frame["trade_date"].max()) if not frame.empty else ""
@@ -939,7 +1019,7 @@ class IntradayDatasetBuilder:
         return {
             "row_count": int(len(frame)),
             "stock_count": (
-                int(frame["code"].nunique()) if not frame.empty else 0
+                int(_series_from_column(frame, "code").nunique()) if not frame.empty else 0
             ),
             "latest_date": (
                 str(frame["trade_date"].max()) if not frame.empty else ""

@@ -6,7 +6,7 @@ import re
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, cast
 
 try:
     import yaml
@@ -42,6 +42,11 @@ logger = logging.getLogger(__name__)
 
 _STOCK_CODE_RE = re.compile(r"\b(?:sh|sz)\.\d{6}\b|\b\d{6}(?:\.(?:SH|SZ|sh|sz))?\b")
 _DAY_COUNT_RE = re.compile(r"(\d{2,4})\s*(?:个)?(?:交易)?(?:日|天)")
+
+
+def _numeric_series(frame: pd.DataFrame, column: str) -> pd.Series:
+    values = frame[column] if column in frame.columns else pd.Series(index=frame.index, dtype="float64")
+    return cast(pd.Series, pd.to_numeric(values, errors="coerce"))
 
 
 @dataclass
@@ -108,23 +113,48 @@ class StockAnalysisService:
     ):
         self.repository = MarketDataRepository(str(db_path) if db_path else None)
         self.repository.initialize_schema()
-        self.strategy_dir = Path(strategy_dir or (PROJECT_ROOT / "stock_strategies"))
-        self.strategy_dir.mkdir(parents=True, exist_ok=True)
-        inferred_project_root = project_root
-        if inferred_project_root is None:
-            if strategy_dir is not None:
-                inferred_project_root = Path(strategy_dir).expanduser().resolve().parent
-            elif db_path is not None:
-                inferred_project_root = Path(db_path).expanduser().resolve().parent
-            else:
-                inferred_project_root = PROJECT_ROOT
-        self._project_root = Path(inferred_project_root)
-        self._runtime_state_dir = self._project_root / "runtime" / "state"
-        self._runtime_state_dir.mkdir(parents=True, exist_ok=True)
+        self.strategy_dir = self._init_strategy_dir(strategy_dir)
+        self._project_root = self._resolve_project_root(
+            project_root=project_root,
+            strategy_dir=strategy_dir,
+            db_path=db_path,
+        )
+        self._runtime_state_dir = self._init_runtime_state_dir(self._project_root)
         self._analysis_as_of_date: str = ""
         self._controller_provider = controller_provider
         self._ensure_default_strategies()
-        self._tool_registry: dict[str, Callable[..., dict[str, Any]]] = {
+        self._tool_registry = self._build_tool_registry()
+        self.gateway = gateway or self._build_gateway(model=model, api_key=api_key, api_base=api_base)
+        self.enable_llm_react = bool(enable_llm_react)
+        self._init_research_services()
+
+    def _init_strategy_dir(self, strategy_dir: str | Path | None) -> Path:
+        resolved = Path(strategy_dir or (PROJECT_ROOT / "stock_strategies"))
+        resolved.mkdir(parents=True, exist_ok=True)
+        return resolved
+
+    def _resolve_project_root(
+        self,
+        *,
+        project_root: str | Path | None,
+        strategy_dir: str | Path | None,
+        db_path: str | Path | None,
+    ) -> Path:
+        if project_root is not None:
+            return Path(project_root)
+        if strategy_dir is not None:
+            return Path(strategy_dir).expanduser().resolve().parent
+        if db_path is not None:
+            return Path(db_path).expanduser().resolve().parent
+        return PROJECT_ROOT
+
+    def _init_runtime_state_dir(self, project_root: Path) -> Path:
+        runtime_state_dir = project_root / "runtime" / "state"
+        runtime_state_dir.mkdir(parents=True, exist_ok=True)
+        return runtime_state_dir
+
+    def _build_tool_registry(self) -> dict[str, Callable[..., dict[str, Any]]]:
+        return {
             "get_daily_history": self.get_daily_history,
             "get_indicator_snapshot": self.get_indicator_snapshot,
             "analyze_trend": self.analyze_trend,
@@ -134,8 +164,8 @@ class StockAnalysisService:
             "get_realtime_quote": self.get_realtime_quote,
             "get_latest_quote": self.get_realtime_quote,
         }
-        self.gateway = gateway or self._build_gateway(model=model, api_key=api_key, api_base=api_base)
-        self.enable_llm_react = bool(enable_llm_react)
+
+    def _init_research_services(self) -> None:
         self.case_store = ResearchCaseStore(self._runtime_state_dir)
         self.scenario_engine = ResearchScenarioEngine(self.case_store)
         self.attribution_engine = ResearchAttributionEngine(self.repository)
@@ -315,9 +345,9 @@ class StockAnalysisService:
                 "artifacts": {},
             }
         frame = frame.tail(max(30, int(days))).copy()
-        highs = pd.to_numeric(frame.get("high"), errors="coerce").dropna()
-        lows = pd.to_numeric(frame.get("low"), errors="coerce").dropna()
-        closes = pd.to_numeric(frame.get("close"), errors="coerce").dropna()
+        highs = _numeric_series(frame, "high").dropna()
+        lows = _numeric_series(frame, "low").dropna()
+        closes = _numeric_series(frame, "close").dropna()
         if highs.empty or lows.empty or closes.empty:
             return {
                 "status": "not_found",
@@ -399,8 +429,8 @@ class StockAnalysisService:
             }
         frame = frame.sort_values("trade_date").tail(max(1, int(days)))
         latest = dict(frame.tail(1).to_dict(orient="records")[0])
-        main_sum = float(pd.to_numeric(frame["main_net_inflow"], errors="coerce").fillna(0).sum())
-        ratio_mean = float(pd.to_numeric(frame["main_net_inflow_ratio"], errors="coerce").fillna(0).mean())
+        main_sum = float(_numeric_series(frame, "main_net_inflow").fillna(0).sum())
+        ratio_mean = float(_numeric_series(frame, "main_net_inflow_ratio").fillna(0).mean())
         direction = "inflow" if main_sum > 0 else "outflow" if main_sum < 0 else "flat"
         return {
             "status": "ok",
@@ -447,11 +477,14 @@ class StockAnalysisService:
                 "artifacts": {"start_date": start_date, "end_date": end_date},
             }
         latest_day = str(frame["trade_date"].max())
-        latest = frame[frame["trade_date"] == latest_day].copy()
-        latest = latest.sort_values("bar_time")
-        first_close = float(pd.to_numeric(latest["close"], errors="coerce").iloc[0])
-        last_close = float(pd.to_numeric(latest["close"], errors="coerce").iloc[-1])
-        day_range = float(pd.to_numeric(latest["high"], errors="coerce").max() - pd.to_numeric(latest["low"], errors="coerce").min())
+        latest = cast(pd.DataFrame, frame[frame["trade_date"] == latest_day].copy())
+        latest = cast(pd.DataFrame, latest.sort_values(by=["bar_time"]))
+        close_series = _numeric_series(latest, "close")
+        high_series = _numeric_series(latest, "high")
+        low_series = _numeric_series(latest, "low")
+        first_close = float(close_series.iloc[0])
+        last_close = float(close_series.iloc[-1])
+        day_range = float(high_series.max() - low_series.min())
         intraday_bias = "up" if last_close > first_close else "down" if last_close < first_close else "flat"
         return {
             "status": "ok",
@@ -1790,20 +1823,67 @@ class StockAnalysisService:
         indicator_result = dict(execution["results"].get("get_indicator_snapshot") or {})
         support_result = dict(execution["results"].get("analyze_support_resistance") or {})
         capital_flow = dict(execution["results"].get("get_capital_flow") or {})
-        summary = trend.get("summary") if isinstance(trend.get("summary"), dict) else {}
-        trend_metrics = trend.get("trend") if isinstance(trend.get("trend"), dict) else {}
-        quote_row = quote.get("quote") if isinstance(quote.get("quote"), dict) else {}
-        snapshot = indicator_result.get("snapshot") if isinstance(indicator_result.get("snapshot"), dict) else {}
-        indicators = snapshot.get("indicators") if isinstance(snapshot.get("indicators"), dict) else {}
-        macd_payload = indicators.get("macd_12_26_9") if isinstance(indicators.get("macd_12_26_9"), dict) else {}
-        boll = indicators.get("bollinger_20") if isinstance(indicators.get("bollinger_20"), dict) else {}
-        support_levels = support_result.get("levels") if isinstance(support_result.get("levels"), dict) else {}
-        flow_metrics = capital_flow.get("metrics") if isinstance(capital_flow.get("metrics"), dict) else {}
-        latest_close = float(snapshot.get("latest_close") or trend_metrics.get("latest_close") or quote_row.get("close") or summary.get("close") or 0.0)
+        summary: dict[str, Any] = (
+            dict(trend.get("summary") or {})
+            if isinstance(trend.get("summary"), dict)
+            else {}
+        )
+        trend_metrics: dict[str, Any] = (
+            dict(trend.get("trend") or {})
+            if isinstance(trend.get("trend"), dict)
+            else {}
+        )
+        quote_row: dict[str, Any] = (
+            dict(quote.get("quote") or {})
+            if isinstance(quote.get("quote"), dict)
+            else {}
+        )
+        snapshot: dict[str, Any] = (
+            dict(indicator_result.get("snapshot") or {})
+            if isinstance(indicator_result.get("snapshot"), dict)
+            else {}
+        )
+        indicators: dict[str, Any] = (
+            dict(snapshot.get("indicators") or {})
+            if isinstance(snapshot.get("indicators"), dict)
+            else {}
+        )
+        macd_payload: dict[str, Any] = (
+            dict(indicators.get("macd_12_26_9") or {})
+            if isinstance(indicators.get("macd_12_26_9"), dict)
+            else {}
+        )
+        boll: dict[str, Any] = (
+            dict(indicators.get("bollinger_20") or {})
+            if isinstance(indicators.get("bollinger_20"), dict)
+            else {}
+        )
+        support_levels: dict[str, Any] = (
+            dict(support_result.get("levels") or {})
+            if isinstance(support_result.get("levels"), dict)
+            else {}
+        )
+        flow_metrics: dict[str, Any] = (
+            dict(capital_flow.get("metrics") or {})
+            if isinstance(capital_flow.get("metrics"), dict)
+            else {}
+        )
+        latest_close = float(
+            snapshot.get("latest_close")
+            or trend_metrics.get("latest_close")
+            or quote_row.get("close")
+            or summary.get("close")
+            or 0.0
+        )
         ma20 = float(indicators.get("sma_20") or trend_metrics.get("ma20") or 0.0)
-        volume_ratio = indicators.get("volume_ratio_5_20") if indicators else trend_metrics.get("volume_ratio")
+        volume_ratio = indicators.get("volume_ratio_5_20") or trend_metrics.get("volume_ratio")
         macd_cross = str(macd_payload.get("cross") or trend_metrics.get("macd_cross") or "neutral")
-        rsi = float(indicators.get("rsi_14") or trend_metrics.get("rsi_14") or summary.get("rsi") or 50.0)
+        rsi = float(
+            indicators.get("rsi_14")
+            or trend_metrics.get("rsi_14")
+            or summary.get("rsi")
+            or 50.0
+        )
         algo_score = float(summary.get("algo_score") or 0.0)
         ma_stack = str(indicators.get("ma_stack") or "mixed")
         main_net_inflow_sum = float(flow_metrics.get("main_net_inflow_sum") or 0.0)
@@ -2033,9 +2113,21 @@ class StockAnalysisService:
                 "artifacts": dict(result.get("artifacts") or {}),
             }
         if tool_name == "get_indicator_snapshot":
-            snapshot = result.get("snapshot") if isinstance(result.get("snapshot"), dict) else {}
-            indicators = snapshot.get("indicators") if isinstance(snapshot.get("indicators"), dict) else {}
-            macd = indicators.get("macd_12_26_9") if isinstance(indicators.get("macd_12_26_9"), dict) else {}
+            snapshot: dict[str, Any] = (
+                dict(result.get("snapshot") or {})
+                if isinstance(result.get("snapshot"), dict)
+                else {}
+            )
+            indicators: dict[str, Any] = (
+                dict(snapshot.get("indicators") or {})
+                if isinstance(snapshot.get("indicators"), dict)
+                else {}
+            )
+            macd: dict[str, Any] = (
+                dict(indicators.get("macd_12_26_9") or {})
+                if isinstance(indicators.get("macd_12_26_9"), dict)
+                else {}
+            )
             return {
                 "status": status,
                 "summary": str(result.get("observation_summary") or result.get("summary") or ""),
@@ -2047,7 +2139,11 @@ class StockAnalysisService:
                 "artifacts": dict(result.get("artifacts") or {}),
             }
         if tool_name == "analyze_trend":
-            trend = result.get("trend") if isinstance(result.get("trend"), dict) else {}
+            trend: dict[str, Any] = (
+                dict(result.get("trend") or {})
+                if isinstance(result.get("trend"), dict)
+                else {}
+            )
             return {
                 "status": status,
                 "summary": str(result.get("observation_summary") or result.get("summary") or ""),
@@ -2061,7 +2157,11 @@ class StockAnalysisService:
                 "artifacts": dict(result.get("artifacts") or {}),
             }
         if tool_name == "analyze_support_resistance":
-            levels = result.get("levels") if isinstance(result.get("levels"), dict) else {}
+            levels: dict[str, Any] = (
+                dict(result.get("levels") or {})
+                if isinstance(result.get("levels"), dict)
+                else {}
+            )
             return {
                 "status": status,
                 "summary": str(result.get("observation_summary") or result.get("summary") or ""),
@@ -2072,7 +2172,11 @@ class StockAnalysisService:
                 "artifacts": dict(result.get("artifacts") or {}),
             }
         if tool_name == "get_capital_flow":
-            metrics = result.get("metrics") if isinstance(result.get("metrics"), dict) else {}
+            metrics: dict[str, Any] = (
+                dict(result.get("metrics") or {})
+                if isinstance(result.get("metrics"), dict)
+                else {}
+            )
             return {
                 "status": status,
                 "summary": str(result.get("observation_summary") or result.get("summary") or ""),
@@ -2082,7 +2186,11 @@ class StockAnalysisService:
                 "artifacts": dict(result.get("artifacts") or {}),
             }
         if tool_name == "get_intraday_context":
-            metrics = result.get("metrics") if isinstance(result.get("metrics"), dict) else {}
+            metrics: dict[str, Any] = (
+                dict(result.get("metrics") or {})
+                if isinstance(result.get("metrics"), dict)
+                else {}
+            )
             return {
                 "status": status,
                 "summary": str(result.get("observation_summary") or result.get("summary") or ""),
@@ -2092,7 +2200,11 @@ class StockAnalysisService:
                 "artifacts": dict(result.get("artifacts") or {}),
             }
         if tool_name in {"get_realtime_quote", "get_latest_quote"}:
-            quote = result.get("quote") if isinstance(result.get("quote"), dict) else {}
+            quote: dict[str, Any] = (
+                dict(result.get("quote") or {})
+                if isinstance(result.get("quote"), dict)
+                else {}
+            )
             return {
                 "status": status,
                 "summary": str(result.get("summary") or ""),

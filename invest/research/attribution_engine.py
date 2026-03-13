@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Dict
+from typing import Any, Dict, cast
 
 import pandas as pd
 
@@ -45,7 +45,8 @@ class ResearchAttributionEngine:
                 horizon_results={},
                 metadata={"reason": "as_of_date_not_found", "code": code, "as_of_date": as_of_date},
             )
-        base_close = float(pd.to_numeric(base_frame["close"], errors="coerce").iloc[-1])
+        base_closes = cast(pd.Series, pd.to_numeric(base_frame["close"], errors="coerce"))
+        base_close = float(base_closes.iloc[-1])
         entry_price = entry_rule.get("price")
         invalidation_price = invalidation_rule.get("price")
         de_risk_price = de_risk_rule.get("price")
@@ -65,9 +66,17 @@ class ResearchAttributionEngine:
                 }
                 labels.append("timeout")
                 continue
-            closes = pd.to_numeric(window["close"], errors="coerce")
-            highs = pd.to_numeric(window.get("high"), errors="coerce") if "high" in window.columns else closes
-            lows = pd.to_numeric(window.get("low"), errors="coerce") if "low" in window.columns else closes
+            closes = cast(pd.Series, pd.to_numeric(window["close"], errors="coerce"))
+            highs = (
+                cast(pd.Series, pd.to_numeric(window["high"], errors="coerce"))
+                if "high" in window.columns
+                else closes
+            )
+            lows = (
+                cast(pd.Series, pd.to_numeric(window["low"], errors="coerce"))
+                if "low" in window.columns
+                else closes
+            )
             last_close = float(closes.iloc[-1])
             max_high = float(highs.max()) if not highs.empty else last_close
             min_low = float(lows.min()) if not lows.empty else last_close
@@ -95,7 +104,7 @@ class ResearchAttributionEngine:
                 "entry_triggered": entry_triggered,
                 "invalidation_triggered": invalidation_triggered,
                 "de_risk_triggered": de_risk_triggered,
-                "end_trade_date": str(window["trade_date"].iloc[-1]),
+                "end_trade_date": str(cast(pd.Series, window["trade_date"]).iloc[-1]),
             }
             labels.append(label)
         aggregate = "timeout"

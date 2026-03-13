@@ -25,6 +25,7 @@ def test_investment_models_api(tmp_path, monkeypatch):
     res = client.get("/api/investment-models")
     assert res.status_code == 200
     data = res.get_json()
+    assert data["count"] == len(data["items"])
     assert "momentum" in data["items"]
     assert "defensive_low_vol" in data["items"]
     assert data["active_model"] == runtime.body.controller.model_name

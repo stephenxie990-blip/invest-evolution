@@ -1,11 +1,14 @@
-import json
 """
 Commander fusion tests.
 """
 
+import json
 from pathlib import Path
 
+import pytest
+
 from commander import StrategyGeneRegistry
+from commander import CommanderConfig, CommanderRuntime
 
 
 def _assert_bounded_workflow_protocol(payload: dict, *, domain: str, writes_state: bool):
@@ -99,11 +102,6 @@ def test_strategy_registry_parses_custom_files(tmp_path: Path):
     alpha = next(g for g in genes if g.gene_id == "alpha")
     assert alpha.enabled is False
     assert alpha.priority == 77
-
-
-import pytest
-from commander import CommanderConfig, CommanderRuntime
-
 @pytest.mark.asyncio
 async def test_commander_runtime_init(tmp_path):
     cfg = CommanderConfig(

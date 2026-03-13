@@ -6,7 +6,7 @@ import asyncio
 import json
 import logging
 from datetime import datetime
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any, Callable, Optional
 
 from app.commander_support.workflow import jsonable as _jsonable
 from app.train import SelfLearningController, TrainingResult
@@ -48,7 +48,11 @@ def build_mock_provider() -> MockDataProvider:
 class InvestmentBodyService:
     """Long-running body service: executes training cycles and tracks state."""
 
-    def __init__(self, cfg: CommanderConfig, on_runtime_event: Optional[callable] = None):
+    def __init__(
+        self,
+        cfg: CommanderConfig,
+        on_runtime_event: Optional[Callable[[str, dict[str, Any]], None]] = None,
+    ):
         self.cfg = cfg
         self._runtime_event_sink = on_runtime_event
         self._mock_provider: Optional[MockDataProvider] = build_mock_provider() if cfg.mock_mode else None
@@ -302,7 +306,7 @@ class InvestmentBodyService:
                         cycle_meta, cycle_id = self._last_cycle_meta()
                         if isinstance(exc, DataSourceUnavailableError):
                             error_payload = exc.to_dict()
-                            self.last_error = error_payload["error"]
+                            self.last_error = str(error_payload.get("error") or "")
                             item = self._build_data_source_error_cycle_item(
                                 error_payload=error_payload,
                                 cycle_meta=cycle_meta,

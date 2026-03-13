@@ -1,16 +1,8 @@
 import logging
-from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Dict, List
 
 from invest.contracts import AgentContext
-from invest.shared import (
-    LLMCaller,
-    compute_bb_position,
-    compute_macd_signal,
-    compute_rsi,
-    format_stock_table,
-)
-from .base import AgentConfig, InvestAgent, RegimeResult
+from .base import AgentConfig, InvestAgent
 
 logger = logging.getLogger(__name__)
 
@@ -139,7 +131,6 @@ class MarketRegimeAgent(InvestAgent):
         return "\n".join(lines)
 
     def _rule_based_judgment(self, stats: dict):
-        avg_20d = stats.get("avg_change_20d", 0)
         median_20d = stats.get("median_change_20d", 0)
         advance = stats.get("advance_ratio_5d", 0.5)
         above_ma20 = stats.get("above_ma20_ratio", 0.5)
@@ -148,23 +139,31 @@ class MarketRegimeAgent(InvestAgent):
         reasons = []
 
         if median_20d > 5:
-            score += 2; reasons.append(f"20日涨幅{median_20d:+.1f}%强势")
+            score += 2
+            reasons.append(f"20日涨幅{median_20d:+.1f}%强势")
         elif median_20d > 0:
-            score += 1; reasons.append(f"20日涨幅{median_20d:+.1f}%温和")
+            score += 1
+            reasons.append(f"20日涨幅{median_20d:+.1f}%温和")
         elif median_20d > -5:
-            score -= 1; reasons.append(f"20日跌幅{median_20d:+.1f}%偏弱")
+            score -= 1
+            reasons.append(f"20日跌幅{median_20d:+.1f}%偏弱")
         else:
-            score -= 2; reasons.append(f"20日跌幅{median_20d:+.1f}%疲弱")
+            score -= 2
+            reasons.append(f"20日跌幅{median_20d:+.1f}%疲弱")
 
         if advance > 0.6:
-            score += 1; reasons.append(f"多数股票上涨({advance:.0%})")
+            score += 1
+            reasons.append(f"多数股票上涨({advance:.0%})")
         elif advance < 0.4:
-            score -= 1; reasons.append(f"多数股票下跌({advance:.0%})")
+            score -= 1
+            reasons.append(f"多数股票下跌({advance:.0%})")
 
         if above_ma20 > 0.6:
-            score += 1; reasons.append(f"多数在MA20上方({above_ma20:.0%})")
+            score += 1
+            reasons.append(f"多数在MA20上方({above_ma20:.0%})")
         elif above_ma20 < 0.4:
-            score -= 1; reasons.append(f"多数在MA20下方({above_ma20:.0%})")
+            score -= 1
+            reasons.append(f"多数在MA20下方({above_ma20:.0%})")
 
         if score >= 2:
             regime, confidence = "bull", min(0.9, 0.5 + score * 0.1)

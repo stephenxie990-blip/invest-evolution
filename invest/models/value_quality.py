@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Dict, List
+from typing import Any, Dict, List, cast
 
 import pandas as pd
 
@@ -30,7 +30,7 @@ class ValueQualityModel(InvestmentModel):
     def _latest_numeric(self, df: pd.DataFrame, column: str, default: float = 0.0) -> float:
         if column not in df.columns:
             return default
-        series = pd.to_numeric(df[column], errors="coerce").dropna()
+        series = cast(pd.Series, pd.to_numeric(df[column], errors="coerce")).dropna()
         if series.empty:
             return default
         return float(series.iloc[-1])

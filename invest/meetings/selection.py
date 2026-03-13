@@ -5,12 +5,9 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any, Callable, Dict, List, Optional
 
 from invest.shared import (
-    AgentTracker,
     LLMCaller,
     PositionPlan,
     TradingPlan,
-    format_stock_table,
-    summarize_stocks,
 )
 from invest.contracts import AgentContext, ModelOutput, SignalPacket, StrategyAdvice
 from invest.foundation.risk import (
@@ -21,7 +18,7 @@ from invest.foundation.risk import (
 from invest.models.defaults import COMMON_PARAM_DEFAULTS
 
 try:
-    from invest.debate import DebateOrchestrator, RiskDebateOrchestrator
+    from invest.debate import DebateOrchestrator
 
     _HAS_DEBATE = True
 except ImportError:
@@ -282,8 +279,13 @@ class SelectionMeeting:
         with self._progress_lock:
             try:
                 self.progress_callback(dict(payload))
-            except Exception:
-                logger.debug("selection progress callback failed", exc_info=True)
+            except Exception as exc:
+                logger.warning(
+                    "Selection progress callback failed for keys=%s: %s",
+                    sorted(payload.keys()),
+                    exc,
+                    exc_info=exc,
+                )
 
     # ==================================================================
     # Internal: single-agent execution unit (thread target)

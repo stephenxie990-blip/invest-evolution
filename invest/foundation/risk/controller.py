@@ -1,11 +1,10 @@
 import logging
-import math
 from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
 
-from ..engine.contracts import EmergencyAction, EmergencyEvent, EmergencyType, Position, RiskMetrics
+from ..engine.contracts import EmergencyAction, EmergencyEvent, EmergencyType
 
 logger = logging.getLogger(__name__)
 

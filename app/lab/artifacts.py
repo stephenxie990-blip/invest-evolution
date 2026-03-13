@@ -195,9 +195,10 @@ class TrainingLabArtifactStore:
     def evaluation_path(self, run_id: str) -> Path:
         return self.training_eval_dir / f"{run_id}.json"
 
-    def write_json_artifact(self, path: Path, payload: dict[str, Any]) -> None:
+    def write_json_artifact(self, path: Path, payload: dict[str, Any]) -> Path:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(jsonable(payload), ensure_ascii=False, indent=2), encoding='utf-8')
+        return path
 
     def read_json_artifact(self, path: Path, *, label: str = 'artifact') -> dict[str, Any]:
         if not path.exists():
@@ -209,7 +210,7 @@ class TrainingLabArtifactStore:
         paths = sorted(directory.glob('*.json'), reverse=True)[: max(1, int(limit or 20))]
         items: list[dict[str, Any]] = []
         for path in paths:
-            item = {'path': str(path), 'name': path.name}
+            item: dict[str, Any] = {'path': str(path), 'name': path.name}
             try:
                 payload = json.loads(path.read_text(encoding='utf-8'))
             except Exception:

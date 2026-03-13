@@ -31,8 +31,10 @@ _DATA_DOWNLOAD_JOB = DataDownloadJob()
 
 def get_investment_models_payload(runtime: Any) -> dict[str, Any]:
     controller = runtime.body.controller
+    items = list_models()
     return {
-        "items": list_models(),
+        "count": len(items),
+        "items": items,
         "active_model": getattr(controller, "model_name", "momentum"),
         "active_config": getattr(controller, "model_config_path", ""),
         "routing": {

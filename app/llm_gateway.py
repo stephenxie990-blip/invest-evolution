@@ -140,6 +140,9 @@ class LLMGateway:
         tool_choice: str | None = None,
     ) -> Any:
         self.assert_available()
+        client = litellm
+        if client is None:
+            raise LLMUnavailableError("litellm is not installed")
 
         kwargs = self._build_completion_kwargs(messages, temperature, max_tokens, tools=tools, tool_choice=tool_choice)
 
@@ -149,7 +152,7 @@ class LLMGateway:
         for attempt in range(1, retries + 1):
             try:
                 with _sync_timeout_guard(hard_timeout):
-                    response = litellm.completion(**kwargs)
+                    response = client.completion(**kwargs)
                 if self._has_valid_choices(response):
                     return response
                 last_error = ValueError("LLM returned empty or malformed choices")
@@ -184,6 +187,9 @@ class LLMGateway:
         tool_choice: str | None = None,
     ) -> Any:
         self.assert_available()
+        client = litellm
+        if client is None:
+            raise LLMUnavailableError("litellm is not installed")
 
         kwargs = self._build_completion_kwargs(messages, temperature, max_tokens, tools=tools, tool_choice=tool_choice)
 
@@ -192,7 +198,7 @@ class LLMGateway:
         hard_timeout = self._hard_timeout_seconds()
         for attempt in range(1, retries + 1):
             try:
-                response = await asyncio.wait_for(litellm.acompletion(**kwargs), timeout=hard_timeout)
+                response = await asyncio.wait_for(client.acompletion(**kwargs), timeout=hard_timeout)
                 if self._has_valid_choices(response):
                     return response
                 last_error = ValueError("LLM returned empty or malformed choices")

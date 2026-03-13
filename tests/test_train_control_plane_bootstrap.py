@@ -1,4 +1,3 @@
-from pathlib import Path
 
 from app.train import SelfLearningController
 from config.control_plane import clear_control_plane_cache

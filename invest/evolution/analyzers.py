@@ -60,9 +60,6 @@ class LLMPromptBuilder:
     将回测结果转换为结构化提示词
     """
 
-    def __init__(self):
-        pass
-
     def build_analysis_prompt(
         self,
         start_date: str,
@@ -282,9 +279,6 @@ class TradingAnalyzer:
 
     从交易记录中提取分析所需的数据
     """
-
-    def __init__(self):
-        pass
 
     def get_industry(self, code: str) -> str:
         """获取行业"""

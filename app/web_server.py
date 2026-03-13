@@ -13,7 +13,6 @@ import argparse
 import asyncio
 import atexit
 from collections import deque
-from datetime import datetime
 import time
 import hmac
 import json
@@ -21,24 +20,24 @@ import logging
 import os
 from queue import Full, Queue
 import threading
-from pathlib import Path
 from typing import Any
 import uuid
 
 from flask import Flask, jsonify, request, Response, stream_with_context
 
-from app.commander import CommanderConfig, CommanderRuntime, _apply_runtime_path_overrides
+from app.commander import CommanderConfig, CommanderRuntime
 from app.commander_support.presentation import build_human_display
+from app.web_command_routes import register_runtime_command_routes
+from app.web_data_routes import register_runtime_data_routes
+from app.web_ops_routes import register_runtime_ops_routes
+from app.web_read_routes import register_runtime_read_routes
 from app.runtime_contract_catalog import (
     RUNTIME_CONTRACT_DOCUMENTS_BY_ID,
     RUNTIME_CONTRACT_PUBLIC_PATHS,
     build_runtime_contract_catalog_items,
     load_runtime_contract_document,
 )
-from app.runtime_artifact_reader import resolve_runtime_artifact_path, safe_read_json, safe_read_jsonl, safe_read_text
 from app.train import set_event_callback
-from config.services import EvolutionConfigService
-from invest.meetings import MeetingRecorder
 from market_data import DataSourceUnavailableError
 
 logger = logging.getLogger(__name__)
@@ -172,24 +171,6 @@ def _parse_int(value: Any, field_name: str, *, minimum: int | None = None, maxim
     if maximum is not None and parsed > maximum:
         raise ValueError(f"{field_name} must be <= {maximum}")
     return parsed
-
-
-def _sync_runtime_path_config(runtime: CommanderRuntime, payload: dict[str, Any]) -> None:
-    import config as config_module
-
-    _apply_runtime_path_overrides(runtime.cfg, payload)
-    controller = runtime.body.controller
-    controller.output_dir = Path(runtime.cfg.training_output_dir)
-    controller.output_dir.mkdir(parents=True, exist_ok=True)
-    controller.meeting_recorder = MeetingRecorder(base_dir=str(runtime.cfg.meeting_log_dir))
-    controller.config_service = EvolutionConfigService(
-        project_root=config_module.PROJECT_ROOT,
-        live_config=config_module.config,
-        audit_log_path=Path(runtime.cfg.config_audit_log_path),
-        snapshot_dir=Path(runtime.cfg.config_snapshot_dir),
-    )
-
-
 
 
 def _contract_payload_root(payload: Any) -> dict[str, Any] | None:
@@ -507,10 +488,6 @@ def _request_requires_auth() -> bool:
     return True
 
 
-def _resolve_runtime_artifact_path(path_str: str) -> Path | None:
-    return resolve_runtime_artifact_path(_runtime, path_str)
-
-
 def _client_identifier() -> str:
     remote_addr = str(request.remote_addr or "").strip()
     if _is_loopback_host(remote_addr):
@@ -605,6 +582,61 @@ def _status_response(*, detail_mode: str, route_mode: str | None = None):
     return _respond_with_display({"mode": route_mode, "snapshot": snapshot}, view=view)
 
 
+register_runtime_read_routes(
+    app,
+    get_runtime=lambda: _runtime,
+    parse_detail_mode=_parse_detail_mode,
+    status_response=_status_response,
+    runtime_not_ready_response=_runtime_not_ready_response,
+    request_view_arg=_request_view_arg,
+    parse_limit_arg=_parse_limit_arg,
+    respond_with_display=_respond_with_display,
+)
+
+register_runtime_ops_routes(
+    app,
+    get_runtime=lambda: _runtime,
+    runtime_not_ready_response=_runtime_not_ready_response,
+    request_view_arg=_request_view_arg,
+    parse_view_arg=_parse_view_arg,
+    parse_bool=_parse_bool,
+    parse_int=_parse_int,
+    respond_with_display=_respond_with_display,
+    jsonify_contract_payload=_jsonify_contract_payload,
+)
+
+register_runtime_data_routes(
+    app,
+    get_runtime=lambda: _runtime,
+    runtime_not_ready_response=_runtime_not_ready_response,
+    parse_limit_arg=_parse_limit_arg,
+    parse_bool=_parse_bool,
+    jsonify_contract_payload=_jsonify_contract_payload,
+    data_source_unavailable_response=_data_source_unavailable_response,
+    logger=logger,
+    data_download_lock=_data_download_lock,
+    get_data_download_running=lambda: _data_download_running,
+    set_data_download_running=lambda value: globals().__setitem__("_data_download_running", bool(value)),
+    thread_factory=lambda target: threading.Thread(target=target, daemon=True),
+)
+
+register_runtime_command_routes(
+    app,
+    get_runtime=lambda: _runtime,
+    get_loop=lambda: _loop,
+    runtime_not_ready_response=_runtime_not_ready_response,
+    parse_view_arg=_parse_view_arg,
+    parse_bool=_parse_bool,
+    parse_detail_mode=_parse_detail_mode,
+    normalize_chat_session_token=_normalize_chat_session_token,
+    respond_with_display=_respond_with_display,
+    jsonify_contract_payload=_jsonify_contract_payload,
+    run_async=lambda coro: _run_async(coro),
+    data_source_unavailable_response=_data_source_unavailable_response,
+    logger=logger,
+)
+
+
 @app.route("/")
 def index():
     return jsonify({
@@ -670,24 +702,6 @@ def healthz():
     return jsonify({"status": "ok", "service": "invest-web"})
 
 
-# ---- Status ----
-
-@app.route("/api/status")
-def api_status():
-    detail_mode = _parse_detail_mode(request.args.get("detail", "fast"))
-    return _status_response(detail_mode=detail_mode)
-
-
-@app.route("/api/lab/status/quick")
-def api_lab_status_quick():
-    return _status_response(detail_mode="fast", route_mode="quick")
-
-
-@app.route("/api/lab/status/deep")
-def api_lab_status_deep():
-    return _status_response(detail_mode="slow", route_mode="deep")
-
-
 # ---- SSE (Server-Sent Events) ----
 
 @app.route("/api/events")
@@ -725,909 +739,6 @@ def api_events():
             "Connection": "keep-alive",
         }
     )
-
-
-@app.route("/api/events/summary")
-def api_events_summary():
-    runtime = _runtime
-    if runtime is None:
-        return _runtime_not_ready_response()
-    try:
-        view = _request_view_arg()
-        limit = _parse_limit_arg(default=50, maximum=200)
-    except ValueError as exc:
-        return jsonify({"error": str(exc)}), 400
-    return _respond_with_display(runtime.get_events_summary(limit=limit), view=view)
-
-
-# ---- Chat ----
-
-@app.route("/api/chat", methods=["POST"])
-def api_chat():
-    runtime = _runtime
-    if runtime is None or _loop is None:
-        return _runtime_not_ready_response()
-
-    data = request.get_json(force=True) or {}
-    message = str(data.get("message", "")).strip()
-    if not message:
-        return jsonify({"error": "message is required"}), 400
-    try:
-        view = _parse_view_arg(data.get("view", request.args.get("view", "json")))
-        session_key = _normalize_chat_session_token(
-            data.get("session_key"),
-            field_name="session_key",
-            prefix="api:chat",
-        )
-        chat_id = _normalize_chat_session_token(
-            data.get("chat_id"),
-            field_name="chat_id",
-            prefix="chat",
-        )
-    except ValueError as exc:
-        return jsonify({"error": str(exc)}), 400
-    try:
-        reply = _run_async(
-            runtime.ask(message, session_key=session_key, channel="api", chat_id=chat_id)
-        )
-        try:
-            payload = json.loads(reply) if isinstance(reply, str) else dict(reply or {})
-        except Exception:
-            payload = {"reply": str(reply)}
-        if not isinstance(payload, dict):
-            payload = {"reply": str(reply)}
-        payload.setdefault("reply", str(payload.get("message") or reply))
-        payload.setdefault("message", str(payload.get("reply") or ""))
-        payload.setdefault("session_key", session_key)
-        payload.setdefault("chat_id", chat_id)
-        return _respond_with_display(payload, view=view)
-    except ValueError as exc:
-        return jsonify({"error": str(exc)}), 400
-    except Exception as exc:
-        logger.exception("Chat error")
-        return jsonify({"error": str(exc)}), 500
-
-
-# ---- Train ----
-
-@app.route("/api/train", methods=["POST"])
-def api_train():
-    runtime = _runtime
-    if runtime is None or _loop is None:
-        return _runtime_not_ready_response()
-
-    data = request.get_json(force=True) or {}
-    try:
-        view = _parse_view_arg(data.get("view", request.args.get("view", "json")))
-    except ValueError as exc:
-        return jsonify({"error": str(exc)}), 400
-    try:
-        rounds = max(1, min(100, int(data.get("rounds", 1))))
-    except (TypeError, ValueError):
-        return jsonify({"error": "rounds must be an integer"}), 400
-    try:
-        mock = _parse_bool(data.get("mock", False), "mock")
-    except ValueError as exc:
-        return jsonify({"error": str(exc)}), 400
-    try:
-        result = _run_async(runtime.train_once(rounds=rounds, mock=mock))
-        return _respond_with_display(result, view=view)
-    except DataSourceUnavailableError as exc:
-        logger.warning("Train data source unavailable: %s", exc)
-        return _data_source_unavailable_response(exc)
-    except Exception as exc:
-        logger.exception("Train error")
-        return jsonify({"error": str(exc)}), 500
-
-
-# ---- Training Lab ----
-
-@app.route("/api/lab/training/plans", methods=["POST"])
-def api_training_plan_create():
-    runtime = _runtime
-    if runtime is None:
-        return _runtime_not_ready_response()
-
-    data = request.get_json(force=True) or {}
-    try:
-        rounds = max(1, min(100, int(data.get("rounds", 1))))
-    except (TypeError, ValueError):
-        return jsonify({"error": "rounds must be an integer"}), 400
-    try:
-        mock = _parse_bool(data.get("mock", False), "mock")
-    except ValueError as exc:
-        return jsonify({"error": str(exc)}), 400
-
-    try:
-        detail_mode = _parse_detail_mode(
-            data.get("detail_mode", "fast"),
-            field_name="detail_mode",
-            strict=True,
-        )
-    except ValueError as exc:
-        return jsonify({"error": str(exc)}), 400
-
-    raw_tags = data.get("tags", [])
-    if isinstance(raw_tags, str):
-        tags = [part.strip() for part in raw_tags.split(",") if part.strip()]
-    elif isinstance(raw_tags, list):
-        tags = [str(part).strip() for part in raw_tags if str(part).strip()]
-    else:
-        return jsonify({"error": "tags must be a list of strings or a comma-separated string"}), 400
-
-    plan = runtime.create_training_plan(
-        rounds=rounds,
-        mock=mock,
-        goal=str(data.get("goal", "") or ""),
-        notes=str(data.get("notes", "") or ""),
-        tags=tags,
-        detail_mode=detail_mode,
-        protocol=data.get("protocol") if isinstance(data.get("protocol"), dict) else None,
-        dataset=data.get("dataset") if isinstance(data.get("dataset"), dict) else None,
-        model_scope=data.get("model_scope") if isinstance(data.get("model_scope"), dict) else None,
-        optimization=data.get("optimization") if isinstance(data.get("optimization"), dict) else None,
-        source="api",
-    )
-    return _jsonify_contract_payload(plan, 201)
-
-
-@app.route("/api/lab/training/plans")
-def api_training_plan_list():
-    runtime = _runtime
-    if runtime is None:
-        return _runtime_not_ready_response()
-    try:
-        view = _request_view_arg()
-    except ValueError as exc:
-        return jsonify({"error": str(exc)}), 400
-    try:
-        limit = _parse_limit_arg()
-    except ValueError as exc:
-        return jsonify({"error": str(exc)}), 400
-    return _respond_with_display(runtime.list_training_plans(limit=limit), view=view)
-
-
-@app.route("/api/lab/training/plans/<plan_id>")
-def api_training_plan_get(plan_id: str):
-    runtime = _runtime
-    if runtime is None:
-        return _runtime_not_ready_response()
-    try:
-        view = _request_view_arg()
-    except ValueError as exc:
-        return jsonify({"error": str(exc)}), 400
-    try:
-        return _respond_with_display(runtime.get_training_plan(plan_id), view=view)
-    except FileNotFoundError as exc:
-        return jsonify({"error": str(exc)}), 404
-
-
-@app.route("/api/lab/training/plans/<plan_id>/execute", methods=["POST"])
-def api_training_plan_execute(plan_id: str):
-    runtime = _runtime
-    if runtime is None or _loop is None:
-        return _runtime_not_ready_response()
-    try:
-        payload = _run_async(runtime.execute_training_plan(plan_id))
-        return _jsonify_contract_payload(payload)
-    except FileNotFoundError as exc:
-        return jsonify({"error": str(exc)}), 404
-    except DataSourceUnavailableError as exc:
-        logger.warning("Training plan execution data source unavailable: %s", exc)
-        return _data_source_unavailable_response(exc)
-    except Exception as exc:
-        logger.exception("Training plan execution error")
-        return jsonify({"error": str(exc)}), 500
-
-
-@app.route("/api/lab/training/runs")
-def api_training_run_list():
-    runtime = _runtime
-    if runtime is None:
-        return _runtime_not_ready_response()
-    try:
-        view = _request_view_arg()
-    except ValueError as exc:
-        return jsonify({"error": str(exc)}), 400
-    try:
-        limit = _parse_limit_arg()
-    except ValueError as exc:
-        return jsonify({"error": str(exc)}), 400
-    return _respond_with_display(runtime.list_training_runs(limit=limit), view=view)
-
-
-@app.route("/api/lab/training/runs/<run_id>")
-def api_training_run_get(run_id: str):
-    runtime = _runtime
-    if runtime is None:
-        return _runtime_not_ready_response()
-    try:
-        view = _request_view_arg()
-    except ValueError as exc:
-        return jsonify({"error": str(exc)}), 400
-    try:
-        return _respond_with_display(runtime.get_training_run(run_id), view=view)
-    except FileNotFoundError as exc:
-        return jsonify({"error": str(exc)}), 404
-
-
-@app.route("/api/lab/training/evaluations")
-def api_training_evaluation_list():
-    runtime = _runtime
-    if runtime is None:
-        return _runtime_not_ready_response()
-    try:
-        view = _request_view_arg()
-    except ValueError as exc:
-        return jsonify({"error": str(exc)}), 400
-    try:
-        limit = _parse_limit_arg()
-    except ValueError as exc:
-        return jsonify({"error": str(exc)}), 400
-    return _respond_with_display(runtime.list_training_evaluations(limit=limit), view=view)
-
-
-@app.route("/api/lab/training/evaluations/<run_id>")
-def api_training_evaluation_get(run_id: str):
-    runtime = _runtime
-    if runtime is None:
-        return _runtime_not_ready_response()
-    try:
-        view = _request_view_arg()
-    except ValueError as exc:
-        return jsonify({"error": str(exc)}), 400
-    try:
-        return _respond_with_display(runtime.get_training_evaluation(run_id), view=view)
-    except FileNotFoundError as exc:
-        return jsonify({"error": str(exc)}), 404
-
-
-# ---- Investment Models ----
-
-@app.route("/api/investment-models")
-def api_investment_models():
-    runtime = _runtime
-    if runtime is None:
-        return _runtime_not_ready_response()
-    try:
-        view = _request_view_arg()
-    except ValueError as exc:
-        return jsonify({"error": str(exc)}), 400
-    return _respond_with_display(runtime.get_investment_models(), view=view)
-
-
-@app.route("/api/leaderboard")
-def api_leaderboard():
-    runtime = _runtime
-    if runtime is None:
-        return _runtime_not_ready_response()
-    try:
-        view = _request_view_arg()
-    except ValueError as exc:
-        return jsonify({"error": str(exc)}), 400
-    return _respond_with_display(runtime.get_leaderboard(), view=view)
-
-
-@app.route("/api/allocator")
-def api_allocator():
-    runtime = _runtime
-    if runtime is None:
-        return _runtime_not_ready_response()
-    try:
-        view = _request_view_arg()
-    except ValueError as exc:
-        return jsonify({"error": str(exc)}), 400
-    regime = str(request.args.get("regime", "oscillation") or "oscillation").strip().lower()
-    try:
-        top_n = _parse_int(request.args.get("top_n", 3), "top_n", minimum=1, maximum=4)
-    except ValueError as exc:
-        return jsonify({"error": str(exc)}), 400
-    return _respond_with_display(
-        runtime.get_allocator_preview(
-            regime=regime,
-            top_n=top_n,
-            as_of_date=datetime.now().strftime("%Y%m%d"),
-        ),
-        view=view,
-    )
-
-
-@app.route("/api/model-routing/preview")
-def api_model_routing_preview():
-    runtime = _runtime
-    if runtime is None:
-        return _runtime_not_ready_response()
-    cutoff_date = str(request.args.get("cutoff_date", "") or "").strip() or None
-    try:
-        stock_count = int(request.args.get("stock_count", 0) or 0) or None
-    except (TypeError, ValueError):
-        return jsonify({"error": "stock_count must be an integer"}), 400
-    try:
-        min_history_days = int(request.args.get("min_history_days", 0) or 0) or None
-    except (TypeError, ValueError):
-        return jsonify({"error": "min_history_days must be an integer"}), 400
-    allowed_models = request.args.getlist("allowed_models")
-    if not allowed_models:
-        raw_allowed = str(request.args.get("allowed_models", "") or "").strip()
-        if raw_allowed:
-            allowed_models = [part.strip() for part in raw_allowed.split(",") if part.strip()]
-    try:
-        payload = runtime.get_model_routing_preview(
-            cutoff_date=cutoff_date,
-            stock_count=stock_count,
-            min_history_days=min_history_days,
-            allowed_models=allowed_models or None,
-        )
-        return _jsonify_contract_payload(payload)
-    except DataSourceUnavailableError as exc:
-        logger.warning("Model routing preview data source unavailable: %s", exc)
-        return _data_source_unavailable_response(exc)
-    except Exception as exc:
-        logger.exception("Model routing preview error")
-        return jsonify({"error": str(exc)}), 500
-
-
-# ---- Strategies ----
-
-@app.route("/api/strategies")
-def api_strategies():
-    runtime = _runtime
-    if runtime is None:
-        return _runtime_not_ready_response()
-    try:
-        view = _request_view_arg()
-    except ValueError as exc:
-        return jsonify({"error": str(exc)}), 400
-    genes = runtime.strategy_registry.list_genes()
-    return _respond_with_display({
-        "count": len(genes),
-        "items": [g.to_dict() for g in genes],
-    }, view=view)
-
-
-@app.route("/api/strategies/reload", methods=["POST"])
-def api_strategies_reload():
-    runtime = _runtime
-    if runtime is None:
-        return _runtime_not_ready_response()
-    result = runtime.reload_strategies()
-    return _jsonify_contract_payload(result)
-
-
-# ---- Cron ----
-
-@app.route("/api/cron")
-def api_cron_list():
-    runtime = _runtime
-    if runtime is None:
-        return _runtime_not_ready_response()
-    try:
-        view = _request_view_arg()
-    except ValueError as exc:
-        return jsonify({"error": str(exc)}), 400
-    rows = [j.to_dict() for j in runtime.cron.list_jobs()]
-    return _respond_with_display({"count": len(rows), "items": rows}, view=view)
-
-
-@app.route("/api/cron", methods=["POST"])
-def api_cron_add():
-    runtime = _runtime
-    if runtime is None:
-        return _runtime_not_ready_response()
-
-    data = request.get_json(force=True) or {}
-    name = str(data.get("name", "")).strip()
-    message = str(data.get("message", "")).strip()
-    try:
-        every_sec = int(data.get("every_sec", 3600))
-    except (TypeError, ValueError):
-        return jsonify({"error": "every_sec must be an integer"}), 400
-    try:
-        deliver = _parse_bool(data.get("deliver", False), "deliver")
-    except ValueError as exc:
-        return jsonify({"error": str(exc)}), 400
-    if not name or not message:
-        return jsonify({"error": "name and message are required"}), 400
-    job = runtime.cron.add_job(
-        name=name, message=message, every_sec=every_sec,
-        deliver=deliver,
-        channel=str(data.get("channel", "web")),
-        to=str(data.get("to", "commander")),
-    )
-    runtime._persist_state()
-    return jsonify({"status": "ok", "job": job.to_dict()})
-
-
-@app.route("/api/cron/<job_id>", methods=["DELETE"])
-def api_cron_remove(job_id: str):
-    runtime = _runtime
-    if runtime is None:
-        return _runtime_not_ready_response()
-    ok = runtime.cron.remove_job(job_id)
-    runtime._persist_state()
-    return jsonify({"status": "ok" if ok else "not_found", "job_id": job_id})
-
-
-# ---- Memory ----
-
-def _memory_brief_row(row: dict[str, Any]) -> dict[str, Any]:
-    item = dict(row or {})
-    ts_ms = item.get("ts_ms")
-    if ts_ms:
-        try:
-            item["ts"] = datetime.fromtimestamp(int(ts_ms) / 1000).isoformat()
-        except Exception:
-            item["ts"] = ""
-    metadata = item.get("metadata") if isinstance(item.get("metadata"), dict) else {}
-    if metadata:
-        item["summary"] = metadata.get("summary")
-        item["training_run"] = bool(metadata.get("training_run"))
-    return item
-
-
-def _as_float(value: Any) -> float | None:
-    try:
-        if value in (None, ""):
-            return None
-        return float(value)
-    except (TypeError, ValueError):
-        return None
-
-
-def _normalize_stock_codes(values: Any) -> list[str]:
-    if not isinstance(values, list):
-        return []
-    codes: list[str] = []
-    for item in values:
-        code = ""
-        if isinstance(item, str):
-            code = item.strip()
-        elif isinstance(item, dict):
-            code = str(item.get("code") or item.get("ts_code") or "").strip()
-        if code and code not in codes:
-            codes.append(code)
-    return codes
-
-
-def _primary_training_result(metadata: dict[str, Any]) -> dict[str, Any]:
-    results = list(metadata.get("results") or [])
-    if not results:
-        return {}
-    ok_results = [dict(item or {}) for item in results if str((item or {}).get("status") or "ok") == "ok"]
-    if ok_results:
-        return ok_results[-1]
-    return dict(results[-1] or {})
-
-
-def _diff_params(current: Any, previous: Any) -> dict[str, Any]:
-    current_map = current if isinstance(current, dict) else {}
-    previous_map = previous if isinstance(previous, dict) else {}
-    changed: list[dict[str, Any]] = []
-    added: list[dict[str, Any]] = []
-    removed: list[dict[str, Any]] = []
-    for key in sorted(set(current_map) | set(previous_map)):
-        has_current = key in current_map
-        has_previous = key in previous_map
-        if has_current and not has_previous:
-            added.append({"key": key, "current": current_map.get(key)})
-        elif has_previous and not has_current:
-            removed.append({"key": key, "previous": previous_map.get(key)})
-        elif current_map.get(key) != previous_map.get(key):
-            changed.append({
-                "key": key,
-                "current": current_map.get(key),
-                "previous": previous_map.get(key),
-            })
-    return {
-        "changed": changed,
-        "added": added,
-        "removed": removed,
-        "changed_count": len(changed) + len(added) + len(removed),
-    }
-
-
-def _build_strategy_compare(runtime: CommanderRuntime | None, row: dict[str, Any], metadata: dict[str, Any]) -> dict[str, Any]:
-    if runtime is None:
-        return {"has_previous": False}
-    try:
-        training_rows = runtime.memory.recent(limit=runtime.memory.max_records, kind="training_run")
-    except Exception:
-        training_rows = []
-    current_id = str(row.get("id") or "")
-    previous_row = None
-    for index, candidate in enumerate(training_rows):
-        if str(candidate.get("id") or "") == current_id:
-            if index > 0:
-                previous_row = training_rows[index - 1]
-            break
-    if previous_row is None:
-        return {"has_previous": False}
-
-    previous_metadata = previous_row.get("metadata") if isinstance(previous_row.get("metadata"), dict) else {}
-    current_result = _primary_training_result(metadata)
-    previous_result = _primary_training_result(previous_metadata)
-
-    current_selected = _normalize_stock_codes(current_result.get("selected_stocks"))
-    previous_selected = _normalize_stock_codes(previous_result.get("selected_stocks"))
-    current_selected_count = int(current_result.get("selected_count") or len(current_selected))
-    previous_selected_count = int(previous_result.get("selected_count") or len(previous_selected))
-
-    current_return = _as_float(current_result.get("return_pct"))
-    previous_return = _as_float(previous_result.get("return_pct"))
-    current_trade_count = int(current_result.get("trade_count") or 0)
-    previous_trade_count = int(previous_result.get("trade_count") or 0)
-    current_opt_count = int(current_result.get("optimization_event_count") or len(current_result.get("optimization_events") or []))
-    previous_opt_count = int(previous_result.get("optimization_event_count") or len(previous_result.get("optimization_events") or []))
-
-    return {
-        "has_previous": True,
-        "previous_record": _memory_brief_row(previous_row),
-        "current_cycle_id": current_result.get("cycle_id"),
-        "previous_cycle_id": previous_result.get("cycle_id"),
-        "metrics": {
-            "return_pct": {
-                "current": current_return,
-                "previous": previous_return,
-                "delta": (current_return - previous_return) if current_return is not None and previous_return is not None else None,
-            },
-            "selected_count": {
-                "current": current_selected_count,
-                "previous": previous_selected_count,
-                "delta": current_selected_count - previous_selected_count,
-            },
-            "trade_count": {
-                "current": current_trade_count,
-                "previous": previous_trade_count,
-                "delta": current_trade_count - previous_trade_count,
-            },
-            "optimization_event_count": {
-                "current": current_opt_count,
-                "previous": previous_opt_count,
-                "delta": current_opt_count - previous_opt_count,
-            },
-        },
-        "flags": {
-            "selection_mode": {
-                "current": current_result.get("selection_mode"),
-                "previous": previous_result.get("selection_mode"),
-                "changed": current_result.get("selection_mode") != previous_result.get("selection_mode"),
-            },
-            "review_applied": {
-                "current": bool(current_result.get("review_applied", False)),
-                "previous": bool(previous_result.get("review_applied", False)),
-                "changed": bool(current_result.get("review_applied", False)) != bool(previous_result.get("review_applied", False)),
-            },
-            "benchmark_passed": {
-                "current": bool(current_result.get("benchmark_passed", False)),
-                "previous": bool(previous_result.get("benchmark_passed", False)),
-                "changed": bool(current_result.get("benchmark_passed", False)) != bool(previous_result.get("benchmark_passed", False)),
-            },
-        },
-        "selected_stocks": {
-            "current": current_selected,
-            "previous": previous_selected,
-            "added": [code for code in current_selected if code not in previous_selected],
-            "removed": [code for code in previous_selected if code not in current_selected],
-            "kept": [code for code in current_selected if code in previous_selected],
-        },
-        "params": _diff_params(current_result.get("params"), previous_result.get("params")),
-    }
-
-
-def _build_memory_detail(row: dict[str, Any]) -> dict[str, Any]:
-    item = _memory_brief_row(row)
-    metadata = item.get("metadata") if isinstance(item.get("metadata"), dict) else {}
-    results = list(metadata.get("results") or [])
-    detailed_results = []
-    optimization_cache: dict[str, list[dict[str, Any]]] = {}
-    for result in results:
-        cycle = dict(result or {})
-        artifacts = cycle.get("artifacts") if isinstance(cycle.get("artifacts"), dict) else {}
-        cycle_id = cycle.get("cycle_id")
-        cycle_result = safe_read_json(_runtime, artifacts.get("cycle_result_path", "")) if artifacts else None
-        selection_meeting = safe_read_json(_runtime, artifacts.get("selection_meeting_json_path", "")) if artifacts else None
-        review_meeting = safe_read_json(_runtime, artifacts.get("review_meeting_json_path", "")) if artifacts else None
-        config_snapshot = safe_read_json(_runtime, cycle.get("config_snapshot_path", "")) if cycle.get("config_snapshot_path") else None
-        optimization_path = artifacts.get("optimization_events_path", "") if artifacts else ""
-        if optimization_path:
-            optimization_cache.setdefault(optimization_path, safe_read_jsonl(_runtime, optimization_path))
-        optimization_events = optimization_cache.get(optimization_path, [])
-        detailed_results.append({
-            **cycle,
-            "cycle_result": cycle_result,
-            "selection_meeting": selection_meeting,
-            "selection_meeting_markdown": safe_read_text(_runtime, artifacts.get("selection_meeting_markdown_path", "")) if artifacts else "",
-            "review_meeting": review_meeting,
-            "review_meeting_markdown": safe_read_text(_runtime, artifacts.get("review_meeting_markdown_path", "")) if artifacts else "",
-            "config_snapshot": config_snapshot,
-            "optimization_events": [evt for evt in optimization_events if cycle_id is None or evt.get("cycle_id") in (None, cycle_id)],
-        })
-    return {
-        "item": item,
-        "details": {
-            "summary": metadata.get("summary") or {},
-            "runtime_summary": metadata.get("runtime_summary") or {},
-            "results": detailed_results,
-            "compare": _build_strategy_compare(_runtime, row, metadata),
-        },
-    }
-
-@app.route("/api/memory")
-def api_memory():
-    runtime = _runtime
-    if runtime is None:
-        return _runtime_not_ready_response()
-
-    try:
-        view = _request_view_arg()
-    except ValueError as exc:
-        return jsonify({"error": str(exc)}), 400
-    query = request.args.get("q", "")
-    try:
-        limit = min(200, max(1, int(request.args.get("limit", 20))))
-    except (TypeError, ValueError):
-        return jsonify({"error": "limit must be an integer"}), 400
-    rows = runtime.memory.search(query=query, limit=limit)
-    items = [_memory_brief_row(row) for row in rows]
-    return _respond_with_display({"count": len(items), "items": items}, view=view)
-
-
-@app.route("/api/memory/<record_id>")
-def api_memory_detail(record_id: str):
-    runtime = _runtime
-    if runtime is None:
-        return _runtime_not_ready_response()
-    try:
-        view = _request_view_arg()
-    except ValueError as exc:
-        return jsonify({"error": str(exc)}), 400
-    row = runtime.memory.get(record_id)
-    if row is None:
-        return jsonify({"error": "memory record not found"}), 404
-    return _respond_with_display(_build_memory_detail(row), view=view)
-
-
-# ---- Agent Prompts ----
-
-@app.route("/api/agent_prompts", methods=["GET"])
-def api_agent_prompts_list():
-    try:
-        view = _request_view_arg()
-    except ValueError as exc:
-        return jsonify({"error": str(exc)}), 400
-    runtime = _runtime
-    if runtime is not None:
-        return _respond_with_display(runtime.list_agent_prompts(), view=view)
-    import config as config_module
-    from app.commander_support.services import list_agent_prompts_payload
-    return _respond_with_display(list_agent_prompts_payload(project_root=config_module.PROJECT_ROOT), view=view)
-
-
-@app.route("/api/agent_prompts", methods=["POST"])
-def api_agent_prompts_update():
-    data = request.get_json(force=True) or {}
-    agent_name = str(data.get("name", "") or "").strip()
-    if not agent_name:
-        return jsonify({"error": "name is required"}), 400
-    if "system_prompt" not in data:
-        return jsonify({"error": "system_prompt is required"}), 400
-    try:
-        runtime = _runtime
-        if runtime is not None:
-            return _jsonify_contract_payload(runtime.update_agent_prompt(agent_name=agent_name, system_prompt=str(data.get("system_prompt", "") or "")))
-        import config as config_module
-        from app.commander_support.services import update_agent_prompt_payload
-        return jsonify(update_agent_prompt_payload(agent_name=agent_name, system_prompt=str(data.get("system_prompt", "") or ""), project_root=config_module.PROJECT_ROOT))
-    except Exception as exc:
-        logger.exception("Failed to update agent prompt")
-        return jsonify({"status": "error", "error": str(exc)}), 500
-
-
-# ---- Runtime Paths ----
-
-@app.route("/api/runtime_paths", methods=["GET"])
-def api_runtime_paths_get():
-    try:
-        view = _request_view_arg()
-    except ValueError as exc:
-        return jsonify({"error": str(exc)}), 400
-    runtime = _runtime
-    if runtime is not None:
-        return _respond_with_display(runtime.get_runtime_paths(), view=view)
-    import config as config_module
-    from app.commander_support.services import get_runtime_paths_payload
-    return _respond_with_display(get_runtime_paths_payload(None, project_root=config_module.PROJECT_ROOT), view=view)
-
-
-@app.route("/api/runtime_paths", methods=["POST"])
-def api_runtime_paths_update():
-    data = request.get_json(force=True) or {}
-    try:
-        runtime = _runtime
-        if runtime is not None:
-            return _jsonify_contract_payload(runtime.update_runtime_paths(data, confirm=True))
-        import config as config_module
-        from app.commander_support.services import update_runtime_paths_payload
-        return jsonify(update_runtime_paths_payload(patch=data, runtime=None, project_root=config_module.PROJECT_ROOT, sync_runtime=None))
-    except ValueError as exc:
-        return jsonify({"status": "error", "error": str(exc)}), 400
-    except Exception as exc:
-        logger.exception("Failed to update runtime path config")
-        return jsonify({"status": "error", "error": str(exc)}), 500
-
-
-# ---- Evolution Config (Models/Data) ----
-
-@app.route("/api/evolution_config", methods=["GET"])
-def api_evolution_config_get():
-    try:
-        view = _request_view_arg()
-    except ValueError as exc:
-        return jsonify({"error": str(exc)}), 400
-    runtime = _runtime
-    if runtime is not None:
-        return _respond_with_display(runtime.get_evolution_config(), view=view)
-    import config as config_module
-    from app.commander_support.services import get_evolution_config_payload
-    return _respond_with_display(
-        get_evolution_config_payload(project_root=config_module.PROJECT_ROOT, live_config=config_module.config),
-        view=view,
-    )
-
-
-@app.route("/api/evolution_config", methods=["POST"])
-def api_evolution_config_update():
-    data = request.get_json(force=True) or {}
-    forbidden_keys = {"llm_fast_model", "llm_deep_model", "llm_api_base", "llm_api_key"}
-    touched = sorted(key for key in forbidden_keys if key in data)
-    if touched:
-        return jsonify({
-            "status": "error",
-            "error": "LLM 配置已迁移到 /api/control_plane；/api/evolution_config 仅保留训练参数",
-            "migrate_to": "/api/control_plane",
-            "invalid_keys": touched,
-        }), 400
-    try:
-        runtime = _runtime
-        if runtime is not None:
-            return _jsonify_contract_payload(runtime.update_evolution_config(data, confirm=True))
-        import config as config_module
-        from app.commander_support.services import update_evolution_config_payload
-        return jsonify(update_evolution_config_payload(patch=data, project_root=config_module.PROJECT_ROOT, live_config=config_module.config, source="web_api"))
-    except ValueError as exc:
-        return jsonify({"status": "error", "error": str(exc)}), 400
-    except Exception as exc:
-        logger.exception("Failed to update evolution config")
-        return jsonify({"status": "error", "error": str(exc)}), 500
-
-
-@app.route("/api/control_plane", methods=["GET"])
-def api_control_plane_get():
-    try:
-        view = _request_view_arg()
-    except ValueError as exc:
-        return jsonify({"error": str(exc)}), 400
-    runtime = _runtime
-    if runtime is not None:
-        return _respond_with_display(runtime.get_control_plane(), view=view)
-    import config as config_module
-    from app.commander_support.services import get_control_plane_payload
-    return _respond_with_display(get_control_plane_payload(project_root=config_module.PROJECT_ROOT), view=view)
-
-
-@app.route("/api/control_plane", methods=["POST"])
-def api_control_plane_update():
-    data = request.get_json(force=True) or {}
-    try:
-        runtime = _runtime
-        if runtime is not None:
-            return _jsonify_contract_payload(runtime.update_control_plane(data, confirm=True))
-        import config as config_module
-        from app.commander_support.services import update_control_plane_payload
-        return jsonify(update_control_plane_payload(patch=data, project_root=config_module.PROJECT_ROOT, source="web_api"))
-    except ValueError as exc:
-        return jsonify({"status": "error", "error": str(exc)}), 400
-    except Exception as exc:
-        logger.exception("Failed to update control plane config")
-        return jsonify({"status": "error", "error": str(exc)}), 500
-
-
-# ---- Data Management ----
-
-@app.route("/api/data/status", methods=["GET"])
-def api_data_status():
-    try:
-        view = _parse_view_arg(request.args.get("view", "json"))
-        refresh = _parse_bool(request.args.get("refresh", False), "refresh")
-    except ValueError as exc:
-        return jsonify({"error": str(exc)}), 400
-    runtime = _runtime
-    if runtime is not None:
-        return _respond_with_display(runtime.get_data_status(refresh=refresh), view=view)
-    from app.commander_support.services import get_data_status_payload
-    return _respond_with_display(get_data_status_payload(refresh=refresh), view=view)
-
-@app.route("/api/data/capital_flow", methods=["GET"])
-def api_data_capital_flow():
-    codes_param = str(request.args.get("codes", "") or "").strip()
-    codes = [item.strip() for item in codes_param.split(",") if item.strip()] or None
-    start_date = request.args.get("start")
-    end_date = request.args.get("end")
-    limit = _parse_limit_arg(default=200, maximum=5000)
-    runtime = _runtime
-    if runtime is not None:
-        return _jsonify_contract_payload(runtime.get_capital_flow(codes=codes, start_date=start_date, end_date=end_date, limit=limit))
-    from app.commander_support.services import get_capital_flow_payload
-    return jsonify(get_capital_flow_payload(codes=codes, start_date=start_date, end_date=end_date, limit=limit))
-
-
-@app.route("/api/data/dragon_tiger", methods=["GET"])
-def api_data_dragon_tiger():
-    codes_param = str(request.args.get("codes", "") or "").strip()
-    codes = [item.strip() for item in codes_param.split(",") if item.strip()] or None
-    start_date = request.args.get("start")
-    end_date = request.args.get("end")
-    limit = _parse_limit_arg(default=200, maximum=5000)
-    runtime = _runtime
-    if runtime is not None:
-        return _jsonify_contract_payload(runtime.get_dragon_tiger(codes=codes, start_date=start_date, end_date=end_date, limit=limit))
-    from app.commander_support.services import get_dragon_tiger_payload
-    return jsonify(get_dragon_tiger_payload(codes=codes, start_date=start_date, end_date=end_date, limit=limit))
-
-
-@app.route("/api/data/intraday_60m", methods=["GET"])
-def api_data_intraday_60m():
-    codes_param = str(request.args.get("codes", "") or "").strip()
-    codes = [item.strip() for item in codes_param.split(",") if item.strip()] or None
-    start_date = request.args.get("start")
-    end_date = request.args.get("end")
-    limit = _parse_limit_arg(default=500, maximum=10000)
-    runtime = _runtime
-    if runtime is not None:
-        return _jsonify_contract_payload(runtime.get_intraday_60m(codes=codes, start_date=start_date, end_date=end_date, limit=limit))
-    from app.commander_support.services import get_intraday_60m_payload
-    return jsonify(get_intraday_60m_payload(codes=codes, start_date=start_date, end_date=end_date, limit=limit))
-
-
-@app.route("/api/data/download", methods=["POST"])
-def api_data_download():
-    global _data_download_running
-
-    runtime = _runtime
-    if runtime is not None:
-        data = request.get_json(silent=True) or {}
-        try:
-            confirm = _parse_bool(data.get("confirm", False), "confirm")
-        except ValueError as exc:
-            return jsonify({"error": str(exc)}), 400
-        return _jsonify_contract_payload(runtime.trigger_data_download(confirm=confirm))
-
-    def _do_download():
-        global _data_download_running
-        from market_data.gateway import MarketDataGateway
-
-        try:
-            MarketDataGateway().sync_background_full_refresh()
-        except Exception as exc:
-            logger.exception("后台数据同步失败: %s", exc)
-        finally:
-            with _data_download_lock:
-                _data_download_running = False
-
-    with _data_download_lock:
-        if _data_download_running:
-            return jsonify({"status": "running", "message": "后台同步已在运行"})
-        _data_download_running = True
-
-    t = threading.Thread(target=_do_download, daemon=True)
-    try:
-        t.start()
-    except Exception:
-        with _data_download_lock:
-            _data_download_running = False
-        raise
-    return jsonify({"status": "started", "message": "后台同步已启动"})
-
 
 # ---------------------------------------------------------------------------
 # Main

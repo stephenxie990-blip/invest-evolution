@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Coroutine
 import json
 from pathlib import Path
 from typing import Any, Awaitable, Callable, Iterable
@@ -152,9 +153,9 @@ async def start_runtime_background_services(
     bridge: Any,
     heartbeat_enabled: bool,
     bridge_enabled: bool,
-    drain_notifications: Callable[[], Awaitable[None]],
+    drain_notifications: Callable[[], Coroutine[Any, Any, None]],
     autopilot_enabled: bool,
-    autopilot_loop: Callable[[int], Awaitable[None]],
+    autopilot_loop: Callable[[int], Coroutine[Any, Any, None]],
     training_interval_sec: int,
 ) -> tuple[asyncio.Task[None], asyncio.Task[None] | None]:
     await cron.start()

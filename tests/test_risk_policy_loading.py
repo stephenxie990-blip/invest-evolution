@@ -1,7 +1,7 @@
 import pandas as pd
 
 from invest.foundation.engine import SimulatedTrader
-from invest.foundation.risk import DynamicStopLoss, RiskController, sanitize_risk_params
+from invest.foundation.risk import DynamicStopLoss, sanitize_risk_params
 
 
 RISK_POLICY = {

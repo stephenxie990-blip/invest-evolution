@@ -11,6 +11,10 @@
 - `app/commander.py`
 - `app/train.py`
 - `app/web_server.py`
+- `app/web_command_routes.py`
+- `app/web_data_routes.py`
+- `app/web_ops_routes.py`
+- `app/web_read_routes.py`
 - `app/llm_gateway.py`
 - `app/llm_router.py`
 
@@ -41,6 +45,11 @@
 ### 2.1 `app/`
 
 - 负责入口、编排、薄服务层、Training Lab 与 Web API
+- Web API 已进一步拆成 route modules：
+  - `web_read_routes.py`
+  - `web_ops_routes.py`
+  - `web_data_routes.py`
+  - `web_command_routes.py`
 - 不应沉淀大量领域算法
 
 ### 2.2 `brain/`

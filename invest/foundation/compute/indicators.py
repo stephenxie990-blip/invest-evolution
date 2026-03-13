@@ -1,10 +1,14 @@
 from __future__ import annotations
 
-from typing import Optional
+from typing import Optional, cast
 
 import pandas as pd
 
 from config import normalize_date
+
+
+def _numeric_series(frame: pd.DataFrame, column: str) -> pd.Series:
+    return cast(pd.Series, pd.to_numeric(frame[column], errors="coerce")).dropna()
 
 
 def get_date_col(df: pd.DataFrame) -> Optional[str]:
@@ -73,7 +77,7 @@ def calc_bb_position(close: pd.Series, period: int = 20) -> float:
 def calc_volume_ratio(df: pd.DataFrame) -> float:
     if "volume" not in df.columns:
         return 1.0
-    vol = pd.to_numeric(df["volume"], errors="coerce").dropna()
+    vol = _numeric_series(df, "volume")
     if len(vol) < 20:
         return 1.0
     avg_5 = vol.iloc[-5:].mean()

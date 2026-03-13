@@ -1,4 +1,3 @@
-import json
 
 from invest.agents import MarketRegimeAgent, ReviewDecisionAgent, TrendHunterAgent, ContrarianAgent
 from config import agent_config_registry

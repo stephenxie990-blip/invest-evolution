@@ -4,15 +4,17 @@
 
 ## 推荐阅读顺序
 
-1. `CONTROL_PLANE_IMPLEMENTATION_20260311.md`：控制面实现、配置分层与运行约束
-2. `COMMANDER_CAPABILITY_MATRIX_20260311.md`：`commander` 当前能力面与职责边界
-3. `COMMANDER_UNIFIED_ENTRY_UPGRADE_PLAN_20260311.md`：统一入口演进方案与待补齐项
-4. `model-routing-rfc.md`：模型路由策略与 LLM 出口设计
+1. `BACKEND_RESPONSIBILITY_MAP_20260313.md`：收口后的后端目录职责、Web 模块边界与继续清理顺序
+2. `CONTROL_PLANE_IMPLEMENTATION_20260311.md`：控制面实现、配置分层与运行约束
+3. `COMMANDER_CAPABILITY_MATRIX_20260311.md`：`commander` 当前能力面与职责边界
+4. `COMMANDER_UNIFIED_ENTRY_UPGRADE_PLAN_20260311.md`：统一入口演进方案与待补齐项
+5. `model-routing-rfc.md`：模型路由策略与 LLM 出口设计
 
 ## 文档分组
 
 ### 当前实现
 
+- `BACKEND_RESPONSIBILITY_MAP_20260313.md`：描述收口后的后端目录职责与 Web route module 分层
 - `CONTROL_PLANE_IMPLEMENTATION_20260311.md`：描述 LLM 控制面、配置装配与运行时落点
 - `COMMANDER_CAPABILITY_MATRIX_20260311.md`：盘点 `commander` 已接管的能力与剩余空白
 

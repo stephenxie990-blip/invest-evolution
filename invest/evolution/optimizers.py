@@ -1,8 +1,7 @@
 import logging
 import random
-from dataclasses import dataclass, field
-from datetime import datetime
-from typing import Callable, Dict, List, Optional, Tuple
+from dataclasses import dataclass
+from typing import Callable, Dict, List, Tuple
 
 import numpy as np
 
@@ -575,31 +574,6 @@ class ThreeStageOptimizer:
             stability_score=stability_score,
             stage="completed" if passed else "conservative",
         )
-
-
-
-# ============================================================
-# llm_analyzer.py
-# ============================================================
-
-"""
-LLM分析模块 - 细化版
-
-结构化输入 + 可执行输出
-"""
-
-import sys
-import os
-import logging
-from pathlib import Path
-from typing import Dict, List, Optional
-from dataclasses import dataclass, field
-from datetime import datetime
-import json
-
-import pandas as pd
-import numpy as np
-
 
 __all__ = [
     "OptimizedParams",

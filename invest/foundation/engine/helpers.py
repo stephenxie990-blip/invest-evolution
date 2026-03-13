@@ -1,13 +1,17 @@
 import logging
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, cast
 
 import numpy as np
 import pandas as pd
 
-from invest.shared import PositionPlan, TradingPlan
-from .contracts import CandidatePool, CandidateStock, Position
+from .contracts import CandidatePool, CandidateStock
 
 logger = logging.getLogger(__name__)
+
+
+def _numeric_array(df: pd.DataFrame, column: str) -> np.ndarray:
+    series = cast(pd.Series, pd.to_numeric(df[column], errors="coerce"))
+    return np.asarray(series.tolist(), dtype=float)
 
 
 class DailyRanker:
@@ -24,8 +28,8 @@ class DailyRanker:
             code = candidate.code
             if code not in stock_data:
                 continue
-            df = stock_data[code]
-            df_before = df[df["trade_date"] < current_date]
+            df = cast(pd.DataFrame, stock_data[code])
+            df_before = cast(pd.DataFrame, df[df["trade_date"] < current_date])
             if len(df_before) < 20:
                 continue
             candidate.score = self._calculate_score(df_before, candidate.strategy_type)
@@ -34,8 +38,8 @@ class DailyRanker:
         return scored
 
     def _calculate_score(self, df: pd.DataFrame, strategy_type: str) -> float:
-        close  = df["close"].values
-        volume = df["volume"].values
+        close = _numeric_array(df, "close")
+        volume = _numeric_array(df, "volume")
         score  = 0.0
 
         if strategy_type == "momentum":
@@ -126,12 +130,15 @@ class TradingScheduler:
                 continue
             pnl_pct = (current_price - buy_price) / buy_price
             if pnl_pct <= -0.05:
-                to_sell.append(code); continue
+                to_sell.append(code)
+                continue
             if pnl_pct >= 0.15:
-                to_sell.append(code); continue
+                to_sell.append(code)
+                continue
             if len(df_b) >= 20:
-                ma5  = df_b["close"].rolling(5).mean().iloc[-1]
-                ma20 = df_b["close"].rolling(20).mean().iloc[-1]
+                close_series = cast(pd.Series, pd.to_numeric(df_b["close"], errors="coerce"))
+                ma5 = float(cast(pd.Series, close_series.rolling(5).mean()).iloc[-1])
+                ma20 = float(cast(pd.Series, close_series.rolling(20).mean()).iloc[-1])
                 if ma5 < ma20:
                     to_sell.append(code)
         return to_sell
