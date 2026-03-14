@@ -8,6 +8,7 @@ from typing import Any
 
 from app.commander_support.observability import read_event_rows, summarize_event_rows
 from app.commander_support.workflow import jsonable
+from market_data.services import MarketQueryService
 
 
 def normalize_status_detail(detail: str) -> str:
@@ -17,9 +18,7 @@ def normalize_status_detail(detail: str) -> str:
 
 def collect_data_status(detail_mode: str) -> dict[str, Any]:
     try:
-        from market_data.datasets import WebDatasetService
-
-        return WebDatasetService().get_status_summary(refresh=(detail_mode == "slow"))
+        return MarketQueryService().get_status_summary(refresh=(detail_mode == "slow"))
     except Exception as exc:
         return {"status": "error", "error": str(exc), "detail_mode": detail_mode}
 

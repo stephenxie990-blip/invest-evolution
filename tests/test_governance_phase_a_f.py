@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 
 import app.commander as commander_module
+import app.commander_support.status as status_module
 import config as config_module
 from commander import CommanderConfig, CommanderRuntime
 from config.services import EvolutionConfigService
@@ -159,6 +160,22 @@ def test_web_dataset_service_exposes_quality_summary(tmp_path: Path):
     payload = WebDatasetService(repository=repo).get_status_summary()
     assert payload["quality"]["healthy"] == quality["healthy"]
     assert "meta" in payload["quality"]
+
+
+def test_collect_data_status_uses_market_query_service(monkeypatch):
+    calls = {}
+
+    class DummyQueryService:
+        def get_status_summary(self, *, refresh: bool = False):
+            calls["refresh"] = refresh
+            return {"status": "ok", "detail_mode": "slow" if refresh else "fast"}
+
+    monkeypatch.setattr(status_module, "MarketQueryService", lambda: DummyQueryService())
+
+    payload = status_module.collect_data_status("slow")
+
+    assert payload["status"] == "ok"
+    assert calls["refresh"] is True
 
 
 def test_commander_config_derives_runtime_artifact_paths(tmp_path: Path):

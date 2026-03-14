@@ -7,6 +7,7 @@ from typing import Any, Callable
 
 from flask import Flask
 
+from app.interfaces.web.routes.contracts import register_runtime_contract_routes
 from app.interfaces.web.routes.command import register_runtime_command_routes
 from app.interfaces.web.routes.data import register_runtime_data_routes
 from app.interfaces.web.routes.ops import register_runtime_ops_routes
@@ -31,5 +32,6 @@ def register_runtime_interface_routes(app: Flask, **route_kwargs: Any) -> None:
         register_runtime_ops_routes,
         register_runtime_data_routes,
         register_runtime_command_routes,
+        register_runtime_contract_routes,
     ):
         _call_registrar(registrar, app, **route_kwargs)

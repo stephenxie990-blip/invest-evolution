@@ -12,6 +12,14 @@ logger = logging.getLogger(__name__)
 class TrainingExecutionService:
     """Owns the main training-cycle execution path after data loading."""
 
+    @staticmethod
+    def _reload_investment_model(controller: Any, config_path: str) -> None:
+        routing_service = getattr(controller, "training_routing_service", None)
+        if routing_service is not None:
+            routing_service.reload_investment_model(controller, config_path)
+            return
+        controller._reload_investment_model(config_path)
+
     def execute_loaded_cycle(
         self,
         controller: Any,
@@ -36,14 +44,14 @@ class TrainingExecutionService:
             controller.model_name = controller.experiment_allowed_models[0]
             controller.model_config_path = str(resolve_model_config_path(controller.model_name))
             controller.current_params = {}
-            controller._reload_investment_model(controller.model_config_path)
+            self._reload_investment_model(controller, controller.model_config_path)
 
         controller._maybe_apply_allocator(stock_data, cutoff_date, cycle_id)
         if controller.experiment_allowed_models and controller.model_name not in controller.experiment_allowed_models:
             controller.model_name = controller.experiment_allowed_models[0]
             controller.model_config_path = str(resolve_model_config_path(controller.model_name))
             controller.current_params = {}
-            controller._reload_investment_model(controller.model_config_path)
+            self._reload_investment_model(controller, controller.model_config_path)
 
         logger.info("Agent 开会讨论选股...")
         controller._emit_agent_status(

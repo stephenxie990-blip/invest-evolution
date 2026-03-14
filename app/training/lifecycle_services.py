@@ -31,12 +31,17 @@ class TrainingLifecycleService:
         degrade_reason: str,
         research_feedback: dict[str, Any] | None,
     ) -> None:
-        from app.train import emit_event
+        from app.train import SelfAssessmentSnapshot, emit_event
 
         controller.cycle_history.append(cycle_result)
         controller.current_cycle_id += 1
-        controller._record_self_assessment(cycle_result, cycle_dict)
-        freeze_gate_evaluation = controller._evaluate_freeze_gate()
+        controller.training_persistence_service.record_self_assessment(
+            controller,
+            SelfAssessmentSnapshot,
+            cycle_result,
+            cycle_dict,
+        )
+        freeze_gate_evaluation = controller.freeze_gate_service.evaluate_freeze_gate(controller)
 
         controller.last_cycle_meta = {
             "status": "ok",
@@ -54,7 +59,7 @@ class TrainingLifecycleService:
             "freeze_gate_evaluation": dict(freeze_gate_evaluation or {}),
             "timestamp": datetime.now().isoformat(),
         }
-        controller._save_cycle_result(cycle_result)
+        controller.training_persistence_service.save_cycle_result(controller, cycle_result)
 
         emit_event(
             "cycle_complete",
@@ -117,10 +122,10 @@ class TrainingLifecycleService:
         logger.info(f"{'#'*60}")
 
         for i in range(max_cycles):
-            if controller.should_freeze():
+            if controller.freeze_gate_service.should_freeze(controller):
                 logger.info("🎉 达到固化条件！")
                 if controller.stop_on_freeze:
-                    return controller._freeze_model()
+                    return controller.freeze_gate_service.freeze_model(controller)
                 logger.info("配置为继续训练，不因固化条件提前停止")
 
             controller.total_cycle_attempts += 1
@@ -141,4 +146,4 @@ class TrainingLifecycleService:
                 controller.consecutive_losses,
             )
 
-        return controller._generate_report()
+        return controller.freeze_gate_service.generate_training_report(controller)

@@ -26,12 +26,17 @@ import uuid
 from flask import Flask, jsonify, request, Response, stream_with_context
 
 from app.commander import CommanderConfig, CommanderRuntime
-from app.commander_support.presentation import build_human_display
+from app.interfaces.web.contracts import (
+    build_runtime_contracts_payload as build_interface_runtime_contracts_payload,
+    serve_runtime_contract_document as serve_interface_runtime_contract_document,
+)
 from app.interfaces.web import register_runtime_interface_routes
+from app.interfaces.web.presentation import (
+    jsonify_contract_payload as jsonify_interface_contract_payload,
+    respond_with_display as respond_with_interface_display,
+)
 from app.runtime_contract_catalog import (
-    RUNTIME_CONTRACT_DOCUMENTS_BY_ID,
     RUNTIME_CONTRACT_PUBLIC_PATHS,
-    build_runtime_contract_catalog_items,
     load_runtime_contract_document,
 )
 from app.train import set_event_callback
@@ -170,43 +175,8 @@ def _parse_int(value: Any, field_name: str, *, minimum: int | None = None, maxim
     return parsed
 
 
-def _contract_payload_root(payload: Any) -> dict[str, Any] | None:
-    if isinstance(payload, dict):
-        if isinstance(payload.get("protocol"), dict) or isinstance(payload.get("task_bus"), dict):
-            return payload
-        snapshot = payload.get("snapshot")
-        if isinstance(snapshot, dict) and (isinstance(snapshot.get("protocol"), dict) or isinstance(snapshot.get("task_bus"), dict)):
-            return snapshot
-    return None
-
-
 def _jsonify_contract_payload(payload: Any, status_code: int = 200):
-    response = jsonify(payload)
-    response.status_code = int(status_code)
-    root = _contract_payload_root(payload)
-    if not root:
-        return response
-
-    protocol = dict(root.get("protocol") or {})
-    task_bus = dict(root.get("task_bus") or {})
-    coverage = dict(root.get("coverage") or {})
-    artifact_taxonomy = dict(root.get("artifact_taxonomy") or {})
-
-    if protocol.get("schema_version"):
-        response.headers["X-Bounded-Workflow-Schema"] = str(protocol.get("schema_version"))
-    if protocol.get("task_bus_schema_version"):
-        response.headers["X-Task-Bus-Schema"] = str(protocol.get("task_bus_schema_version"))
-    elif task_bus.get("schema_version"):
-        response.headers["X-Task-Bus-Schema"] = str(task_bus.get("schema_version"))
-    if coverage.get("schema_version"):
-        response.headers["X-Coverage-Schema"] = str(coverage.get("schema_version"))
-    if artifact_taxonomy.get("schema_version"):
-        response.headers["X-Artifact-Taxonomy-Schema"] = str(artifact_taxonomy.get("schema_version"))
-    if protocol.get("domain"):
-        response.headers["X-Commander-Domain"] = str(protocol.get("domain"))
-    if protocol.get("operation"):
-        response.headers["X-Commander-Operation"] = str(protocol.get("operation"))
-    return response
+    return jsonify_interface_contract_payload(payload, status_code=status_code)
 
 
 def _runtime_not_ready_response():
@@ -228,36 +198,20 @@ def _parse_view_arg(value: Any, *, default: str = "json") -> str:
     return view
 
 
-def _attach_display_payload(payload: Any) -> dict[str, Any]:
-    body: dict[str, Any] = dict(payload or {}) if isinstance(payload, dict) else {"reply": str(payload)}
-    display = build_human_display(body)
-    body.setdefault("human_reply", str(display.get("text") or body.get("reply") or body.get("message") or ""))
-    body.setdefault(
-        "display",
-        {
-            "available": bool(display.get("available")),
-            "title": str(display.get("title") or ""),
-            "summary": str(display.get("summary") or ""),
-            "text": str(display.get("text") or ""),
-            "sections": list(display.get("sections") or []),
-            "suggested_actions": list(display.get("suggested_actions") or []),
-            "recommended_next_step": str(display.get("recommended_next_step") or ""),
-            "risk_level": str(display.get("risk_level") or ""),
-            "synthesized": bool(display.get("synthesized")),
-        },
-    )
-    return body
-
-
 def _respond_with_display(payload: Any, *, status_code: int = 200, view: str = "json"):
-    enriched = _attach_display_payload(payload)
-    if view == "human":
-        return Response(
-            str(enriched.get("human_reply") or ""),
-            status=int(status_code),
-            mimetype="text/plain; charset=utf-8",
-        )
-    return _jsonify_contract_payload(enriched, status_code=status_code)
+    return respond_with_interface_display(payload, status_code=status_code, view=view)
+
+
+def _build_runtime_contracts_payload():
+    return jsonify(build_interface_runtime_contracts_payload())
+
+
+def _serve_runtime_contract_document(document_id: str):
+    return serve_interface_runtime_contract_document(
+        document_id,
+        logger=logger,
+        load_document=load_runtime_contract_document,
+    )
 
 
 def _request_view_arg(*, default: str = "json") -> str:
@@ -593,6 +547,8 @@ register_runtime_interface_routes(
     parse_int=_parse_int,
     respond_with_display=_respond_with_display,
     jsonify_contract_payload=_jsonify_contract_payload,
+    build_contracts_payload=_build_runtime_contracts_payload,
+    serve_contract_document=_serve_runtime_contract_document,
     data_source_unavailable_response=_data_source_unavailable_response,
     logger=logger,
     data_download_lock=_data_download_lock,
@@ -628,41 +584,6 @@ def legacy_index():
 @app.route("/app/<path:asset_path>")
 def frontend_app(asset_path: str = ""):
     return _removed_web_ui_response("/app" if not asset_path else f"/app/{asset_path}")
-
-
-# ---- Contracts ----
-
-@app.route("/api/contracts")
-def api_contracts():
-    items = build_runtime_contract_catalog_items()
-    return jsonify({"count": len(items), "items": items})
-
-
-def _serve_runtime_contract_document(document_id: str):
-    document = RUNTIME_CONTRACT_DOCUMENTS_BY_ID[document_id]
-    try:
-        return jsonify(load_runtime_contract_document(document))
-    except FileNotFoundError:
-        return jsonify({"error": document.not_found_error}), 404
-    except Exception as exc:
-        logger.exception(document.load_error_log)
-        return jsonify({"error": str(exc)}), 500
-
-
-@app.route("/api/contracts/runtime-v1")
-def api_contract_runtime_v1():
-    return _serve_runtime_contract_document("runtime-v1")
-
-
-@app.route("/api/contracts/runtime-v1/schema")
-def api_contract_runtime_v1_schema():
-    return _serve_runtime_contract_document("runtime-v1-schema")
-
-
-@app.route("/api/contracts/runtime-v1/openapi")
-def api_contract_runtime_v1_openapi():
-    return _serve_runtime_contract_document("runtime-v1-openapi")
-
 
 @app.route("/healthz")
 def healthz():

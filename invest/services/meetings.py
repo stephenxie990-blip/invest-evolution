@@ -59,6 +59,10 @@ class SelectionMeetingService:
     def update_weights(self, weight_adjustments: dict[str, float]) -> None:
         self.meeting.update_weights(weight_adjustments)
 
+    def set_agent_weights(self, agent_weights: dict[str, float] | None = None) -> None:
+        # Keep a narrow compatibility seam while moving upper layers off direct meeting access.
+        setattr(self.meeting, "agent_weights", dict(agent_weights or {}))
+
 
 class ReviewMeetingService:
     """Thin facade that gives the review meeting an explicit service boundary."""

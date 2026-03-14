@@ -48,10 +48,14 @@ def test_web_interface_registry_registers_all_route_groups(monkeypatch):
         "app.interfaces.web.registry.register_runtime_command_routes",
         lambda app, **kwargs: calls.append("command"),
     )
+    monkeypatch.setattr(
+        "app.interfaces.web.registry.register_runtime_contract_routes",
+        lambda app, **kwargs: calls.append("contracts"),
+    )
 
     register_runtime_interface_routes(Flask(__name__))
 
-    assert calls == ["read", "ops", "data", "command"]
+    assert calls == ["read", "ops", "data", "command", "contracts"]
 
 
 def test_market_data_service_facades_delegate_to_underlying_manager():

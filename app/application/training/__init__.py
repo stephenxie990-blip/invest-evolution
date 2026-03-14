@@ -9,6 +9,7 @@ from app.application.training.services import (
     TrainingCycleContext,
     TrainingCycleDataService,
     TrainingDataLoadResult,
+    TrainingExperimentService,
     TrainingExecutionService,
     TrainingFeedbackService,
     TrainingLLMRuntimeService,
@@ -29,6 +30,7 @@ from app.application.training.services import (
 __all__ = [
     "TrainingOrchestrator",
     "build_training_orchestrator",
+    "TrainingExperimentService",
     "TrainingFeedbackService",
     "TrainingLLMRuntimeService",
     "TrainingPersistenceService",

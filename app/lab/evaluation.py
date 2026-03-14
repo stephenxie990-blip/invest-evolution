@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
+from app.training.controller_services import TrainingFeedbackService
 from app.training.reporting import evaluate_research_feedback_gate
 
 
@@ -37,20 +38,7 @@ def _latest_research_feedback(ok_results: list[dict[str, Any]]) -> tuple[dict[st
 
 
 def _research_feedback_brief(feedback: dict[str, Any], *, source: dict[str, Any] | None = None) -> dict[str, Any]:
-    payload = dict(feedback or {})
-    recommendation = dict(payload.get("recommendation") or {})
-    t20 = dict(payload.get("horizons") or {}).get("T+20") or {}
-    return {
-        "available": bool(payload),
-        "source": dict(source or {}),
-        "sample_count": int(payload.get("sample_count") or 0),
-        "bias": str(recommendation.get("bias") or "unknown"),
-        "summary": str(recommendation.get("summary") or ""),
-        "brier_like_direction_score": payload.get("brier_like_direction_score"),
-        "t20_hit_rate": t20.get("hit_rate"),
-        "t20_invalidation_rate": t20.get("invalidation_rate"),
-        "available_horizons": sorted((payload.get("horizons") or {}).keys()),
-    }
+    return TrainingFeedbackService.research_feedback_summary(feedback, source=source)
 
 
 def build_promotion_summary(*, plan: dict[str, Any], ok_results: list[dict[str, Any]], avg_return_pct: float | None, avg_strategy_score: float | None, benchmark_pass_rate: float, baseline_entries: list[dict[str, Any]]) -> dict[str, Any]:

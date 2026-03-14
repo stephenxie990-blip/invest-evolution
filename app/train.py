@@ -29,24 +29,25 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
-from config import OUTPUT_DIR, PROJECT_ROOT, RUNTIME_DIR, config, normalize_date
+from config import OUTPUT_DIR, PROJECT_ROOT, RUNTIME_DIR, config
 from config.services import EvolutionConfigService, RuntimePathConfigService
 from config.control_plane import build_component_llm_caller, resolve_default_llm
 from invest.shared import AgentTracker
 from market_data import DataManager, DataSourceUnavailableError, MockDataProvider
 from invest.evolution import LLMOptimizer, StrategyEvolutionOptimizer, EvolutionEngine, YamlConfigMutator
-from invest.foundation import BenchmarkEvaluator, StrategyEvaluator, sanitize_risk_params
+from invest.foundation import BenchmarkEvaluator, StrategyEvaluator
 from invest.agents import (
     MarketRegimeAgent, ModelSelectorAgent, TrendHunterAgent, ContrarianAgent, QualityAgent, DefensiveAgent,
     ReviewDecisionAgent, StrategistAgent, EvoJudgeAgent
 )
 from invest.meetings import SelectionMeeting, ReviewMeeting, MeetingRecorder
-from invest.models import create_investment_model, resolve_model_config_path
+from invest.models import create_investment_model
 from invest.models.defaults import COMMON_PARAM_DEFAULTS
 from invest.research.case_store import ResearchCaseStore
 from invest.services import EvolutionService, ReviewMeetingService, SelectionMeetingService
 from app.training.optimization import trigger_loss_optimization
 from app.training.controller_services import (
+    TrainingExperimentService,
     FreezeGateService,
     TrainingFeedbackService,
     TrainingLLMRuntimeService,
@@ -310,6 +311,7 @@ class SelfLearningController:
         self.evolution_engine = EvolutionEngine(population_size=10)
         self.strategy_evaluator = StrategyEvaluator()
         self.benchmark_evaluator = BenchmarkEvaluator()
+        self.training_experiment_service = TrainingExperimentService()
         self.training_llm_runtime_service = TrainingLLMRuntimeService()
         self.training_observability_service = TrainingObservabilityService()
         self.execution_policy: Dict[str, Any] = {}
@@ -620,14 +622,7 @@ class SelfLearningController:
 
     @staticmethod
     def _research_feedback_brief(feedback: Dict[str, Any] | None = None) -> Dict[str, Any]:
-        payload = dict(feedback or {})
-        recommendation = dict(payload.get("recommendation") or {})
-        return {
-            "sample_count": int(payload.get("sample_count") or 0),
-            "bias": str(recommendation.get("bias") or "unknown"),
-            "brier_like_direction_score": payload.get("brier_like_direction_score"),
-            "t20_hit_rate": dict(payload.get("horizons") or {}).get("T+20", {}).get("hit_rate"),
-        }
+        return TrainingFeedbackService.research_feedback_brief(feedback)
 
     def _load_research_feedback(self, *, cutoff_date: str, model_name: str, config_name: str) -> Dict[str, Any]:
         return self.training_feedback_service.load_research_feedback(
@@ -639,35 +634,10 @@ class SelfLearningController:
 
     @staticmethod
     def _policy_lookup(policy: Dict[str, Any] | None, path: str, default: Any) -> Any:
-        current: Any = dict(policy or {})
-        for key in path.split('.'):
-            if not isinstance(current, dict) or key not in current:
-                return default
-            current = current[key]
-        return current
+        return TrainingPolicyService.policy_lookup(policy, path, default)
 
     def _sanitize_runtime_param_adjustments(self, adjustments: Dict[str, Any] | None = None) -> Dict[str, Any]:
-        normalized = dict(adjustments or {})
-        risk_like = {
-            key: float(value)
-            for key, value in normalized.items()
-            if key in {"stop_loss_pct", "take_profit_pct", "position_size"} and value is not None
-        }
-        clean = sanitize_risk_params(risk_like, policy=self.risk_policy)
-        clamp_policy = dict(self._policy_lookup(self.review_policy, 'param_clamps', {}) or {})
-        cash_bounds = dict(clamp_policy.get('cash_reserve') or {'min': 0.0, 'max': 0.80})
-        trailing_bounds = dict(clamp_policy.get('trailing_pct') or {'min': 0.03, 'max': 0.20})
-        if normalized.get('cash_reserve') is not None:
-            clean['cash_reserve'] = max(
-                float(cash_bounds.get('min', 0.0)),
-                min(float(cash_bounds.get('max', 0.80)), float(normalized['cash_reserve'])),
-            )
-        if normalized.get('trailing_pct') is not None:
-            clean['trailing_pct'] = max(
-                float(trailing_bounds.get('min', 0.03)),
-                min(float(trailing_bounds.get('max', 0.20)), float(normalized['trailing_pct'])),
-            )
-        return clean
+        return self.training_policy_service.sanitize_runtime_param_adjustments(self, adjustments)
 
     @staticmethod
     def _feedback_optimization_brief(plan: Dict[str, Any] | None = None, *, triggered: bool = False) -> Dict[str, Any]:
@@ -680,57 +650,7 @@ class SelfLearningController:
         return self.freeze_gate_service.evaluate_freeze_gate(self, rolling)
 
     def configure_experiment(self, spec: Dict[str, Any] | None = None) -> None:
-        spec = dict(spec or {})
-        self.experiment_spec = spec
-        protocol = dict(spec.get("protocol") or {})
-        dataset = dict(spec.get("dataset") or {})
-        model_scope = dict(spec.get("model_scope") or {})
-        llm = dict(spec.get("llm") or {})
-
-        seed = protocol.get("seed")
-        self.experiment_seed = int(seed) if seed is not None and str(seed).strip() else None
-        min_date = protocol.get("min_date") or protocol.get("date_range", {}).get("min") if isinstance(protocol.get("date_range"), dict) else protocol.get("min_date")
-        max_date = protocol.get("max_date") or protocol.get("date_range", {}).get("max") if isinstance(protocol.get("date_range"), dict) else protocol.get("max_date")
-        self.experiment_min_date = normalize_date(str(min_date)) if min_date else None
-        self.experiment_max_date = normalize_date(str(max_date)) if max_date else None
-        min_history_days_value = dataset.get("min_history_days")
-        simulation_days_value = dataset.get("simulation_days")
-        self.experiment_min_history_days = (
-            int(min_history_days_value) if min_history_days_value is not None else None
-        )
-        self.experiment_simulation_days = (
-            int(simulation_days_value) if simulation_days_value is not None else None
-        )
-        allowed_models = model_scope.get("allowed_models") or []
-        self.experiment_allowed_models = [str(name) for name in allowed_models if str(name).strip()]
-        self.experiment_llm = llm
-        self._apply_experiment_llm_overrides(llm)
-        if model_scope.get("allocator_enabled") is not None:
-            enabled = bool(model_scope.get("allocator_enabled"))
-            self.allocator_enabled = enabled
-            self.model_routing_enabled = enabled
-        if model_scope.get("model_routing_enabled") is not None:
-            self.model_routing_enabled = bool(model_scope.get("model_routing_enabled"))
-        if model_scope.get("routing_mode") is not None:
-            self.model_routing_mode = str(model_scope.get("routing_mode") or "rule").strip().lower() or "rule"
-        if self.experiment_allowed_models:
-            self.model_routing_allowed_models = list(self.experiment_allowed_models)
-        if model_scope.get("switch_cooldown_cycles") is not None:
-            self.model_switch_cooldown_cycles = int(model_scope.get("switch_cooldown_cycles") or 0)
-        if model_scope.get("switch_min_confidence") is not None:
-            self.model_switch_min_confidence = float(model_scope.get("switch_min_confidence") or 0.0)
-        if model_scope.get("switch_hysteresis_margin") is not None:
-            self.model_switch_hysteresis_margin = float(model_scope.get("switch_hysteresis_margin") or 0.0)
-        if model_scope.get("agent_override_enabled") is not None:
-            self.model_routing_agent_override_enabled = bool(model_scope.get("agent_override_enabled"))
-        if model_scope.get("agent_override_max_gap") is not None:
-            self.model_routing_agent_override_max_gap = float(model_scope.get("agent_override_max_gap") or 0.0)
-        self._refresh_model_routing_coordinator()
-        if self.experiment_allowed_models and self.model_name not in self.experiment_allowed_models:
-            self.model_name = self.experiment_allowed_models[0]
-            self.model_config_path = str(resolve_model_config_path(self.model_name))
-            self.current_params = {}
-            self._reload_investment_model(self.model_config_path)
+        self.training_experiment_service.configure_experiment(self, spec)
 
 
     def _apply_experiment_llm_overrides(self, llm_spec: Dict[str, Any] | None = None) -> None:

@@ -4,6 +4,7 @@ import logging
 from typing import Any, Callable
 
 from invest.evolution import derive_scoring_adjustments
+from invest.services import EvolutionService
 
 logger = logging.getLogger(__name__)
 
@@ -17,15 +18,31 @@ def _apply_runtime_adjustments(controller: Any, adjustments: dict[str, Any]) -> 
 
 
 def _population_size(controller: Any) -> int:
+    service = _resolve_evolution_service(controller)
+    if service is None:
+        return 0
+    try:
+        return int(getattr(service, "population_size"))
+    except Exception:
+        return 0
+
+
+def _resolve_evolution_service(controller: Any) -> EvolutionService | Any | None:
     service = getattr(controller, "evolution_service", None)
     if service is not None:
-        try:
-            return int(getattr(service, "population_size"))
-        except Exception:
-            return 0
+        return service
     engine = getattr(controller, "evolution_engine", None)
-    population = getattr(engine, "population", []) if engine is not None else []
-    return len(population or [])
+    if engine is None:
+        return None
+    return EvolutionService(engine=engine)
+
+
+def _reload_investment_model(controller: Any, config_path: str) -> None:
+    routing_service = getattr(controller, "training_routing_service", None)
+    if routing_service is not None:
+        routing_service.reload_investment_model(controller, config_path)
+        return
+    controller._reload_investment_model(config_path)
 
 
 def trigger_loss_optimization(
@@ -151,26 +168,19 @@ def trigger_loss_optimization(
 
             if len(controller.cycle_history) >= 3:
                 fitness_scores = [max(result.return_pct, -50) for result in controller.cycle_history[-10:]]
-                evolution_service = getattr(controller, "evolution_service", None)
-                if evolution_service is not None:
-                    if _population_size(controller) == 0:
-                        evolution_service.initialize_population(controller.current_params)
-                    pop_size = _population_size(controller)
-                else:
-                    if len(controller.evolution_engine.population) == 0:
-                        controller.evolution_engine.initialize_population(controller.current_params)
-                    pop_size = len(controller.evolution_engine.population)
+                evolution_service = _resolve_evolution_service(controller)
+                if evolution_service is None:
+                    raise RuntimeError("evolution runtime is unavailable")
+                if _population_size(controller) == 0:
+                    evolution_service.initialize_population(controller.current_params)
+                pop_size = _population_size(controller)
                 if len(fitness_scores) > pop_size:
                     fitness_scores = fitness_scores[-pop_size:]
                 elif len(fitness_scores) < pop_size:
                     fitness_scores = fitness_scores + [0.0] * (pop_size - len(fitness_scores))
 
-                if evolution_service is not None:
-                    evolution_service.evolve(fitness_scores)
-                    best_params = evolution_service.get_best_params()
-                else:
-                    controller.evolution_engine.evolve(fitness_scores)
-                    best_params = controller.evolution_engine.get_best_params()
+                evolution_service.evolve(fitness_scores)
+                best_params = evolution_service.get_best_params()
                 evo_event = event_factory(
                     trigger='consecutive_losses',
                     stage='evolution_engine',
@@ -210,7 +220,7 @@ def trigger_loss_optimization(
             )
             auto_applied = bool(controller.auto_apply_mutation)
             if auto_applied:
-                controller._reload_investment_model(mutation['config_path'])
+                _reload_investment_model(controller, mutation['config_path'])
             mutation_event = event_factory(
                 trigger=trigger_reason,
                 stage='yaml_mutation',

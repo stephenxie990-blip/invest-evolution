@@ -7,7 +7,9 @@ from typing import Any, Dict, Optional
 
 import numpy as np
 
+from config import normalize_date
 from invest.leaderboard import write_leaderboard
+from invest.models import resolve_model_config_path
 from invest.models.defaults import COMMON_PARAM_DEFAULTS
 from app.training.reporting import (
     build_freeze_report,
@@ -74,7 +76,127 @@ class TrainingLLMRuntimeService:
                 llm.dry_run = dry_run
 
 
+class TrainingExperimentService:
+    """Applies experiment protocol, dataset, model-scope, and LLM overrides."""
+
+    @staticmethod
+    def _optional_int(value: Any) -> int | None:
+        if value is None or not str(value).strip():
+            return None
+        return int(value)
+
+    @staticmethod
+    def _optional_normalized_date(value: Any) -> str | None:
+        if not value:
+            return None
+        return normalize_date(str(value))
+
+    def configure_experiment(self, controller: Any, spec: Dict[str, Any] | None = None) -> None:
+        payload = dict(spec or {})
+        controller.experiment_spec = payload
+        protocol = dict(payload.get("protocol") or {})
+        dataset = dict(payload.get("dataset") or {})
+        model_scope = dict(payload.get("model_scope") or {})
+        llm = dict(payload.get("llm") or {})
+
+        seed = protocol.get("seed")
+        date_range = protocol.get("date_range")
+        controller.experiment_seed = self._optional_int(seed)
+        controller.experiment_min_date = self._optional_normalized_date(
+            protocol.get("min_date") or (date_range or {}).get("min") if isinstance(date_range, dict) else protocol.get("min_date")
+        )
+        controller.experiment_max_date = self._optional_normalized_date(
+            protocol.get("max_date") or (date_range or {}).get("max") if isinstance(date_range, dict) else protocol.get("max_date")
+        )
+        controller.experiment_min_history_days = self._optional_int(dataset.get("min_history_days"))
+        controller.experiment_simulation_days = self._optional_int(dataset.get("simulation_days"))
+
+        allowed_models = model_scope.get("allowed_models") or []
+        controller.experiment_allowed_models = [
+            str(name) for name in allowed_models if str(name).strip()
+        ]
+        controller.experiment_llm = llm
+        controller.training_llm_runtime_service.apply_experiment_overrides(controller, llm)
+
+        if model_scope.get("allocator_enabled") is not None:
+            enabled = bool(model_scope.get("allocator_enabled"))
+            controller.allocator_enabled = enabled
+            controller.model_routing_enabled = enabled
+        if model_scope.get("model_routing_enabled") is not None:
+            controller.model_routing_enabled = bool(model_scope.get("model_routing_enabled"))
+        if model_scope.get("routing_mode") is not None:
+            controller.model_routing_mode = (
+                str(model_scope.get("routing_mode") or "rule").strip().lower() or "rule"
+            )
+        if controller.experiment_allowed_models:
+            controller.model_routing_allowed_models = list(controller.experiment_allowed_models)
+        if model_scope.get("switch_cooldown_cycles") is not None:
+            controller.model_switch_cooldown_cycles = int(
+                model_scope.get("switch_cooldown_cycles") or 0
+            )
+        if model_scope.get("switch_min_confidence") is not None:
+            controller.model_switch_min_confidence = float(
+                model_scope.get("switch_min_confidence") or 0.0
+            )
+        if model_scope.get("switch_hysteresis_margin") is not None:
+            controller.model_switch_hysteresis_margin = float(
+                model_scope.get("switch_hysteresis_margin") or 0.0
+            )
+        if model_scope.get("agent_override_enabled") is not None:
+            controller.model_routing_agent_override_enabled = bool(
+                model_scope.get("agent_override_enabled")
+            )
+        if model_scope.get("agent_override_max_gap") is not None:
+            controller.model_routing_agent_override_max_gap = float(
+                model_scope.get("agent_override_max_gap") or 0.0
+            )
+
+        controller.training_routing_service.refresh_routing_coordinator(controller)
+        if (
+            controller.experiment_allowed_models
+            and controller.model_name not in controller.experiment_allowed_models
+        ):
+            controller.model_name = controller.experiment_allowed_models[0]
+            controller.model_config_path = str(resolve_model_config_path(controller.model_name))
+            controller.current_params = {}
+            controller.training_routing_service.reload_investment_model(
+                controller,
+                controller.model_config_path,
+            )
+
+
 class TrainingFeedbackService:
+    @staticmethod
+    def research_feedback_summary(
+        feedback: Dict[str, Any] | None = None,
+        *,
+        source: Dict[str, Any] | None = None,
+    ) -> Dict[str, Any]:
+        payload = dict(feedback or {})
+        recommendation = dict(payload.get("recommendation") or {})
+        t20 = dict(payload.get("horizons") or {}).get("T+20") or {}
+        return {
+            "available": bool(payload),
+            "source": dict(source or {}),
+            "sample_count": int(payload.get("sample_count") or 0),
+            "bias": str(recommendation.get("bias") or "unknown"),
+            "summary": str(recommendation.get("summary") or ""),
+            "brier_like_direction_score": payload.get("brier_like_direction_score"),
+            "t20_hit_rate": t20.get("hit_rate"),
+            "t20_invalidation_rate": t20.get("invalidation_rate"),
+            "available_horizons": sorted((payload.get("horizons") or {}).keys()),
+        }
+
+    @staticmethod
+    def research_feedback_brief(feedback: Dict[str, Any] | None = None) -> Dict[str, Any]:
+        summary = TrainingFeedbackService.research_feedback_summary(feedback)
+        return {
+            "sample_count": int(summary.get("sample_count") or 0),
+            "bias": str(summary.get("bias") or "unknown"),
+            "brier_like_direction_score": summary.get("brier_like_direction_score"),
+            "t20_hit_rate": summary.get("t20_hit_rate"),
+        }
+
     @staticmethod
     def feedback_brief(plan: Dict[str, Any] | None = None, *, triggered: bool = False) -> Dict[str, Any]:
         payload = dict(plan or {})
@@ -180,11 +302,32 @@ class TrainingFeedbackService:
 
 
 class FreezeGateService:
+    @staticmethod
+    def _overridden_rolling_hook(controller: Any) -> Any | None:
+        hook = getattr(controller, "_rolling_self_assessment", None)
+        if not callable(hook):
+            return None
+        class_hook = getattr(type(controller), "_rolling_self_assessment", None)
+        bound_func = getattr(hook, "__func__", None)
+        if bound_func is class_hook:
+            return None
+        return hook
+
+    def _resolve_rolling(self, controller: Any, rolling: Dict[str, Any] | None = None) -> Dict[str, Any]:
+        hook = self._overridden_rolling_hook(controller)
+        if hook is not None:
+            return dict(hook(controller.freeze_total_cycles) or {})
+        return dict(
+            rolling
+            or self.rolling_self_assessment(controller, window=controller.freeze_total_cycles)
+            or {}
+        )
+
     def rolling_self_assessment(self, controller: Any, window: Optional[int] = None) -> Dict[str, Any]:
         return rolling_self_assessment(controller.assessment_history, controller.freeze_total_cycles, window=window)
 
     def evaluate_freeze_gate(self, controller: Any, rolling: Dict[str, Any] | None = None) -> Dict[str, Any]:
-        active_rolling = dict(rolling or controller._rolling_self_assessment(controller.freeze_total_cycles) or {})
+        active_rolling = self._resolve_rolling(controller, rolling)
         evaluation = evaluate_freeze_gate(
             controller.cycle_history,
             controller.freeze_total_cycles,
@@ -197,7 +340,7 @@ class FreezeGateService:
         return controller.last_freeze_gate_evaluation
 
     def should_freeze(self, controller: Any) -> bool:
-        rolling = controller._rolling_self_assessment(controller.freeze_total_cycles)
+        rolling = self._resolve_rolling(controller)
         controller.last_freeze_gate_evaluation = self.evaluate_freeze_gate(controller, rolling)
         return should_freeze_report(
             controller.cycle_history,
@@ -211,7 +354,7 @@ class FreezeGateService:
     def freeze_model(self, controller: Any) -> Dict[str, Any]:
         logger.info(f"\n{'='*50}\n🎉 模型固化！\n{'='*50}")
 
-        rolling = controller._rolling_self_assessment(controller.freeze_total_cycles)
+        rolling = self._resolve_rolling(controller)
         report = build_freeze_report(
             controller.cycle_history,
             controller.current_params,
@@ -230,7 +373,7 @@ class FreezeGateService:
         return report
 
     def generate_training_report(self, controller: Any) -> Dict[str, Any]:
-        rolling = controller._rolling_self_assessment(controller.freeze_total_cycles)
+        rolling = self._resolve_rolling(controller)
         freeze_gate_evaluation = self.evaluate_freeze_gate(controller, rolling)
         return generate_training_report(
             controller.total_cycle_attempts,

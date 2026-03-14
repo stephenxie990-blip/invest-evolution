@@ -56,7 +56,28 @@ def test_phase6_interface_and_application_packages_exist():
         "app/application",
         "app/interfaces",
         "app/interfaces/web",
+        "app/interfaces/web/presentation.py",
+        "app/interfaces/web/contracts.py",
+        "app/interfaces/web/routes/contracts.py",
         "invest/services",
         "market_data/services",
+        "brain/presentation.py",
     ):
         assert (PROJECT_ROOT / rel).exists(), f"expected Phase 6 package missing: {rel}"
+
+
+def test_wave_ef_boundary_helpers_do_not_reach_back_into_entrypoints():
+    checks = {
+        "app/interfaces/web/presentation.py": {"app.web_server"},
+        "app/interfaces/web/contracts.py": {"app.web_server"},
+        "app/interfaces/web/routes/contracts.py": {"app.web_server"},
+        "brain/presentation.py": {"flask", "app.web_server"},
+    }
+    for rel_path, forbidden_prefixes in checks.items():
+        path = PROJECT_ROOT / rel_path
+        imports = _imports(path)
+        for module in imports:
+            assert not any(
+                module == prefix or module.startswith(prefix + ".")
+                for prefix in forbidden_prefixes
+            ), f"{path} should not import forbidden module {module}"

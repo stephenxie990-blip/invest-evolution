@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any, Awaitable, Callable, Optional
 
 from app.llm_gateway import LLMGateway, LLMGatewayError, LLMUnavailableError
+from brain.presentation import BrainHumanReadablePresenter
 from brain.planner_catalog import (
     build_config_overview_plan,
     build_data_focus_plan,
@@ -1355,130 +1356,10 @@ class BrainRuntime:
         intent: str,
         operation: str,
     ) -> dict[str, Any]:
-        feedback = dict(payload.get("feedback") or {})
-        next_action = dict(payload.get("next_action") or {})
-        status = str(payload.get("status") or "ok")
-        task_bus = dict(payload.get("task_bus") or {})
-        gate = dict(task_bus.get("gate") or {})
-        risk_level = str(gate.get("risk_level") or "")
-        operation_nature = self._operation_nature_text(gate)
-        risk_summary = self._risk_level_text(risk_level)
-        confirmation_summary = self._confirmation_text(gate, status=status)
-
-        if intent in {"runtime_status", "runtime_diagnostics", "runtime_status_and_training", "config_risk_diagnostics"}:
-            quick_status = dict(payload.get("quick_status") or {})
-            runtime_payload = dict(payload.get("runtime") or quick_status.get("runtime") or {})
-            plugins = dict(payload.get("plugins") or quick_status.get("plugins") or {})
-            event_summary = dict(payload.get("event_summary") or payload.get("events") or quick_status.get("events") or {})
-            recent_events = list(payload.get("recent_events") or payload.get("items") or [])
-            training_lab = dict(payload.get("training_lab") or quick_status.get("training_lab") or {})
-            diagnostics = list(payload.get("diagnostics") or [])
-            facts = []
-            facts.extend(self._runtime_state_bullets(runtime_payload))
-            if plugins:
-                facts.append(f"插件数：{int(plugins.get('count', 0) or 0)}")
-            if event_summary:
-                facts.append(f"事件数：{int(event_summary.get('count', 0) or 0)}")
-            event_bullets, latest_event, event_explanation = self._event_explanation_bullets(
-                event_summary,
-                recent_events=recent_events,
-            )
-            event_timeline = self._event_timeline_items(recent_events)
-            facts.extend(event_bullets)
-            facts.extend(self._training_lab_bullets(training_lab))
-            risks = self._risk_explanations(
-                diagnostics,
-                feedback=feedback,
-                last_error=payload.get("last_error") or "",
-            )
-            actions = self._action_items(
-                next_action,
-                diagnostics=diagnostics,
-                latest_event=latest_event,
-                status=status,
-            )
-            summary = str(feedback.get("summary") or "已生成运行时摘要。")
-            if status == "ok" and not diagnostics:
-                summary = "系统可用，已返回运行状态、事件与训练摘要。"
-            elif status == "ok" and diagnostics:
-                summary = f"系统仍可用，但有 {len(risks)} 项需要优先关注。"
-            return self._compose_human_readable_receipt(
-                title="系统运行摘要",
-                summary=summary,
-                operation=operation,
-                facts=facts,
-                risks=risks,
-                suggested_actions=actions,
-                recommended_next_step=str(next_action.get("label") or ""),
-                risk_level=risk_level,
-                latest_event=latest_event,
-                event_explanation=event_explanation,
-                event_timeline=event_timeline,
-                operation_nature=operation_nature,
-                risk_summary=risk_summary,
-                confirmation_summary=confirmation_summary,
-            )
-
-        if intent in {"training_lab_summary", "training_execution"}:
-            training_lab = dict(payload.get("training_lab") or payload)
-            facts = self._training_lab_bullets(training_lab)
-            risks = self._risk_explanations([], feedback=feedback)
-            actions = self._action_items(next_action, diagnostics=[], status=status)
-            return self._compose_human_readable_receipt(
-                title="训练实验室摘要",
-                summary=str(feedback.get("summary") or "已返回训练实验室状态。"),
-                operation=operation,
-                facts=facts,
-                risks=risks,
-                suggested_actions=actions,
-                recommended_next_step=str(next_action.get("label") or ""),
-                risk_level=risk_level,
-                event_explanation="",
-                operation_nature=operation_nature,
-                risk_summary=risk_summary,
-                confirmation_summary=confirmation_summary,
-            )
-
-        if intent.startswith("config_") or intent in {"runtime_paths", "config_overview"}:
-            control_plane = dict(payload.get("control_plane") or {})
-            evolution_config = dict(payload.get("evolution_config") or {})
-            facts: list[str] = []
-            if control_plane:
-                provider = str(control_plane.get("provider") or control_plane.get("default_provider") or "")
-                if provider:
-                    facts.append(f"控制面 Provider：{provider}")
-            if evolution_config:
-                model_name = str(evolution_config.get("investment_model") or "")
-                if model_name:
-                    facts.append(f"当前投资模型：{model_name}")
-            return self._compose_human_readable_receipt(
-                title="配置摘要",
-                summary=str(feedback.get("summary") or "已返回配置与控制面信息。"),
-                operation=operation,
-                facts=facts,
-                risks=self._risk_explanations([], feedback=feedback),
-                suggested_actions=self._action_items(next_action, diagnostics=[], status=status),
-                recommended_next_step=str(next_action.get("label") or ""),
-                risk_level=risk_level,
-                event_explanation="",
-                operation_nature=operation_nature,
-                risk_summary=risk_summary,
-                confirmation_summary=confirmation_summary,
-            )
-
-        return self._compose_human_readable_receipt(
-            title="执行摘要",
-            summary=str(feedback.get("summary") or payload.get("message") or payload.get("reply") or ""),
+        return BrainHumanReadablePresenter.build_human_readable_receipt(
+            payload,
+            intent=intent,
             operation=operation,
-            facts=[],
-            risks=self._risk_explanations([], feedback=feedback),
-            suggested_actions=self._action_items(next_action, diagnostics=[], status=status),
-            recommended_next_step=str(next_action.get("label") or ""),
-            risk_level=risk_level,
-            event_explanation="",
-            operation_nature=operation_nature,
-            risk_summary=risk_summary,
-            confirmation_summary=confirmation_summary,
         )
 
     def _attach_human_readable_receipt(
@@ -1488,13 +1369,11 @@ class BrainRuntime:
         intent: str,
         operation: str,
     ) -> dict[str, Any]:
-        enriched = dict(payload or {})
-        enriched["human_readable"] = self._build_human_readable_receipt(
-            enriched,
+        return BrainHumanReadablePresenter.attach_human_readable_receipt(
+            payload,
             intent=intent,
             operation=operation,
         )
-        return enriched
 
 
     async def _try_builtin_intent(self, content: str) -> Optional[str]:

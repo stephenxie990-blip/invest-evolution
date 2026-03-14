@@ -1,4 +1,5 @@
 from app.training.controller_services import (
+    TrainingExperimentService,
     FreezeGateService,
     TrainingFeedbackService,
     TrainingLLMRuntimeService,
@@ -21,6 +22,7 @@ from app.training.routing_services import TrainingRoutingService
 from app.training.simulation_services import TrainingSimulationService
 
 __all__ = [
+    "TrainingExperimentService",
     "TrainingFeedbackService",
     "TrainingLLMRuntimeService",
     "TrainingPersistenceService",
