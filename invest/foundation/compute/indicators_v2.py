@@ -8,7 +8,7 @@ from typing import Any, Deque, Generic, Optional, TypeVar
 
 import pandas as pd
 
-from .indicators import get_date_col
+from .data_adapter import get_date_col
 
 logger = logging.getLogger(__name__)
 
@@ -237,8 +237,11 @@ class BollingerBandsIndicator(BaseIndicator):
         if not values:
             return None
         mean = sum(values) / len(values)
-        variance = sum((item - mean) ** 2 for item in values) / len(values)
-        std = sqrt(variance)
+        if len(values) > 1:
+            variance = sum((item - mean) ** 2 for item in values) / (len(values) - 1)
+            std = sqrt(variance)
+        else:
+            std = 0.0
         upper = mean + self.stddev * std
         lower = mean - self.stddev * std
         position = 0.5 if upper == lower else (value - lower) / (upper - lower)

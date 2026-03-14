@@ -1,30 +1,18 @@
 from __future__ import annotations
 
-from typing import Optional, cast
+from typing import cast
 
 import pandas as pd
 
-from config import normalize_date
+from . import data_adapter as _data_adapter
 
 
 def _numeric_series(frame: pd.DataFrame, column: str) -> pd.Series:
-    return cast(pd.Series, pd.to_numeric(frame[column], errors="coerce")).dropna()
+    return cast(pd.Series, _data_adapter.numeric_series(frame, column))
 
 
-def get_date_col(df: pd.DataFrame) -> Optional[str]:
-    if "trade_date" in df.columns:
-        return "trade_date"
-    if "date" in df.columns:
-        return "date"
-    return None
-
-
-def filter_by_cutoff(df: pd.DataFrame, cutoff_norm: str) -> pd.DataFrame:
-    date_col = get_date_col(df)
-    if date_col is None:
-        return pd.DataFrame()
-    dates_norm = df[date_col].apply(normalize_date)
-    return df.loc[dates_norm <= cutoff_norm].copy()
+filter_by_cutoff = _data_adapter.filter_by_cutoff
+get_date_col = _data_adapter.get_date_col
 
 
 def calc_rsi(close: pd.Series, period: int = 14) -> float:

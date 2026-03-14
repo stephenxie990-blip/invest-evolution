@@ -2,7 +2,7 @@ import logging
 from typing import List
 
 
-from invest.foundation.compute import compute_market_stats, summarize_stocks
+from invest.foundation.compute.features import compute_market_stats, summarize_stocks
 
 logger = logging.getLogger(__name__)
 

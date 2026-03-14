@@ -18,7 +18,8 @@ import re
 from typing import TYPE_CHECKING, Dict, List, Optional
 
 if TYPE_CHECKING:
-    from invest.shared import LLMCaller, TradingPlan
+    from invest.shared.contracts import TradingPlan
+    from invest.shared.llm import LLMCaller
 
 logger = logging.getLogger(__name__)
 

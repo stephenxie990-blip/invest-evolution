@@ -109,7 +109,7 @@ def test_default_llm_caller_uses_control_plane_defaults(monkeypatch, tmp_path):
     monkeypatch.setenv('INVEST_CONTROL_PLANE_PATH', str(cfg_dir / 'control_plane.yaml'))
     clear_control_plane_cache()
 
-    from invest.shared import LLMCaller
+    from invest.shared.llm import LLMCaller
 
     caller = LLMCaller(dry_run=True)
 

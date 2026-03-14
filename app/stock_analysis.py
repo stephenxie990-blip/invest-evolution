@@ -32,8 +32,7 @@ from invest.research import (
     build_research_snapshot,
     resolve_policy_snapshot,
 )
-from invest.foundation.compute.features import compute_stock_summary
-from invest.foundation.compute.indicators_v2 import compute_indicator_snapshot
+from invest.foundation.compute.batch_snapshot import build_batch_indicator_snapshot, build_batch_summary
 from market_data import DataManager
 from market_data.repository import MarketDataRepository
 
@@ -243,8 +242,15 @@ class StockAnalysisService:
             }
         frame = frame.tail(max(30, int(days)))
         cutoff = normalize_date(str(frame["trade_date"].max()))
-        summary = compute_stock_summary(frame, code, cutoff) or {}
-        snapshot = compute_indicator_snapshot(frame)
+        batch = build_batch_indicator_snapshot(frame, cutoff)
+        summary = build_batch_summary(frame, code, cutoff) or {}
+        snapshot = dict(batch.streaming_snapshot) if batch is not None else {
+            "samples": 0,
+            "latest_trade_date": None,
+            "latest_close": None,
+            "indicators": {},
+            "ready": False,
+        }
         indicators = dict(snapshot.get("indicators") or {})
         macd = dict(indicators.get("macd_12_26_9") or {})
         boll = dict(indicators.get("bollinger_20") or {})
@@ -314,7 +320,14 @@ class StockAnalysisService:
                 "artifacts": {},
             }
         frame = frame.tail(max(30, int(days)))
-        snapshot = compute_indicator_snapshot(frame)
+        batch = build_batch_indicator_snapshot(frame, normalize_date(str(frame["trade_date"].max())))
+        snapshot = dict(batch.streaming_snapshot) if batch is not None else {
+            "samples": 0,
+            "latest_trade_date": None,
+            "latest_close": None,
+            "indicators": {},
+            "ready": False,
+        }
         indicators = dict(snapshot.get("indicators") or {})
         return {
             "status": "ok",
@@ -357,7 +370,14 @@ class StockAnalysisService:
                 "next_actions": ["检查行情数据完整性"],
                 "artifacts": {},
             }
-        snapshot = compute_indicator_snapshot(frame)
+        batch = build_batch_indicator_snapshot(frame, normalize_date(str(frame["trade_date"].max())))
+        snapshot = dict(batch.streaming_snapshot) if batch is not None else {
+            "samples": 0,
+            "latest_trade_date": None,
+            "latest_close": None,
+            "indicators": {},
+            "ready": False,
+        }
         indicators = dict(snapshot.get("indicators") or {})
         latest_close = float(snapshot.get("latest_close") or closes.iloc[-1] or 0.0)
         support_20 = float(lows.tail(20).min()) if len(lows) >= 20 else float(lows.min())

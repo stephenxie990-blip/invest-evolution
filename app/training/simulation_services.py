@@ -4,7 +4,7 @@ from datetime import datetime, timedelta
 from typing import Any
 
 from config import config, normalize_date
-from invest.foundation import SimulatedTrader
+from invest.foundation.engine.simulator import SimulatedTrader
 from invest.models.defaults import COMMON_EXECUTION_DEFAULTS, COMMON_PARAM_DEFAULTS
 
 

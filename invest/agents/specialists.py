@@ -2,7 +2,7 @@ import logging
 from typing import List
 
 from invest.contracts import AgentContext
-from invest.shared import format_stock_table
+from invest.shared.summaries import format_stock_table
 from .base import AgentConfig, InvestAgent
 
 logger = logging.getLogger(__name__)

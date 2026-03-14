@@ -8,7 +8,7 @@ import pandas as pd
 
 from invest.allocator import build_allocation_plan
 from invest.contracts import ModelRoutingDecision
-from invest.foundation.compute import compute_market_stats
+from invest.foundation.compute.features import compute_market_stats
 from invest.models import list_models, resolve_model_config_path
 
 DEFAULT_ROUTING_POLICY: Dict[str, Any] = {

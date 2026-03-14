@@ -3,9 +3,7 @@ import re
 from typing import Dict, List, Optional
 
 from invest.contracts import AgentContext
-from invest.shared import (
-    format_stock_table,
-)
+from invest.shared.summaries import format_stock_table
 from .base import AgentConfig, InvestAgent, RegimeResult
 
 logger = logging.getLogger(__name__)

@@ -7,7 +7,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 
 def _make_dry_callers():
-    from invest.shared import LLMCaller
+    from invest.shared.llm import LLMCaller
     fast = LLMCaller(dry_run=True)
     deep = LLMCaller(dry_run=True)
     return fast, deep
@@ -39,7 +39,7 @@ def _make_regime():
 
 
 def _make_trading_plan():
-    from invest.shared import TradingPlan, PositionPlan
+    from invest.shared.contracts import PositionPlan, TradingPlan
     positions = [
         PositionPlan(
             code="sh.600001",
@@ -209,4 +209,3 @@ def test_risk_debate_recovers_truncated_judge_json():
     assert recovered["risk_level"] == "medium"
     assert recovered["position_size_suggestion"] == 0.18
     assert recovered["key_concerns"] == ["波动放大"]
-

@@ -5,7 +5,7 @@ from typing import Any, Dict, List, cast
 import pandas as pd
 
 from invest.contracts import AgentContext, SignalPacket, StockSignal
-from invest.foundation.compute import compute_market_stats, summarize_stocks
+from invest.foundation.compute.features import compute_market_stats, summarize_stock_batches
 from invest.models.base import InvestmentModel
 from invest.models.context_renderer import render_market_narrative
 
@@ -90,7 +90,8 @@ class ValueQualityModel(InvestmentModel):
         market_stats = compute_market_stats(stock_data, cutoff_date, regime_policy=self.config_section("market_regime", {}) or None)
         regime = self._resolve_regime(market_stats)
         stock_codes = list(stock_data.keys())[: int(self.param("candidate_pool_size"))]
-        stock_summaries = summarize_stocks(stock_data, stock_codes, cutoff_date, summary_scoring=self.config_section("summary_scoring", {}) or None)
+        stock_batches = summarize_stock_batches(stock_data, stock_codes, cutoff_date, summary_scoring=self.config_section("summary_scoring", {}) or None)
+        stock_summaries = [item.summary for item in stock_batches]
         min_score = float(self.param("min_value_quality_score", 0.25))
         enriched_summaries: List[Dict[str, Any]] = []
         for item in stock_summaries:

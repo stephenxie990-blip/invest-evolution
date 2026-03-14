@@ -2,7 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from invest.foundation import BenchmarkEvaluator, sanitize_risk_params
+from invest.foundation.metrics.benchmark import BenchmarkEvaluator
+from invest.foundation.risk.controller import sanitize_risk_params
 from invest.models.defaults import COMMON_BENCHMARK_DEFAULTS
 
 

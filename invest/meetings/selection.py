@@ -4,12 +4,10 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any, Callable, Dict, List, Optional
 
-from invest.agents import ContrarianAgent, DefensiveAgent, QualityAgent, TrendHunterAgent
-from invest.shared import (
-    LLMCaller,
-    PositionPlan,
-    TradingPlan,
-)
+from invest.agents.hunters import ContrarianAgent, TrendHunterAgent
+from invest.agents.specialists import DefensiveAgent, QualityAgent
+from invest.shared.contracts import PositionPlan, TradingPlan
+from invest.shared.llm import LLMCaller
 from invest.contracts import AgentContext, ModelOutput, SignalPacket, StrategyAdvice
 from invest.foundation.risk import (
     clamp_position_size,

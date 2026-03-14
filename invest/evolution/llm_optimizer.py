@@ -3,7 +3,7 @@ import logging
 from dataclasses import dataclass
 from typing import Dict, List
 
-from invest.shared import LLMCaller
+from invest.shared.llm import LLMCaller
 from invest.shared.llm import parse_llm_json_object
 
 logger = logging.getLogger(__name__)

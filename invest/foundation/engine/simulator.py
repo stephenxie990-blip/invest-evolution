@@ -4,7 +4,7 @@ from typing import Any, Dict, List, Optional, Tuple, cast
 
 import pandas as pd
 
-from invest.shared import TradingPlan
+from invest.shared.contracts import TradingPlan
 from .contracts import (
     Action,
     EmergencyAction,

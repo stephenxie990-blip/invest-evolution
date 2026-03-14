@@ -12,7 +12,7 @@ import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from invest.shared import LLMCaller
+from invest.shared.llm import LLMCaller
 
 if TYPE_CHECKING:
     from config import EvolutionConfig

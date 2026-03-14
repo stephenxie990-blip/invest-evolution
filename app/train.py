@@ -32,14 +32,16 @@ from typing import Any, Callable, Dict, List, Optional
 from config import OUTPUT_DIR, PROJECT_ROOT, RUNTIME_DIR, config
 from config.services import EvolutionConfigService, RuntimePathConfigService
 from config.control_plane import build_component_llm_caller, resolve_default_llm
-from invest.shared import AgentTracker
+from invest.shared.tracking import AgentTracker
 from market_data import DataManager, DataSourceUnavailableError, MockDataProvider
 from invest.evolution import LLMOptimizer, StrategyEvolutionOptimizer, EvolutionEngine, YamlConfigMutator
-from invest.foundation import BenchmarkEvaluator, StrategyEvaluator
-from invest.agents import (
-    MarketRegimeAgent, ModelSelectorAgent, TrendHunterAgent, ContrarianAgent, QualityAgent, DefensiveAgent,
-    ReviewDecisionAgent, StrategistAgent, EvoJudgeAgent
-)
+from invest.foundation.metrics.benchmark import BenchmarkEvaluator
+from invest.foundation.metrics.cycle import StrategyEvaluator
+from invest.agents.hunters import ContrarianAgent, TrendHunterAgent
+from invest.agents.model_selector import ModelSelectorAgent
+from invest.agents.regime import MarketRegimeAgent
+from invest.agents.reviewers import EvoJudgeAgent, ReviewDecisionAgent, StrategistAgent
+from invest.agents.specialists import DefensiveAgent, QualityAgent
 from invest.meetings import SelectionMeeting, ReviewMeeting, MeetingRecorder
 from invest.models import create_investment_model
 from invest.models.defaults import COMMON_PARAM_DEFAULTS

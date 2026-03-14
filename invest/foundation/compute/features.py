@@ -1,84 +1,51 @@
 from __future__ import annotations
 
-from typing import Dict, List, Optional, cast
+from typing import Dict, List, Optional
 
 import pandas as pd
 
 from config import normalize_date
-from .factors import calc_algo_score
-from .indicators import (
-    calc_bb_position,
-    calc_macd_signal,
-    calc_pct_change,
-    calc_rsi,
-    calc_volume_ratio,
-    filter_by_cutoff,
-)
-
-
-def _numeric_close_series(frame: pd.DataFrame) -> pd.Series:
-    return cast(pd.Series, pd.to_numeric(frame["close"], errors="coerce")).dropna()
+from .batch_snapshot import StockBatchSummary, build_batch_indicator_snapshot, build_batch_summary
 
 
 def compute_stock_summary(df: pd.DataFrame, code: str, cutoff_norm: str, summary_scoring: Optional[dict] = None) -> Optional[dict]:
     try:
-        sub = filter_by_cutoff(df, cutoff_norm)
-        if len(sub) < 30:
-            return None
-        close = _numeric_close_series(sub)
-        if len(close) < 30 or close.iloc[-1] <= 0:
-            return None
-        latest = float(close.iloc[-1])
-        change_5d = calc_pct_change(latest, close, 5)
-        change_20d = calc_pct_change(latest, close, 20)
-        ma5 = float(close.iloc[-5:].mean()) if len(close) >= 5 else latest
-        ma20 = float(close.iloc[-20:].mean()) if len(close) >= 20 else latest
-        summary_profile = dict(summary_scoring or {})
-        logic = dict(summary_profile.get("logic", {}) or {})
-        ma_bull_ratio = float(logic.get("ma_bull_ratio", 1.0) or 1.0)
-        ma_bear_ratio = float(logic.get("ma_bear_ratio", 1.0) or 1.0)
-        if ma5 > ma20 * ma_bull_ratio:
-            ma_trend = "多头"
-        elif ma5 < ma20 * ma_bear_ratio:
-            ma_trend = "空头"
-        else:
-            ma_trend = "交叉"
-        rsi = calc_rsi(close, 14)
-        macd_signal = calc_macd_signal(close)
-        bb_pos = calc_bb_position(close, 20)
-        vol_ratio = calc_volume_ratio(sub)
-        returns = close.pct_change().dropna()
-        volatility = float(returns.iloc[-20:].std()) if len(returns) >= 20 else 0.0
-        algo_score = calc_algo_score(change_5d, change_20d, ma_trend, rsi, macd_signal, bb_pos, profile=summary_profile)
-        return {
-            "code": code,
-            "close": round(latest, 2),
-            "change_5d": round(change_5d, 2),
-            "change_20d": round(change_20d, 2),
-            "ma_trend": ma_trend,
-            "rsi": round(rsi, 1),
-            "macd": macd_signal,
-            "bb_pos": round(bb_pos, 2),
-            "vol_ratio": round(vol_ratio, 2),
-            "volatility": round(volatility, 4),
-            "algo_score": round(algo_score, 3),
-        }
+        return build_batch_summary(df, code, cutoff_norm, summary_scoring=summary_scoring)
     except Exception:
         return None
 
 
-def summarize_stocks(stock_data: Dict[str, pd.DataFrame], codes: List[str], cutoff_date: str, summary_scoring: Optional[dict] = None) -> List[dict]:
+def summarize_stock_batches(
+    stock_data: Dict[str, pd.DataFrame],
+    codes: List[str],
+    cutoff_date: str,
+    summary_scoring: Optional[dict] = None,
+) -> List[StockBatchSummary]:
     cutoff_norm = normalize_date(cutoff_date)
-    results = []
+    results: List[StockBatchSummary] = []
     for code in codes:
         df = stock_data.get(code)
         if df is None:
             continue
-        summary = compute_stock_summary(df, code, cutoff_norm, summary_scoring=summary_scoring)
-        if summary:
-            results.append(summary)
-    results.sort(key=lambda item: item.get("algo_score", 0), reverse=True)
+        try:
+            batch = build_batch_indicator_snapshot(df, cutoff_norm, summary_scoring=summary_scoring)
+            if batch is None:
+                continue
+            summary = build_batch_summary(df, code, cutoff_norm, summary_scoring=summary_scoring)
+            if summary is None:
+                continue
+            results.append(StockBatchSummary(code=code, batch=batch, summary=summary))
+        except Exception:
+            continue
+    results.sort(key=lambda item: item.summary.get("algo_score", 0), reverse=True)
     return results
+
+
+def summarize_stocks(stock_data: Dict[str, pd.DataFrame], codes: List[str], cutoff_date: str, summary_scoring: Optional[dict] = None) -> List[dict]:
+    return [
+        item.summary
+        for item in summarize_stock_batches(stock_data, codes, cutoff_date, summary_scoring=summary_scoring)
+    ]
 
 
 def compute_market_stats(stock_data: Dict[str, pd.DataFrame], cutoff_date: str, min_valid: Optional[int] = None, regime_policy: Optional[dict] = None) -> dict:
@@ -113,22 +80,14 @@ def compute_market_stats(stock_data: Dict[str, pd.DataFrame], cutoff_date: str, 
     valid_count = 0
 
     for _, df in stock_data.items():
-        sub = filter_by_cutoff(df, cutoff_norm)
-        if len(sub) < 30:
+        batch = build_batch_indicator_snapshot(df, cutoff_norm)
+        if batch is None:
             continue
-        close = _numeric_close_series(sub)
-        if len(close) < 30 or close.iloc[-1] <= 0:
-            continue
-        latest = float(close.iloc[-1])
-        c5 = calc_pct_change(latest, close, 5)
-        c20 = calc_pct_change(latest, close, 20)
-        ma20 = float(close.iloc[-20:].mean()) if len(close) >= 20 else latest
-        vol = float(close.pct_change().dropna().iloc[-20:].std()) if len(close) >= 20 else 0.0
         valid_count += 1
-        changes_5d.append(c5)
-        changes_20d.append(c20)
-        volatilities.append(vol)
-        if latest > ma20:
+        changes_5d.append(batch.change_5d)
+        changes_20d.append(batch.change_20d)
+        volatilities.append(batch.volatility)
+        if batch.above_ma20:
             above_ma20 += 1
 
     if valid_count < min_valid:

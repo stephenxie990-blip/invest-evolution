@@ -6,7 +6,7 @@ from typing import Any, Dict, List, Optional, TypedDict
 
 from config import agent_config_registry, config
 from config.control_plane import build_component_llm_caller
-from invest.shared import LLMCaller
+from invest.shared.llm import LLMCaller
 
 _MODEL_ALIAS_FAST = {"", "fast"}
 _MODEL_ALIAS_DEEP = {"deep"}

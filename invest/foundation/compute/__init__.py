@@ -1,3 +1,10 @@
+"""Stable compute-layer helpers.
+
+Legacy feature/factor/indicator functions stay available here.
+Stateful streaming indicators live in `invest.foundation.compute.indicators_v2`.
+"""
+
+from .data_adapter import filter_by_cutoff, get_date_col
 from .factors import calc_algo_score
 from .features import compute_market_stats, compute_stock_summary, summarize_stocks
 from .indicators import (
@@ -6,8 +13,6 @@ from .indicators import (
     calc_pct_change,
     calc_rsi,
     calc_volume_ratio,
-    filter_by_cutoff,
-    get_date_col,
 )
 
 __all__ = [
@@ -22,29 +27,4 @@ __all__ = [
     "calc_volume_ratio",
     "filter_by_cutoff",
     "get_date_col",
-    "AverageTrueRangeIndicator",
-    "BollingerBandsIndicator",
-    "ExponentialMovingAverageIndicator",
-    "IndicatorRegistry",
-    "MovingAverageConvergenceDivergenceIndicator",
-    "RateOfChangeIndicator",
-    "RelativeStrengthIndexIndicator",
-    "RollingWindow",
-    "SimpleMovingAverageIndicator",
-    "VolumeRatioIndicator",
-    "compute_indicator_snapshot",
 ]
-
-from .indicators_v2 import (
-    AverageTrueRangeIndicator,
-    BollingerBandsIndicator,
-    ExponentialMovingAverageIndicator,
-    IndicatorRegistry,
-    MovingAverageConvergenceDivergenceIndicator,
-    RateOfChangeIndicator,
-    RelativeStrengthIndexIndicator,
-    RollingWindow,
-    SimpleMovingAverageIndicator,
-    VolumeRatioIndicator,
-    compute_indicator_snapshot,
-)
