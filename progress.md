@@ -44,6 +44,64 @@
 - `475 tests collected`
 - `.venv/bin/python -m app.freeze_gate --mode quick` -> pass
 
+### Protocol convergence kickoff
+
+- 读取并采用技能：`pi-planning-with-files`、`verification-loop`
+- 已复核 `task_plan.md`、`findings.md`、`progress.md`
+- 已启动“协议消费方收敛与旧路径退役”5 步主线
+
+### Completed
+
+- 完成第 1 步盘点与分级：
+  - 扫描 `invest/ app/ tests/` 中 `SignalPacket.context`、`stock_summaries/raw_summaries`、`ask_stock` payload、`metadata.get(...)` 的消费点
+  - 确认主要收口点集中在：
+    - `AgentContext.metadata["confidence"]` 的显式化
+    - 模型层摘要对象显式化
+    - `ask_stock` canonical payload 与兼容顶层字段定界
+- 完成第 2 步模型层与研究层收口：
+  - `AgentContext` 新增显式 `confidence` 字段
+  - 训练选择与会议编排优先读取 `agent_context.confidence`
+  - 四个主模型改为主动构造 `StockSummaryView`，不再默认依赖契约层被动归一化
+  - 补充 `tests/test_v2_momentum_model.py`、`tests/test_v2_contracts.py` 的新契约断言
+- 完成第 3 步会议层与 Agent 层收口：
+  - `hunters/specialists/reviewers` 的核心消费签名改为 `Sequence[Mapping[str, Any]]`
+  - `StockSummaryView` 在 Agent / meeting 路径上从“兼容对象”提升为默认输入协议
+  - focused agent/meeting 回归保持通过
+- 完成第 4 步 `ask_stock` payload 定界：
+  - 新增 canonical 分区：`request`、`identifiers`、`resolved_entities`
+  - `research` 与 `analysis.model_bridge` 现在都显式携带同一组 `identifiers`
+  - 顶层 `policy_id / research_case_id / attribution_id / resolved_security` 继续保留兼容镜像
+- 完成第 5 步兼容层退役与总验收：
+  - 删除 `app/stock_analysis.py` 中 4 个无消费者的 research wrapper
+  - 完成全仓 `ruff / pyright / pytest` 验证，全部通过
+- 完成“契约彻底化 + schema 守卫化”蓝图：
+  - `AgentContext` 新增 `effective_confidence()`，selection/training 默认通过对象方法读取置信度
+  - `ask_stock` canonical sections 新增 shape 守卫测试
+  - 兼容 stub 继续支持，无需强制所有测试桩升级为完整契约对象
+
+### Verification
+
+- Focused:
+  - `.venv/bin/ruff check invest/contracts/agent_context.py invest/models/base.py invest/models/momentum.py invest/models/mean_reversion.py invest/models/defensive_low_vol.py invest/models/value_quality.py invest/meetings/selection.py app/training/selection_services.py tests/test_v2_momentum_model.py tests/test_v2_contracts.py` -> pass
+  - `.venv/bin/pyright invest/contracts/agent_context.py invest/models/base.py invest/models/momentum.py invest/models/mean_reversion.py invest/models/defensive_low_vol.py invest/models/value_quality.py invest/meetings/selection.py app/training/selection_services.py tests/test_v2_momentum_model.py tests/test_v2_contracts.py` -> 0 errors
+  - `.venv/bin/pytest -q tests/test_v2_momentum_model.py tests/test_v2_contracts.py tests/test_agent_roster.py tests/test_training_controller_services.py -q` -> pass
+- Focused (step 3):
+  - `.venv/bin/ruff check invest/agents/specialists.py invest/agents/hunters.py invest/agents/reviewers.py invest/meetings/selection.py` -> pass
+  - `.venv/bin/pyright invest/agents/specialists.py invest/agents/hunters.py invest/agents/reviewers.py invest/meetings/selection.py` -> 0 errors
+  - `.venv/bin/pytest -q tests/test_agent_roster.py tests/test_training_controller_services.py tests/test_research_training_feedback.py -q` -> pass
+- Focused (step 4):
+  - `.venv/bin/ruff check app/stock_analysis.py tests/test_ask_stock_model_bridge.py` -> pass
+  - `.venv/bin/pyright app/stock_analysis.py tests/test_ask_stock_model_bridge.py` -> 0 errors
+  - `.venv/bin/pytest -q tests/test_ask_stock_model_bridge.py tests/test_stock_analysis_react.py tests/test_commander_unified_entry.py -q` -> pass
+- Full (step 5):
+  - `.venv/bin/ruff check .` -> pass
+  - `.venv/bin/pyright .` -> 0 errors
+  - `.venv/bin/pytest -q` -> pass
+- Full (contract hardening blueprint):
+  - `.venv/bin/ruff check .` -> pass
+  - `.venv/bin/pyright .` -> 0 errors
+  - `.venv/bin/pytest -q` -> pass
+
 ## 2026-03-14
 
 ### Session start

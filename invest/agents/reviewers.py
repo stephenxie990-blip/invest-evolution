@@ -1,5 +1,5 @@
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Mapping, Optional, Sequence
 
 from invest.contracts import EvalReport
 from invest.foundation.risk import sanitize_risk_params
@@ -102,7 +102,7 @@ class StrategistAgent(InvestAgent):
             return self._review_llm(all_picks, regime)
         return self._review_algorithm(all_picks, regime)
 
-    def _review_llm(self, all_picks: List[dict], regime: dict) -> dict:
+    def _review_llm(self, all_picks: Sequence[Mapping[str, Any]], regime: dict) -> dict:
         llm = self.llm
         if llm is None:
             return self._review_algorithm(all_picks, regime)
@@ -134,7 +134,7 @@ class StrategistAgent(InvestAgent):
         logger.info(f"📊 Strategist: 风险等级 {result['risk_level']}")
         return result
 
-    def _review_algorithm(self, all_picks: List[dict], regime: dict) -> dict:
+    def _review_algorithm(self, all_picks: Sequence[Mapping[str, Any]], regime: dict) -> dict:
         regime_str = regime.get("regime", "oscillation")
         concerns, suggestions = [], []
 

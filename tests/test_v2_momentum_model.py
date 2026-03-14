@@ -2,6 +2,7 @@ import numpy as np
 import pandas as pd
 
 import invest.models.momentum as momentum_module
+from invest.contracts import StockSummaryView
 from invest.models import MomentumModel
 
 
@@ -37,6 +38,9 @@ def test_momentum_model_process_outputs_dual_channel():
     assert out.agent_context.regime in {"bull", "bear", "oscillation"}
     assert out.agent_context.stock_summaries
     assert out.agent_context.candidate_codes
+    assert out.agent_context.confidence >= 0.5
+    assert isinstance(out.agent_context.stock_summaries[0], StockSummaryView)
+    assert isinstance(out.signal_packet.context.raw_summaries[0], StockSummaryView)
 
 
 def test_momentum_model_uses_stock_batch_summary_main_path(monkeypatch):

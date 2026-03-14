@@ -1,6 +1,6 @@
 import logging
 import re
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Mapping, Optional, Sequence
 
 from invest.contracts import AgentContext
 from invest.shared.summaries import format_stock_table
@@ -151,11 +151,11 @@ class TrendHunterAgent(InvestAgent):
     def __init__(self, llm_caller=None):
         super().__init__(AgentConfig(name="TrendHunter", role="hunter"), llm_caller)
 
-    def perceive(self, data: List[dict]) -> List[dict]:
+    def perceive(self, data: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
         """感知：对全市场股票进行趋势预过滤"""
         return self.pre_filter(data)
 
-    def reason(self, perception: List[dict], context: Optional[RegimeResult] = None) -> dict:
+    def reason(self, perception: Sequence[Mapping[str, Any]], context: Optional[RegimeResult] = None) -> dict:
         """推理：结合显式上下文进行 LLM 或算法分析。"""
         regime = dict(context) if context else {"regime": "oscillation"}
         return self.analyze(perception, regime)
@@ -164,7 +164,7 @@ class TrendHunterAgent(InvestAgent):
         """行动：返回选股方案"""
         return reasoning
 
-    def pre_filter(self, summaries: List[dict], max_candidates: int = 20) -> List[dict]:
+    def pre_filter(self, summaries: Sequence[Mapping[str, Any]], max_candidates: int = 20) -> list[dict[str, Any]]:
         """
         算法预筛：从全部摘要中筛出趋势候选
 
@@ -208,7 +208,7 @@ class TrendHunterAgent(InvestAgent):
         regime = {"regime": agent_context.regime, "reasoning": agent_context.summary}
         return self.analyze(agent_context.stock_summaries, regime)
 
-    def analyze(self, candidates: List[dict], regime: dict) -> dict:
+    def analyze(self, candidates: Sequence[Mapping[str, Any]], regime: dict) -> dict:
         """LLM 精选，可选为插入历史情境记忆。"""
         if not self.llm or not candidates:
             return self._fallback_analysis(candidates)
@@ -252,7 +252,7 @@ class TrendHunterAgent(InvestAgent):
         logger.info(f"🎯 TrendHunter(LLM): 推荐{len(result['picks'])}只, 置信度{result['confidence']:.0%}")
         return result
 
-    def _fallback_analysis(self, candidates: List[dict]) -> dict:
+    def _fallback_analysis(self, candidates: Sequence[Mapping[str, Any]]) -> dict:
         """算法兜底：按趋势评分取前 5"""
         if not candidates:
             return {"picks": [], "overall_view": "无候选", "confidence": 0.0}
@@ -334,11 +334,11 @@ class ContrarianAgent(InvestAgent):
     def __init__(self, llm_caller=None):
         super().__init__(AgentConfig(name="Contrarian", role="hunter"), llm_caller)
 
-    def perceive(self, data: List[dict]) -> List[dict]:
+    def perceive(self, data: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
         """感知：对全市场股票进行超跌预过滤"""
         return self.pre_filter(data)
 
-    def reason(self, perception: List[dict], context: Optional[RegimeResult] = None) -> dict:
+    def reason(self, perception: Sequence[Mapping[str, Any]], context: Optional[RegimeResult] = None) -> dict:
         """推理：结合显式上下文进行反弹潜力分析。"""
         regime = dict(context) if context else {"regime": "oscillation"}
         return self.analyze(perception, regime)
@@ -347,7 +347,7 @@ class ContrarianAgent(InvestAgent):
         """行动：返回选股方案"""
         return reasoning
 
-    def pre_filter(self, summaries: List[dict], max_candidates: int = 15) -> List[dict]:
+    def pre_filter(self, summaries: Sequence[Mapping[str, Any]], max_candidates: int = 15) -> list[dict[str, Any]]:
         """算法预筛：RSI<40，BB位置<0.4，5日跌幅 -15%~0%"""
         candidates = []
         for s in summaries:
@@ -387,7 +387,7 @@ class ContrarianAgent(InvestAgent):
         logger.info(f"🔍 Contrarian预筛: {len(summaries)}只 → {len(result)}只超跌候选")
         return result
 
-    def analyze(self, candidates: List[dict], regime: dict) -> dict:
+    def analyze(self, candidates: Sequence[Mapping[str, Any]], regime: dict) -> dict:
         """LLM 精选，可选为插入历史情境记忆。"""
         if not self.llm or not candidates:
             return self._fallback_analysis(candidates)
@@ -431,7 +431,7 @@ class ContrarianAgent(InvestAgent):
         logger.info(f"🎯 Contrarian(LLM): 推荐{len(result['picks'])}只, 置信度{result['confidence']:.0%}")
         return result
 
-    def _fallback_analysis(self, candidates: List[dict]) -> dict:
+    def _fallback_analysis(self, candidates: Sequence[Mapping[str, Any]]) -> dict:
         """算法兜底：按反弹潜力评分取前 5"""
         if not candidates:
             return {"picks": [], "overall_view": "无候选", "confidence": 0.0}

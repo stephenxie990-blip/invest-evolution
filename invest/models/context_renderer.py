@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Dict, Iterable, List
+from typing import Any, Dict, Iterable, List, Mapping, Sequence
 
 
 def render_market_narrative(regime: str, market_stats: Dict[str, float], risk_hints: Iterable[str]) -> str:
@@ -17,7 +17,7 @@ def render_market_narrative(regime: str, market_stats: Dict[str, float], risk_hi
     return " ".join(lines)
 
 
-def render_candidate_narrative(stock_summaries: List[dict], top_codes: List[str]) -> str:
+def render_candidate_narrative(stock_summaries: Sequence[Mapping[str, Any]], top_codes: Sequence[str]) -> str:
     focus = [item for item in stock_summaries if item.get("code") in set(top_codes)]
     if not focus:
         focus = stock_summaries[:5]

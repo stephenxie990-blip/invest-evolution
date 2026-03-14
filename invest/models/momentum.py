@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List
 
-from invest.contracts import AgentContext, SignalPacket
+from invest.contracts import AgentContext, SignalPacket, SignalPacketContext
 from invest.foundation.compute.features import compute_market_stats, summarize_stock_batches
 from invest.models.base import InvestmentModel
 from invest.models.context_renderer import render_candidate_narrative, render_market_narrative
@@ -34,7 +34,7 @@ class MomentumModel(InvestmentModel):
         regime = self._resolve_regime(market_stats)
         stock_codes = list(stock_data.keys())[: int(self.param("candidate_pool_size"))]
         stock_batches = summarize_stock_batches(stock_data, stock_codes, cutoff_date, summary_scoring=self.config_section("summary_scoring", {}) or None)
-        stock_summaries = [item.summary for item in stock_batches]
+        stock_summaries = self.build_stock_summary_views(item.summary for item in stock_batches)
         top_n = max(1, int(self.param("top_n")))
         max_positions = max(1, int(self.param("max_positions", min(5, top_n))))
         stop_loss = float(self.risk_param("stop_loss_pct"))
@@ -58,12 +58,16 @@ class MomentumModel(InvestmentModel):
             cash_reserve=max(0.0, min(0.7, cash_reserve)),
             params=params,
             reasoning=f"MomentumModel 根据 {len(stock_summaries)} 只候选提取动量信号，当前 regime={regime}",
-            metadata={"market_stats": market_stats, "stock_summaries": [item.summary for item in selected], "raw_summaries": stock_summaries},
+            context=SignalPacketContext(
+                market_stats=market_stats,
+                stock_summaries=self.build_stock_summary_views(item.summary for item in selected),
+                raw_summaries=stock_summaries,
+            ),
         )
 
     def build_agent_context(self, stock_data: Dict[str, Any], cutoff_date: str, signal_packet: SignalPacket) -> AgentContext:
-        market_stats = dict(signal_packet.metadata.get("market_stats", {}))
-        stock_summaries = list(signal_packet.metadata.get("stock_summaries", []))
+        market_stats = dict(signal_packet.context.market_stats)
+        stock_summaries = list(signal_packet.context.stock_summaries)
         risk_hints = self._risk_hints(market_stats)
         summary = render_market_narrative(signal_packet.regime, market_stats, risk_hints)
         narrative = summary + " " + render_candidate_narrative(stock_summaries, signal_packet.top_codes(limit=signal_packet.max_positions))
@@ -75,6 +79,7 @@ class MomentumModel(InvestmentModel):
             summary=summary,
             narrative=narrative,
             regime=signal_packet.regime,
+            confidence=self.estimate_context_confidence(signal_packet),
             market_stats=market_stats,
             stock_summaries=stock_summaries,
             candidate_codes=signal_packet.top_codes(),

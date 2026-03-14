@@ -6,7 +6,7 @@ import pandas as pd
 
 from config import normalize_date
 from invest.foundation.compute.batch_snapshot import build_batch_indicator_snapshot, build_batch_summary
-from invest.research import ResearchHypothesis, build_dashboard_projection
+from invest.research import ResearchHypothesis, build_dashboard_projection, build_research_hypothesis
 
 
 class BatchAnalysisViewService:
@@ -254,6 +254,117 @@ class ResearchResolutionService:
             entry_conditions=list(strategy.entry_conditions),
             supplemental_reason="；".join(reason_parts),
         )
+
+    def resolve_outputs(
+        self,
+        *,
+        research_bridge: dict[str, Any],
+        question: str,
+        query: str,
+        strategy: Any,
+        strategy_source: str,
+        code: str,
+        requested_as_of_date: str,
+        effective_as_of_date: str,
+        execution: dict[str, Any],
+        derived: dict[str, Any],
+        dashboard_projection_builder: Callable[..., dict[str, Any]] = build_dashboard_projection,
+    ) -> dict[str, Any]:
+        research_payload, model_bridge_payload = self.build_research_payload_bases(
+            research_bridge=research_bridge,
+            requested_as_of_date=requested_as_of_date,
+            effective_as_of_date=effective_as_of_date,
+        )
+        if research_bridge.get("status") != "ok":
+            fallback_details = {
+                "error": str(research_bridge.get("error") or ""),
+                "fallback": "canonical_dashboard_fallback",
+                "details": dict(research_bridge.get("details") or {}),
+            }
+            research_payload.update(fallback_details)
+            model_bridge_payload.update(fallback_details)
+            return {
+                "dashboard": self.build_canonical_fallback_projection(
+                    strategy=strategy,
+                    derived=derived,
+                    execution=execution,
+                    dashboard_projection_builder=dashboard_projection_builder,
+                ),
+                "research": research_payload,
+                "model_bridge": model_bridge_payload,
+                "policy_id": "",
+                "research_case_id": "",
+                "attribution_id": "",
+            }
+
+        snapshot = research_bridge["snapshot"]
+        policy = research_bridge["policy"]
+        preliminary_stance = self.estimate_preliminary_stance(snapshot)
+        scenario = self.scenario_engine.estimate(
+            snapshot=snapshot,
+            policy=policy,
+            stance=preliminary_stance,
+        )
+        hypothesis = build_research_hypothesis(
+            snapshot=snapshot,
+            policy=policy,
+            scenario=scenario,
+            strategy_name=strategy.name,
+            strategy_display_name=strategy.display_name,
+        )
+        persistence = self.persist_research_case_artifacts(
+            snapshot=snapshot,
+            policy=policy,
+            hypothesis=hypothesis,
+            question=question,
+            query=query,
+            strategy=strategy,
+            strategy_source=strategy_source,
+            execution_mode=str(execution.get("mode") or ""),
+            code=code,
+            effective_as_of_date=effective_as_of_date,
+        )
+        policy_id = str(policy.policy_id or "")
+        research_case_id = str(persistence.get("research_case_id") or "")
+        attribution_id = str(persistence.get("attribution_id") or "")
+        model_bridge_payload.update(
+            {
+                "status": "ok",
+                "controller_bound": bool(research_bridge.get("controller_bound")),
+                "replay_mode": bool(research_bridge.get("replay_mode")),
+                "parameter_source": str(research_bridge.get("parameter_source") or ""),
+                "routing_decision": dict(research_bridge.get("routing_decision") or {}),
+                "model_output": research_bridge["model_output"].to_dict(),
+                "policy_id": policy_id,
+                "research_case_id": research_case_id,
+                "attribution_id": attribution_id,
+            }
+        )
+        research_payload.update(
+            {
+                "status": "ok",
+                "snapshot": snapshot.to_dict(),
+                "policy": policy.to_dict(),
+                "hypothesis": hypothesis.to_dict(),
+                "scenario": dict(scenario or {}),
+                "case": dict(persistence.get("case") or {}),
+                "attribution": dict(persistence.get("attribution") or {}),
+                "calibration_report": dict(persistence.get("calibration_report") or {}),
+            }
+        )
+        return {
+            "dashboard": dashboard_projection_builder(
+                hypothesis=hypothesis,
+                matched_signals=list(derived.get("matched_signals") or []),
+                core_rules=list(strategy.core_rules),
+                entry_conditions=list(strategy.entry_conditions),
+            ),
+            "research": research_payload,
+            "model_bridge": model_bridge_payload,
+            "policy_id": policy_id,
+            "research_case_id": research_case_id,
+            "attribution_id": attribution_id,
+        }
 
 
 __all__ = ["BatchAnalysisViewService", "ResearchResolutionService"]

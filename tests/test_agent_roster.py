@@ -1,3 +1,5 @@
+from typing import Any, cast
+
 from invest.contracts import AgentContext, ModelOutput, SignalPacket, StockSignal
 from invest.meetings.selection import SelectionMeeting
 
@@ -38,7 +40,7 @@ def _build_output(model_name: str, code: str):
         narrative="narrative",
         regime="oscillation",
         market_stats={"market_breadth": 0.5},
-        stock_summaries=[{"code": code, "algo_score": 0.9}],
+        stock_summaries=cast(Any, [{"code": code, "algo_score": 0.9}]),
         candidate_codes=[code],
     )
     return ModelOutput(model_name=model_name, config_name=f"{model_name}_v1", signal_packet=packet, agent_context=context)

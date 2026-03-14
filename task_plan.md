@@ -18,10 +18,30 @@
 
 ## Current Focus
 
-- 插入 `pre-v1.1 cleanup gate`，先完成仓库级代码瘦身与清洁
-- 优先清理静默异常、无日志降级、无效 `finally/pass`、可收口的兼容残壳
-- 对剩余 `late import / global state / plugin parse` 等结构异味做分桶治理
-- 清洁门通过后，再恢复 `v1.1 Module A` 的训练协议硬化主线
+- 执行“协议消费方收敛与旧路径退役”主线
+- 先完成全仓旧协议消费点盘点与分级，再按模型层、会议层、payload 边界、兼容层顺序收口
+- 优先把稳定字段从隐式 `metadata` / 裸 dict 假设迁移到显式契约对象
+- 每一步结束都更新 planning files，并做 focused verification
+
+## Protocol Convergence Plan
+
+| Step | Status | Scope | Notes |
+|---|---|---|---|
+| 1 | complete | 旧协议消费点盘点与分级 | 已确认主要债务集中在 `AgentContext.metadata["confidence"]`、模型层裸 dict 摘要、`ask_stock` payload 重复导出 |
+| 2 | complete | 模型层与研究层收口 | 已显式引入 `AgentContext.confidence`，模型层主动产出 `StockSummaryView` |
+| 3 | complete | 会议层与 Agent 层收口 | `hunters/specialists/reviewers` 已统一面向 `Sequence[Mapping]` |
+| 4 | complete | `ask_stock` payload 定界 | 已补 `request / identifiers / resolved_entities` canonical 分区，并保留顶层兼容字段 |
+| 5 | complete | 兼容层退役与全量验证 | 已删 `app/stock_analysis.py` 中 4 个无消费者 wrapper，全仓验证通过 |
+
+## Contract Hardening Blueprint
+
+| Step | Status | Scope | Notes |
+|---|---|---|---|
+| A | complete | 蓝图细化与剩余隐式契约盘点 | 已确认重点在 `ask_stock` schema 守卫、`confidence` 读取收口、兼容镜像降级 |
+| B | complete | `ask_stock` schema 守卫 | 已补 canonical section 稳定性测试 |
+| C | complete | review/training/research 隐式字段收口 | `AgentContext.effective_confidence()` 已成为默认入口 |
+| D | complete | 兼容路径降级与重复装配清理 | 已继续削薄 `stock_analysis` 兼容 wrapper |
+| E | complete | 全仓验证与结项 | `ruff / pyright / pytest` 全部通过 |
 
 ## Wave Completion Definition
 

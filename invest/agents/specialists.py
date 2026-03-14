@@ -1,5 +1,5 @@
 import logging
-from typing import List
+from typing import Any, Mapping, Sequence
 
 from invest.contracts import AgentContext
 from invest.shared.summaries import format_stock_table
@@ -8,7 +8,7 @@ from .base import AgentConfig, InvestAgent
 logger = logging.getLogger(__name__)
 
 
-def _candidate_codes(candidates: List[dict]) -> list[str]:
+def _candidate_codes(candidates: Sequence[Mapping[str, Any]]) -> list[str]:
     return [str(item.get("code") or "").strip() for item in candidates if str(item.get("code") or "").strip()]
 
 _QUALITY_SYSTEM_PROMPT = "你是价值质量分析师。你的职责是从候选股中识别估值合理、质量稳定、基本面更扎实的标的。请只输出 JSON，格式如下：{\"picks\": [{\"code\": \"股票代码\", \"score\": 0.5, \"reasoning\": \"选股理由\"}], \"confidence\": 0.5, \"overall_view\": \"总体观点\"}"
@@ -19,10 +19,10 @@ class QualityAgent(InvestAgent):
     def __init__(self, llm_caller=None):
         super().__init__(AgentConfig(name="QualityAgent", role="hunter"), llm_caller)
 
-    def perceive(self, data: List[dict]) -> List[dict]:
+    def perceive(self, data: Sequence[Mapping[str, Any]]) -> list[Mapping[str, Any]]:
         return list(data or [])
 
-    def reason(self, perception: List[dict]) -> dict:
+    def reason(self, perception: Sequence[Mapping[str, Any]]) -> dict:
         return self.analyze(perception)
 
     def act(self, reasoning: dict) -> dict:
@@ -31,7 +31,7 @@ class QualityAgent(InvestAgent):
     def analyze_context(self, agent_context: AgentContext) -> dict:
         return self.analyze(list(agent_context.stock_summaries or []), regime=agent_context.regime)
 
-    def analyze(self, candidates: List[dict], regime: str = "oscillation") -> dict:
+    def analyze(self, candidates: Sequence[Mapping[str, Any]], regime: str = "oscillation") -> dict:
         if not candidates:
             return {"picks": [], "overall_view": "无候选", "confidence": 0.0}
         if self.llm:
@@ -44,7 +44,7 @@ class QualityAgent(InvestAgent):
                 logger.debug("QualityAgent LLM failed; fallback to algorithm", exc_info=True)
         return self._fallback_analysis(candidates)
 
-    def _fallback_analysis(self, candidates: List[dict]) -> dict:
+    def _fallback_analysis(self, candidates: Sequence[Mapping[str, Any]]) -> dict:
         ranked = []
         for item in candidates:
             score = float(item.get("value_quality_score", item.get("algo_score", 0.0)) or 0.0)
@@ -68,7 +68,7 @@ class QualityAgent(InvestAgent):
             })
         return {"picks": picks, "overall_view": "价值质量优先，强调估值约束与盈利质量", "confidence": 0.55 if picks else 0.0}
 
-    def _validate(self, result: dict, valid_codes: List[str]) -> dict:
+    def _validate(self, result: dict, valid_codes: Sequence[str]) -> dict:
         valid_set = set(valid_codes)
         valid = []
         for item in result.get("picks", []):
@@ -91,10 +91,10 @@ class DefensiveAgent(InvestAgent):
     def __init__(self, llm_caller=None):
         super().__init__(AgentConfig(name="DefensiveAgent", role="hunter"), llm_caller)
 
-    def perceive(self, data: List[dict]) -> List[dict]:
+    def perceive(self, data: Sequence[Mapping[str, Any]]) -> list[Mapping[str, Any]]:
         return list(data or [])
 
-    def reason(self, perception: List[dict]) -> dict:
+    def reason(self, perception: Sequence[Mapping[str, Any]]) -> dict:
         return self.analyze(perception)
 
     def act(self, reasoning: dict) -> dict:
@@ -103,7 +103,7 @@ class DefensiveAgent(InvestAgent):
     def analyze_context(self, agent_context: AgentContext) -> dict:
         return self.analyze(list(agent_context.stock_summaries or []), regime=agent_context.regime)
 
-    def analyze(self, candidates: List[dict], regime: str = "bear") -> dict:
+    def analyze(self, candidates: Sequence[Mapping[str, Any]], regime: str = "bear") -> dict:
         if not candidates:
             return {"picks": [], "overall_view": "无候选", "confidence": 0.0}
         if self.llm:
@@ -116,7 +116,7 @@ class DefensiveAgent(InvestAgent):
                 logger.debug("DefensiveAgent LLM failed; fallback to algorithm", exc_info=True)
         return self._fallback_analysis(candidates)
 
-    def _fallback_analysis(self, candidates: List[dict]) -> dict:
+    def _fallback_analysis(self, candidates: Sequence[Mapping[str, Any]]) -> dict:
         ranked = []
         for item in candidates:
             score = float(item.get("defensive_score", item.get("algo_score", 0.0)) or 0.0)
@@ -137,7 +137,7 @@ class DefensiveAgent(InvestAgent):
             })
         return {"picks": picks, "overall_view": "优先低波、回撤可控与抗跌性更强的标的", "confidence": 0.58 if picks else 0.0}
 
-    def _validate(self, result: dict, valid_codes: List[str]) -> dict:
+    def _validate(self, result: dict, valid_codes: Sequence[str]) -> dict:
         valid_set = set(valid_codes)
         valid = []
         for item in result.get("picks", []):

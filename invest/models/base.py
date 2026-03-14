@@ -3,12 +3,12 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Iterable, Optional
 
 import yaml
 
 from config import PROJECT_ROOT
-from invest.contracts import AgentContext, ModelOutput, SignalPacket
+from invest.contracts import AgentContext, ModelOutput, SignalPacket, StockSummaryView
 from invest.models.defaults import (
     COMMON_BENCHMARK_DEFAULTS,
     COMMON_EXECUTION_DEFAULTS,
@@ -110,6 +110,18 @@ class InvestmentModel(ABC):
     def scoring_section(self) -> Dict[str, Any]:
         scoring = self.config.data.get("scoring", {}) or {}
         return dict(scoring)
+
+    @staticmethod
+    def build_stock_summary_views(items: Iterable[Dict[str, Any] | StockSummaryView]) -> list[StockSummaryView]:
+        return [StockSummaryView.from_mapping(item) for item in list(items or [])]
+
+    @staticmethod
+    def estimate_context_confidence(signal_packet: SignalPacket) -> float:
+        scores = [float(item.score) for item in list(signal_packet.signals or [])[: max(1, signal_packet.max_positions or 3)]]
+        if not scores:
+            return 0.5
+        average = sum(scores) / len(scores)
+        return round(max(0.5, min(0.95, average)), 4)
 
     @abstractmethod
     def build_signal_packet(self, stock_data: Dict[str, Any], cutoff_date: str) -> SignalPacket:

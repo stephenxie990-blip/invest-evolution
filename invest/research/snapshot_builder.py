@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Dict, Iterable
+from typing import Any, Dict, Iterable, Mapping
 
 from invest.contracts import ModelOutput
 from .contracts import ResearchSnapshot, stable_hash
@@ -38,7 +38,7 @@ def _pick_score(model_name: str, item: Dict[str, Any]) -> float | None:
     return _coerce_float(item.get("algo_score"))
 
 
-def _normalize_universe(model_name: str, stock_summaries: Iterable[Dict[str, Any]]) -> list[Dict[str, Any]]:
+def _normalize_universe(model_name: str, stock_summaries: Iterable[Mapping[str, Any]]) -> list[Dict[str, Any]]:
     ranked: list[Dict[str, Any]] = []
     for item in list(stock_summaries or []):
         row = dict(item or {})
@@ -73,11 +73,11 @@ def build_research_snapshot(
     derived_signals: Dict[str, Any] | None = None,
 ) -> ResearchSnapshot:
     signal_packet = model_output.signal_packet
-    metadata = dict(signal_packet.metadata or {})
+    packet_context = signal_packet.context
     model_name = str(signal_packet.model_name or model_output.model_name or "unknown")
     universe_rows = _normalize_universe(
         model_name,
-        metadata.get("raw_summaries") or metadata.get("stock_summaries") or [],
+        packet_context.raw_summaries or packet_context.stock_summaries or [],
     )
     selected_map = {item.code: item.to_dict() for item in list(signal_packet.signals or [])}
     summary = next((dict(item) for item in universe_rows if str(item.get("code") or "") == query_code), None)
@@ -109,7 +109,7 @@ def build_research_snapshot(
         "cash_reserve": float(signal_packet.cash_reserve or 0.0),
         "model_name": model_name,
         "config_name": str(signal_packet.config_name or model_output.config_name or "unknown"),
-        "market_stats": dict(metadata.get("market_stats") or {}),
+        "market_stats": dict(packet_context.market_stats or {}),
         "routing_context": dict(routing_context or {}),
     }
     cross_section_context = {

@@ -1,5 +1,5 @@
 import logging
-from typing import List
+from typing import Any, Mapping, Sequence
 
 
 from invest.foundation.compute.features import compute_market_stats, summarize_stocks
@@ -7,7 +7,7 @@ from invest.foundation.compute.features import compute_market_stats, summarize_s
 logger = logging.getLogger(__name__)
 
 
-def format_stock_table(summaries: List[dict]) -> str:
+def format_stock_table(summaries: Sequence[Mapping[str, Any]]) -> str:
     if not summaries:
         return "（无候选股票）"
 

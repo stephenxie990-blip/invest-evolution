@@ -49,7 +49,12 @@ def test_snapshot_builder_promotes_derived_fields_into_canonical_metadata():
     from invest.research.snapshot_builder import build_research_snapshot
 
     signal_packet = SimpleNamespace(
-        metadata={"raw_summaries": [{"code": "sh.600001", "algo_score": 0.8, "close": 10.5}]},
+        context=SimpleNamespace(
+            market_stats={"market_breadth": 0.72},
+            stock_summaries=[{"code": "sh.600001", "algo_score": 0.81, "close": 10.5}],
+            raw_summaries=[{"code": "sh.600001", "algo_score": 0.8, "close": 10.5}],
+        ),
+        metadata={"raw_summaries": [{"code": "sh.600099", "algo_score": 0.1, "close": 1.0}]},
         model_name="momentum",
         config_name="momentum_v1",
         regime="bull",
@@ -81,13 +86,20 @@ def test_snapshot_builder_promotes_derived_fields_into_canonical_metadata():
     assert metadata["matched_signals"] == ["多头排列"]
     assert metadata["latest_close"] == 10.5
     assert factor_values["rsi"] == 48.0
+    assert snapshot.market_context["market_stats"]["market_breadth"] == 0.72
+    assert snapshot.universe["summary_top5"][0]["code"] == "sh.600001"
 
 def test_snapshot_builder_discards_noncanonical_derived_fields():
     from types import SimpleNamespace
     from invest.research.snapshot_builder import build_research_snapshot
 
     signal_packet = SimpleNamespace(
-        metadata={"raw_summaries": [{"code": "sh.600001", "algo_score": 0.8, "close": 10.5}]},
+        context=SimpleNamespace(
+            market_stats={},
+            stock_summaries=[{"code": "sh.600001", "algo_score": 0.8, "close": 10.5}],
+            raw_summaries=[{"code": "sh.600001", "algo_score": 0.8, "close": 10.5}],
+        ),
+        metadata={"raw_summaries": [{"code": "sh.600099", "algo_score": 0.1, "close": 1.0}]},
         model_name="momentum",
         config_name="momentum_v1",
         regime="bull",
@@ -127,3 +139,45 @@ def test_snapshot_builder_discards_noncanonical_derived_fields():
     assert snapshot.feature_snapshot["factor_values"]["ma20"] == 10.1
     assert snapshot.feature_snapshot["factor_values"]["rsi"] == 48.0
     assert "legacy_signals" not in snapshot.feature_snapshot
+
+
+def test_snapshot_builder_prefers_signal_packet_context_over_legacy_metadata():
+    from types import SimpleNamespace
+    from invest.research.snapshot_builder import build_research_snapshot
+
+    signal_packet = SimpleNamespace(
+        context=SimpleNamespace(
+            market_stats={"market_breadth": 0.88},
+            stock_summaries=[{"code": "sh.600001", "algo_score": 0.93, "close": 11.2}],
+            raw_summaries=[{"code": "sh.600001", "algo_score": 0.93, "close": 11.2}],
+        ),
+        metadata={
+            "market_stats": {"market_breadth": 0.11},
+            "raw_summaries": [{"code": "sh.600099", "algo_score": 0.01, "close": 1.0}],
+        },
+        model_name="momentum",
+        config_name="momentum_v1",
+        regime="bull",
+        cash_reserve=0.2,
+        signals=[SimpleNamespace(code="sh.600001", to_dict=lambda: {"score": 0.9, "evidence": [], "factor_values": {}})],
+        selected_codes=["sh.600001"],
+        as_of_date="20240130",
+        reasoning="",
+    )
+    model_output = SimpleNamespace(
+        signal_packet=signal_packet,
+        model_name="momentum",
+        config_name="momentum_v1",
+        agent_context=SimpleNamespace(summary=""),
+    )
+
+    snapshot = build_research_snapshot(
+        model_output=cast(Any, model_output),
+        security={"code": "sh.600001"},
+        query_code="sh.600001",
+        stock_data={"sh.600001": []},
+        derived_signals={},
+    )
+
+    assert snapshot.market_context["market_stats"]["market_breadth"] == 0.88
+    assert snapshot.universe["summary_top5"][0]["code"] == "sh.600001"

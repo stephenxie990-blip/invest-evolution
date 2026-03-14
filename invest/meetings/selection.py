@@ -2,7 +2,7 @@ import logging
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence
 
 from invest.agents.hunters import ContrarianAgent, TrendHunterAgent
 from invest.agents.specialists import DefensiveAgent, QualityAgent
@@ -25,6 +25,19 @@ except ImportError:
     _HAS_DEBATE = False
 
 logger = logging.getLogger(__name__)
+
+
+def _agent_context_confidence(agent_context: Any, default: float) -> float:
+    resolver = getattr(agent_context, "effective_confidence", None)
+    if callable(resolver):
+        resolved: Any = resolver(default=default)
+        return float(resolved)
+    metadata: dict[str, Any] = dict(getattr(agent_context, "metadata", {}) or {})
+    explicit_confidence: Any = getattr(agent_context, "confidence", None)
+    try:
+        return float(explicit_confidence or metadata.get("confidence", default) or default)
+    except (TypeError, ValueError):
+        return float(default)
 
 
 class SelectionMeeting:
@@ -97,7 +110,7 @@ class SelectionMeeting:
     def run(
         self,
         regime: Dict[str, Any],
-        stock_summaries: List[Dict],
+        stock_summaries: Sequence[Mapping[str, Any]],
         top_n: int = 5,
     ) -> Dict[str, Any]:
         """
@@ -134,7 +147,7 @@ class SelectionMeeting:
         self.meeting_count += 1
         regime = {
             "regime": signal_packet.regime,
-            "confidence": agent_context.metadata.get("confidence", 0.6),
+            "confidence": _agent_context_confidence(agent_context, default=0.6),
             "reasoning": agent_context.summary,
             "suggested_exposure": max(
                 0.0, min(1.0, 1.0 - float(signal_packet.cash_reserve))
@@ -291,7 +304,7 @@ class SelectionMeeting:
     def _execute_single_agent(
         self,
         spec: Dict[str, Any],
-        stock_summaries: List[Dict],
+        stock_summaries: Sequence[Mapping[str, Any]],
         regime: Dict[str, Any],
         agent_context: Optional[AgentContext],
         progress_base: int,
@@ -383,7 +396,7 @@ class SelectionMeeting:
     def _execute_single_debate(
         self,
         code: str,
-        stock_info: Dict[str, Any],
+        stock_info: Mapping[str, Any],
         regime: Dict[str, Any],
     ) -> tuple[str, dict]:
         """在独立线程中对单只股票执行多空辩论。"""
@@ -409,7 +422,7 @@ class SelectionMeeting:
         self,
         top_n: int,
         regime: Dict,
-        stock_summaries: List[Dict],
+        stock_summaries: Sequence[Mapping[str, Any]],
         agent_context: Optional[AgentContext] = None,
         model_name: str = "",
     ) -> Dict:
@@ -616,7 +629,7 @@ class SelectionMeeting:
     # Internal: pure-algorithm fallback
     # ==================================================================
 
-    def _run_algorithm(self, stock_summaries: List[Dict], top_n: int) -> Dict:
+    def _run_algorithm(self, stock_summaries: Sequence[Mapping[str, Any]], top_n: int) -> Dict:
         sorted_stocks = sorted(
             stock_summaries,
             key=lambda x: x.get("algo_score", 0),

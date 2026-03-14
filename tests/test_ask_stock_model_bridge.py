@@ -200,6 +200,93 @@ def test_ask_stock_canonical_dashboard_path_does_not_require_legacy_dashboard_bu
     assert payload["dashboard"]["signal"] == payload["research"]["hypothesis"]["stance"]
 
 
+def test_ask_stock_payload_keeps_research_and_model_bridge_boundaries_stable(tmp_path: Path):
+    controller = SimpleNamespace(
+        model_name="momentum",
+        model_config_path=str(resolve_model_config_path("momentum")),
+        current_params={},
+        model_routing_enabled=False,
+        model_routing_mode="off",
+        model_routing_allowed_models=["momentum"],
+        experiment_allowed_models=[],
+        allocator_top_n=3,
+        output_dir=tmp_path / "runtime" / "outputs" / "training",
+    )
+    service = _build_service(tmp_path, controller=controller)
+
+    payload = service.ask_stock(question="请分析 Alpha", query="Alpha")
+
+    assert payload["analysis"]["model_bridge"]["status"] == "ok"
+    assert "snapshot" not in payload["analysis"]["model_bridge"]
+    assert "policy" not in payload["analysis"]["model_bridge"]
+    assert payload["research"]["status"] == "ok"
+    assert payload["research"]["snapshot"]["security"]["code"] == "sh.600001"
+    assert payload["research"]["policy"]["policy_id"] == payload["policy_id"]
+    assert payload["analysis"]["model_bridge"]["policy_id"] == payload["policy_id"]
+
+
+def test_ask_stock_payload_exposes_canonical_request_and_identifier_sections(tmp_path: Path):
+    controller = SimpleNamespace(
+        model_name="momentum",
+        model_config_path=str(resolve_model_config_path("momentum")),
+        current_params={},
+        model_routing_enabled=False,
+        model_routing_mode="off",
+        model_routing_allowed_models=["momentum"],
+        experiment_allowed_models=[],
+        allocator_top_n=3,
+        output_dir=tmp_path / "runtime" / "outputs" / "training",
+    )
+    service = _build_service(tmp_path, controller=controller)
+
+    payload = service.ask_stock(question="请分析 Alpha", query="Alpha", as_of_date="20240130")
+
+    assert payload["request"]["question"] == "请分析 Alpha"
+    assert payload["request"]["query"] == "Alpha"
+    assert payload["request"]["normalized_query"] == payload["normalized_query"]
+    assert payload["request"]["requested_as_of_date"] == payload["requested_as_of_date"]
+    assert payload["request"]["as_of_date"] == payload["as_of_date"]
+    assert payload["identifiers"]["policy_id"] == payload["policy_id"]
+    assert payload["identifiers"]["research_case_id"] == payload["research_case_id"]
+    assert payload["identifiers"]["attribution_id"] == payload["attribution_id"]
+    assert payload["research"]["identifiers"] == payload["identifiers"]
+    assert payload["analysis"]["model_bridge"]["identifiers"] == payload["identifiers"]
+    assert payload["resolved_entities"]["security"] == payload["resolved_security"]
+
+
+def test_ask_stock_payload_canonical_sections_keep_stable_shape(tmp_path: Path):
+    controller = SimpleNamespace(
+        model_name="momentum",
+        model_config_path=str(resolve_model_config_path("momentum")),
+        current_params={},
+        model_routing_enabled=False,
+        model_routing_mode="off",
+        model_routing_allowed_models=["momentum"],
+        experiment_allowed_models=[],
+        allocator_top_n=3,
+        output_dir=tmp_path / "runtime" / "outputs" / "training",
+    )
+    service = _build_service(tmp_path, controller=controller)
+
+    payload = service.ask_stock(question="请分析 Alpha", query="Alpha")
+
+    assert sorted(payload["request"].keys()) == [
+        "as_of_date",
+        "normalized_query",
+        "query",
+        "question",
+        "requested_as_of_date",
+    ]
+    assert sorted(payload["identifiers"].keys()) == [
+        "attribution_id",
+        "policy_id",
+        "research_case_id",
+    ]
+    assert sorted(payload["resolved_entities"].keys()) == ["security"]
+    assert "identifiers" in payload["research"]
+    assert "identifiers" in payload["analysis"]["model_bridge"]
+
+
 def test_ask_stock_fallback_path_uses_canonical_fallback_contract(tmp_path: Path):
     service = _build_service(tmp_path)
     service._build_research_bridge = lambda **kwargs: {

@@ -19,6 +19,19 @@ class TrainingSelectionResult:
     agent_used: bool
 
 
+def _agent_context_confidence(agent_context: Any, default: float) -> float:
+    resolver = getattr(agent_context, "effective_confidence", None)
+    if callable(resolver):
+        resolved: Any = resolver(default=default)
+        return float(resolved)
+    metadata: dict[str, Any] = dict(getattr(agent_context, "metadata", {}) or {})
+    explicit_confidence: Any = getattr(agent_context, "confidence", None)
+    try:
+        return float(explicit_confidence or metadata.get("confidence", default) or default)
+    except (TypeError, ValueError):
+        return float(default)
+
+
 class TrainingSelectionService:
     """Owns model output extraction and selection-meeting orchestration."""
 
@@ -187,7 +200,7 @@ class TrainingSelectionService:
             "regime": routing_snapshot.get("regime") or signal_packet.regime,
             "confidence": float(
                 routing_snapshot.get("regime_confidence")
-                or agent_context.metadata.get("confidence", 0.72)
+                or _agent_context_confidence(agent_context, default=0.72)
                 or 0.72
             ),
             "reasoning": routing_snapshot.get("reasoning") or agent_context.summary,

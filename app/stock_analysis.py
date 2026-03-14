@@ -27,7 +27,6 @@ from invest.research import (
     ResearchCaseStore,
     ResearchScenarioEngine,
     build_dashboard_projection,
-    build_research_hypothesis,
     build_research_snapshot,
     resolve_policy_snapshot,
 )
@@ -665,18 +664,34 @@ class StockAnalysisService:
         research_case_id: str,
         attribution_id: str,
     ) -> dict[str, Any]:
+        requested_as_of_date = self._normalize_as_of_date(as_of_date)
+        identifiers = {
+            "policy_id": policy_id,
+            "research_case_id": research_case_id,
+            "attribution_id": attribution_id,
+        }
+        request = {
+            "question": question,
+            "query": query,
+            "normalized_query": code,
+            "requested_as_of_date": requested_as_of_date,
+            "as_of_date": effective_as_of_date,
+        }
         return {
             "status": "ok",
             "question": question,
             "query": query,
             "normalized_query": code,
             "as_of_date": effective_as_of_date,
-            "requested_as_of_date": self._normalize_as_of_date(as_of_date),
+            "requested_as_of_date": requested_as_of_date,
             "policy_id": policy_id,
             "research_case_id": research_case_id,
             "attribution_id": attribution_id,
+            "request": request,
+            "identifiers": dict(identifiers),
             "resolved": security,
             "resolved_security": security,
+            "resolved_entities": {"security": security},
             "entrypoint": build_bounded_entrypoint(
                 kind="commander_tool_service",
                 runtime_tool="invest_ask_stock",
@@ -723,51 +738,11 @@ class StockAnalysisService:
                 "tool_results": execution["results"],
                 "result_sequence": execution["result_sequence"],
                 "derived_signals": derived,
-                "model_bridge": model_bridge_payload,
+                "model_bridge": {**dict(model_bridge_payload), "identifiers": dict(identifiers)},
             },
-            "research": research_payload,
+            "research": {**dict(research_payload), "identifiers": dict(identifiers)},
             "dashboard": dashboard,
         }
-
-    def _build_research_payload_bases(
-        self,
-        *,
-        research_bridge: dict[str, Any],
-        requested_as_of_date: str,
-        effective_as_of_date: str,
-    ) -> tuple[dict[str, Any], dict[str, Any]]:
-        return self.research_resolution_service.build_research_payload_bases(
-            research_bridge=research_bridge,
-            requested_as_of_date=requested_as_of_date,
-            effective_as_of_date=effective_as_of_date,
-        )
-
-    def _persist_research_case_artifacts(
-        self,
-        *,
-        snapshot: Any,
-        policy: Any,
-        hypothesis: Any,
-        question: str,
-        query: str,
-        strategy: StockAnalysisStrategy,
-        strategy_source: str,
-        execution_mode: str,
-        code: str,
-        effective_as_of_date: str,
-    ) -> dict[str, Any]:
-        return self.research_resolution_service.persist_research_case_artifacts(
-            snapshot=snapshot,
-            policy=policy,
-            hypothesis=hypothesis,
-            question=question,
-            query=query,
-            strategy=strategy,
-            strategy_source=strategy_source,
-            execution_mode=execution_mode,
-            code=code,
-            effective_as_of_date=effective_as_of_date,
-        )
 
     def _resolve_ask_stock_research_outputs(
         self,
@@ -792,108 +767,17 @@ class StockAnalysisService:
             days=days,
             derived=derived,
         )
-        research_payload, model_bridge_payload = self._build_research_payload_bases(
+        return self.research_resolution_service.resolve_outputs(
             research_bridge=research_bridge,
-            requested_as_of_date=requested_as_of_date,
-            effective_as_of_date=effective_as_of_date,
-        )
-        if research_bridge.get("status") != "ok":
-            fallback_details = {
-                "error": str(research_bridge.get("error") or ""),
-                "fallback": "canonical_dashboard_fallback",
-                "details": dict(research_bridge.get("details") or {}),
-            }
-            research_payload.update(fallback_details)
-            model_bridge_payload.update(fallback_details)
-            return {
-                "dashboard": self._build_canonical_fallback_projection(
-                    strategy=strategy,
-                    derived=derived,
-                    execution=execution,
-                ),
-                "research": research_payload,
-                "model_bridge": model_bridge_payload,
-                "policy_id": "",
-                "research_case_id": "",
-                "attribution_id": "",
-            }
-
-        snapshot = research_bridge["snapshot"]
-        policy = research_bridge["policy"]
-        preliminary_stance = self._estimate_preliminary_stance(snapshot)
-        scenario = self.scenario_engine.estimate(snapshot=snapshot, policy=policy, stance=preliminary_stance)
-        hypothesis = build_research_hypothesis(
-            snapshot=snapshot,
-            policy=policy,
-            scenario=scenario,
-            strategy_name=strategy.name,
-            strategy_display_name=strategy.display_name,
-        )
-        persistence = self._persist_research_case_artifacts(
-            snapshot=snapshot,
-            policy=policy,
-            hypothesis=hypothesis,
             question=question,
             query=query,
             strategy=strategy,
             strategy_source=strategy_source,
-            execution_mode=str(execution.get("mode") or ""),
             code=code,
+            requested_as_of_date=requested_as_of_date,
             effective_as_of_date=effective_as_of_date,
-        )
-        policy_id = str(policy.policy_id or "")
-        research_case_id = str(persistence.get("research_case_id") or "")
-        attribution_id = str(persistence.get("attribution_id") or "")
-        model_bridge_payload.update(
-            {
-                "status": "ok",
-                "controller_bound": bool(research_bridge.get("controller_bound")),
-                "replay_mode": bool(research_bridge.get("replay_mode")),
-                "parameter_source": str(research_bridge.get("parameter_source") or ""),
-                "routing_decision": dict(research_bridge.get("routing_decision") or {}),
-                "model_output": research_bridge["model_output"].to_dict(),
-                "policy_id": policy_id,
-                "research_case_id": research_case_id,
-                "attribution_id": attribution_id,
-            }
-        )
-        research_payload.update(
-            {
-                "status": "ok",
-                "snapshot": snapshot.to_dict(),
-                "policy": policy.to_dict(),
-                "hypothesis": hypothesis.to_dict(),
-                "scenario": dict(scenario or {}),
-                "case": dict(persistence.get("case") or {}),
-                "attribution": dict(persistence.get("attribution") or {}),
-                "calibration_report": dict(persistence.get("calibration_report") or {}),
-            }
-        )
-        return {
-            "dashboard": build_dashboard_projection(
-                hypothesis=hypothesis,
-                matched_signals=list(derived.get("matched_signals") or []),
-                core_rules=list(strategy.core_rules),
-                entry_conditions=list(strategy.entry_conditions),
-            ),
-            "research": research_payload,
-            "model_bridge": model_bridge_payload,
-            "policy_id": policy_id,
-            "research_case_id": research_case_id,
-            "attribution_id": attribution_id,
-        }
-
-    def _build_canonical_fallback_projection(
-        self,
-        *,
-        strategy: StockAnalysisStrategy,
-        derived: dict[str, Any],
-        execution: dict[str, Any],
-    ) -> dict[str, Any]:
-        return self.research_resolution_service.build_canonical_fallback_projection(
-            strategy=strategy,
-            derived=derived,
             execution=execution,
+            derived=derived,
             dashboard_projection_builder=build_dashboard_projection,
         )
 
@@ -962,10 +846,6 @@ class StockAnalysisService:
             query_frame = query_frame.sort_values("trade_date").reset_index(drop=True)
         enriched[code] = query_frame
         return enriched
-
-    @staticmethod
-    def _estimate_preliminary_stance(snapshot: Any) -> str:
-        return ResearchResolutionService.estimate_preliminary_stance(snapshot)
 
     def _build_research_bridge(
         self,

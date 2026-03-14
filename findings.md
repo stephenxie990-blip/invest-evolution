@@ -98,3 +98,16 @@
 - 后续实践证明，上面的判断是对的：`web_ops_routes` 适合直接上提，而 `market_data` 则更适合抽成显式 loader/helper，而不是强行提前导入可选依赖。
 - `app/training/runtime_hooks.py` 的引入为 training 子系统提供了一个干净的 runtime seam，既消除了 `lifecycle_services -> app.train` 的反向依赖，又保留了 `app.train` 的兼容导出面。
 - `market_data` 的剩余 `PLC0415` 全部清零后，说明这批债务已经从“代码风格问题”升级为了“依赖加载策略问题”；用显式 loader 表达可选依赖，比散落局部 import 更清晰也更可测试。
+
+### Protocol convergence findings
+
+- 目前真正还在漂移的，不再是 `SignalPacket.metadata` 对 `raw_summaries` 的直接消费，而是“稳定字段仍通过隐式 metadata 传递”的尾巴；最明确的一处是 `AgentContext.metadata["confidence"]`。
+- 模型层已经把 `market_stats / stock_summaries / raw_summaries` 写入 `SignalPacket.context`，但不少调用仍以“先构造裸 dict，再让契约对象被动归一化”的方式工作，语义上还不够显式。
+- 会议层与 Agent 层已经能消费 `StockSummaryView`，但对“显式置信度字段”的依赖还没建起来，所以仍存在 `metadata.get("confidence")` 这种弱协议读取。
+- `ask_stock` 当前最大问题不是结构缺失，而是“稳定研究协议”和“兼容顶层字段”混在一起导出；需要保留兼容，但要把 canonical payload 讲清楚。
+
+### Contract hardening findings
+
+- `AgentContext.effective_confidence()` 这种“对象自带兼容解析”的方法，比在 selection/training 里散落 `metadata.get("confidence")` 更稳，也更适合后续继续退役 metadata fallback。
+- `ask_stock` 这类外部 payload 的收口不能只停在“字段存在”，还需要测试 canonical section 的 shape；否则后续很容易在无意中把顶层兼容字段重新当主协议使用。
+- 当前顶层 `policy_id / research_case_id / attribution_id / resolved_security` 仍值得保留，但已经应该被视为“兼容镜像”，不是未来新增调用方的默认入口。
