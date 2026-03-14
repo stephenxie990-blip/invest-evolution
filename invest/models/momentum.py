@@ -2,10 +2,11 @@ from __future__ import annotations
 
 from typing import Any, Dict, List
 
-from invest.contracts import AgentContext, SignalPacket, StockSignal
+from invest.contracts import AgentContext, SignalPacket
 from invest.foundation.compute.features import compute_market_stats, summarize_stock_batches
 from invest.models.base import InvestmentModel
 from invest.models.context_renderer import render_candidate_narrative, render_market_narrative
+from invest.models.scorers import MomentumScorer
 
 
 class MomentumModel(InvestmentModel):
@@ -39,34 +40,11 @@ class MomentumModel(InvestmentModel):
         stop_loss = float(self.risk_param("stop_loss_pct"))
         take_profit = float(self.risk_param("take_profit_pct"))
         trailing_pct = self.risk_param("trailing_pct")
-        selected = stock_summaries[:top_n]
+        selected = stock_batches[:top_n]
+        scorer = MomentumScorer()
         signals = []
         for idx, item in enumerate(selected, start=1):
-            evidence = [
-                f"algo_score={item.get('algo_score', 0):.3f}",
-                f"change_20d={item.get('change_20d', 0):+.2f}%",
-                f"MACD={item.get('macd', '中性')}",
-            ]
-            signals.append(
-                StockSignal(
-                    code=item["code"],
-                    score=float(item.get("algo_score", 0.0)),
-                    rank=idx,
-                    weight_hint=round(1 / max(top_n, 1), 3),
-                    stop_loss_pct=stop_loss,
-                    take_profit_pct=take_profit,
-                    trailing_pct=float(trailing_pct) if trailing_pct is not None else None,
-                    factor_values={
-                        "change_5d": float(item.get("change_5d", 0.0)),
-                        "change_20d": float(item.get("change_20d", 0.0)),
-                        "rsi": float(item.get("rsi", 50.0)),
-                        "bb_pos": float(item.get("bb_pos", 0.5)),
-                        "vol_ratio": float(item.get("vol_ratio", 1.0)),
-                    },
-                    evidence=evidence,
-                    metadata={"ma_trend": item.get("ma_trend"), "macd": item.get("macd")},
-                )
-            )
+            signals.append(scorer.build_signal(item, idx=idx, top_n=top_n, stop_loss=stop_loss, take_profit=take_profit, trailing_pct=trailing_pct))
 
         cash_reserve = float(self.param("cash_reserve"))
         return SignalPacket(
@@ -80,7 +58,7 @@ class MomentumModel(InvestmentModel):
             cash_reserve=max(0.0, min(0.7, cash_reserve)),
             params=params,
             reasoning=f"MomentumModel 根据 {len(stock_summaries)} 只候选提取动量信号，当前 regime={regime}",
-            metadata={"market_stats": market_stats, "stock_summaries": stock_summaries},
+            metadata={"market_stats": market_stats, "stock_summaries": [item.summary for item in selected], "raw_summaries": stock_summaries},
         )
 
     def build_agent_context(self, stock_data: Dict[str, Any], cutoff_date: str, signal_packet: SignalPacket) -> AgentContext:

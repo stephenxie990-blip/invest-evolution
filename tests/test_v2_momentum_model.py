@@ -1,6 +1,7 @@
 import numpy as np
 import pandas as pd
 
+import invest.models.momentum as momentum_module
 from invest.models import MomentumModel
 
 
@@ -36,3 +37,22 @@ def test_momentum_model_process_outputs_dual_channel():
     assert out.agent_context.regime in {"bull", "bear", "oscillation"}
     assert out.agent_context.stock_summaries
     assert out.agent_context.candidate_codes
+
+
+def test_momentum_model_uses_stock_batch_summary_main_path(monkeypatch):
+    model = MomentumModel(runtime_overrides={"top_n": 2, "max_positions": 2})
+    stock_data = _make_stock_data(n=3, days=80)
+    calls = {"count": 0}
+
+    original = momentum_module.summarize_stock_batches
+
+    def _wrapped(*args, **kwargs):
+        calls["count"] += 1
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(momentum_module, "summarize_stock_batches", _wrapped)
+
+    out = model.process(stock_data, "20230601")
+
+    assert calls["count"] == 1
+    assert out.signal_packet.signals

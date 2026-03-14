@@ -3,9 +3,11 @@ from __future__ import annotations
 from typing import Any, Dict, List
 
 from invest.contracts import AgentContext, SignalPacket, StockSignal
+from invest.foundation.compute.batch_snapshot import StockBatchSummary
 from invest.foundation.compute.features import compute_market_stats, summarize_stock_batches
 from invest.models.base import InvestmentModel
 from invest.models.context_renderer import render_market_narrative
+from invest.models.scorers import DefensiveLowVolScorer
 
 
 class DefensiveLowVolModel(InvestmentModel):
@@ -30,56 +32,8 @@ class DefensiveLowVolModel(InvestmentModel):
             hints.append("市场广度偏弱，保留更高现金储备")
         return hints
 
-    def _defensive_score(self, item: Dict[str, Any]) -> float:
-        volatility = float(item.get("volatility", 0.0))
-        rsi = float(item.get("rsi", 50.0))
-        change_20d = float(item.get("change_20d", 0.0))
-        change_5d = float(item.get("change_5d", 0.0))
-        bb_pos = float(item.get("bb_pos", 0.5))
-        vol_ratio = float(item.get("vol_ratio", 1.0))
-        ma_trend = str(item.get("ma_trend", "交叉"))
-        scoring = self.scoring_section()
-        weights = dict(scoring.get("weights", {}))
-        bands = dict(scoring.get("bands", {}))
-        penalties = dict(scoring.get("penalties", {}))
-
-        max_volatility = float(self.param("max_volatility", 0.035))
-        preferred_rsi_low = float(self.param("preferred_rsi_low", 42.0))
-        preferred_rsi_high = float(self.param("preferred_rsi_high", 62.0))
-        min_change_20d = float(self.param("min_change_20d", -2.0))
-        max_change_20d = float(self.param("max_change_20d", 12.0))
-        rsi_soft_low = float(bands.get("rsi_soft_low", 35.0))
-        rsi_soft_high = float(bands.get("rsi_soft_high", 70.0))
-        change_5d_low = float(bands.get("change_5d_low", -2.0))
-        change_5d_high = float(bands.get("change_5d_high", 4.0))
-        bb_pos_low = float(bands.get("bb_pos_low", 0.35))
-        bb_pos_high = float(bands.get("bb_pos_high", 0.75))
-        vol_ratio_low = float(bands.get("vol_ratio_low", 0.8))
-        vol_ratio_high = float(bands.get("vol_ratio_high", 1.5))
-
-        score = 0.0
-        score += max(0.0, (max_volatility - min(volatility, max_volatility)) / max_volatility) * float(weights.get("low_volatility", 0.35))
-        if preferred_rsi_low <= rsi <= preferred_rsi_high:
-            score += float(weights.get("preferred_rsi", 0.20))
-        elif rsi_soft_low <= rsi < preferred_rsi_low or preferred_rsi_high < rsi <= rsi_soft_high:
-            score += float(weights.get("soft_rsi", 0.08))
-        else:
-            score -= float(penalties.get("bad_rsi", 0.08))
-        if min_change_20d <= change_20d <= max_change_20d:
-            score += float(weights.get("change_20d_band", 0.15))
-        elif change_20d < min_change_20d:
-            score -= float(penalties.get("weak_change_20d", 0.08))
-        if change_5d_low <= change_5d <= change_5d_high:
-            score += float(weights.get("change_5d_band", 0.10))
-        if ma_trend == "多头":
-            score += float(weights.get("bullish_trend", 0.12))
-        elif ma_trend == "空头":
-            score -= float(penalties.get("bearish_trend", 0.08))
-        if bb_pos_low <= bb_pos <= bb_pos_high:
-            score += float(weights.get("bb_band", 0.05))
-        if vol_ratio_low <= vol_ratio <= vol_ratio_high:
-            score += float(weights.get("volume_ratio_band", 0.03))
-        return round(score, 4)
+    def _defensive_score(self, item: StockBatchSummary | Dict[str, Any]) -> float:
+        return DefensiveLowVolScorer(self).score(item)
 
     def build_signal_packet(self, stock_data: Dict[str, Any], cutoff_date: str) -> SignalPacket:
         params = self.effective_params()
@@ -90,10 +44,11 @@ class DefensiveLowVolModel(InvestmentModel):
         stock_summaries = [item.summary for item in stock_batches]
         min_score = float(self.param("min_defensive_score", 0.15))
         selected_pool: List[Dict[str, Any]] = []
-        for item in stock_summaries:
-            score = self._defensive_score(item)
+        scorer = DefensiveLowVolScorer(self)
+        for item in stock_batches:
+            score = scorer.score(item)
             if score >= min_score:
-                enriched = dict(item)
+                enriched = dict(item.summary)
                 enriched["defensive_score"] = score
                 selected_pool.append(enriched)
         selected_pool.sort(

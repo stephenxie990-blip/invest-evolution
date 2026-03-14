@@ -2,6 +2,7 @@ from .base import InvestmentModel, ModelConfig
 from .defensive_low_vol import DefensiveLowVolModel
 from .mean_reversion import MeanReversionModel
 from .momentum import MomentumModel
+from .scorers import DefensiveLowVolScorer, MeanReversionScorer, MomentumScorer, ValueQualityScorer
 from .value_quality import ValueQualityModel
 from .registry import create_investment_model, list_models, resolve_model_config_path
 
@@ -12,6 +13,10 @@ __all__ = [
     "MeanReversionModel",
     "ValueQualityModel",
     "DefensiveLowVolModel",
+    "MomentumScorer",
+    "MeanReversionScorer",
+    "ValueQualityScorer",
+    "DefensiveLowVolScorer",
     "create_investment_model",
     "list_models",
     "resolve_model_config_path",

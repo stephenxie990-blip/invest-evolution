@@ -25,14 +25,13 @@ from invest.models import create_investment_model, resolve_model_config_path
 from invest.research import (
     ResearchAttributionEngine,
     ResearchCaseStore,
-    ResearchHypothesis,
     ResearchScenarioEngine,
     build_dashboard_projection,
     build_research_hypothesis,
     build_research_snapshot,
     resolve_policy_snapshot,
 )
-from invest.foundation.compute.batch_snapshot import build_batch_indicator_snapshot, build_batch_summary
+from app.stock_analysis_services import BatchAnalysisViewService, ResearchResolutionService
 from market_data import DataManager
 from market_data.repository import MarketDataRepository
 
@@ -168,6 +167,13 @@ class StockAnalysisService:
         self.case_store = ResearchCaseStore(self._runtime_state_dir)
         self.scenario_engine = ResearchScenarioEngine(self.case_store)
         self.attribution_engine = ResearchAttributionEngine(self.repository)
+        self.batch_analysis_service = BatchAnalysisViewService(humanize_macd_cross=self._humanize_macd_cross)
+        self.research_resolution_service = ResearchResolutionService(
+            case_store=self.case_store,
+            scenario_engine=self.scenario_engine,
+            attribution_engine=self.attribution_engine,
+            logger=logger,
+        )
 
     def list_strategies(self) -> list[dict[str, Any]]:
         items: list[dict[str, Any]] = []
@@ -228,6 +234,16 @@ class StockAnalysisService:
             "artifacts": {"trade_date": row.get("trade_date")},
         }
 
+    @staticmethod
+    def _empty_snapshot() -> dict[str, Any]:
+        return BatchAnalysisViewService.empty_snapshot()
+
+    def _build_batch_analysis_context(self, frame: pd.DataFrame, code: str) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
+        return self.batch_analysis_service.build_batch_analysis_context(frame, code)
+
+    def _view_from_snapshot(self, summary: dict[str, Any], snapshot: dict[str, Any]) -> dict[str, Any]:
+        return self.batch_analysis_service.view_from_snapshot(summary, snapshot)
+
     def analyze_trend(self, query: str, *, days: int = 120) -> dict[str, Any]:
         code, security = self.resolve_security(query)
         frame = self._get_stock_frame(code)
@@ -241,70 +257,22 @@ class StockAnalysisService:
                 "artifacts": {},
             }
         frame = frame.tail(max(30, int(days)))
-        cutoff = normalize_date(str(frame["trade_date"].max()))
-        batch = build_batch_indicator_snapshot(frame, cutoff)
-        summary = build_batch_summary(frame, code, cutoff) or {}
-        snapshot = dict(batch.streaming_snapshot) if batch is not None else {
-            "samples": 0,
-            "latest_trade_date": None,
-            "latest_close": None,
-            "indicators": {},
-            "ready": False,
-        }
-        indicators = dict(snapshot.get("indicators") or {})
-        macd = dict(indicators.get("macd_12_26_9") or {})
-        boll = dict(indicators.get("bollinger_20") or {})
-        latest = float(snapshot.get("latest_close") or 0.0)
-        ma5 = float(indicators.get("sma_5") or latest or 0.0)
-        ma10 = float(indicators.get("sma_10") or latest or 0.0)
-        ma20 = float(indicators.get("sma_20") or latest or 0.0)
-        ma60 = float(indicators.get("sma_60") or ma20 or 0.0)
-        volume_ratio = indicators.get("volume_ratio_5_20")
-        rsi = float(indicators.get("rsi_14") or summary.get("rsi") or 50.0)
-        ma_stack = str(indicators.get("ma_stack") or "mixed")
-        macd_cross = str(macd.get("cross") or "neutral")
-        signal = "observe"
-        if ma_stack == "bullish" and macd_cross in {"golden_cross", "bullish"}:
-            signal = "bullish"
-        elif ma_stack == "bearish" and macd_cross in {"dead_cross", "bearish"}:
-            signal = "bearish"
-        structure = "range"
-        if latest > ma20 and ma20 >= ma60:
-            structure = "uptrend"
-        elif latest < ma20 and ma20 <= ma60:
-            structure = "downtrend"
-        summary.update({
-            "close": round(latest, 2) if latest else summary.get("close"),
-            "rsi": round(rsi, 1),
-            "macd": self._humanize_macd_cross(macd_cross),
-            "ma_trend": "多头" if ma_stack == "bullish" else "空头" if ma_stack == "bearish" else "交叉",
-            "bb_pos": boll.get("position", summary.get("bb_pos", 0.5)),
-            "vol_ratio": volume_ratio if volume_ratio is not None else summary.get("vol_ratio"),
-        })
+        summary, snapshot, meta = self._build_batch_analysis_context(frame, code)
+        view = self._view_from_snapshot(summary, snapshot)
+        trend = view["trend"]
         return {
             "status": "ok",
             "query": query,
             "security": security,
             "code": code,
-            "signal": signal,
-            "structure": structure,
-            "summary": summary,
+            "signal": view["signal"],
+            "structure": view["structure"],
+            "summary": view["summary"],
             "indicator_snapshot": snapshot,
-            "trend": {
-                "latest_close": round(latest, 2) if latest else None,
-                "ma5": round(ma5, 2) if ma5 else None,
-                "ma10": round(ma10, 2) if ma10 else None,
-                "ma20": round(ma20, 2) if ma20 else None,
-                "ma60": round(ma60, 2) if ma60 else None,
-                "volume_ratio": round(float(volume_ratio), 3) if volume_ratio is not None else None,
-                "macd_cross": macd_cross,
-                "rsi_14": round(rsi, 2),
-                "bollinger_position": boll.get("position"),
-                "atr_14": indicators.get("atr_14"),
-            },
-            "observation_summary": f"趋势={signal}, 结构={structure}, MA20={ma20:.2f}, RSI={rsi:.1f}",
+            "trend": trend,
+            "observation_summary": f"趋势={view['signal']}, 结构={view['structure']}, MA20={trend.get('ma20', 0.0):.2f}, RSI={trend.get('rsi_14', 50.0):.1f}",
             "next_actions": ["结合支撑阻力、资金流和最新价格生成结论"],
-            "artifacts": {"cutoff_date": cutoff, "latest_trade_date": snapshot.get("latest_trade_date")},
+            "artifacts": {"cutoff_date": meta["cutoff"], "latest_trade_date": snapshot.get("latest_trade_date")},
         }
 
     def get_indicator_snapshot(self, query: str, *, days: int = 180) -> dict[str, Any]:
@@ -320,14 +288,7 @@ class StockAnalysisService:
                 "artifacts": {},
             }
         frame = frame.tail(max(30, int(days)))
-        batch = build_batch_indicator_snapshot(frame, normalize_date(str(frame["trade_date"].max())))
-        snapshot = dict(batch.streaming_snapshot) if batch is not None else {
-            "samples": 0,
-            "latest_trade_date": None,
-            "latest_close": None,
-            "indicators": {},
-            "ready": False,
-        }
+        _, snapshot, _ = self._build_batch_analysis_context(frame, code)
         indicators = dict(snapshot.get("indicators") or {})
         return {
             "status": "ok",
@@ -370,14 +331,7 @@ class StockAnalysisService:
                 "next_actions": ["检查行情数据完整性"],
                 "artifacts": {},
             }
-        batch = build_batch_indicator_snapshot(frame, normalize_date(str(frame["trade_date"].max())))
-        snapshot = dict(batch.streaming_snapshot) if batch is not None else {
-            "samples": 0,
-            "latest_trade_date": None,
-            "latest_close": None,
-            "indicators": {},
-            "ready": False,
-        }
+        _, snapshot, _ = self._build_batch_analysis_context(frame, code)
         indicators = dict(snapshot.get("indicators") or {})
         latest_close = float(snapshot.get("latest_close") or closes.iloc[-1] or 0.0)
         support_20 = float(lows.tail(20).min()) if len(lows) >= 20 else float(lows.min())
@@ -782,13 +736,11 @@ class StockAnalysisService:
         requested_as_of_date: str,
         effective_as_of_date: str,
     ) -> tuple[dict[str, Any], dict[str, Any]]:
-        status = str(research_bridge.get("status") or "unavailable")
-        base_payload = {
-            "status": status,
-            "requested_as_of_date": self._normalize_as_of_date(requested_as_of_date),
-            "as_of_date": effective_as_of_date,
-        }
-        return dict(base_payload), dict(base_payload)
+        return self.research_resolution_service.build_research_payload_bases(
+            research_bridge=research_bridge,
+            requested_as_of_date=requested_as_of_date,
+            effective_as_of_date=effective_as_of_date,
+        )
 
     def _persist_research_case_artifacts(
         self,
@@ -804,57 +756,18 @@ class StockAnalysisService:
         code: str,
         effective_as_of_date: str,
     ) -> dict[str, Any]:
-        case_record = None
-        attribution_preview = None
-        attribution_record = None
-        calibration_report = None
-        research_case_id = ""
-        attribution_id = ""
-        try:
-            case_record = self.case_store.save_case(
-                snapshot=snapshot,
-                policy=policy,
-                hypothesis=hypothesis,
-                metadata={
-                    "question": question,
-                    "query": query,
-                    "strategy": strategy.name,
-                    "strategy_source": strategy_source,
-                    "execution_mode": execution_mode,
-                },
-            )
-            research_case_id = str(case_record.get("research_case_id") or "")
-            attribution = self.attribution_engine.evaluate_case(case_record)
-            attribution_preview = attribution.to_dict()
-            has_scored_horizon = any(
-                str((result or {}).get("label") or "") != "timeout"
-                for result in dict(attribution.horizon_results or {}).values()
-            )
-            if has_scored_horizon:
-                attribution_record = self.case_store.save_attribution(
-                    attribution,
-                    metadata={
-                        "policy_id": policy.policy_id,
-                        "research_case_id": research_case_id,
-                        "code": code,
-                        "as_of_date": effective_as_of_date,
-                    },
-                )
-                attribution_id = str(attribution_record.get("attribution_id") or "")
-                calibration_report = self.case_store.write_calibration_report(policy_id=policy.policy_id)
-        except Exception:
-            logger.warning("Failed to persist/evaluate research case for %s", code, exc_info=True)
-        return {
-            "case": dict(case_record or {}),
-            "research_case_id": research_case_id,
-            "attribution": {
-                "saved": bool(attribution_record),
-                "record": dict(attribution_record or {}),
-                "preview": dict(attribution_preview or {}),
-            },
-            "attribution_id": attribution_id,
-            "calibration_report": dict(calibration_report or {}),
-        }
+        return self.research_resolution_service.persist_research_case_artifacts(
+            snapshot=snapshot,
+            policy=policy,
+            hypothesis=hypothesis,
+            question=question,
+            query=query,
+            strategy=strategy,
+            strategy_source=strategy_source,
+            execution_mode=execution_mode,
+            code=code,
+            effective_as_of_date=effective_as_of_date,
+        )
 
     def _resolve_ask_stock_research_outputs(
         self,
@@ -977,69 +890,11 @@ class StockAnalysisService:
         derived: dict[str, Any],
         execution: dict[str, Any],
     ) -> dict[str, Any]:
-        score = 50.0
-        reason_parts: list[str] = []
-        flags = dict(derived.get("flags") or {})
-        matched_signals = list(derived.get("matched_signals") or [])
-        for label, delta in strategy.scoring.items():
-            if flags.get(label):
-                score += float(delta)
-                reason_parts.append(f"{label}{'+' if delta >= 0 else ''}{delta:g}")
-        algo_score = float(derived.get("algo_score") or 0.0)
-        score += max(-10.0, min(10.0, algo_score * 2.0))
-        if algo_score:
-            reason_parts.append(f"algo_score 调整 {max(-10.0, min(10.0, algo_score * 2.0)):+.1f}")
-        final_reasoning = str(execution.get("final_reasoning") or "").strip()
-        if final_reasoning:
-            reason_parts.append(f"分析摘要: {final_reasoning[:120]}")
-
-        stance = "持有观察"
-        if score >= 82:
-            stance = "候选买入"
-        elif score >= 70:
-            stance = "偏强关注"
-        elif score <= 35:
-            stance = "减仓/回避"
-        elif score <= 45:
-            stance = "偏弱回避"
-
-        latest_price = float(derived.get("latest_close") or 0.0)
-        entry_price = round(latest_price * 0.99, 2) if latest_price and stance in {"候选买入", "偏强关注"} else None
-        stop_loss = round(latest_price * 0.94, 2) if latest_price else None
-        contradicting_factors = [
-            label
-            for label in ("空头排列", "MACD死叉", "RSI超买", "趋势向下", "结构走弱", "逼近阻力", "跌破MA20")
-            if flags.get(label)
-        ]
-        fallback_hypothesis = ResearchHypothesis(
-            hypothesis_id="hypothesis_dashboard_fallback",
-            snapshot_id="snapshot_dashboard_fallback",
-            policy_id="policy_dashboard_fallback",
-            stance=stance,
-            score=round(max(0.0, min(100.0, score)), 1),
-            entry_rule={
-                "kind": "limit_pullback" if entry_price is not None else "observe_only",
-                "price": entry_price,
-                "source": strategy.display_name,
-            },
-            invalidation_rule={
-                "kind": "stop_loss",
-                "price": stop_loss,
-                "source": strategy.name,
-            },
-            supporting_factors=matched_signals,
-            contradicting_factors=contradicting_factors,
-            metadata={
-                "source": "dashboard_fallback",
-                "strategy_name": strategy.name,
-            },
-        )
-        return build_dashboard_projection(
-            hypothesis=fallback_hypothesis,
-            matched_signals=matched_signals,
-            core_rules=list(strategy.core_rules),
-            entry_conditions=list(strategy.entry_conditions),
-            supplemental_reason="；".join(reason_parts),
+        return self.research_resolution_service.build_canonical_fallback_projection(
+            strategy=strategy,
+            derived=derived,
+            execution=execution,
+            dashboard_projection_builder=build_dashboard_projection,
         )
 
     @staticmethod
@@ -1110,20 +965,7 @@ class StockAnalysisService:
 
     @staticmethod
     def _estimate_preliminary_stance(snapshot: Any) -> str:
-        cross = dict(getattr(snapshot, "cross_section_context", {}) or {})
-        percentile = cross.get("percentile")
-        percentile_f = float(percentile or 0.0) if percentile is not None else 0.0
-        selected_by_policy = bool(cross.get("selected_by_policy"))
-        raw_score = 50.0 + percentile_f * 40.0 + (8.0 if selected_by_policy else 0.0)
-        if raw_score >= 82:
-            return "候选买入"
-        if raw_score >= 68:
-            return "偏强关注"
-        if raw_score <= 35:
-            return "减仓/回避"
-        if raw_score <= 45:
-            return "偏弱回避"
-        return "持有观察"
+        return ResearchResolutionService.estimate_preliminary_stance(snapshot)
 
     def _build_research_bridge(
         self,

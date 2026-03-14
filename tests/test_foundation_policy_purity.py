@@ -1,5 +1,6 @@
 from invest.foundation.compute.factors import calc_algo_score
 from invest.foundation.compute.features import compute_market_stats
+from invest.foundation.compute.market_stats import compute_market_stats as compute_market_snapshot_stats
 from app.train import SelfLearningController
 
 
@@ -25,6 +26,15 @@ def test_compute_market_stats_requires_explicit_regime_policy_for_regime_classif
     }
     out2 = compute_market_stats(stock_data, '20240131', regime_policy=policy)
     assert out2['regime_hint'] == 'bull'
+
+
+def test_features_compute_market_stats_is_stable_facade_for_market_snapshot_module():
+    import pandas as pd
+
+    up = pd.DataFrame({'trade_date': [f'202401{day:02d}' for day in range(1, 40)], 'close': list(range(1, 40))})
+    stock_data = {'A': up, 'B': up, 'C': up}
+
+    assert compute_market_stats(stock_data, '20240131') == compute_market_snapshot_stats(stock_data, '20240131')
 
 
 def test_model_config_exposes_explicit_market_and_summary_logic(tmp_path):

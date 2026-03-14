@@ -5,9 +5,11 @@ from typing import Any, Dict, List, cast
 import pandas as pd
 
 from invest.contracts import AgentContext, SignalPacket, StockSignal
+from invest.foundation.compute.batch_snapshot import StockBatchSummary
 from invest.foundation.compute.features import compute_market_stats, summarize_stock_batches
 from invest.models.base import InvestmentModel
 from invest.models.context_renderer import render_market_narrative
+from invest.models.scorers import ValueQualityScorer
 
 
 class ValueQualityModel(InvestmentModel):
@@ -46,44 +48,8 @@ class ValueQualityModel(InvestmentModel):
             "market_cap": self._latest_numeric(df, "market_cap", 0.0),
         }
 
-    def _value_score(self, item: Dict[str, Any], fundamentals: Dict[str, float]) -> float:
-        pe = fundamentals.get("pe_ttm", 0.0)
-        pb = fundamentals.get("pb", 0.0)
-        roe = fundamentals.get("roe", 0.0)
-        market_cap = fundamentals.get("market_cap", 0.0)
-        rsi = float(item.get("rsi", 50.0))
-        change_20d = float(item.get("change_20d", 0.0))
-        volatility = float(item.get("volatility", 0.0))
-        scoring = self.scoring_section()
-        weights = dict(scoring.get("weights", {}))
-        bands = dict(scoring.get("bands", {}))
-
-        max_pe = float(self.param("max_pe_ttm", 30.0))
-        max_pb = float(self.param("max_pb", 3.0))
-        min_roe = float(self.param("min_roe", 8.0))
-        min_market_cap = float(self.param("min_market_cap", 0.0))
-        rsi_low = float(bands.get("rsi_low", 40.0))
-        rsi_high = float(bands.get("rsi_high", 65.0))
-        change_20d_low = float(bands.get("change_20d_low", -10.0))
-        change_20d_high = float(bands.get("change_20d_high", 15.0))
-        low_volatility = float(bands.get("low_volatility_threshold", 0.04))
-
-        score = 0.0
-        if pe > 0:
-            score += max(0.0, (max_pe - min(pe, max_pe)) / max_pe) * float(weights.get("pe", 0.25))
-        if pb > 0:
-            score += max(0.0, (max_pb - min(pb, max_pb)) / max_pb) * float(weights.get("pb", 0.20))
-        if roe > 0:
-            score += min(roe / max(min_roe * 2, 1.0), 1.0) * float(weights.get("roe", 0.30))
-        if market_cap >= min_market_cap:
-            score += float(weights.get("market_cap", 0.10))
-        if rsi_low <= rsi <= rsi_high:
-            score += float(weights.get("rsi_band", 0.08))
-        if change_20d_low <= change_20d <= change_20d_high:
-            score += float(weights.get("change_20d_band", 0.05))
-        if volatility < low_volatility:
-            score += float(weights.get("low_volatility", 0.05))
-        return round(score, 4)
+    def _value_score(self, item: StockBatchSummary | Dict[str, Any], fundamentals: Dict[str, float]) -> float:
+        return ValueQualityScorer(self).score(item, fundamentals)
 
     def build_signal_packet(self, stock_data: Dict[str, Any], cutoff_date: str) -> SignalPacket:
         params = self.effective_params()
@@ -94,11 +60,12 @@ class ValueQualityModel(InvestmentModel):
         stock_summaries = [item.summary for item in stock_batches]
         min_score = float(self.param("min_value_quality_score", 0.25))
         enriched_summaries: List[Dict[str, Any]] = []
-        for item in stock_summaries:
-            fundamentals = self._fundamental_snapshot(stock_data, item["code"])
-            score = self._value_score(item, fundamentals)
+        scorer = ValueQualityScorer(self)
+        for item in stock_batches:
+            fundamentals = self._fundamental_snapshot(stock_data, item.code)
+            score = scorer.score(item, fundamentals)
             if score >= min_score:
-                enriched = dict(item)
+                enriched = dict(item.summary)
                 enriched.update(fundamentals)
                 enriched["value_quality_score"] = score
                 enriched_summaries.append(enriched)

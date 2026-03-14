@@ -247,3 +247,24 @@ def test_ask_stock_fallback_path_uses_canonical_dashboard_renderer(tmp_path: Pat
     assert captured["hypothesis"].stance in {"候选买入", "偏强关注", "持有观察", "偏弱回避", "减仓/回避"}
     assert captured["supplemental_reason"]
     assert isinstance(captured["matched_signals"], list)
+
+
+def test_stock_analysis_indicator_entrypoints_share_batch_analysis_context(tmp_path: Path, monkeypatch):
+    service = _build_service(tmp_path)
+    calls = {"count": 0}
+    original = StockAnalysisService._build_batch_analysis_context
+
+    def _wrapped(self, frame, code):
+        calls["count"] += 1
+        return original(self, frame, code)
+
+    monkeypatch.setattr(StockAnalysisService, "_build_batch_analysis_context", _wrapped)
+
+    trend = service.analyze_trend("Alpha")
+    snapshot = service.get_indicator_snapshot("Alpha")
+    levels = service.analyze_support_resistance("Alpha")
+
+    assert calls["count"] == 3
+    assert trend["status"] == "ok"
+    assert snapshot["status"] == "ok"
+    assert levels["status"] == "ok"

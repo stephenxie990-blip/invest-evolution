@@ -178,3 +178,24 @@ def test_summarize_stock_batches_keeps_batch_and_summary_in_one_ranked_pass():
     assert items[0].summary["code"] == "AAA"
     assert items[0].summary["close"] == round(items[0].batch.latest_close, 2)
     assert items[0].batch.streaming_snapshot["latest_close"] == round(items[0].batch.latest_close, 6)
+
+
+def test_stock_batch_summary_exposes_batch_object_for_direct_model_consumption():
+    frame = pd.DataFrame(
+        [
+            {
+                "trade_date": f"202405{day:02d}",
+                "open": 14 + day * 0.1,
+                "high": 14.5 + day * 0.1,
+                "low": 13.7 + day * 0.1,
+                "close": 14 + day * 0.18,
+                "volume": 4000 + day * 50,
+            }
+            for day in range(1, 61)
+        ]
+    )
+
+    item = summarize_stock_batches({"AAA": frame}, ["AAA"], "20240531")[0]
+
+    assert item.batch.change_5d == item.batch.change_5d
+    assert item.summary["rsi"] == round(item.batch.rsi, 1)

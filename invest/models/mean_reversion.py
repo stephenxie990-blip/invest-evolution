@@ -3,9 +3,11 @@ from __future__ import annotations
 from typing import Any, Dict, List
 
 from invest.contracts import AgentContext, SignalPacket, StockSignal
+from invest.foundation.compute.batch_snapshot import StockBatchSummary
 from invest.foundation.compute.features import compute_market_stats, summarize_stock_batches
 from invest.models.base import InvestmentModel
 from invest.models.context_renderer import render_market_narrative
+from invest.models.scorers import MeanReversionScorer
 
 
 class MeanReversionModel(InvestmentModel):
@@ -29,47 +31,8 @@ class MeanReversionModel(InvestmentModel):
             hints.append("市场已偏热，均值回归胜率可能下降")
         return hints
 
-    def _reversion_score(self, item: Dict[str, Any]) -> float:
-        oversold_rsi = float(self.param("oversold_rsi", 35.0))
-        hot_rsi = float(self.param("rebound_rsi_cap", 60.0))
-        max_5d_drop = float(self.param("max_5d_drop", -2.0))
-        max_20d_drop = float(self.param("max_20d_drop", -5.0))
-        scoring = self.scoring_section()
-        weights = dict(scoring.get("weights", {}))
-        bands = dict(scoring.get("bands", {}))
-        penalties = dict(scoring.get("penalties", {}))
-
-        rsi = float(item.get("rsi", 50.0))
-        bb_pos = float(item.get("bb_pos", 0.5))
-        change_5d = float(item.get("change_5d", 0.0))
-        change_20d = float(item.get("change_20d", 0.0))
-        vol_ratio = float(item.get("vol_ratio", 1.0))
-        volatility = float(item.get("volatility", 0.0))
-        ma_trend = str(item.get("ma_trend", "交叉"))
-
-        lower_bb = float(bands.get("lower_bb_threshold", 0.35))
-        upper_bb = float(bands.get("upper_bb_threshold", 0.8))
-        vol_ratio_low = float(bands.get("vol_ratio_low", 0.8))
-        vol_ratio_high = float(bands.get("vol_ratio_high", 1.8))
-        high_volatility = float(bands.get("high_volatility_threshold", 0.05))
-
-        score = 0.0
-        score += max(0.0, oversold_rsi - rsi) / max(oversold_rsi, 1.0) * float(weights.get("oversold_rsi", 0.35))
-        if bb_pos < lower_bb:
-            score += max(0.0, lower_bb - bb_pos) / max(lower_bb, 1e-6) * float(weights.get("lower_bb", 0.20))
-        else:
-            score -= max(0.0, bb_pos - upper_bb) * float(penalties.get("upper_bb", 0.10))
-        score += max(0.0, abs(min(change_5d, 0.0)) - abs(max_5d_drop)) / 10.0 * float(weights.get("drop_5d", 0.20)) if change_5d <= max_5d_drop else -float(penalties.get("insufficient_drop_5d", 0.05))
-        score += max(0.0, abs(min(change_20d, 0.0)) - abs(max_20d_drop)) / 20.0 * float(weights.get("drop_20d", 0.15)) if change_20d <= max_20d_drop else -float(penalties.get("insufficient_drop_20d", 0.05))
-        if ma_trend == "空头":
-            score += float(weights.get("bearish_trend_bonus", 0.05))
-        if vol_ratio_low <= vol_ratio <= vol_ratio_high:
-            score += float(weights.get("volume_ratio_bonus", 0.08))
-        if volatility > high_volatility:
-            score -= float(penalties.get("high_volatility", 0.08))
-        if rsi > hot_rsi:
-            score -= float(penalties.get("overheat_rsi", 0.15))
-        return round(score, 4)
+    def _reversion_score(self, item: StockBatchSummary | Dict[str, Any]) -> float:
+        return MeanReversionScorer(self).score(item)
 
     def build_signal_packet(self, stock_data: Dict[str, Any], cutoff_date: str) -> SignalPacket:
         params = self.effective_params()
@@ -80,10 +43,11 @@ class MeanReversionModel(InvestmentModel):
         stock_summaries = [item.summary for item in stock_batches]
         scored: List[Dict[str, Any]] = []
         min_reversion_score = float(self.param("min_reversion_score", 0.05))
-        for item in stock_summaries:
-            score = self._reversion_score(item)
+        scorer = MeanReversionScorer(self)
+        for item in stock_batches:
+            score = scorer.score(item)
             if score >= min_reversion_score:
-                enriched = dict(item)
+                enriched = dict(item.summary)
                 enriched["reversion_score"] = score
                 scored.append(enriched)
         scored.sort(key=lambda item: (item.get("reversion_score", 0.0), -abs(item.get("change_5d", 0.0))), reverse=True)
