@@ -42,6 +42,16 @@ class BrainHumanReadablePresenter:
         ]
 
     @staticmethod
+    def latest_training_result_summary(payload: dict[str, Any]) -> dict[str, Any]:
+        training_lab = dict(payload.get("training_lab") or {})
+        run = dict(training_lab.get("run") or {})
+        latest = dict(run.get("latest_result") or payload.get("latest_result") or {})
+        if latest:
+            return latest
+        results = [dict(item) for item in list(payload.get("results") or []) if isinstance(item, dict)]
+        return dict(results[-1]) if results else {}
+
+    @staticmethod
     def is_internal_runtime_event(event_name: Any) -> bool:
         return str(event_name or "") in {
             "ask_started",
@@ -494,7 +504,7 @@ class BrainHumanReadablePresenter:
         if confirmation_summary:
             receipt_lines.append(f"确认要求：{confirmation_summary}")
         if fact_items:
-            receipt_lines.append("现状：" + "；".join(fact_items[:4]))
+            receipt_lines.append("现状：" + "；".join(fact_items[:6]))
         if event_explanation:
             receipt_lines.append("事件解释：" + event_explanation)
         if timeline_items:
@@ -610,6 +620,24 @@ class BrainHumanReadablePresenter:
         if intent in {"training_lab_summary", "training_execution"}:
             training_lab = dict(payload.get("training_lab") or payload)
             facts = cls.training_lab_bullets(training_lab)
+            latest_result = cls.latest_training_result_summary(payload)
+            if latest_result:
+                cycle_id = latest_result.get("cycle_id")
+                if cycle_id is not None:
+                    facts.append(f"最新训练周期：{int(cycle_id)}")
+                if latest_result.get("return_pct") is not None:
+                    facts.append(f"最新收益：{float(latest_result.get('return_pct') or 0.0):+.2f}%")
+                promotion_record = dict(latest_result.get("promotion_record") or {})
+                if promotion_record:
+                    facts.append(
+                        "晋升状态："
+                        + str(promotion_record.get("status") or "unknown")
+                        + " / "
+                        + str(promotion_record.get("gate_status") or "unknown")
+                    )
+                lineage_record = dict(latest_result.get("lineage_record") or {})
+                if lineage_record:
+                    facts.append("lineage：" + str(lineage_record.get("lineage_status") or "unknown"))
             risks = cls.risk_explanations([], feedback=feedback)
             actions = cls.action_items(next_action, diagnostics=[], status=status)
             return cls.compose_human_readable_receipt(

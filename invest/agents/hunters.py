@@ -242,20 +242,27 @@ class TrendHunterAgent(InvestAgent):
             return self._fallback_analysis(candidates)
 
         if result.get("_parse_error"):
-            recovered = _recover_hunter_result(result.get("_raw", ""), [c["code"] for c in candidates])
-            if recovered.get("picks"):
-                result = recovered
-            else:
-                return self._fallback_analysis(candidates)
+            logger.warning("TrendHunter structured output parse error; falling back to algorithmic picks")
+            return self._fallback_analysis(candidates, contract_status="fallback_algorithm")
 
         result = self._validate(result, [c["code"] for c in candidates])
         logger.info(f"🎯 TrendHunter(LLM): 推荐{len(result['picks'])}只, 置信度{result['confidence']:.0%}")
         return result
 
-    def _fallback_analysis(self, candidates: Sequence[Mapping[str, Any]]) -> dict:
+    def _fallback_analysis(
+        self,
+        candidates: Sequence[Mapping[str, Any]],
+        *,
+        contract_status: str = "fallback_algorithm",
+    ) -> dict:
         """算法兜底：按趋势评分取前 5"""
         if not candidates:
-            return {"picks": [], "overall_view": "无候选", "confidence": 0.0}
+            return {
+                "picks": [],
+                "overall_view": "无候选",
+                "confidence": 0.0,
+                "contract_status": contract_status,
+            }
         picks = []
         for s in candidates[:5]:
             picks.append({
@@ -264,7 +271,12 @@ class TrendHunterAgent(InvestAgent):
                 "reasoning": f"MA{s['ma_trend']}/MACD{s['macd']}/RSI{s['rsi']:.0f}",
             })
         logger.info(f"🎯 TrendHunter(算法): 推荐{len(picks)}只")
-        return {"picks": picks, "overall_view": "算法选股", "confidence": 0.5}
+        return {
+            "picks": picks,
+            "overall_view": "算法选股",
+            "confidence": 0.5,
+            "contract_status": contract_status,
+        }
 
     def _validate(self, result: dict, valid_codes: List[str]) -> dict:
         valid_picks = []
@@ -287,6 +299,7 @@ class TrendHunterAgent(InvestAgent):
         result["confidence"] = max(0.0, min(1.0, float(result.get("confidence", 0.5))))
         if not isinstance(result.get("overall_view"), str):
             result["overall_view"] = ""
+        result["contract_status"] = str(result.get("contract_status") or "validated")
         return result
 
 
@@ -421,20 +434,27 @@ class ContrarianAgent(InvestAgent):
             return self._fallback_analysis(candidates)
 
         if result.get("_parse_error"):
-            recovered = _recover_hunter_result(result.get("_raw", ""), [c["code"] for c in candidates])
-            if recovered.get("picks"):
-                result = recovered
-            else:
-                return self._fallback_analysis(candidates)
+            logger.warning("Contrarian structured output parse error; falling back to algorithmic picks")
+            return self._fallback_analysis(candidates, contract_status="fallback_algorithm")
 
         result = self._validate(result, [c["code"] for c in candidates])
         logger.info(f"🎯 Contrarian(LLM): 推荐{len(result['picks'])}只, 置信度{result['confidence']:.0%}")
         return result
 
-    def _fallback_analysis(self, candidates: Sequence[Mapping[str, Any]]) -> dict:
+    def _fallback_analysis(
+        self,
+        candidates: Sequence[Mapping[str, Any]],
+        *,
+        contract_status: str = "fallback_algorithm",
+    ) -> dict:
         """算法兜底：按反弹潜力评分取前 5"""
         if not candidates:
-            return {"picks": [], "overall_view": "无候选", "confidence": 0.0}
+            return {
+                "picks": [],
+                "overall_view": "无候选",
+                "confidence": 0.0,
+                "contract_status": contract_status,
+            }
         picks = []
         for s in candidates[:5]:
             picks.append({
@@ -442,7 +462,12 @@ class ContrarianAgent(InvestAgent):
                 "score": min(1.0, s.get("contrarian_score", s.get("algo_score", 0.5))),
                 "reasoning": f"RSI{s['rsi']:.0f}/BB{s['bb_pos']:.2f}/{s['change_5d']:+.1f}%",
             })
-        return {"picks": picks, "overall_view": "算法选股", "confidence": 0.5}
+        return {
+            "picks": picks,
+            "overall_view": "算法选股",
+            "confidence": 0.5,
+            "contract_status": contract_status,
+        }
 
     def _validate(self, result: dict, valid_codes: List[str]) -> dict:
         valid_picks = []
@@ -465,6 +490,7 @@ class ContrarianAgent(InvestAgent):
         result["confidence"] = max(0.0, min(1.0, float(result.get("confidence", 0.5))))
         if not isinstance(result.get("overall_view"), str):
             result["overall_view"] = ""
+        result["contract_status"] = str(result.get("contract_status") or "validated")
         return result
 
 

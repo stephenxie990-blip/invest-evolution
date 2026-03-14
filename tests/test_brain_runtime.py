@@ -370,3 +370,277 @@ def test_recommended_plan_stock_analysis_infers_strategy_and_days(tmp_path: Path
     assert plan[1]["tool"] == "invest_ask_stock"
     assert plan[1]["args"]["strategy"] == "trend_following"
     assert plan[1]["args"]["days"] == 120
+
+
+def test_wrap_tool_response_normalizes_stock_analysis_contract_sections(tmp_path: Path):
+    import json
+
+    runtime = BrainRuntime(
+        workspace=tmp_path,
+        model="test-model",
+        api_key="",
+    )
+
+    result = runtime._wrap_tool_response(
+        json.dumps(
+            {
+                "status": "ok",
+                "question": "请分析 Alpha",
+                "query": "Alpha",
+                "normalized_query": "sh.600001",
+                "as_of_date": "20240130",
+                "requested_as_of_date": "20240130",
+                "policy_id": "policy_1",
+                "research_case_id": "case_1",
+                "attribution_id": "attr_1",
+                "resolved_security": {"code": "sh.600001"},
+            },
+            ensure_ascii=False,
+        ),
+        user_goal="分析 Alpha",
+        tool_names=["invest_ask_stock"],
+        mode="explicit_tool",
+    )
+
+    payload = json.loads(result)
+    assert payload["request"]["query"] == "Alpha"
+    assert payload["identifiers"]["policy_id"] == "policy_1"
+    assert payload["resolved_entities"]["security"]["code"] == "sh.600001"
+    assert isinstance(payload["analysis"], dict)
+    assert isinstance(payload["research"], dict)
+    assert isinstance(payload["dashboard"], dict)
+
+
+def test_wrap_tool_response_normalizes_training_plan_create_contract_sections(tmp_path: Path):
+    import json
+
+    runtime = BrainRuntime(
+        workspace=tmp_path,
+        model="test-model",
+        api_key="",
+    )
+
+    result = runtime._wrap_tool_response(
+        json.dumps({"plan_id": "plan_1", "status": "planned", "spec": {"rounds": 3}}, ensure_ascii=False),
+        user_goal="创建训练计划",
+        tool_names=["invest_training_plan_create"],
+        mode="explicit_tool",
+    )
+
+    payload = json.loads(result)
+    assert payload["plan_id"] == "plan_1"
+    assert payload["spec"]["rounds"] == 3
+    assert isinstance(payload["guardrails"], dict)
+    assert isinstance(payload["objective"], dict)
+    assert isinstance(payload["artifacts"], dict)
+
+
+def test_wrap_tool_response_training_execution_receipt_includes_promotion_and_lineage(tmp_path: Path):
+    import json
+
+    runtime = BrainRuntime(
+        workspace=tmp_path,
+        model="test-model",
+        api_key="",
+    )
+
+    result = runtime._wrap_tool_response(
+        json.dumps(
+            {
+                "status": "completed",
+                "plan_id": "plan_1",
+                "results": [
+                    {
+                        "status": "ok",
+                        "cycle_id": 7,
+                        "return_pct": 0.8,
+                        "promotion_record": {"status": "candidate_generated", "gate_status": "awaiting_gate"},
+                        "lineage_record": {"lineage_status": "candidate_pending"},
+                    }
+                ],
+            },
+            ensure_ascii=False,
+        ),
+        user_goal="执行训练计划",
+        tool_names=["invest_training_plan_execute"],
+        mode="explicit_tool",
+    )
+
+    payload = json.loads(result)
+    human = payload["human_readable"]
+    assert any("晋升状态：candidate_generated / awaiting_gate" in item for item in human["facts"])
+    assert any("lineage：candidate_pending" in item for item in human["facts"])
+
+
+class InvestMutationTool(BrainTool):
+    def __init__(self):
+        self.calls = 0
+
+    @property
+    def name(self) -> str:
+        return "invest_runtime_paths_update"
+
+    @property
+    def description(self) -> str:
+        return "Mutation tool for guardrail tests."
+
+    @property
+    def parameters(self):
+        return {
+            "type": "object",
+            "properties": {
+                "patch": {"type": "object"},
+                "confirm": {"type": "boolean"},
+            },
+            "required": ["patch"],
+        }
+
+    async def execute(self, **kwargs):
+        import json
+
+        self.calls += 1
+        return json.dumps({"status": "ok", "updated": list((kwargs.get("patch") or {}).keys())}, ensure_ascii=False)
+
+
+def test_explicit_mutating_tool_guardrail_blocks_empty_patch(tmp_path: Path):
+    import json
+
+    runtime = BrainRuntime(
+        workspace=tmp_path,
+        model="test-model",
+        api_key="",
+    )
+    tool = InvestMutationTool()
+    runtime.tools.register(tool)
+
+    result = asyncio.run(runtime.process_direct('/tool invest_runtime_paths_update {"patch":{}}'))
+    payload = json.loads(result)
+
+    assert payload["status"] == "guardrail_blocked"
+    assert payload["guardrails"]["reason_codes"] == ["empty_patch"]
+    assert tool.calls == 0
+
+
+def test_explicit_mutating_tool_guardrail_blocks_placeholder_patch(tmp_path: Path):
+    import json
+
+    runtime = BrainRuntime(
+        workspace=tmp_path,
+        model="test-model",
+        api_key="",
+    )
+    tool = InvestMutationTool()
+    runtime.tools.register(tool)
+
+    result = asyncio.run(
+        runtime.process_direct('/tool invest_runtime_paths_update {"patch":{"training_output_dir":"<new_path>"}}')
+    )
+    payload = json.loads(result)
+
+    assert payload["status"] == "guardrail_blocked"
+    assert payload["guardrails"]["reason_codes"] == ["placeholder_arguments"]
+    assert tool.calls == 0
+
+
+def test_explicit_mutating_tool_guardrail_blocks_cross_scope_patch(tmp_path: Path):
+    import json
+
+    runtime = BrainRuntime(
+        workspace=tmp_path,
+        model="test-model",
+        api_key="",
+    )
+    tool = InvestMutationTool()
+    runtime.tools.register(tool)
+
+    result = asyncio.run(
+        runtime.process_direct('/tool invest_evolution_config_update {"patch":{"llm":{"provider":"foo"}}}')
+    )
+    payload = json.loads(result)
+
+    assert payload["status"] == "guardrail_blocked"
+    assert payload["guardrails"]["reason_codes"] == ["cross_scope_patch"]
+    assert tool.calls == 0
+
+
+def test_training_plan_create_guardrail_blocks_history_window_shorter_than_simulation(tmp_path: Path):
+    import json
+
+    runtime = BrainRuntime(
+        workspace=tmp_path,
+        model="test-model",
+        api_key="",
+    )
+
+    result = asyncio.run(
+        runtime.process_direct(
+            '/tool invest_training_plan_create {"rounds":2,"dataset":{"min_history_days":10,"simulation_days":15}}'
+        )
+    )
+    payload = json.loads(result)
+
+    assert payload["status"] == "guardrail_blocked"
+    assert payload["guardrails"]["reason_codes"] == ["history_window_too_short"]
+
+
+def test_training_plan_create_guardrail_blocks_invalid_single_cycle_window_size(tmp_path: Path):
+    import json
+
+    runtime = BrainRuntime(
+        workspace=tmp_path,
+        model="test-model",
+        api_key="",
+    )
+
+    result = asyncio.run(
+        runtime.process_direct(
+            '/tool invest_training_plan_create {"rounds":2,"protocol":{"review_window":{"mode":"single_cycle","size":3}}}'
+        )
+    )
+    payload = json.loads(result)
+
+    assert payload["status"] == "guardrail_blocked"
+    assert payload["guardrails"]["reason_codes"] == ["single_cycle_window_size_conflict"]
+
+
+def test_training_plan_create_guardrail_blocks_invalid_cutoff_policy_mode(tmp_path: Path):
+    import json
+
+    runtime = BrainRuntime(
+        workspace=tmp_path,
+        model="test-model",
+        api_key="",
+    )
+
+    result = asyncio.run(
+        runtime.process_direct(
+            '/tool invest_training_plan_create {"rounds":2,"protocol":{"cutoff_policy":{"mode":"surprise"}}}'
+        )
+    )
+    payload = json.loads(result)
+
+    assert payload["status"] == "guardrail_blocked"
+    assert payload["guardrails"]["reason_codes"] == ["invalid_cutoff_policy_mode"]
+
+
+def test_wrap_tool_response_attaches_runtime_governance_metrics(tmp_path: Path):
+    import json
+
+    runtime = BrainRuntime(
+        workspace=tmp_path,
+        model="test-model",
+        api_key="",
+    )
+
+    wrapped = runtime._wrap_tool_response(
+        json.dumps({"status": "planned", "plan_id": "plan_1"}, ensure_ascii=False),
+        user_goal="create training plan",
+        tool_names=["invest_training_plan_create"],
+        mode="explicit_tool",
+    )
+    payload = json.loads(wrapped)
+
+    assert payload["structured_output"]["status"] == "validated"
+    metrics = payload["governance_metrics"]["runtime"]
+    assert metrics["structured_output"]["validated_count"] >= 1
+    assert metrics["guardrails"]["block_count"] == 0

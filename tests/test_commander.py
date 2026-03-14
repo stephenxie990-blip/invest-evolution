@@ -458,10 +458,13 @@ def test_training_evaluation_summary_builds_promotion_verdict_against_baseline(t
             'results': [
                 {
                     'status': 'ok',
+                    'cycle_id': 1,
+                    'cutoff_date': '20240228',
                     'model_name': 'value_quality',
                     'config_name': 'value_quality_v1',
                     'return_pct': 0.8,
                     'benchmark_passed': True,
+                    'routing_decision': {'regime': 'bull'},
                     'strategy_scores': {'overall_score': 0.7},
                     'research_feedback': {
                         'sample_count': 7,
@@ -472,10 +475,13 @@ def test_training_evaluation_summary_builds_promotion_verdict_against_baseline(t
                 },
                 {
                     'status': 'ok',
+                    'cycle_id': 2,
+                    'cutoff_date': '20240315',
                     'model_name': 'value_quality',
                     'config_name': 'value_quality_v1',
                     'return_pct': 0.6,
-                    'benchmark_passed': False,
+                    'benchmark_passed': True,
+                    'routing_decision': {'regime': 'bear'},
                     'strategy_scores': {'overall_score': 0.62},
                     'research_feedback': {
                         'sample_count': 8,
@@ -1235,6 +1241,7 @@ def test_training_evaluation_summary_promotes_when_research_feedback_gate_passes
                     'config_name': 'momentum_v1',
                     'return_pct': 0.9,
                     'benchmark_passed': True,
+                    'routing_decision': {'regime': 'bull'},
                     'strategy_scores': {'overall_score': 0.72},
                     'research_feedback': {
                         'sample_count': 7,
@@ -1251,6 +1258,7 @@ def test_training_evaluation_summary_promotes_when_research_feedback_gate_passes
                     'config_name': 'momentum_v1',
                     'return_pct': 0.8,
                     'benchmark_passed': True,
+                    'routing_decision': {'regime': 'bear'},
                     'strategy_scores': {'overall_score': 0.68},
                     'research_feedback': {
                         'sample_count': 8,
@@ -1268,6 +1276,245 @@ def test_training_evaluation_summary_promotes_when_research_feedback_gate_passes
     assert summary['promotion']['research_feedback']['passed'] is True
     assert summary['promotion']['research_feedback']['latest_feedback']['bias'] == 'maintain'
     assert any(check['name'] == 'research_feedback.blocked_biases' and check['passed'] is True for check in summary['promotion']['checks'])
+
+
+def test_training_evaluation_summary_surfaces_regime_and_return_validation(tmp_path):
+    cfg = CommanderConfig(
+        workspace=tmp_path / 'workspace',
+        strategy_dir=tmp_path / 'strategies',
+        state_file=tmp_path / 'state' / 'state.json',
+        cron_store=tmp_path / 'state' / 'cron.json',
+        memory_store=tmp_path / 'memory' / 'memory.jsonl',
+        plugin_dir=tmp_path / 'plugins',
+        bridge_inbox=tmp_path / 'inbox',
+        bridge_outbox=tmp_path / 'outbox',
+        training_output_dir=tmp_path / 'runtime' / 'training',
+        mock_mode=True,
+        autopilot_enabled=False,
+        heartbeat_enabled=False,
+        bridge_enabled=False,
+    )
+    runtime = CommanderRuntime(cfg)
+    plan = runtime.create_training_plan(rounds=3, mock=True)
+
+    summary = runtime._build_training_evaluation_summary(
+        {
+            'status': 'completed',
+            'results': [
+                {
+                    'status': 'ok',
+                    'cycle_id': 1,
+                    'cutoff_date': '20240228',
+                    'model_name': 'momentum',
+                    'config_name': 'momentum_v1',
+                    'return_pct': 1.1,
+                    'benchmark_passed': True,
+                    'routing_decision': {'regime': 'bull'},
+                    'strategy_scores': {'overall_score': 0.72},
+                    'research_feedback': {
+                        'sample_count': 7,
+                        'recommendation': {'bias': 'maintain', 'summary': 'maintain'},
+                        'horizons': {'T+20': {'hit_rate': 0.58, 'invalidation_rate': 0.16}},
+                        'brier_like_direction_score': 0.16,
+                    },
+                },
+                {
+                    'status': 'ok',
+                    'cycle_id': 2,
+                    'cutoff_date': '20240315',
+                    'model_name': 'momentum',
+                    'config_name': 'momentum_v1',
+                    'return_pct': 0.7,
+                    'benchmark_passed': True,
+                    'routing_decision': {'regime': 'bear'},
+                    'strategy_scores': {'overall_score': 0.69},
+                    'research_feedback': {
+                        'sample_count': 8,
+                        'recommendation': {'bias': 'maintain', 'summary': 'maintain'},
+                        'horizons': {'T+20': {'hit_rate': 0.56, 'invalidation_rate': 0.15}},
+                        'brier_like_direction_score': 0.15,
+                    },
+                },
+            ],
+        },
+        plan=plan,
+        run_id='run_regime_return_summary',
+    )
+
+    assert summary['assessment']['return_profile']['win_rate'] == 1.0
+    assert summary['assessment']['regime_validation']['distinct_regime_count'] == 2
+    assert summary['promotion']['return_objectives']['enabled'] is True
+    assert summary['promotion']['regime_validation']['enabled'] is True
+    assert any(check['name'] == 'regime_validation.min_distinct_regimes' for check in summary['promotion']['checks'])
+
+
+def test_training_evaluation_summary_surfaces_candidate_ab_gate(tmp_path):
+    cfg = CommanderConfig(
+        workspace=tmp_path / 'workspace',
+        strategy_dir=tmp_path / 'strategies',
+        state_file=tmp_path / 'state' / 'state.json',
+        cron_store=tmp_path / 'state' / 'cron.json',
+        memory_store=tmp_path / 'memory' / 'memory.jsonl',
+        plugin_dir=tmp_path / 'plugins',
+        bridge_inbox=tmp_path / 'inbox',
+        bridge_outbox=tmp_path / 'outbox',
+        training_output_dir=tmp_path / 'runtime' / 'training',
+        mock_mode=True,
+        autopilot_enabled=False,
+        heartbeat_enabled=False,
+        bridge_enabled=False,
+    )
+    runtime = CommanderRuntime(cfg)
+    plan = runtime.create_training_plan(
+        rounds=2,
+        mock=True,
+        optimization={'promotion_gate': {
+            'min_samples': 2,
+            'candidate_ab': {
+                'min_return_lift_pct': 0.0,
+                'min_strategy_score_lift': 0.0,
+                'min_benchmark_lift': 0.0,
+            },
+        }},
+    )
+
+    summary = runtime._build_training_evaluation_summary(
+        {
+            'status': 'completed',
+            'results': [
+                {
+                    'status': 'ok',
+                    'cycle_id': 1,
+                    'cutoff_date': '20240228',
+                    'model_name': 'momentum',
+                    'config_name': 'momentum_v1',
+                    'return_pct': 0.6,
+                    'benchmark_passed': True,
+                    'routing_decision': {'regime': 'bull'},
+                    'strategy_scores': {'overall_score': 0.66},
+                },
+                {
+                    'status': 'ok',
+                    'cycle_id': 2,
+                    'cutoff_date': '20240315',
+                    'model_name': 'momentum',
+                    'config_name': 'momentum_v1',
+                    'return_pct': 0.7,
+                    'benchmark_passed': True,
+                    'routing_decision': {'regime': 'bear'},
+                    'strategy_scores': {'overall_score': 0.68},
+                    'ab_comparison': {
+                        'enabled': True,
+                        'cycle_id': 2,
+                        'cutoff_date': '20240315',
+                        'active': {'status': 'ok', 'return_pct': 0.3, 'benchmark_passed': True, 'strategy_scores': {'overall_score': 0.55}},
+                        'candidate': {'status': 'ok', 'return_pct': 0.9, 'benchmark_passed': True, 'strategy_scores': {'overall_score': 0.71}},
+                        'comparison': {
+                            'candidate_present': True,
+                            'comparable': True,
+                            'winner': 'candidate',
+                            'return_lift_pct': 0.6,
+                            'strategy_score_lift': 0.16,
+                            'benchmark_lift': 0.0,
+                            'win_rate_lift': 0.2,
+                            'candidate_outperformed': True,
+                        },
+                    },
+                },
+            ],
+        },
+        plan=plan,
+        run_id='run_candidate_ab_pass',
+    )
+
+    assert summary['promotion']['candidate_ab']['enabled'] is True
+    assert summary['promotion']['candidate_ab']['passed'] is True
+    assert summary['promotion']['candidate_ab']['summary']['comparison']['winner'] == 'candidate'
+    assert any(check['name'] == 'candidate_ab.min_return_lift_pct' for check in summary['promotion']['checks'])
+
+
+def test_training_evaluation_summary_rejects_when_candidate_ab_fails(tmp_path):
+    cfg = CommanderConfig(
+        workspace=tmp_path / 'workspace',
+        strategy_dir=tmp_path / 'strategies',
+        state_file=tmp_path / 'state' / 'state.json',
+        cron_store=tmp_path / 'state' / 'cron.json',
+        memory_store=tmp_path / 'memory' / 'memory.jsonl',
+        plugin_dir=tmp_path / 'plugins',
+        bridge_inbox=tmp_path / 'inbox',
+        bridge_outbox=tmp_path / 'outbox',
+        training_output_dir=tmp_path / 'runtime' / 'training',
+        mock_mode=True,
+        autopilot_enabled=False,
+        heartbeat_enabled=False,
+        bridge_enabled=False,
+    )
+    runtime = CommanderRuntime(cfg)
+    plan = runtime.create_training_plan(
+        rounds=2,
+        mock=True,
+        optimization={'promotion_gate': {
+            'min_samples': 2,
+            'candidate_ab': {
+                'min_return_lift_pct': 0.0,
+                'min_strategy_score_lift': 0.0,
+                'min_benchmark_lift': 0.0,
+            },
+        }},
+    )
+
+    summary = runtime._build_training_evaluation_summary(
+        {
+            'status': 'completed',
+            'results': [
+                {
+                    'status': 'ok',
+                    'cycle_id': 1,
+                    'cutoff_date': '20240228',
+                    'model_name': 'momentum',
+                    'config_name': 'momentum_v1',
+                    'return_pct': 0.6,
+                    'benchmark_passed': True,
+                    'routing_decision': {'regime': 'bull'},
+                    'strategy_scores': {'overall_score': 0.66},
+                },
+                {
+                    'status': 'ok',
+                    'cycle_id': 2,
+                    'cutoff_date': '20240315',
+                    'model_name': 'momentum',
+                    'config_name': 'momentum_v1',
+                    'return_pct': 0.7,
+                    'benchmark_passed': True,
+                    'routing_decision': {'regime': 'bear'},
+                    'strategy_scores': {'overall_score': 0.68},
+                    'ab_comparison': {
+                        'enabled': True,
+                        'cycle_id': 2,
+                        'cutoff_date': '20240315',
+                        'active': {'status': 'ok', 'return_pct': 0.8, 'benchmark_passed': True, 'strategy_scores': {'overall_score': 0.72}},
+                        'candidate': {'status': 'ok', 'return_pct': 0.5, 'benchmark_passed': False, 'strategy_scores': {'overall_score': 0.60}},
+                        'comparison': {
+                            'candidate_present': True,
+                            'comparable': True,
+                            'winner': 'active',
+                            'return_lift_pct': -0.3,
+                            'strategy_score_lift': -0.12,
+                            'benchmark_lift': -1.0,
+                            'win_rate_lift': -0.2,
+                            'candidate_outperformed': False,
+                        },
+                    },
+                },
+            ],
+        },
+        plan=plan,
+        run_id='run_candidate_ab_fail',
+    )
+
+    assert summary['promotion']['verdict'] == 'rejected'
+    assert summary['promotion']['candidate_ab']['passed'] is False
+    assert any(check['name'] == 'candidate_ab.require_candidate_outperform_active' and check['passed'] is False for check in summary['promotion']['checks'])
 
 
 def test_confirmation_workflow_message_includes_human_readable_gate_reasons(tmp_path):
@@ -1328,6 +1575,7 @@ def test_create_training_plan_persists_default_research_feedback_gate(tmp_path):
     assert plan['guardrails']['promotion_gate']['research_feedback']['enabled'] is True
     assert plan['guardrails']['promotion_gate']['research_feedback']['policy_source']['mode'] == 'default_injected'
     assert '默认启用 research_feedback 校准门' in plan['guardrails']['promotion_gate']['research_feedback']['summary']
+    assert plan['guardrails']['promotion_gate']['candidate_ab']['enabled'] is True
 
     saved = runtime.get_training_plan(plan['plan_id'])
     assert saved['optimization']['promotion_gate']['research_feedback']['horizons']['T+20']['max_invalidation_rate'] == 0.30

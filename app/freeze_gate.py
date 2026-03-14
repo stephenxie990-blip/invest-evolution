@@ -47,6 +47,10 @@ FOCUSED_PROTOCOL_TESTS = [
     'tests/test_commander_direct_planner_golden.py',
     'tests/test_runtime_api_contract.py',
     'tests/test_runtime_contract_generation.py',
+    'tests/test_structured_output_adapter.py',
+    'tests/test_brain_runtime.py',
+    'tests/test_training_promotion_lineage.py',
+    'tests/test_training_review_protocol.py',
 ]
 
 FULL_REGRESSION_TESTS = [

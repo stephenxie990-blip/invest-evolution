@@ -52,6 +52,68 @@ def test_build_human_display_synthesizes_from_feedback():
     assert "建议动作：" in display["text"]
 
 
+def test_build_human_display_surfaces_training_promotion_and_lineage_summary():
+    payload = {
+        "status": "completed",
+        "plan_id": "plan_1",
+        "training_lab": {
+            "run": {
+                "run_id": "run_1",
+                "ops_panel": {
+                    "available": True,
+                    "summary": "候选配置已生成，当前仍待发布门确认。",
+                    "refs": {
+                        "active_config_ref": "configs/active.yaml",
+                        "candidate_config_ref": "configs/candidate.yaml",
+                        "candidate_meta_ref": "configs/candidate.json",
+                    },
+                    "review_window": {
+                        "mode": "rolling",
+                        "size": 3,
+                        "cycle_ids": [5, 6, 7],
+                    },
+                    "fitness_source_cycles": [5, 6, 7],
+                    "ops_flags": {
+                        "candidate_pending": True,
+                        "awaiting_gate": True,
+                        "active_candidate_drift": True,
+                    },
+                    "warnings": [
+                        "候选配置仍待发布门确认",
+                        "active 与 candidate 配置已发生漂移",
+                    ],
+                },
+                "latest_result": {
+                    "cycle_id": 7,
+                    "return_pct": 0.8,
+                    "promotion_record": {
+                        "status": "candidate_generated",
+                        "gate_status": "awaiting_gate",
+                        "candidate_config_ref": "configs/candidate.yaml",
+                    },
+                    "lineage_record": {
+                        "lineage_status": "candidate_pending",
+                        "active_config_ref": "configs/active.yaml",
+                        "candidate_config_ref": "configs/candidate.yaml",
+                        "review_basis_window": {"mode": "rolling", "size": 3},
+                        "fitness_source_cycles": [5, 6, 7],
+                    },
+                },
+            }
+        },
+    }
+
+    display = build_human_display(payload)
+
+    assert display["available"] is True
+    assert "晋升状态：candidate_generated / awaiting_gate" in display["text"]
+    assert "lineage：candidate_pending" in display["text"]
+    assert "候选配置：configs/candidate.yaml" in display["text"]
+    assert "review 窗口：rolling / 3" in display["text"]
+    assert "运营关注：候选配置仍待发布门确认" in display["text"]
+    assert any(section["label"] == "运营面板" for section in display["sections"])
+
+
 def test_cli_parser_accepts_view_flag():
     from app.commander_support.cli import build_parser
 

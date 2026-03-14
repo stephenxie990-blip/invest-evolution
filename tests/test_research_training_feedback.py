@@ -37,6 +37,15 @@ def _seed_cycle_history(controller: SelfLearningController, count: int = 10):
             is_profit=True,
             trade_history=[],
             params={},
+            promotion_record={
+                "attempted": index % 2 == 0,
+                "gate_status": "awaiting_gate" if index % 3 == 0 else "not_applicable",
+            },
+            lineage_record={
+                "lineage_status": "candidate_pending" if index % 3 == 0 else "active_only",
+                "active_config_ref": "active.yaml",
+                "candidate_config_ref": "candidate.yaml" if index % 3 == 0 else "",
+            },
         )
         for index in range(count)
     ]
@@ -172,3 +181,5 @@ def test_generate_report_includes_freeze_gate_evaluation(tmp_path):
     report = controller._generate_report()  # pylint: disable=protected-access
     assert "freeze_gate_evaluation" in report
     assert report["freeze_gate_evaluation"]["research_feedback_gate"]["passed"] is False
+    assert report["governance_metrics"]["promotion_attempt_count"] > 0
+    assert report["freeze_gate_evaluation"]["governance_metrics"]["candidate_pending_count"] > 0

@@ -2,39 +2,27 @@
   "parent_config": "/Users/zhangsan/Desktop/投资进化系统v1.0/invest/models/configs/mean_reversion_v1.yaml",
   "output_config": "/Users/zhangsan/Desktop/投资进化系统v1.0/data/evolution/generations/mean_reversion_v1_cycle_0001.yaml",
   "param_adjustments": {
-    "stop_loss_pct": 0.05,
-    "take_profit_pct": 0.1,
-    "position_size": 0.15
+    "position_size": 0.1368,
+    "take_profit_pct": 0.095,
+    "cash_reserve": 0.42999999999999994
   },
-  "scoring_adjustments": {
-    "weights": {
-      "volume_ratio_bonus": 0.1
-    },
-    "penalties": {
-      "insufficient_drop_5d": 0.08
-    }
-  },
+  "scoring_adjustments": {},
   "applied_adjustments": {
     "params": {
-      "stop_loss_pct": 0.05,
-      "take_profit_pct": 0.1,
-      "position_size": 0.15
+      "position_size": 0.1368,
+      "take_profit_pct": 0.095,
+      "cash_reserve": 0.42999999999999994
     },
-    "scoring": {
-      "weights": {
-        "volume_ratio_bonus": 0.1
-      },
-      "penalties": {
-        "insufficient_drop_5d": 0.08
-      }
-    }
+    "scoring": {}
   },
   "narrative_adjustments": {
-    "last_trigger": "consecutive_losses"
+    "last_trigger": "research_feedback"
   },
-  "generated_at": "2026-03-09T12:47:54.275741",
+  "generated_at": "2026-03-15T00:08:26.771755",
   "parent_meta": {
     "cycle_id": 1,
-    "trigger": "consecutive_losses"
+    "trigger": "research_feedback",
+    "auto_apply": false,
+    "feedback_bias": "recalibrate_probability"
   }
 }

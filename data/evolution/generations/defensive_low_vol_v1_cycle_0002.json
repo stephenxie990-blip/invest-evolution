@@ -1,0 +1,28 @@
+{
+  "parent_config": "/Users/zhangsan/Desktop/投资进化系统v1.0/invest/models/configs/defensive_low_vol_v1.yaml",
+  "output_config": "/Users/zhangsan/Desktop/投资进化系统v1.0/data/evolution/generations/defensive_low_vol_v1_cycle_0002.yaml",
+  "param_adjustments": {
+    "position_size": 0.126,
+    "take_profit_pct": 0.11399999999999999,
+    "cash_reserve": 0.42999999999999994
+  },
+  "scoring_adjustments": {},
+  "applied_adjustments": {
+    "params": {
+      "position_size": 0.126,
+      "take_profit_pct": 0.11399999999999999,
+      "cash_reserve": 0.42999999999999994
+    },
+    "scoring": {}
+  },
+  "narrative_adjustments": {
+    "last_trigger": "research_feedback"
+  },
+  "generated_at": "2026-03-14T23:24:01.155541",
+  "parent_meta": {
+    "cycle_id": 2,
+    "trigger": "research_feedback",
+    "auto_apply": false,
+    "feedback_bias": "recalibrate_probability"
+  }
+}

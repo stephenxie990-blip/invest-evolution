@@ -87,6 +87,50 @@ def test_training_lab_plan_run_eval_api(tmp_path, monkeypatch):
                     'selected_count': 1,
                     'selected_stocks': ['000001.SZ'],
                     'benchmark_passed': True,
+                    'promotion_record': {
+                        'status': 'candidate_generated',
+                        'gate_status': 'awaiting_gate',
+                        'active_config_ref': 'configs/active.yaml',
+                        'candidate_config_ref': 'configs/candidate.yaml',
+                        'candidate_meta_ref': 'configs/candidate.json',
+                    },
+                    'lineage_record': {
+                        'lineage_status': 'candidate_pending',
+                        'active_config_ref': 'configs/active.yaml',
+                        'candidate_config_ref': 'configs/candidate.yaml',
+                        'candidate_meta_ref': 'configs/candidate.json',
+                        'fitness_source_cycles': [1],
+                        'review_basis_window': {
+                            'mode': 'rolling',
+                            'size': 3,
+                            'cycle_ids': [1],
+                        },
+                    },
+                    'similarity_summary': {
+                        'matched_cycle_ids': [8, 6],
+                        'dominant_regime': 'bear',
+                        'match_features': ['regime', 'selection_mode'],
+                    },
+                    'causal_diagnosis': {
+                        'primary_driver': 'regime_repeat_loss',
+                        'summary': '同一市场状态下重复亏损，建议先围绕风险阈值收敛参数。',
+                        'drivers': [
+                            {
+                                'code': 'regime_repeat_loss',
+                                'label': '同一市场状态下重复亏损',
+                                'score': 0.55,
+                                'evidence_cycle_ids': [8, 6],
+                            }
+                        ],
+                    },
+                    'similar_results': [
+                        {
+                            'cycle_id': 8,
+                            'regime': 'bear',
+                            'return_pct': -1.4,
+                            'matched_features': ['regime', 'selection_mode'],
+                        }
+                    ],
                     'artifacts': {'cycle_result_path': str(cycle_path)},
                 }
             ],
@@ -142,6 +186,14 @@ def test_training_lab_plan_run_eval_api(tmp_path, monkeypatch):
     executed_data = executed.get_json()
     assert executed_data['training_lab']['plan']['plan_id'] == plan_id
     assert executed_data['training_lab']['plan']['guardrails']['promotion_gate']['research_feedback']['enabled'] is True
+    assert executed_data['training_lab']['run']['latest_result']['promotion_record']['gate_status'] == 'awaiting_gate'
+    assert executed_data['training_lab']['run']['latest_result']['lineage_record']['lineage_status'] == 'candidate_pending'
+    assert executed_data['training_lab']['run']['ops_panel']['status']['lineage_status'] == 'candidate_pending'
+    assert executed_data['training_lab']['run']['ops_panel']['refs']['candidate_config_ref'] == 'configs/candidate.yaml'
+    assert executed_data['training_lab']['run']['ops_panel']['review_window']['mode'] == 'rolling'
+    assert executed_data['training_lab']['run']['ops_panel']['fitness_source_cycles'] == [1]
+    assert executed_data['training_lab']['run']['ops_panel']['ops_flags']['active_candidate_drift'] is True
+    assert '候选配置仍待发布门确认' in executed_data['training_lab']['run']['ops_panel']['warnings']
     assert executed_data['training_lab']['evaluation']['promotion']['research_feedback']['passed'] is False
     assert 'research_feedback.available' in executed_data['training_lab']['evaluation']['promotion']['research_feedback']['reason_codes']
     assert '缺少可用研究反馈样本' in executed_data['training_lab']['evaluation']['promotion']['research_feedback']['summary']
@@ -158,7 +210,11 @@ def test_training_lab_plan_run_eval_api(tmp_path, monkeypatch):
 
     run_detail = client.get(f'/api/lab/training/runs/{run_id}')
     assert run_detail.status_code == 200
-    assert run_detail.get_json()['plan_id'] == plan_id
+    run_detail_payload = run_detail.get_json()
+    assert run_detail_payload['plan_id'] == plan_id
+    assert any(card['id'] == 'training_ops_panel' for card in run_detail_payload['display']['cards'])
+    assert any(card['id'] == 'causal_diagnosis' for card in run_detail_payload['display']['cards'])
+    assert any(card['id'] == 'similar_samples' for card in run_detail_payload['display']['cards'])
 
     evaluations = client.get('/api/lab/training/evaluations')
     assert evaluations.status_code == 200
@@ -171,6 +227,15 @@ def test_training_lab_plan_run_eval_api(tmp_path, monkeypatch):
     evaluation_data = evaluation_detail.get_json()
     assert evaluation_data['plan_id'] == plan_id
     assert evaluation_data['assessment']['success_count'] == 1
+
+    run_human = client.get(f'/api/lab/training/runs/{run_id}?view=human')
+    assert run_human.status_code == 200
+    run_human_text = run_human.get_data(as_text=True)
+    assert '晋升状态：candidate_generated / awaiting_gate' in run_human_text
+    assert 'lineage：candidate_pending' in run_human_text
+    assert '候选配置：configs/candidate.yaml' in run_human_text
+    assert 'review 窗口：rolling / 3' in run_human_text
+    assert '因果诊断：regime_repeat_loss' in run_human_text
 
 
 

@@ -89,6 +89,69 @@ def rolling_self_assessment(assessment_history: list[Any], freeze_total_cycles: 
     }
 
 
+def build_governance_metrics(cycle_history: list[Any]) -> dict[str, Any]:
+    total_cycles = len(cycle_history)
+    promotion_attempt_count = 0
+    promotion_applied_count = 0
+    promotion_awaiting_gate_count = 0
+    active_candidate_drift_count = 0
+    candidate_pending_count = 0
+
+    for item in cycle_history:
+        promotion_record = dict(getattr(item, "promotion_record", {}) or {})
+        lineage_record = dict(getattr(item, "lineage_record", {}) or {})
+        if bool(promotion_record.get("attempted", False)):
+            promotion_attempt_count += 1
+        if str(promotion_record.get("gate_status") or "") == "applied_to_active":
+            promotion_applied_count += 1
+        if str(promotion_record.get("gate_status") or "") == "awaiting_gate":
+            promotion_awaiting_gate_count += 1
+        active_config_ref = str(lineage_record.get("active_config_ref") or "")
+        candidate_config_ref = str(lineage_record.get("candidate_config_ref") or "")
+        if candidate_config_ref and candidate_config_ref != active_config_ref:
+            active_candidate_drift_count += 1
+        if str(lineage_record.get("lineage_status") or "") == "candidate_pending":
+            candidate_pending_count += 1
+
+    denominator = total_cycles or 1
+    return {
+        "total_cycles": total_cycles,
+        "promotion_attempt_count": promotion_attempt_count,
+        "promotion_applied_count": promotion_applied_count,
+        "promotion_awaiting_gate_count": promotion_awaiting_gate_count,
+        "active_candidate_drift_count": active_candidate_drift_count,
+        "active_candidate_drift_rate": active_candidate_drift_count / denominator,
+        "candidate_pending_count": candidate_pending_count,
+        "candidate_pending_rate": candidate_pending_count / denominator,
+    }
+
+
+def build_realism_summary(cycle_history: list[Any]) -> dict[str, Any]:
+    metrics = [
+        dict(getattr(item, "realism_metrics", {}) or {})
+        for item in cycle_history
+        if dict(getattr(item, "realism_metrics", {}) or {})
+    ]
+    if not metrics:
+        return {
+            "total_cycles": len(cycle_history),
+            "cycles_with_realism_metrics": 0,
+            "avg_trade_amount": 0.0,
+            "avg_turnover_rate": 0.0,
+            "avg_holding_days": 0.0,
+            "high_turnover_trade_count": 0,
+        }
+
+    return {
+        "total_cycles": len(cycle_history),
+        "cycles_with_realism_metrics": len(metrics),
+        "avg_trade_amount": float(np.mean([float(item.get("avg_trade_amount", 0.0) or 0.0) for item in metrics])),
+        "avg_turnover_rate": float(np.mean([float(item.get("avg_turnover_rate", 0.0) or 0.0) for item in metrics])),
+        "avg_holding_days": float(np.mean([float(item.get("avg_holding_days", 0.0) or 0.0) for item in metrics])),
+        "high_turnover_trade_count": int(sum(int(item.get("high_turnover_trade_count", 0) or 0) for item in metrics)),
+    }
+
+
 def evaluate_research_feedback_gate(
     research_feedback: dict[str, Any] | None,
     policy: dict[str, Any] | None = None,
@@ -192,11 +255,15 @@ def evaluate_freeze_gate(
     rolling: dict[str, Any],
     research_feedback: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    governance_metrics = build_governance_metrics(cycle_history)
+    realism_summary = build_realism_summary(cycle_history)
     if len(cycle_history) < freeze_total_cycles or not rolling:
         return {
             "ready": False,
             "passed": False,
             "checks": [],
+            "governance_metrics": governance_metrics,
+            "realism_summary": realism_summary,
             "research_feedback_gate": evaluate_research_feedback_gate(
                 research_feedback,
                 policy=dict((freeze_gate_policy or {}).get("research_feedback") or {}),
@@ -209,6 +276,7 @@ def evaluate_freeze_gate(
     min_avg_sharpe = float(freeze_gate_policy.get("avg_sharpe_gte", 0.8) or 0.8)
     max_avg_drawdown = float(freeze_gate_policy.get("avg_max_drawdown_lt", 15.0) or 15.0)
     min_benchmark_pass_rate = float(freeze_gate_policy.get("benchmark_pass_rate_gte", 0.60) or 0.60)
+    governance_policy = dict((freeze_gate_policy or {}).get("governance") or {})
 
     checks = [
         {"name": "win_rate", "passed": rolling.get("win_rate", 0.0) >= required_win_rate, "actual": rolling.get("win_rate", 0.0), "required_gte": required_win_rate},
@@ -217,6 +285,27 @@ def evaluate_freeze_gate(
         {"name": "avg_max_drawdown", "passed": rolling.get("avg_max_drawdown", 0.0) < max_avg_drawdown, "actual": rolling.get("avg_max_drawdown", 0.0), "required_lt": max_avg_drawdown},
         {"name": "benchmark_pass_rate", "passed": rolling.get("benchmark_pass_rate", 0.0) >= min_benchmark_pass_rate, "actual": rolling.get("benchmark_pass_rate", 0.0), "required_gte": min_benchmark_pass_rate},
     ]
+    if governance_policy:
+        max_drift_rate = _safe_float(governance_policy.get("max_active_candidate_drift_rate"))
+        if max_drift_rate is not None:
+            checks.append(
+                {
+                    "name": "active_candidate_drift_rate",
+                    "passed": governance_metrics.get("active_candidate_drift_rate", 0.0) <= max_drift_rate,
+                    "actual": governance_metrics.get("active_candidate_drift_rate", 0.0),
+                    "required_lte": max_drift_rate,
+                }
+            )
+        max_pending_count = int(governance_policy.get("max_candidate_pending_count") or 0)
+        if "max_candidate_pending_count" in governance_policy:
+            checks.append(
+                {
+                    "name": "candidate_pending_count",
+                    "passed": int(governance_metrics.get("candidate_pending_count", 0) or 0) <= max_pending_count,
+                    "actual": int(governance_metrics.get("candidate_pending_count", 0) or 0),
+                    "required_lte": max_pending_count,
+                }
+            )
     research_gate = evaluate_research_feedback_gate(
         research_feedback,
         policy=dict((freeze_gate_policy or {}).get("research_feedback") or {}),
@@ -227,6 +316,8 @@ def evaluate_freeze_gate(
         "ready": True,
         "passed": base_passed and bool(research_gate.get("passed", True)),
         "checks": checks,
+        "governance_metrics": governance_metrics,
+        "realism_summary": realism_summary,
         "research_feedback_gate": research_gate,
     }
 
@@ -279,6 +370,8 @@ def build_freeze_report(
         "frozen_time": datetime.now().isoformat(),
         "self_assessment": rolling,
         "research_feedback": dict(research_feedback or {}),
+        "governance_metrics": build_governance_metrics(cycle_history),
+        "realism_summary": build_realism_summary(cycle_history),
         "freeze_gate": {
             "window": freeze_total_cycles,
             "required_win_rate": freeze_profit_required / max(freeze_total_cycles, 1),
@@ -287,6 +380,7 @@ def build_freeze_report(
             "required_avg_max_drawdown": float(freeze_gate_policy.get("avg_max_drawdown_lt", 15.0) or 15.0),
             "required_benchmark_pass_rate": float(freeze_gate_policy.get("benchmark_pass_rate_gte", 0.60) or 0.60),
             "research_feedback": dict((freeze_gate_policy or {}).get("research_feedback") or {}),
+            "governance": dict((freeze_gate_policy or {}).get("governance") or {}),
         },
         "freeze_gate_evaluation": evaluation,
     }
@@ -320,6 +414,8 @@ def generate_training_report(
             "is_frozen": False,
             "self_assessment": self_assessment,
             "research_feedback": dict(research_feedback or {}),
+            "governance_metrics": build_governance_metrics(cycle_history),
+            "realism_summary": build_realism_summary(cycle_history),
             "freeze_gate_evaluation": dict(freeze_gate_evaluation or {}),
         }
 
@@ -338,5 +434,7 @@ def generate_training_report(
         "is_frozen": is_frozen,
         "self_assessment": self_assessment,
         "research_feedback": dict(research_feedback or {}),
+        "governance_metrics": build_governance_metrics(cycle_history),
+        "realism_summary": build_realism_summary(cycle_history),
         "freeze_gate_evaluation": dict(freeze_gate_evaluation or {}),
     }

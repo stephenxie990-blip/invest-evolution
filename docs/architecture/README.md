@@ -27,3 +27,4 @@
 
 - 想看“代码今天怎么组织”，先读本目录
 - 想看“未来要怎么继续拆/并/重构”，再去 `docs/blueprints/README.md`
+- 想看已完成阶段的 RFC、状态评估或历史实施材料，去 `docs/archive/README.md`

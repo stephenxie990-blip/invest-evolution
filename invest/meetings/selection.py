@@ -31,13 +31,21 @@ def _agent_context_confidence(agent_context: Any, default: float) -> float:
     resolver = getattr(agent_context, "effective_confidence", None)
     if callable(resolver):
         resolved: Any = resolver(default=default)
-        return float(resolved)
+        return _normalized_confidence(resolved, default=default)
     metadata: dict[str, Any] = dict(getattr(agent_context, "metadata", {}) or {})
     explicit_confidence: Any = getattr(agent_context, "confidence", None)
+    return _normalized_confidence(
+        explicit_confidence if explicit_confidence not in (None, "") else metadata.get("confidence", default),
+        default=default,
+    )
+
+
+def _normalized_confidence(value: Any, *, default: float) -> float:
     try:
-        return float(explicit_confidence or metadata.get("confidence", default) or default)
+        numeric = float(value)
     except (TypeError, ValueError):
-        return float(default)
+        numeric = float(default)
+    return max(0.0, min(1.0, numeric))
 
 
 class SelectionMeeting:
@@ -359,7 +367,7 @@ class SelectionMeeting:
                             or f"{agent_label} 已输出候选"
                         ),
                         "picks": (result.get("picks", []) or [])[:10],
-                        "confidence": result.get("confidence"),
+                        "confidence": _normalized_confidence(result.get("confidence"), default=0.5),
                     }
                 )
                 logger.info(
@@ -661,7 +669,7 @@ class SelectionMeeting:
         for hunter in hunter_outputs:
             source_name = hunter["name"]
             result = hunter["result"]
-            confidence = result.get("confidence", 0.5)
+            confidence = _normalized_confidence(result.get("confidence"), default=0.5)
             reason = str(result.get("overall_view", "")).strip()
             if reason:
                 all_reasons.append(f"{source_name}: {reason}")
@@ -748,9 +756,10 @@ class SelectionMeeting:
             "selected": final_selected,
             "selected_meta": selected_meta,
             "reasoning": reasoning,
-            "confidence": (
+            "confidence": _normalized_confidence(
                 sum(score for _, score in sorted_codes[: len(final_selected)])
-                / max(len(final_selected), 1)
+                / max(len(final_selected), 1),
+                default=0.0,
             ),
             "source": "llm",
             "hunters": hunter_outputs,

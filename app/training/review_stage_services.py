@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from app.training.review_protocol import build_review_input
+
 
 @dataclass(frozen=True)
 class TrainingReviewStageResult:
@@ -79,10 +81,20 @@ class TrainingReviewStageService:
         )
         controller.cycle_records.append(cycle_dict)
         agent_accuracy = controller.agent_tracker.compute_accuracy(last_n_cycles=20)
+        review_input = build_review_input(
+            controller,
+            cycle_id=cycle_id,
+            eval_report=eval_report,
+        )
         review_decision = controller.review_meeting_service.run_with_eval_report(
             eval_report,
             agent_accuracy=agent_accuracy,
             current_params=controller.current_params,
+            recent_results=review_input["recent_results"],
+            review_basis_window=review_input["review_basis_window"],
+            similar_results=review_input["similar_results"],
+            similarity_summary=review_input["similarity_summary"],
+            causal_diagnosis=review_input["causal_diagnosis"],
         )
         review_facts = getattr(controller.review_meeting, "last_facts", None) or cycle_dict
         controller.meeting_recorder.save_review(review_decision, review_facts, cycle_id)

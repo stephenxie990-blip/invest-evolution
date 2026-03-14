@@ -258,6 +258,7 @@
   - `invest/leaderboard/engine.py`
   - `invest/foundation/compute/indicators_v2.py`
   - `app/commander_support/config.py`
+
 - 第三轮清理聚焦：
   - `app/web_server.py`
   - `invest/agents/base.py`
@@ -373,3 +374,173 @@
 - `S110 / S112`: 0
 - `PLW0603 global-statement`: 0
 - `PLC0415 import-outside-top-level`: 0
+
+### Blueprint recalibration after repo scan
+
+- 重新读取并采用技能：`pi-planning-with-files`
+- 复核最新提交、当前 planning files 与 `docs/plans/V1_1_IMPLEMENTATION_BLUEPRINT_20260314.md`
+- 核对到的关键基线变化：
+  - `Phase 6` Wave A-F 已完成
+  - `brain/presentation.py`、`app/interfaces/web/presentation.py`、`app/interfaces/web/contracts.py` 已成为稳定 seam
+  - `app/stock_analysis_services.py` 与显式 contract 对象已开始成为默认接入面
+  - cleanup gate 已进入 blocker-only 更合理
+
+### Completed
+
+- 已根据仓库真实状态重写 `docs/plans/V1_1_IMPLEMENTATION_BLUEPRINT_20260314.md`
+- 已将 `v1.1` 主线从“训练协议硬化 + 最小结构解耦 + Instructor + Guardrails”修正为“训练协议硬化 + protocol tail hardening + Instructor + Guardrails”
+- 已把时间线修正为：
+  - `Week 0` 基线冻结
+  - `Week 1-5` 模块推进
+- 已更新 `task_plan.md`、`findings.md`、`progress.md`，使 planning files 与新版蓝图一致
+
+### Verification
+
+- 本轮未运行测试
+- 本轮仅更新规划与蓝图文档，没有修改业务代码
+
+### Module A slice 1 implementation
+
+- 开始按 `v1.1` 蓝图顺序进入直接实现阶段，优先落 `Module A / Week 1` 的最小切片
+- 新增 `app/training/experiment_protocol.py`
+- 更新：
+  - `app/training/controller_services.py`
+  - `app/training/outcome_services.py`
+  - `app/train.py`
+  - `app/investment_body_service.py`
+  - `app/training/__init__.py`
+- 更新测试：
+  - `tests/test_training_experiment_protocol.py`
+  - `tests/test_training_controller_services.py`
+  - `tests/test_train_ui_semantics.py`
+
+### Completed
+
+- `TrainingExperimentService.configure_experiment()` 现在会生成 canonical `experiment_spec`
+- controller 已显式持有：
+  - `experiment_protocol`
+  - `experiment_review_window`
+  - `experiment_promotion_policy`
+- `TrainingResult` 已新增：
+  - `experiment_spec`
+  - `run_context`
+- `TrainingOutcomeService` 已在生成周期结果时附加 protocol/run-context 信息
+- `TrainingPersistenceService.save_cycle_result()` 已把 `experiment_spec` 与 `run_context` 写入 `cycle_*.json`
+- `InvestmentBodyService._to_result_dict()` 已把这两块信息暴露给 commander/runtime 结果面
+
+### Verification
+
+- Focused:
+  - `.venv/bin/pytest -q tests/test_training_experiment_protocol.py tests/test_training_controller_services.py tests/test_train_ui_semantics.py` -> pass
+  - `.venv/bin/ruff check app/training/experiment_protocol.py app/training/controller_services.py app/training/outcome_services.py app/train.py app/investment_body_service.py app/training/__init__.py tests/test_training_experiment_protocol.py tests/test_training_controller_services.py tests/test_train_ui_semantics.py` -> pass
+  - `.venv/bin/pyright app/training/experiment_protocol.py app/training/controller_services.py app/training/outcome_services.py app/train.py app/investment_body_service.py app/training/__init__.py tests/test_training_experiment_protocol.py tests/test_training_controller_services.py tests/test_train_ui_semantics.py` -> 0 errors
+
+## v1.1 remaining 5 cuts completed
+
+### Completed
+
+- `Module A / cut 2`:
+  - 新增 `app/training/review_protocol.py`
+  - 复盘阶段现在会基于 `experiment_review_window` 生成 `recent_results` 与 `review_basis_window`
+  - `ReviewMeetingService` / `ReviewMeeting.run_with_eval_report()` 已接受滚动窗口事实
+- `Module A / cut 3`:
+  - 新增 `app/training/promotion_services.py`
+  - 新增 `app/training/lineage_services.py`
+  - `TrainingResult` / `cycle_*.json` / commander result 现在显式记录 `promotion_record` 与 `lineage_record`
+  - `build_cycle_run_context()` 已在 candidate auto-apply 时把 active ref 正确指向候选配置
+- `Module B`:
+  - `invest/meetings/selection.py` 已把 hunter / meeting `confidence` 统一收敛到 0-1 范围
+  - `AgentContext.effective_confidence()` 已成为 `run_with_context()` 的默认读取入口
+- `Module C`:
+  - 新增 `brain/structured_output.py`
+  - `BrainRuntime` 在 protocol wrapping 前会对 `invest_ask_stock`、`invest_training_plan_create`、`invest_training_plan_execute` 做 schema-first normalization
+- `Module D`:
+  - 新增 `brain/guardrails.py`
+  - mutating tool 在执行前新增轻量 guardrail：
+    - 阻断 placeholder 参数
+    - 阻断高风险 update 的空 `patch`
+    - 阻断缺失 `plan_id` 的 `invest_training_plan_execute`
+
+### Verification
+
+- Focused slices:
+  - `.venv/bin/pytest -q tests/test_training_review_protocol.py tests/test_training_controller_services.py tests/test_review_meeting_v2.py tests/test_phase6_wave_a.py` -> pass
+  - `.venv/bin/pytest -q tests/test_training_experiment_protocol.py tests/test_training_promotion_lineage.py tests/test_training_controller_services.py tests/test_train_ui_semantics.py` -> pass
+  - `.venv/bin/pytest -q tests/test_meeting_refinement.py tests/test_ask_stock_model_bridge.py` -> pass
+  - `.venv/bin/pytest -q tests/test_brain_runtime.py tests/test_commander_mutating_workflow_golden.py tests/test_schema_contracts.py` -> pass
+- Consolidated:
+  - `.venv/bin/pytest -q tests/test_training_experiment_protocol.py tests/test_training_review_protocol.py tests/test_training_promotion_lineage.py tests/test_training_controller_services.py tests/test_train_ui_semantics.py tests/test_review_meeting_v2.py tests/test_phase6_wave_a.py tests/test_meeting_refinement.py tests/test_ask_stock_model_bridge.py tests/test_brain_runtime.py tests/test_commander_mutating_workflow_golden.py tests/test_schema_contracts.py` -> pass
+  - `ruff check ...`（本轮涉及文件）-> pass
+  - `pyright ...`（本轮涉及文件）-> `0 errors`
+
+## Instructor expansion and promotion/lineage observability
+
+### Completed
+
+- `Instructor` 风格 structured-output 适配继续扩面：
+  - `brain/structured_output.py` 现在除了 `invest_ask_stock`、`invest_training_plan_create`、`invest_training_plan_execute` 外，还覆盖：
+    - `invest_control_plane_update`
+    - `invest_runtime_paths_update`
+    - `invest_evolution_config_update`
+  - `invest_training_plan_execute` 现在会归一化：
+    - `result_overview`
+    - `latest_result`
+    - `latest_result.promotion_record`
+    - `latest_result.lineage_record`
+- commander/web 侧的 promotion/lineage 展示已补齐：
+  - `app/commander_support/training.py` 新增 `summarize_latest_training_result()`
+  - `attach_training_lab_paths()` 现在会在 `training_lab.run.latest_result` 中暴露 promotion / lineage 摘要
+  - `app/commander_support/presentation.py` fallback display 现在会把最新训练周期、收益、晋升状态、lineage 状态合成到 human view
+  - `brain/presentation.py` 的 `training_execution` receipt 也会把 promotion / lineage 作为 facts 暴露
+
+### Verification
+
+- Focused:
+  - `.venv/bin/pytest -q tests/test_structured_output_adapter.py tests/test_brain_runtime.py tests/test_commander_cli_view.py tests/test_web_training_lab_api.py` -> pass
+  - `ruff check brain/structured_output.py brain/presentation.py app/commander_support/training.py app/commander_support/presentation.py tests/test_structured_output_adapter.py tests/test_brain_runtime.py tests/test_commander_cli_view.py tests/test_web_training_lab_api.py` -> pass
+  - `pyright brain/structured_output.py brain/presentation.py app/commander_support/training.py app/commander_support/presentation.py tests/test_structured_output_adapter.py tests/test_brain_runtime.py tests/test_commander_cli_view.py tests/test_web_training_lab_api.py` -> `0 errors`
+- Expanded:
+  - `.venv/bin/pytest -q tests/test_structured_output_adapter.py tests/test_brain_runtime.py tests/test_commander_cli_view.py tests/test_web_training_lab_api.py tests/test_web_server_contract_headers.py tests/test_commander_unified_entry.py tests/test_commander.py` -> pass
+
+## 2026-03-15
+
+### Session start
+
+- 读取并沿用 `pi-planning-with-files` planning context：
+  - `task_plan.md`
+  - `findings.md`
+  - `progress.md`
+- 基于大规模重构后的真实代码，重新审查：
+  - 架构与入口
+  - 训练协议与 review/promotion/lineage 链路
+  - runtime structured output / guardrails
+  - presentation / web contract seam
+  - freeze gate 当前门槛
+
+### Completed
+
+- 复核主链文档：
+  - `docs/MAIN_FLOW.md`
+  - `docs/TRAINING_FLOW.md`
+- 复核关键实现：
+  - `brain/runtime.py`
+  - `brain/structured_output.py`
+  - `brain/guardrails.py`
+  - `app/training/experiment_protocol.py`
+  - `app/training/review_stage_services.py`
+  - `app/training/outcome_services.py`
+  - `app/lab/evaluation.py`
+  - `app/interfaces/web/presentation.py`
+  - `app/freeze_gate.py`
+  - `invest/contracts/agent_context.py`
+  - `invest/contracts/stock_summary.py`
+- 明确了升级方案需要重排：
+  - `Instructor` / `Guardrails` 已有内建雏形，不再适合作为 `v1.1` 的“从零接入”叙事
+  - 当前应优先继续做训练协议、promotion/lineage、contract tail、structured output / guardrails coverage 的深化
+  - `PySR / E2B / Temporal` 后移到 `v1.2+`
+- 已更新 planning files，记录本轮系统再审查后的新判断
+
+### Verification
+
+- `source .venv/bin/activate && pytest -q tests/test_structured_output_adapter.py tests/test_brain_runtime.py tests/test_lab_artifacts.py tests/test_freeze_gate.py` -> pass
+- `source .venv/bin/activate && python -m app.freeze_gate --mode quick` -> pass

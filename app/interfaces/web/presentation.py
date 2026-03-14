@@ -7,6 +7,160 @@ from typing import Any
 from flask import Response, jsonify
 
 from app.commander_support.presentation import build_human_display
+from app.commander_support.training import build_promotion_lineage_ops_panel
+
+
+def _latest_training_result(body: dict[str, Any]) -> dict[str, Any]:
+    training_lab = dict(body.get("training_lab") or {})
+    run = dict(training_lab.get("run") or {})
+    latest = dict(run.get("latest_result") or body.get("latest_result") or {})
+    if latest:
+        return latest
+    payload = dict(body.get("payload") or {})
+    results = [dict(item) for item in list(payload.get("results") or body.get("results") or []) if isinstance(item, dict)]
+    return dict(results[-1]) if results else {}
+
+
+def _kv(label: str, value: Any) -> dict[str, str]:
+    return {"label": str(label), "value": str(value)}
+
+
+def _training_display_cards(body: dict[str, Any]) -> list[dict[str, Any]]:
+    latest = _latest_training_result(body)
+    if not latest and not body.get("training_lab"):
+        return []
+
+    cards: list[dict[str, Any]] = []
+    ops_panel = dict(
+        dict(dict(body.get("training_lab") or {}).get("run") or {}).get("ops_panel")
+        or latest.get("ops_panel")
+        or build_promotion_lineage_ops_panel(latest)
+        or {}
+    )
+    if ops_panel.get("available", False):
+        refs = dict(ops_panel.get("refs") or {})
+        status = dict(ops_panel.get("status") or {})
+        review_window = dict(ops_panel.get("review_window") or {})
+        rows = [
+            _kv("promotion", status.get("promotion_status") or "unknown"),
+            _kv("gate", status.get("gate_status") or "unknown"),
+            _kv("lineage", status.get("lineage_status") or "unknown"),
+        ]
+        if status.get("basis_stage"):
+            rows.append(_kv("basis_stage", status.get("basis_stage")))
+        if refs.get("active_config_ref"):
+            rows.append(_kv("active", refs.get("active_config_ref")))
+        if refs.get("candidate_config_ref"):
+            rows.append(_kv("candidate", refs.get("candidate_config_ref")))
+        if review_window:
+            rows.append(
+                _kv(
+                    "review_window",
+                    f"{review_window.get('mode', 'unknown')} / {int(review_window.get('size', 0) or 0)}",
+                )
+            )
+        cards.append(
+            {
+                "id": "training_ops_panel",
+                "title": "Promotion / Lineage",
+                "tone": "warning" if list(ops_panel.get("warnings") or []) else "neutral",
+                "summary": str(ops_panel.get("summary") or ""),
+                "rows": rows,
+                "badges": [
+                    str(item)
+                    for item in [
+                        status.get("promotion_status"),
+                        status.get("gate_status"),
+                        status.get("lineage_status"),
+                    ]
+                    if str(item or "").strip()
+                ],
+                "warnings": [str(item) for item in list(ops_panel.get("warnings") or []) if str(item or "").strip()],
+            }
+        )
+
+    causal_diagnosis = dict(
+        latest.get("causal_diagnosis")
+        or dict(latest.get("review_decision") or {}).get("causal_diagnosis")
+        or {}
+    )
+    if causal_diagnosis:
+        drivers = [dict(item) for item in list(causal_diagnosis.get("drivers") or [])]
+        rows = [
+            _kv("primary_driver", causal_diagnosis.get("primary_driver") or "unknown"),
+            _kv("summary", causal_diagnosis.get("summary") or ""),
+        ]
+        if drivers:
+            top = drivers[0]
+            rows.append(_kv("top_evidence", ",".join(str(item) for item in list(top.get("evidence_cycle_ids") or []))))
+            rows.append(_kv("top_score", top.get("score") or ""))
+        cards.append(
+            {
+                "id": "causal_diagnosis",
+                "title": "Causal Diagnosis",
+                "tone": "warning",
+                "summary": str(causal_diagnosis.get("summary") or ""),
+                "rows": rows,
+                "badges": [str(causal_diagnosis.get("primary_driver") or "unknown")],
+            }
+        )
+
+    similarity_summary = dict(
+        latest.get("similarity_summary")
+        or dict(latest.get("review_decision") or {}).get("similarity_summary")
+        or {}
+    )
+    similar_results = [
+        dict(item)
+        for item in list(
+            latest.get("similar_results")
+            or dict(latest.get("review_decision") or {}).get("similar_results")
+            or []
+        )
+    ]
+    if similarity_summary or similar_results:
+        rows = []
+        matched_cycle_ids = list(similarity_summary.get("matched_cycle_ids") or [])
+        if matched_cycle_ids:
+            rows.append(_kv("matched_cycles", ",".join(str(item) for item in matched_cycle_ids)))
+        if similarity_summary.get("dominant_regime"):
+            rows.append(_kv("dominant_regime", similarity_summary.get("dominant_regime")))
+        if similar_results:
+            top = dict(similar_results[0])
+            rows.append(
+                _kv(
+                    "top_match",
+                    f"cycle {top.get('cycle_id')} / {float(top.get('return_pct', 0.0) or 0.0):+.2f}%",
+                )
+            )
+        cards.append(
+            {
+                "id": "similar_samples",
+                "title": "Similar Samples",
+                "tone": "neutral",
+                "summary": f"命中 {len(matched_cycle_ids or similar_results)} 个历史相似样本",
+                "rows": rows,
+                "badges": [str(similarity_summary.get("dominant_regime") or "").strip()] if str(similarity_summary.get("dominant_regime") or "").strip() else [],
+            }
+        )
+    realism_metrics = dict(latest.get("realism_metrics") or {})
+    if realism_metrics:
+        rows = [
+            _kv("avg_trade_amount", realism_metrics.get("avg_trade_amount") or ""),
+            _kv("avg_turnover_rate", realism_metrics.get("avg_turnover_rate") or ""),
+            _kv("avg_holding_days", realism_metrics.get("avg_holding_days") or ""),
+        ]
+        cards.append(
+            {
+                "id": "execution_realism",
+                "title": "Execution Realism",
+                "tone": "neutral",
+                "summary": f"{int(realism_metrics.get('trade_record_count', 0) or 0)} 条交易记录",
+                "rows": rows,
+                "badges": [str(realism_metrics.get("selection_mode") or "").strip()] if str(realism_metrics.get("selection_mode") or "").strip() else [],
+            }
+        )
+    return cards
 
 
 def contract_payload_root(payload: Any) -> dict[str, Any] | None:
@@ -70,6 +224,7 @@ def attach_display_payload(payload: Any) -> dict[str, Any]:
             "summary": str(display.get("summary") or ""),
             "text": str(display.get("text") or ""),
             "sections": list(display.get("sections") or []),
+            "cards": _training_display_cards(body),
             "suggested_actions": list(display.get("suggested_actions") or []),
             "recommended_next_step": str(display.get("recommended_next_step") or ""),
             "risk_level": str(display.get("risk_level") or ""),

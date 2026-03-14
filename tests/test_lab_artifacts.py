@@ -85,11 +85,19 @@ def test_training_plan_payload_injects_default_research_feedback_gate(tmp_path: 
     assert gate['horizons']['T+20']['min_hit_rate'] == 0.45
     assert gate['horizons']['T+20']['max_invalidation_rate'] == 0.30
     assert gate['horizons']['T+20']['min_interval_hit_rate'] == 0.40
+    assert plan['optimization']['promotion_gate']['regime_validation']['min_distinct_regimes'] == 2
+    assert plan['optimization']['promotion_gate']['regime_validation']['min_samples_per_regime'] == 1
+    assert plan['optimization']['promotion_gate']['return_objectives']['min_win_rate'] == 0.50
+    assert plan['optimization']['promotion_gate']['candidate_ab']['min_return_lift_pct'] == 0.0
+    assert plan['optimization']['promotion_gate']['candidate_ab']['require_candidate_outperform_active'] is True
     guardrail = plan['guardrails']['promotion_gate']['research_feedback']
     assert guardrail['enabled'] is True
     assert guardrail['policy_source']['mode'] == 'default_injected'
     assert 'default_research_feedback_gate_enabled' in guardrail['reason_codes']
     assert '默认启用 research_feedback 校准门' in guardrail['summary']
+    assert plan['guardrails']['promotion_gate']['regime_validation']['enabled'] is True
+    assert plan['guardrails']['promotion_gate']['return_objectives']['enabled'] is True
+    assert plan['guardrails']['promotion_gate']['candidate_ab']['enabled'] is True
 
 
 def test_training_plan_payload_merges_research_feedback_gate_overrides(tmp_path: Path):

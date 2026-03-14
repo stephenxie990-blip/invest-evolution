@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any, Awaitable, Callable, Optional
 
 from app.llm_gateway import LLMGateway, LLMGatewayError, LLMUnavailableError
+from brain.guardrails import RuntimeGuardrails
 from brain.presentation import BrainHumanReadablePresenter
 from brain.planner_catalog import (
     build_config_overview_plan,
@@ -31,6 +32,7 @@ from brain.schema_contract import (
     RISK_LEVEL_MEDIUM,
     TRAINING_DEFAULT_REASON_CODES,
 )
+from brain.structured_output import StructuredOutputAdapter
 from brain.task_bus import build_bounded_entrypoint, build_bounded_orchestration, build_bounded_policy, build_mutating_task_bus, build_readonly_task_bus, build_protocol_response
 from brain.tool_metadata import RUNTIME_OBSERVABILITY_TOOL_NAMES
 
@@ -213,6 +215,12 @@ class BrainRuntime:
 
         self.tools = BrainToolRegistry()
         self.sessions: dict[str, BrainSession] = {}
+        self.guardrails = RuntimeGuardrails()
+        self.structured_output = StructuredOutputAdapter()
+        self.governance_metrics: dict[str, dict[str, Any]] = {
+            "guardrails": {"block_count": 0, "last_reason_codes": []},
+            "structured_output": {"validated_count": 0, "repaired_count": 0, "fallback_count": 0, "degraded_count": 0},
+        }
         self.gateway = LLMGateway(
             model=self.model,
             api_key=self.api_key,
@@ -364,7 +372,12 @@ class BrainRuntime:
                     except ToolArgumentParseError as exc:
                         result = f"Error: invalid tool arguments for {tc.function.name}: {exc}"
                     else:
-                        result = await self.tools.execute(tc.function.name, args)
+                        guardrail_payload = self.guardrails.evaluate(tool_name=tc.function.name, params=args)
+                        if guardrail_payload is not None:
+                            self._record_guardrail_event(guardrail_payload)
+                            result = json.dumps(guardrail_payload, ensure_ascii=False)
+                        else:
+                            result = await self.tools.execute(tc.function.name, args)
                     tool_trace.append({"action": {"tool": tc.function.name, "args": args}})
                     messages.append(
                         {
@@ -442,6 +455,10 @@ class BrainRuntime:
                     args = self._parse_tool_args(raw)
                 except ToolArgumentParseError as exc:
                     return f"Error: invalid tool arguments for {name}: {exc}"
+        guardrail_payload = self.guardrails.evaluate(tool_name=name, params=args)
+        if guardrail_payload is not None:
+            self._record_guardrail_event(guardrail_payload)
+            return json.dumps(guardrail_payload, ensure_ascii=False)
         return await self.tools.execute(name, args)
 
     @staticmethod
@@ -775,6 +792,12 @@ class BrainRuntime:
             payload = {"status": status, "reply": str(result)}
         elif "reply" not in payload and not payload.get("message") and isinstance(result, str) and not result.strip().startswith("{"):
             payload["reply"] = str(result)
+        primary_tool = names[-1] if names else ""
+        if primary_tool:
+            payload = self.structured_output.normalize_payload(tool_name=primary_tool, payload=payload)
+            self._record_structured_output_status(payload)
+            payload.setdefault("governance_metrics", {})
+            payload["governance_metrics"]["runtime"] = self._governance_metrics_snapshot()
         inferred_intent = self._intent_for_tools(names)
         entrypoint = {
             "kind": "commander_tool_runtime",
@@ -810,6 +833,43 @@ class BrainRuntime:
         )
         payload = self._attach_human_readable_receipt(payload, intent=inferred_intent, operation=mode)
         return json.dumps(payload, ensure_ascii=False, indent=2)
+
+    def _record_guardrail_event(self, payload: dict[str, Any]) -> None:
+        guardrails = _dict_payload(payload.get("guardrails"))
+        metrics = self.governance_metrics.setdefault("guardrails", {"block_count": 0, "last_reason_codes": []})
+        metrics["block_count"] = int(metrics.get("block_count", 0) or 0) + 1
+        metrics["last_reason_codes"] = list(guardrails.get("reason_codes") or [])
+
+    def _record_structured_output_status(self, payload: dict[str, Any]) -> None:
+        structured = _dict_payload(payload.get("structured_output"))
+        status = str(structured.get("status") or "")
+        metrics = self.governance_metrics.setdefault(
+            "structured_output",
+            {"validated_count": 0, "repaired_count": 0, "fallback_count": 0, "degraded_count": 0},
+        )
+        if status == "validated":
+            metrics["validated_count"] = int(metrics.get("validated_count", 0) or 0) + 1
+        elif status == "repaired":
+            metrics["repaired_count"] = int(metrics.get("repaired_count", 0) or 0) + 1
+        elif status == "fallback":
+            metrics["fallback_count"] = int(metrics.get("fallback_count", 0) or 0) + 1
+        elif status == "fallback_degraded":
+            metrics["fallback_count"] = int(metrics.get("fallback_count", 0) or 0) + 1
+            metrics["degraded_count"] = int(metrics.get("degraded_count", 0) or 0) + 1
+
+    def _governance_metrics_snapshot(self) -> dict[str, Any]:
+        return {
+            "guardrails": {
+                "block_count": int(_dict_payload(self.governance_metrics.get("guardrails")).get("block_count", 0) or 0),
+                "last_reason_codes": list(_dict_payload(self.governance_metrics.get("guardrails")).get("last_reason_codes") or []),
+            },
+            "structured_output": {
+                "validated_count": int(_dict_payload(self.governance_metrics.get("structured_output")).get("validated_count", 0) or 0),
+                "repaired_count": int(_dict_payload(self.governance_metrics.get("structured_output")).get("repaired_count", 0) or 0),
+                "fallback_count": int(_dict_payload(self.governance_metrics.get("structured_output")).get("fallback_count", 0) or 0),
+                "degraded_count": int(_dict_payload(self.governance_metrics.get("structured_output")).get("degraded_count", 0) or 0),
+            },
+        }
 
     def _wrap_builtin_payload(
         self,

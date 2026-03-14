@@ -11,6 +11,7 @@ from config import normalize_date
 from invest.leaderboard import write_leaderboard
 from invest.models import resolve_model_config_path
 from invest.models.defaults import COMMON_PARAM_DEFAULTS
+from app.training.experiment_protocol import ExperimentSpec
 from app.training.reporting import (
     build_freeze_report,
     build_self_assessment_snapshot,
@@ -92,7 +93,9 @@ class TrainingExperimentService:
         return normalize_date(str(value))
 
     def configure_experiment(self, controller: Any, spec: Dict[str, Any] | None = None) -> None:
-        payload = dict(spec or {})
+        normalized_spec = ExperimentSpec.from_payload(spec)
+        payload = normalized_spec.to_payload()
+        controller.experiment_protocol = payload
         controller.experiment_spec = payload
         protocol = dict(payload.get("protocol") or {})
         dataset = dict(payload.get("dataset") or {})
@@ -100,16 +103,23 @@ class TrainingExperimentService:
         llm = dict(payload.get("llm") or {})
 
         seed = protocol.get("seed")
-        date_range = protocol.get("date_range")
+        date_range = dict(protocol.get("date_range") or {})
         controller.experiment_seed = self._optional_int(seed)
         controller.experiment_min_date = self._optional_normalized_date(
-            protocol.get("min_date") or (date_range or {}).get("min") if isinstance(date_range, dict) else protocol.get("min_date")
+            date_range.get("min") or protocol.get("min_date")
         )
         controller.experiment_max_date = self._optional_normalized_date(
-            protocol.get("max_date") or (date_range or {}).get("max") if isinstance(date_range, dict) else protocol.get("max_date")
+            date_range.get("max") or protocol.get("max_date")
         )
         controller.experiment_min_history_days = self._optional_int(dataset.get("min_history_days"))
         controller.experiment_simulation_days = self._optional_int(dataset.get("simulation_days"))
+        controller.experiment_cutoff_policy = dict(
+            protocol.get("cutoff_policy") or normalized_spec.cutoff_policy
+        )
+        controller.experiment_review_window = dict(protocol.get("review_window") or normalized_spec.review_window)
+        controller.experiment_promotion_policy = dict(
+            protocol.get("promotion_policy") or normalized_spec.promotion_policy
+        )
 
         allowed_models = model_scope.get("allowed_models") or []
         controller.experiment_allowed_models = [
@@ -172,6 +182,7 @@ class TrainingFeedbackService:
         payload = dict(feedback or {})
         recommendation = dict(payload.get("recommendation") or {})
         t20 = dict(payload.get("horizons") or {}).get("T+20") or {}
+        scope = dict(payload.get("scope") or {})
         return {
             "available": bool(payload),
             "source": dict(source or {}),
@@ -182,6 +193,8 @@ class TrainingFeedbackService:
             "t20_hit_rate": t20.get("hit_rate"),
             "t20_invalidation_rate": t20.get("invalidation_rate"),
             "available_horizons": sorted((payload.get("horizons") or {}).keys()),
+            "effective_scope": str(scope.get("effective_scope") or "overall"),
+            "requested_regime": str(scope.get("requested_regime") or ""),
         }
 
     @staticmethod
@@ -210,12 +223,13 @@ class TrainingFeedbackService:
             "cooldown_cycles": int(payload.get("cooldown_cycles") or 0),
         }
 
-    def load_research_feedback(self, controller: Any, *, cutoff_date: str, model_name: str, config_name: str) -> Dict[str, Any]:
+    def load_research_feedback(self, controller: Any, *, cutoff_date: str, model_name: str, config_name: str, regime: str = "") -> Dict[str, Any]:
         try:
             feedback = controller.research_case_store.build_training_feedback(
                 model_name=model_name,
                 config_name=config_name,
                 as_of_date=cutoff_date,
+                regime=regime,
                 limit=200,
             )
         except Exception:
@@ -450,6 +464,18 @@ class TrainingPersistenceService:
             "routing_decision": _jsonable(dict(result.routing_decision or {})),
             "allocation_plan": _jsonable((result.routing_decision or {}).get("allocation_plan") or getattr(controller, "last_allocation_plan", {}) or {}),
             "research_feedback": _jsonable(dict(result.research_feedback or {})),
+            "research_artifacts": _jsonable(dict(result.research_artifacts or {})),
+            "ab_comparison": _jsonable(dict(result.ab_comparison or {})),
+            "experiment_spec": _jsonable(dict(result.experiment_spec or {})),
+            "execution_snapshot": _jsonable(dict(result.execution_snapshot or {})),
+            "run_context": _jsonable(dict(result.run_context or {})),
+            "promotion_record": _jsonable(dict(result.promotion_record or {})),
+            "lineage_record": _jsonable(dict(result.lineage_record or {})),
+            "review_decision": _jsonable(dict(result.review_decision or {})),
+            "causal_diagnosis": _jsonable(dict(result.causal_diagnosis or {})),
+            "similarity_summary": _jsonable(dict(result.similarity_summary or {})),
+            "similar_results": _jsonable(list(result.similar_results or [])),
+            "realism_metrics": _jsonable(dict(result.realism_metrics or {})),
             "scoring_mutation_count": scoring_mutation_count,
             "scoring_changed_keys": sorted(set(scoring_changed_keys)),
         }

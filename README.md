@@ -227,8 +227,7 @@ strategies/          可插拔策略基因（md/json/py）
 runtime/             运行态输出、锁文件、记忆、会话、日志、训练实验室工件
 agent_settings/      Agent prompt / model 配置与插件模板
 tests/               当前实现对应的回归测试
-docs/plans/session/  会话级 task_plan / findings / progress 归档
-历史归档区/          已退出主链但保留追溯价值的历史资料
+docs/archive/        历史文档归档区（非当前主入口）
 ```
 
 ## 运行时产物

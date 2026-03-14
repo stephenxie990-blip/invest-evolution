@@ -1,3 +1,4 @@
+from invest.contracts import AgentContext, SignalPacket
 from invest.meetings import SelectionMeeting, ReviewMeeting
 from invest.meetings.recorder import MeetingRecorder
 from invest.meetings.review import (
@@ -126,6 +127,80 @@ def test_selection_meeting_aggregate_respects_top_n_and_keeps_meta():
     assert len(result["selected"]) == 2
     assert len(result["selected_meta"]) == 2
     assert result["selected_meta"][0]["code"] in {"AAA", "BBB", "CCC"}
+
+
+def test_selection_meeting_aggregate_normalizes_hunter_confidence():
+    meeting = SelectionMeeting(llm_caller=None)
+    result = meeting._aggregate(
+        [
+            {
+                "name": "trend_hunter",
+                "result": {
+                    "confidence": "1.6",
+                    "overall_view": "趋势强",
+                    "picks": [{"code": "AAA", "score": 0.9, "reasoning": "趋势延续"}],
+                },
+            },
+            {
+                "name": "contrarian",
+                "result": {
+                    "confidence": "-0.4",
+                    "overall_view": "逆向弱",
+                    "picks": [{"code": "BBB", "score": 0.7, "reasoning": "仅观察"}],
+                },
+            },
+        ],
+        {"regime": "bull", "params": {"max_positions": 2}},
+        top_n=2,
+    )
+
+    assert result["selected"] == ["AAA", "BBB"]
+    assert 0.0 <= result["confidence"] <= 1.0
+    assert result["selected_meta"][0]["score"] <= 1.0
+
+
+def test_selection_meeting_run_with_context_uses_effective_confidence_from_agent_context():
+    meeting = SelectionMeeting(llm_caller=None)
+    observed = {}
+
+    def fake_run_llm(top_n, regime, stock_summaries, agent_context=None, model_name=""):
+        observed["regime"] = regime
+        return {
+            "selected": ["AAA"],
+            "selected_meta": [{"code": "AAA", "score": 0.8, "source": "trend_hunter"}],
+            "reasoning": "ok",
+            "confidence": 0.8,
+            "source": "llm",
+            "hunters": [],
+        }
+
+    meeting._run_llm = fake_run_llm  # type: ignore[method-assign]
+    signal_packet = SignalPacket(
+        as_of_date="20240101",
+        model_name="momentum",
+        config_name="configs/momentum.yaml",
+        regime="bull",
+        selected_codes=["AAA"],
+        signals=[],
+        cash_reserve=0.3,
+        max_positions=1,
+        params={},
+    )
+    agent_context = AgentContext(
+        as_of_date="20240101",
+        model_name="momentum",
+        config_name="configs/momentum.yaml",
+        summary="bullish",
+        narrative="bullish",
+        regime="bull",
+        confidence="bad",  # type: ignore[arg-type]
+        metadata={"confidence": 0.82},
+        stock_summaries=[{"code": "AAA", "algo_score": 0.6}],
+    )
+
+    meeting.run_with_context(signal_packet, agent_context)
+
+    assert observed["regime"]["confidence"] == 0.82
 
 
 

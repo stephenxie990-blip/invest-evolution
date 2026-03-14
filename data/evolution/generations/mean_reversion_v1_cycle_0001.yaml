@@ -4,25 +4,64 @@ params:
   candidate_pool_size: 100
   top_n: 5
   max_positions: 4
-  cash_reserve: 0.35
-  stop_loss_pct: 0.05
-  take_profit_pct: 0.1
+  cash_reserve: 0.42999999999999994
+  stop_loss_pct: 0.04
+  take_profit_pct: 0.095
   trailing_pct: 0.06
-  position_size: 0.15
+  position_size: 0.1368
   oversold_rsi: 35
   rebound_rsi_cap: 60
   max_5d_drop: -2.0
   max_20d_drop: -5.0
   min_reversion_score: 0.05
 risk:
-  stop_loss_pct: 0.05
-  take_profit_pct: 0.1
+  stop_loss_pct: 0.04
+  take_profit_pct: 0.095
   trailing_pct: 0.06
 execution:
   initial_capital: 100000
   commission_rate: 0.00025
   stamp_tax_rate: 0.0005
   slippage_rate: 0.002
+summary_scoring:
+  weights:
+    change_5d: 0.15
+    change_20d: 0.15
+    ma_bull: 0.2
+    ma_bear: -0.1
+    rsi_mid: 0.15
+    rsi_oversold: 0.05
+    rsi_overbought: -0.1
+    macd:
+      gold_cross: 0.2
+      bullish: 0.1
+      neutral: 0.0
+      bearish: -0.1
+      death_cross: -0.15
+    bb_low: 0.15
+    bb_high: -0.1
+  logic:
+    ma_bull_ratio: 1.01
+    ma_bear_ratio: 0.99
+  bands:
+    change_5d_norm: 10.0
+    change_20d_norm: 20.0
+    rsi_mid_low: 40.0
+    rsi_mid_high: 60.0
+    rsi_oversold: 30.0
+    rsi_overbought: 70.0
+    bb_low: 0.3
+    bb_high: 0.8
+market_hints:
+  avg_volatility_gt: 0.035
+  market_breadth_lt: 0.35
+  avg_change_20d_gt: 6.0
+market_regime:
+  bull_avg_change_20d: 3.0
+  bull_above_ma20_ratio: 0.55
+  bear_avg_change_20d: -3.0
+  bear_above_ma20_ratio: 0.45
+  default_regime: oscillation
 benchmark:
   risk_free_rate: 0.03
   criteria:
@@ -87,17 +126,48 @@ train:
   freeze_total_cycles: 10
   freeze_profit_required: 7
   max_losses_before_optimize: 3
+  auto_apply_mutation: false
   freeze_gate:
     avg_return_gt: 0.0
     avg_sharpe_gte: 0.7
     avg_max_drawdown_lt: 12.0
     benchmark_pass_rate_gte: 0.55
+review_policy:
+  confidence:
+    default: 0.5
+  param_clamps:
+    cash_reserve:
+      min: 0.0
+      max: 0.8
+    trailing_pct:
+      min: 0.03
+      max: 0.2
+  agent_weight:
+    min: 0.3
+    max: 2.0
+    default: 1.0
+    min_traded_count: 3
+    formula_base: 0.5
+  fallback:
+    strategy:
+      win_rate_low: 0.4
+      avg_return_low: -3.0
+      confidence: 0.4
+    evo:
+      win_rate_conservative: 0.35
+      win_rate_aggressive: 0.65
+      conservative_adjustments:
+        stop_loss_pct: 0.03
+        position_size: 0.15
+      aggressive_adjustments:
+        position_size: 0.25
+      confidence: 0.4
 agent_weights:
   trend_hunter: 0.8
   contrarian: 1.2
 context:
   style: concise
-  last_trigger: consecutive_losses
+  last_trigger: research_feedback
 scoring:
   weights:
     oversold_rsi: 0.35
@@ -105,7 +175,7 @@ scoring:
     drop_5d: 0.2
     drop_20d: 0.15
     bearish_trend_bonus: 0.05
-    volume_ratio_bonus: 0.1
+    volume_ratio_bonus: 0.08
   bands:
     lower_bb_threshold: 0.35
     upper_bb_threshold: 0.8
@@ -114,7 +184,7 @@ scoring:
     high_volatility_threshold: 0.05
   penalties:
     upper_bb: 0.1
-    insufficient_drop_5d: 0.08
+    insufficient_drop_5d: 0.05
     insufficient_drop_20d: 0.05
     high_volatility: 0.08
     overheat_rsi: 0.15

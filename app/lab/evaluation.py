@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from statistics import median
 from typing import Any
 
 from app.training.controller_services import TrainingFeedbackService
@@ -37,8 +38,364 @@ def _latest_research_feedback(ok_results: list[dict[str, Any]]) -> tuple[dict[st
     return latest_feedback, latest_source
 
 
+def _latest_ab_comparison(ok_results: list[dict[str, Any]]) -> tuple[dict[str, Any], dict[str, Any]]:
+    latest_comparison: dict[str, Any] = {}
+    latest_source: dict[str, Any] = {}
+    latest_key = ("", 0)
+    for item in ok_results:
+        comparison = dict(item.get("ab_comparison") or {})
+        if not comparison:
+            continue
+        key = _feedback_sort_key(item)
+        if key >= latest_key:
+            latest_key = key
+            latest_comparison = comparison
+            latest_source = {
+                "cycle_id": item.get("cycle_id"),
+                "cutoff_date": item.get("cutoff_date"),
+                "model_name": item.get("model_name"),
+                "config_name": item.get("config_name"),
+            }
+    return latest_comparison, latest_source
+
+
 def _research_feedback_brief(feedback: dict[str, Any], *, source: dict[str, Any] | None = None) -> dict[str, Any]:
     return TrainingFeedbackService.research_feedback_summary(feedback, source=source)
+
+
+def _result_regime(item: dict[str, Any]) -> str:
+    routing = dict(item.get("routing_decision") or {})
+    audit_tags = dict(item.get("audit_tags") or {})
+    self_assessment = dict(item.get("self_assessment") or {})
+    return str(
+        routing.get("regime")
+        or audit_tags.get("routing_regime")
+        or self_assessment.get("regime")
+        or "unknown"
+    ).strip() or "unknown"
+
+
+def build_return_profile(ok_results: list[dict[str, Any]], *, benchmark_pass_rate: float) -> dict[str, Any]:
+    returns = [float(item.get("return_pct") or 0.0) for item in ok_results]
+    if not returns:
+        return {
+            "sample_count": 0,
+            "avg_return_pct": None,
+            "median_return_pct": None,
+            "cumulative_return_pct": None,
+            "win_rate": None,
+            "benchmark_pass_rate": benchmark_pass_rate,
+            "positive_return_count": 0,
+            "negative_return_count": 0,
+            "flat_return_count": 0,
+            "loss_share": None,
+            "avg_gain_pct": None,
+            "avg_loss_pct": None,
+            "gain_loss_ratio": None,
+            "max_return_pct": None,
+            "min_return_pct": None,
+        }
+
+    positives = [value for value in returns if value > 0]
+    negatives = [value for value in returns if value < 0]
+    flat_count = sum(1 for value in returns if value == 0)
+    avg_gain = round(sum(positives) / len(positives), 4) if positives else None
+    avg_loss = round(sum(negatives) / len(negatives), 4) if negatives else None
+    gain_loss_ratio = None
+    if avg_gain is not None and avg_loss is not None and avg_loss != 0:
+        gain_loss_ratio = round(avg_gain / abs(avg_loss), 4)
+    return {
+        "sample_count": len(returns),
+        "avg_return_pct": round(sum(returns) / len(returns), 4),
+        "median_return_pct": round(median(returns), 4),
+        "cumulative_return_pct": round(sum(returns), 4),
+        "win_rate": round(len(positives) / len(returns), 4),
+        "benchmark_pass_rate": benchmark_pass_rate,
+        "positive_return_count": len(positives),
+        "negative_return_count": len(negatives),
+        "flat_return_count": flat_count,
+        "loss_share": round(len(negatives) / len(returns), 4),
+        "avg_gain_pct": avg_gain,
+        "avg_loss_pct": avg_loss,
+        "gain_loss_ratio": gain_loss_ratio,
+        "max_return_pct": round(max(returns), 4),
+        "min_return_pct": round(min(returns), 4),
+    }
+
+
+def build_regime_validation_summary(ok_results: list[dict[str, Any]]) -> dict[str, Any]:
+    if not ok_results:
+        return {
+            "sample_count": 0,
+            "distinct_regime_count": 0,
+            "dominant_regime": "",
+            "dominant_regime_share": None,
+            "regimes": {},
+        }
+
+    regime_groups: dict[str, list[dict[str, Any]]] = {}
+    for item in ok_results:
+        regime = _result_regime(item)
+        regime_groups.setdefault(regime, []).append(item)
+
+    total = len(ok_results)
+    dominant_regime = max(regime_groups.items(), key=lambda pair: len(pair[1]))[0] if regime_groups else ""
+    regimes: dict[str, dict[str, Any]] = {}
+    for regime, items in sorted(regime_groups.items()):
+        returns = [float(item.get("return_pct") or 0.0) for item in items]
+        benchmark_hits = sum(1 for item in items if bool(item.get("benchmark_passed", False)))
+        strategy_scores = [
+            float((item.get("strategy_scores") or {}).get("overall_score", 0.0) or 0.0)
+            for item in items
+        ]
+        win_count = sum(1 for value in returns if value > 0)
+        regimes[regime] = {
+            "sample_count": len(items),
+            "share": round(len(items) / total, 4),
+            "avg_return_pct": round(sum(returns) / len(returns), 4) if returns else None,
+            "median_return_pct": round(median(returns), 4) if returns else None,
+            "cumulative_return_pct": round(sum(returns), 4) if returns else None,
+            "win_rate": round(win_count / len(items), 4) if items else None,
+            "benchmark_pass_rate": round(benchmark_hits / len(items), 4) if items else None,
+            "avg_strategy_score": round(sum(strategy_scores) / len(strategy_scores), 4) if strategy_scores else None,
+            "max_return_pct": round(max(returns), 4) if returns else None,
+            "min_return_pct": round(min(returns), 4) if returns else None,
+        }
+    return {
+        "sample_count": total,
+        "distinct_regime_count": len(regimes),
+        "dominant_regime": dominant_regime,
+        "dominant_regime_share": round(len(regime_groups.get(dominant_regime, [])) / total, 4) if total else None,
+        "regimes": regimes,
+    }
+
+
+def _extend_gate_checks(
+    checks: list[dict[str, Any]],
+    prefix: str,
+    gate_checks: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    normalized: list[dict[str, Any]] = []
+    for item in gate_checks:
+        normalized_item = {
+            "name": f"{prefix}.{item.get('name')}",
+            "passed": bool(item.get("passed", False)),
+            "actual": item.get("actual"),
+            "threshold": item.get("threshold"),
+            "meta": {k: v for k, v in item.items() if k not in {"name", "passed", "actual", "threshold"}},
+        }
+        checks.append(normalized_item)
+        normalized.append(normalized_item)
+    return normalized
+
+
+def evaluate_return_objectives(
+    return_profile: dict[str, Any],
+    *,
+    policy: dict[str, Any] | None,
+    baseline_avg_return: float | None = None,
+) -> dict[str, Any]:
+    config = dict(policy or {})
+    if not config:
+        return {"enabled": False, "passed": True, "checks": [], "failed_checks": [], "profile": return_profile}
+
+    checks: list[dict[str, Any]] = []
+
+    def add(name: str, passed: bool, actual: Any, threshold: Any) -> None:
+        checks.append({"name": name, "passed": bool(passed), "actual": actual, "threshold": threshold})
+
+    for key in ("min_avg_return_pct", "min_median_return_pct", "min_cumulative_return_pct", "min_win_rate", "min_benchmark_pass_rate"):
+        if config.get(key) is None:
+            continue
+        metric_key = key.removeprefix("min_")
+        actual = return_profile.get(metric_key)
+        threshold = float(config.get(key) or 0.0)
+        add(key, actual is not None and float(actual) >= threshold, actual, threshold)
+    if config.get("max_loss_share") is not None:
+        actual = return_profile.get("loss_share")
+        threshold = float(config.get("max_loss_share") or 0.0)
+        add("max_loss_share", actual is not None and float(actual) <= threshold, actual, threshold)
+    if config.get("min_gain_loss_ratio") is not None:
+        actual = return_profile.get("gain_loss_ratio")
+        threshold = float(config.get("min_gain_loss_ratio") or 0.0)
+        add("min_gain_loss_ratio", actual is not None and float(actual) >= threshold, actual, threshold)
+    if config.get("min_return_advantage_vs_baseline") is not None and baseline_avg_return is not None:
+        actual_avg = return_profile.get("avg_return_pct")
+        actual = round(float(actual_avg) - float(baseline_avg_return), 4) if actual_avg is not None else None
+        threshold = float(config.get("min_return_advantage_vs_baseline") or 0.0)
+        add("min_return_advantage_vs_baseline", actual is not None and actual >= threshold, actual, threshold)
+
+    failed_checks = [item for item in checks if not item.get("passed", False)]
+    return {
+        "enabled": True,
+        "passed": not failed_checks,
+        "checks": checks,
+        "failed_checks": failed_checks,
+        "profile": return_profile,
+    }
+
+
+def evaluate_regime_validation(
+    regime_validation: dict[str, Any],
+    *,
+    policy: dict[str, Any] | None,
+) -> dict[str, Any]:
+    config = dict(policy or {})
+    if not config:
+        return {
+            "enabled": False,
+            "passed": True,
+            "checks": [],
+            "failed_checks": [],
+            "summary": regime_validation,
+        }
+
+    checks: list[dict[str, Any]] = []
+    distinct_regimes = int(regime_validation.get("distinct_regime_count") or 0)
+    regimes = dict(regime_validation.get("regimes") or {})
+    min_distinct_regimes = int(config.get("min_distinct_regimes") or 0)
+    min_samples_per_regime = int(config.get("min_samples_per_regime") or 0)
+
+    if min_distinct_regimes:
+        checks.append(
+            {
+                "name": "min_distinct_regimes",
+                "passed": distinct_regimes >= min_distinct_regimes,
+                "actual": distinct_regimes,
+                "threshold": min_distinct_regimes,
+            }
+        )
+    if config.get("max_dominant_regime_share") is not None:
+        actual = regime_validation.get("dominant_regime_share")
+        threshold = float(config.get("max_dominant_regime_share") or 0.0)
+        checks.append(
+            {
+                "name": "max_dominant_regime_share",
+                "passed": actual is not None and float(actual) <= threshold,
+                "actual": actual,
+                "threshold": threshold,
+            }
+        )
+
+    for regime_name, summary in sorted(regimes.items()):
+        sample_count = int(summary.get("sample_count") or 0)
+        if min_samples_per_regime:
+            checks.append(
+                {
+                    "name": f"{regime_name}.sample_count",
+                    "passed": sample_count >= min_samples_per_regime,
+                    "actual": sample_count,
+                    "threshold": min_samples_per_regime,
+                }
+            )
+        if sample_count < max(1, min_samples_per_regime):
+            continue
+        for metric_name, config_key in (
+            ("avg_return_pct", "min_avg_return_pct"),
+            ("win_rate", "min_win_rate"),
+            ("benchmark_pass_rate", "min_benchmark_pass_rate"),
+        ):
+            if config.get(config_key) is None:
+                continue
+            actual = summary.get(metric_name)
+            threshold = float(config.get(config_key) or 0.0)
+            checks.append(
+                {
+                    "name": f"{regime_name}.{metric_name}",
+                    "passed": actual is not None and float(actual) >= threshold,
+                    "actual": actual,
+                    "threshold": threshold,
+                }
+            )
+
+    failed_checks = [item for item in checks if not item.get("passed", False)]
+    return {
+        "enabled": True,
+        "passed": not failed_checks,
+        "checks": checks,
+        "failed_checks": failed_checks,
+        "summary": regime_validation,
+    }
+
+
+def evaluate_candidate_ab(
+    ab_comparison: dict[str, Any],
+    *,
+    policy: dict[str, Any] | None,
+) -> dict[str, Any]:
+    config = dict(policy or {})
+    if not config:
+        return {
+            "enabled": False,
+            "passed": True,
+            "checks": [],
+            "failed_checks": [],
+            "summary": ab_comparison,
+        }
+
+    if not ab_comparison:
+        return {
+            "enabled": True,
+            "passed": True,
+            "checks": [],
+            "failed_checks": [],
+            "summary": {},
+            "skipped": True,
+        }
+
+    checks: list[dict[str, Any]] = []
+    comparison = dict(ab_comparison.get("comparison") or {})
+    candidate_present = bool(comparison.get("candidate_present", True))
+    comparable = bool(comparison.get("comparable", False))
+    required_when_candidate_present = bool(config.get("required_when_candidate_present", True))
+    if candidate_present and required_when_candidate_present:
+        checks.append(
+            {
+                "name": "available",
+                "passed": comparable,
+                "actual": int(comparable),
+                "threshold": 1,
+            }
+        )
+    if comparable:
+        for check_name, metric_name in (
+            ("min_return_lift_pct", "return_lift_pct"),
+            ("min_strategy_score_lift", "strategy_score_lift"),
+            ("min_benchmark_lift", "benchmark_lift"),
+            ("min_win_rate_lift", "win_rate_lift"),
+        ):
+            if config.get(check_name) is None:
+                continue
+            actual = comparison.get(metric_name)
+            threshold = float(config.get(check_name) or 0.0)
+            checks.append(
+                {
+                    "name": check_name,
+                    "passed": actual is not None and float(actual) >= threshold,
+                    "actual": actual,
+                    "threshold": threshold,
+                }
+            )
+        if config.get("require_candidate_outperform_active", True):
+            actual = bool(comparison.get("candidate_outperformed", False))
+            checks.append(
+                {
+                    "name": "require_candidate_outperform_active",
+                    "passed": actual,
+                    "actual": int(actual),
+                    "threshold": 1,
+                }
+            )
+
+    failed_checks = [item for item in checks if not item.get("passed", False)]
+    return {
+        "enabled": True,
+        "passed": not failed_checks,
+        "checks": checks,
+        "failed_checks": failed_checks,
+        "summary": ab_comparison,
+        "skipped": False,
+    }
 
 
 def build_promotion_summary(*, plan: dict[str, Any], ok_results: list[dict[str, Any]], avg_return_pct: float | None, avg_strategy_score: float | None, benchmark_pass_rate: float, baseline_entries: list[dict[str, Any]]) -> dict[str, Any]:
@@ -56,6 +413,8 @@ def build_promotion_summary(*, plan: dict[str, Any], ok_results: list[dict[str, 
     baseline_models = [str(x) for x in (model_scope.get("baseline_models") or []) if str(x).strip()]
     baseline_avg_return = round(sum(float(entry.get("avg_return_pct", 0.0) or 0.0) for entry in baseline_entries) / len(baseline_entries), 4) if baseline_entries else None
     baseline_avg_score = round(sum(float(entry.get("avg_strategy_score", 0.0) or 0.0) for entry in baseline_entries) / len(baseline_entries), 4) if baseline_entries else None
+    return_profile = build_return_profile(ok_results, benchmark_pass_rate=benchmark_pass_rate)
+    regime_validation = build_regime_validation_summary(ok_results)
     checks: list[dict[str, Any]] = []
 
     def add_check(name: str, passed: bool, actual: Any, threshold: Any) -> None:
@@ -82,6 +441,54 @@ def build_promotion_summary(*, plan: dict[str, Any], ok_results: list[dict[str, 
         threshold = float(gate.get("min_strategy_score_advantage_vs_baseline") or 0.0)
         actual = round(avg_strategy_score - baseline_avg_score, 4)
         add_check("min_strategy_score_advantage_vs_baseline", actual >= threshold, actual, threshold)
+
+    return_objectives = evaluate_return_objectives(
+        return_profile,
+        policy=dict(gate.get("return_objectives") or {}),
+        baseline_avg_return=baseline_avg_return,
+    )
+    normalized_return_checks = _extend_gate_checks(
+        checks,
+        "return_objectives",
+        list(return_objectives.get("checks") or []),
+    )
+    return_objectives = {
+        **return_objectives,
+        "checks": normalized_return_checks,
+        "failed_checks": [item for item in normalized_return_checks if not item.get("passed", False)],
+    }
+
+    regime_validation_gate = evaluate_regime_validation(
+        regime_validation,
+        policy=dict(gate.get("regime_validation") or {}),
+    )
+    normalized_regime_checks = _extend_gate_checks(
+        checks,
+        "regime_validation",
+        list(regime_validation_gate.get("checks") or []),
+    )
+    regime_validation_gate = {
+        **regime_validation_gate,
+        "checks": normalized_regime_checks,
+        "failed_checks": [item for item in normalized_regime_checks if not item.get("passed", False)],
+    }
+
+    latest_ab_comparison, ab_source = _latest_ab_comparison(ok_results)
+    candidate_ab_gate = evaluate_candidate_ab(
+        latest_ab_comparison,
+        policy=dict(gate.get("candidate_ab") or {}),
+    )
+    normalized_ab_checks = _extend_gate_checks(
+        checks,
+        "candidate_ab",
+        list(candidate_ab_gate.get("checks") or []),
+    )
+    candidate_ab_gate = {
+        **candidate_ab_gate,
+        "source": ab_source,
+        "checks": normalized_ab_checks,
+        "failed_checks": [item for item in normalized_ab_checks if not item.get("passed", False)],
+    }
 
     latest_feedback, feedback_source = _latest_research_feedback(ok_results)
     research_gate_policy = dict(gate.get("research_feedback") or {})
@@ -147,6 +554,10 @@ def build_promotion_summary(*, plan: dict[str, Any], ok_results: list[dict[str, 
         },
         "gate": gate,
         "checks": checks,
+        "return_profile": return_profile,
+        "return_objectives": return_objectives,
+        "regime_validation": regime_validation_gate,
+        "candidate_ab": candidate_ab_gate,
         "research_feedback": promotion_feedback_gate,
         "verdict": verdict,
         "passed": passed,
@@ -165,6 +576,9 @@ def build_training_evaluation_summary(*, payload: dict[str, Any], plan: dict[str
     avg_return_pct = round(sum(returns) / len(returns), 4) if returns else None
     avg_strategy_score = round(sum(strategy_scores) / len(strategy_scores), 4) if strategy_scores else None
     benchmark_pass_rate = round(benchmark_passes / len(ok_results), 4) if ok_results else 0.0
+    return_profile = build_return_profile(ok_results, benchmark_pass_rate=benchmark_pass_rate)
+    regime_validation = build_regime_validation_summary(ok_results)
+    latest_ab_comparison, _ = _latest_ab_comparison(ok_results)
     return {
         "run_id": run_id,
         "plan_id": plan["plan_id"],
@@ -182,6 +596,9 @@ def build_training_evaluation_summary(*, payload: dict[str, Any], plan: dict[str
             "min_return_pct": round(min(returns), 4) if returns else None,
             "avg_strategy_score": avg_strategy_score,
             "benchmark_pass_rate": benchmark_pass_rate,
+            "return_profile": return_profile,
+            "regime_validation": regime_validation,
+            "latest_ab_comparison": latest_ab_comparison,
         },
         "promotion": promotion,
         "error": str(error or ""),

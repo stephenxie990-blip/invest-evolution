@@ -204,6 +204,10 @@ class ReviewMeeting:
         agent_accuracy: dict,
         current_params: dict,
         regime_history: List[str] | None = None,
+        review_basis_window: dict[str, Any] | None = None,
+        similar_results: List[dict] | None = None,
+        similarity_summary: dict[str, Any] | None = None,
+        causal_diagnosis: dict[str, Any] | None = None,
     ) -> dict:
         """
         运行复盘会议
@@ -222,7 +226,15 @@ class ReviewMeeting:
         logger.info(f"\n{'='*50}")
         logger.info(f"📋 复盘会议 #{self.review_count} 开始")
 
-        facts = self._compile_facts(recent_results, agent_accuracy)
+        facts = self._compile_facts(
+            recent_results,
+            agent_accuracy,
+            similar_results=similar_results,
+            similarity_summary=similarity_summary,
+            causal_diagnosis=causal_diagnosis,
+        )
+        if isinstance(review_basis_window, dict) and review_basis_window:
+            facts["review_basis_window"] = dict(review_basis_window)
         self.last_facts = dict(facts)
         self._log_facts(facts)
         self._notify_progress({
@@ -292,9 +304,23 @@ class ReviewMeeting:
         agent_accuracy: dict,
         current_params: dict,
         regime_history: List[str] | None = None,
+        recent_results: List[dict] | None = None,
+        review_basis_window: dict[str, Any] | None = None,
+        similar_results: List[dict] | None = None,
+        similarity_summary: dict[str, Any] | None = None,
+        causal_diagnosis: dict[str, Any] | None = None,
     ) -> dict:
-        recent_results = [eval_report.to_dict()]
-        decision = self._run_review(recent_results, agent_accuracy, current_params, regime_history=regime_history)
+        compiled_results = list(recent_results or [eval_report.to_dict()])
+        decision = self._run_review(
+            compiled_results,
+            agent_accuracy,
+            current_params,
+            regime_history=regime_history,
+            review_basis_window=review_basis_window,
+            similar_results=similar_results,
+            similarity_summary=similarity_summary,
+            causal_diagnosis=causal_diagnosis,
+        )
         advice = StrategyAdvice(
             source="review_meeting",
             selected_codes=list(eval_report.selected_codes),
@@ -306,9 +332,17 @@ class ReviewMeeting:
             metadata={
                 "cycle_id": eval_report.cycle_id,
                 "benchmark_passed": eval_report.benchmark_passed,
+                "review_basis_window": dict(review_basis_window or {}),
+                "review_window_size": len(compiled_results),
+                "similarity_summary": dict(similarity_summary or {}),
+                "causal_diagnosis": dict(causal_diagnosis or {}),
             },
         )
         result = dict(decision)
+        result["review_basis_window"] = dict(review_basis_window or {})
+        result["similar_results"] = [dict(item) for item in list(similar_results or [])]
+        result["similarity_summary"] = dict(similarity_summary or {})
+        result["causal_diagnosis"] = dict(causal_diagnosis or {})
         result["strategy_advice"] = advice.to_dict()
         return result
 
@@ -413,7 +447,15 @@ class ReviewMeeting:
                 pass
         return "；".join(parts)
 
-    def _compile_facts(self, recent_results: List[dict], agent_accuracy: dict) -> dict:
+    def _compile_facts(
+        self,
+        recent_results: List[dict],
+        agent_accuracy: dict,
+        *,
+        similar_results: List[dict] | None = None,
+        similarity_summary: dict[str, Any] | None = None,
+        causal_diagnosis: dict[str, Any] | None = None,
+    ) -> dict:
         """编译事实数据"""
         if not recent_results:
             return {"empty": True}
@@ -481,6 +523,9 @@ class ReviewMeeting:
             },
             "agent_accuracy": agent_accuracy,
             "research_feedback": research_feedback,
+            "similar_cases": [dict(item) for item in list(similar_results or [])],
+            "similarity_summary": dict(similarity_summary or {}),
+            "causal_diagnosis": dict(causal_diagnosis or {}),
         }
 
     def _log_facts(self, facts: dict):
@@ -494,6 +539,20 @@ class ReviewMeeting:
         research_feedback = dict(facts.get("research_feedback") or {})
         if research_feedback:
             logger.info("    ask校准: %s", self._research_feedback_summary(research_feedback))
+        similarity_summary = dict(facts.get("similarity_summary") or {})
+        if similarity_summary.get("matched_cycle_ids"):
+            logger.info(
+                "    相似样本: %s | dominant_regime=%s",
+                similarity_summary.get("matched_cycle_ids"),
+                similarity_summary.get("dominant_regime", "unknown"),
+            )
+        causal_diagnosis = dict(facts.get("causal_diagnosis") or {})
+        if causal_diagnosis.get("primary_driver"):
+            logger.info(
+                "    因果诊断: %s | %s",
+                causal_diagnosis.get("primary_driver"),
+                causal_diagnosis.get("summary", ""),
+            )
         for rg, rs in facts.get("regime_stats", {}).items():
             logger.info(f"    {rg}: {rs['total']}轮, 胜率{rs['win_rate']:.0%}")
         for agent, stats in facts.get("agent_accuracy", {}).items():
@@ -618,12 +677,20 @@ class ReviewMeeting:
             suggestions.append("降低仓位")
         recommendation = dict(dict(facts.get("research_feedback") or {}).get("recommendation") or {})
         bias = str(recommendation.get("bias") or "")
+        causal = dict(facts.get("causal_diagnosis") or {})
+        primary_driver = str(causal.get("primary_driver") or "")
         if bias == "tighten_risk":
             problems.append("问股校准显示近期假设命中偏弱")
             suggestions.append("先收紧入场条件与风险暴露")
         elif bias == "recalibrate_probability":
             problems.append("问股校准显示概率表达偏乐观")
             suggestions.append("下调置信度并收紧触发阈值")
+        if primary_driver == "regime_repeat_loss":
+            problems.append("同一市场状态下重复亏损")
+            suggestions.append("按市场状态拆分止损和仓位阈值")
+        elif primary_driver == "benchmark_gap":
+            problems.append("相似样本持续跑输基准")
+            suggestions.append("缩小暴露并优先修复基准落后来源")
         return {"problems": problems, "suggestions": suggestions, "confidence": float(self._policy_value('fallback.strategy.confidence', 0.4) or 0.4)}
 
     def _evo_judge_fallback(self, facts: dict) -> dict:
@@ -632,6 +699,8 @@ class ReviewMeeting:
         research_feedback = dict(facts.get("research_feedback") or {})
         recommendation = dict(research_feedback.get("recommendation") or {})
         bias = str(recommendation.get("bias") or "")
+        causal = dict(facts.get("causal_diagnosis") or {})
+        primary_driver = str(causal.get("primary_driver") or "")
         if bias in {"tighten_risk", "recalibrate_probability"}:
             adjustments = self._sanitize_adjustment_payload(
                 dict(self._policy_value('fallback.evo.conservative_adjustments', {"stop_loss_pct": 0.03, "position_size": 0.15}) or {})
@@ -649,6 +718,28 @@ class ReviewMeeting:
                 "suggestions": suggestions,
                 "confidence": float(self._policy_value('fallback.evo.confidence', 0.4) or 0.4),
                 "reasoning": f"ask侧校准反馈要求先偏保守：{bias}",
+            }
+
+        if primary_driver in {"regime_repeat_loss", "benchmark_gap"}:
+            adjustments = self._sanitize_adjustment_payload(
+                dict(
+                    self._policy_value(
+                        'fallback.evo.conservative_adjustments',
+                        {"stop_loss_pct": 0.03, "position_size": 0.15},
+                    )
+                    or {}
+                )
+            )
+            direction = "conservative"
+            suggestions = ["相似亏损样本已聚类，先收紧风险暴露并验证修复是否生效"]
+            if causal.get("summary"):
+                suggestions.append(str(causal.get("summary")))
+            return {
+                "param_adjustments": adjustments,
+                "evolution_direction": direction,
+                "suggestions": suggestions,
+                "confidence": float(self._policy_value('fallback.evo.confidence', 0.4) or 0.4),
+                "reasoning": f"因果诊断显示首要驱动为 {primary_driver}，优先转向保守修复。",
             }
 
         win_rate = facts.get("win_rate", 0.5)
@@ -704,6 +795,28 @@ class ReviewMeeting:
         if research_feedback_lines:
             lines.append("")
             lines.extend(research_feedback_lines)
+        similarity_summary = dict(facts.get("similarity_summary") or {})
+        similar_cases = [dict(item) for item in list(facts.get("similar_cases") or [])]
+        if similar_cases:
+            lines.append("")
+            lines.append("## 相似样本检索")
+            lines.append(
+                f"- 命中周期: {similarity_summary.get('matched_cycle_ids', [])} | "
+                f"dominant_regime={similarity_summary.get('dominant_regime', 'unknown')}"
+            )
+            for item in similar_cases[:3]:
+                lines.append(
+                    f"- cycle {item.get('cycle_id')}: regime={item.get('regime', 'unknown')}, "
+                    f"return={_coerce_float(item.get('return_pct')):+.2f}%, "
+                    f"features={','.join(item.get('matched_features', []))}"
+                )
+        causal_diagnosis = dict(facts.get("causal_diagnosis") or {})
+        if causal_diagnosis:
+            lines.append("")
+            lines.append("## 因果诊断")
+            lines.append(f"- primary_driver: {causal_diagnosis.get('primary_driver', 'unknown')}")
+            if causal_diagnosis.get("summary"):
+                lines.append(f"- summary: {causal_diagnosis.get('summary')}")
         if facts.get("agent_accuracy"):
             lines.append("\n## Agent 准确率")
             for name, stats in facts.get("agent_accuracy", {}).items():
@@ -723,6 +836,13 @@ class ReviewMeeting:
         research_feedback_lines = self._research_feedback_lines(dict(facts.get("research_feedback") or {}))
         if research_feedback_lines:
             lines.append("\n".join(research_feedback_lines))
+        causal_diagnosis = dict(facts.get("causal_diagnosis") or {})
+        if causal_diagnosis:
+            lines.append(
+                "## 因果诊断\n"
+                f"- primary_driver: {causal_diagnosis.get('primary_driver', 'unknown')}\n"
+                f"- summary: {causal_diagnosis.get('summary', '')}"
+            )
         lines.append("请输出参数调整方向，保持风险口径清晰。")
         return "\n\n".join(lines)
 

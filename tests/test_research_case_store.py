@@ -145,3 +145,77 @@ def test_research_case_store_build_training_feedback_applies_as_of_filter_and_bi
     assert feedback["recommendation"]["bias"] == "tighten_risk"
     assert "t20_hit_rate_low" in feedback["recommendation"]["reason_codes"]
     assert feedback["subject"]["as_of_date"] == "20240131"
+
+
+def test_research_case_store_build_training_feedback_prefers_requested_regime_when_covered(tmp_path: Path):
+    store = ResearchCaseStore(tmp_path)
+
+    def seed_case(index: int, *, regime: str, as_of_date: str, label: str, return_pct: float) -> None:
+        snapshot = ResearchSnapshot(
+            snapshot_id=f"snapshot_regime_{index}",
+            as_of_date=as_of_date,
+            scope="single_security",
+            security={"code": f"sh.601{index:03d}", "name": f"Stock{index}"},
+            market_context={"regime": regime},
+            cross_section_context={"rank": index, "percentile": 0.6, "selected_by_policy": True},
+        )
+        policy = PolicySnapshot(
+            policy_id=f"policy_regime_{index}",
+            model_name="momentum",
+            config_name="momentum_v1",
+            version_hash=f"version_regime_{index}",
+            signature={"model_name": "momentum", "config_name": "momentum_v1"},
+        )
+        hypothesis = ResearchHypothesis(
+            hypothesis_id=f"hypothesis_regime_{index}",
+            snapshot_id=snapshot.snapshot_id,
+            policy_id=policy.policy_id,
+            stance="候选买入",
+            score=75 + index,
+            scenario_distribution={
+                "horizons": {
+                    "T+20": {
+                        "positive_return_probability": 0.62,
+                        "interval": {"p25": -1.0, "p50": 2.0, "p75": 5.0},
+                    }
+                }
+            },
+            evaluation_protocol={"clock": ["T+20"]},
+        )
+        store.save_case(snapshot=snapshot, policy=policy, hypothesis=hypothesis)
+        store.save_attribution(
+            OutcomeAttribution(
+                attribution_id=f"attribution_regime_{index}",
+                hypothesis_id=hypothesis.hypothesis_id,
+                thesis_result=label,
+                horizon_results={
+                    "T+20": {
+                        "label": label,
+                        "return_pct": return_pct,
+                        "entry_triggered": True,
+                        "invalidation_triggered": label == "invalidated",
+                        "de_risk_triggered": False,
+                    }
+                },
+                calibration_metrics={"positive_return_brier": 0.12},
+            )
+        )
+
+    seed_case(1, regime="bull", as_of_date="20240105", label="hit", return_pct=4.0)
+    seed_case(2, regime="bull", as_of_date="20240112", label="hit", return_pct=3.5)
+    seed_case(3, regime="bull", as_of_date="20240119", label="miss", return_pct=-0.5)
+    seed_case(4, regime="bear", as_of_date="20240122", label="invalidated", return_pct=-4.0)
+
+    feedback = store.build_training_feedback(
+        model_name="momentum",
+        config_name="momentum_v1",
+        as_of_date="20240131",
+        regime="bull",
+    )
+
+    assert feedback["scope"]["effective_scope"] == "regime"
+    assert feedback["subject"]["regime"] == "bull"
+    assert feedback["sample_count"] == 3
+    assert feedback["overall_feedback"]["sample_count"] == 4
+    assert feedback["regime_breakdown"]["bull"]["sample_count"] == 3
+    assert feedback["requested_regime_feedback"]["recommendation"]["bias"] == "maintain"

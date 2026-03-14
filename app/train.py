@@ -33,7 +33,7 @@ from config import OUTPUT_DIR, PROJECT_ROOT, RUNTIME_DIR, config
 from config.services import EvolutionConfigService, RuntimePathConfigService
 from config.control_plane import build_component_llm_caller, resolve_default_llm
 from invest.shared.tracking import AgentTracker
-from market_data import DataManager, DataSourceUnavailableError, MockDataProvider
+from market_data import DataManager, DataSourceUnavailableError, MarketDataRepository, MockDataProvider
 from invest.evolution import LLMOptimizer, StrategyEvolutionOptimizer, EvolutionEngine, YamlConfigMutator
 from invest.foundation.metrics.benchmark import BenchmarkEvaluator
 from invest.foundation.metrics.cycle import StrategyEvaluator
@@ -45,7 +45,7 @@ from invest.agents.specialists import DefensiveAgent, QualityAgent
 from invest.meetings import SelectionMeeting, ReviewMeeting, MeetingRecorder
 from invest.models import create_investment_model
 from invest.models.defaults import COMMON_PARAM_DEFAULTS
-from invest.research.case_store import ResearchCaseStore
+from invest.research import ResearchAttributionEngine, ResearchCaseStore, ResearchScenarioEngine
 from invest.services import EvolutionService, ReviewMeetingService, SelectionMeetingService
 from app.training.optimization import trigger_loss_optimization
 from app.training.controller_services import (
@@ -64,6 +64,8 @@ from app.training.policy_services import TrainingPolicyService
 from app.training import runtime_hooks as training_runtime_hooks
 from app.training.review_services import TrainingReviewService
 from app.training.review_stage_services import TrainingReviewStageService
+from app.training.ab_services import TrainingABService
+from app.training.research_services import TrainingResearchService
 from app.training.selection_services import TrainingSelectionService
 from app.training.routing_services import TrainingRoutingService
 from app.training.simulation_services import TrainingSimulationService
@@ -189,6 +191,18 @@ class TrainingResult:
     config_name: str = ""
     routing_decision: Dict[str, Any] = field(default_factory=dict)
     research_feedback: Dict[str, Any] = field(default_factory=dict)
+    research_artifacts: Dict[str, Any] = field(default_factory=dict)
+    ab_comparison: Dict[str, Any] = field(default_factory=dict)
+    experiment_spec: Dict[str, Any] = field(default_factory=dict)
+    execution_snapshot: Dict[str, Any] = field(default_factory=dict)
+    run_context: Dict[str, Any] = field(default_factory=dict)
+    promotion_record: Dict[str, Any] = field(default_factory=dict)
+    lineage_record: Dict[str, Any] = field(default_factory=dict)
+    review_decision: Dict[str, Any] = field(default_factory=dict)
+    causal_diagnosis: Dict[str, Any] = field(default_factory=dict)
+    similarity_summary: Dict[str, Any] = field(default_factory=dict)
+    similar_results: List[Dict[str, Any]] = field(default_factory=list)
+    realism_metrics: Dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if (not self.effective_data_mode or self.effective_data_mode == "unknown") and self.data_mode:
@@ -541,6 +555,16 @@ class SelfLearningController:
         self.experiment_min_history_days: int | None = None
         self.experiment_simulation_days: int | None = None
         self.experiment_llm: Dict[str, Any] = {}
+        self.experiment_protocol: Dict[str, Any] = {}
+        self.experiment_cutoff_policy: Dict[str, Any] = {
+            "mode": "random",
+            "date": "",
+            "anchor_date": "",
+            "step_days": 30,
+            "dates": [],
+        }
+        self.experiment_review_window: Dict[str, Any] = {"mode": "single_cycle", "size": 1}
+        self.experiment_promotion_policy: Dict[str, Any] = {}
 
     def _initialize_callbacks(self) -> None:
         self.on_cycle_complete: Optional[Callable] = None
@@ -561,9 +585,13 @@ class SelfLearningController:
         )
         self.runtime_state_dir.mkdir(parents=True, exist_ok=True)
         self.research_case_store = ResearchCaseStore(self.runtime_state_dir)
+        self.research_market_repository = MarketDataRepository()
+        self.research_scenario_engine = ResearchScenarioEngine(self.research_case_store)
+        self.research_attribution_engine = ResearchAttributionEngine(self.research_market_repository)
         self.last_research_feedback: Dict[str, Any] = {}
         self.last_freeze_gate_evaluation: Dict[str, Any] = {}
         self.last_feedback_optimization: Dict[str, Any] = {}
+        self.last_cutoff_policy_context: Dict[str, Any] = {}
         self.last_feedback_optimization_cycle_id: int = 0
         self.research_feedback_policy: Dict[str, Any] = {}
         self.research_feedback_optimization_policy: Dict[str, Any] = {}
@@ -577,6 +605,8 @@ class SelfLearningController:
         self.training_execution_service = TrainingExecutionService()
         self.training_lifecycle_service = TrainingLifecycleService()
         self.training_outcome_service = TrainingOutcomeService()
+        self.training_research_service = TrainingResearchService()
+        self.training_ab_service = TrainingABService()
         self.training_review_service = TrainingReviewService()
         self.training_review_stage_service = TrainingReviewStageService()
         self.training_selection_service = TrainingSelectionService()
@@ -598,12 +628,13 @@ class SelfLearningController:
     def _research_feedback_brief(feedback: Dict[str, Any] | None = None) -> Dict[str, Any]:
         return TrainingFeedbackService.research_feedback_brief(feedback)
 
-    def _load_research_feedback(self, *, cutoff_date: str, model_name: str, config_name: str) -> Dict[str, Any]:
+    def _load_research_feedback(self, *, cutoff_date: str, model_name: str, config_name: str, regime: str = "") -> Dict[str, Any]:
         return self.training_feedback_service.load_research_feedback(
             self,
             cutoff_date=cutoff_date,
             model_name=model_name,
             config_name=config_name,
+            regime=regime,
         )
 
     @staticmethod

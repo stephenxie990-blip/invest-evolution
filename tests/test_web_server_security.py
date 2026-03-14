@@ -55,7 +55,17 @@ def test_healthz_is_public():
     res = client.get('/healthz')
 
     assert res.status_code == 200
-    assert res.get_json()['status'] == 'ok'
+    payload = res.get_json()
+    assert payload['status'] == 'ok'
+    assert payload['service'] == 'invest-web'
+    runtime = payload['runtime']
+    assert runtime['initialized'] is False
+    assert runtime['loop_running'] is False
+    assert isinstance(runtime['event_buffer_size'], int)
+    assert runtime['event_buffer_size'] >= 0
+    assert isinstance(runtime['event_history_size'], int)
+    assert runtime['event_history_size'] >= 0
+    assert isinstance(runtime['event_dispatcher_started'], bool)
 
 
 def test_root_returns_api_entrypoint_summary():

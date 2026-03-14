@@ -1,0 +1,57 @@
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Any
+
+
+def _latest_yaml_mutation_event(optimization_events: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+    for event in reversed(list(optimization_events or [])):
+        if str(event.get("stage") or "") == "yaml_mutation":
+            return dict(event)
+    return {}
+
+
+def _candidate_meta_ref(candidate_config_ref: str) -> str:
+    ref = str(candidate_config_ref or "").strip()
+    if not ref:
+        return ""
+    return str(Path(ref).with_suffix(".json"))
+
+
+def build_promotion_record(
+    *,
+    cycle_id: int,
+    run_context: dict[str, Any],
+    optimization_events: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    payload = dict(run_context or {})
+    decision = dict(payload.get("promotion_decision") or {})
+    candidate_config_ref = str(payload.get("candidate_config_ref") or "")
+    mutation_event = _latest_yaml_mutation_event(optimization_events)
+    applied_to_active = bool(decision.get("applied_to_active", False))
+    status = str(decision.get("status") or "not_evaluated")
+
+    if not candidate_config_ref:
+        gate_status = "not_applicable"
+    elif applied_to_active:
+        gate_status = "applied_to_active"
+    else:
+        gate_status = "awaiting_gate"
+
+    return {
+        "cycle_id": int(cycle_id),
+        "basis_stage": str(payload.get("basis_stage") or "post_cycle_result"),
+        "status": status,
+        "source": str(decision.get("source") or ""),
+        "reason": str(decision.get("reason") or ""),
+        "applied_to_active": applied_to_active,
+        "attempted": bool(candidate_config_ref),
+        "gate_status": gate_status,
+        "active_config_ref": str(payload.get("active_config_ref") or ""),
+        "candidate_config_ref": candidate_config_ref,
+        "candidate_meta_ref": _candidate_meta_ref(candidate_config_ref),
+        "policy": dict(decision.get("policy") or {}),
+        "mutation_trigger": str(mutation_event.get("trigger") or ""),
+        "mutation_stage": str(mutation_event.get("stage") or ""),
+        "mutation_notes": str(mutation_event.get("notes") or ""),
+    }

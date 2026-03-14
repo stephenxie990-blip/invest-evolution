@@ -238,39 +238,8 @@ class ResearchCaseStore:
             "horizons": serialized_horizons,
         }
 
-    def build_calibration_report(self, *, policy_id: str = "") -> Dict[str, Any]:
-        normalized_policy = str(policy_id or "").strip()
-        records = list(self._iter_case_attribution_records(policy_id=normalized_policy))
-        return self._summarize_records(records, subject={"policy_id": normalized_policy})
-
-    def build_training_feedback(
-        self,
-        *,
-        model_name: str,
-        config_name: str = "",
-        as_of_date: str = "",
-        limit: int | None = 200,
-    ) -> Dict[str, Any]:
-        normalized_model = str(model_name or "").strip()
-        normalized_config = str(config_name or "").strip()
-        normalized_as_of = normalize_date(as_of_date) if str(as_of_date or "").strip() else ""
-        records = list(
-            self._iter_case_attribution_records(
-                model_name=normalized_model,
-                config_name=normalized_config,
-                as_of_date=normalized_as_of,
-            )
-        )
-        if limit is not None:
-            records = records[-int(limit):]
-        summary = self._summarize_records(
-            records,
-            subject={
-                "model_name": normalized_model,
-                "config_name": normalized_config,
-                "as_of_date": normalized_as_of,
-            },
-        )
+    @staticmethod
+    def _feedback_recommendation(summary: Dict[str, Any]) -> Dict[str, Any]:
         t20 = dict(summary.get("horizons", {}).get("T+20") or {})
         hit_rate = t20.get("hit_rate")
         invalidation_rate = t20.get("invalidation_rate")
@@ -302,8 +271,7 @@ class ResearchCaseStore:
             f"direction_brier={brier}",
         ]
         return {
-            "schema_version": "research.training_feedback.v1",
-            **summary,
+            **dict(summary or {}),
             "recommendation": {
                 "bias": bias,
                 "reason_codes": reason_codes,
@@ -311,6 +279,95 @@ class ResearchCaseStore:
             },
             "notes": notes,
         }
+
+    def build_calibration_report(self, *, policy_id: str = "") -> Dict[str, Any]:
+        normalized_policy = str(policy_id or "").strip()
+        records = list(self._iter_case_attribution_records(policy_id=normalized_policy))
+        return self._summarize_records(records, subject={"policy_id": normalized_policy})
+
+    def build_training_feedback(
+        self,
+        *,
+        model_name: str,
+        config_name: str = "",
+        as_of_date: str = "",
+        regime: str = "",
+        limit: int | None = 200,
+    ) -> Dict[str, Any]:
+        normalized_model = str(model_name or "").strip()
+        normalized_config = str(config_name or "").strip()
+        normalized_as_of = normalize_date(as_of_date) if str(as_of_date or "").strip() else ""
+        normalized_regime = str(regime or "").strip()
+        records = list(
+            self._iter_case_attribution_records(
+                model_name=normalized_model,
+                config_name=normalized_config,
+                as_of_date=normalized_as_of,
+            )
+        )
+        if limit is not None:
+            records = records[-int(limit):]
+        overall_summary = self._feedback_recommendation(
+            self._summarize_records(
+                records,
+                subject={
+                    "model_name": normalized_model,
+                    "config_name": normalized_config,
+                    "as_of_date": normalized_as_of,
+                },
+            )
+        )
+        regime_groups: dict[str, list[Dict[str, Any]]] = defaultdict(list)
+        for item in records:
+            regime_key = str(
+                dict(item.get("snapshot") or {}).get("market_context", {}).get("regime")
+                or "unknown"
+            )
+            regime_groups[regime_key].append(item)
+        regime_breakdown = {
+            regime_key: self._feedback_recommendation(
+                self._summarize_records(
+                    group_records,
+                    subject={
+                        "model_name": normalized_model,
+                        "config_name": normalized_config,
+                        "as_of_date": normalized_as_of,
+                        "regime": regime_key,
+                    },
+                )
+            )
+            for regime_key, group_records in sorted(regime_groups.items())
+        }
+        requested_regime_feedback = dict(regime_breakdown.get(normalized_regime) or {})
+        effective_feedback = dict(overall_summary)
+        effective_scope = "overall"
+        if normalized_regime:
+            if int(requested_regime_feedback.get("sample_count") or 0) >= 3:
+                effective_feedback = dict(requested_regime_feedback)
+                effective_scope = "regime"
+            else:
+                effective_scope = "overall_fallback"
+        feedback = {
+            "schema_version": "research.training_feedback.v1",
+            **effective_feedback,
+            "subject": {
+                "model_name": normalized_model,
+                "config_name": normalized_config,
+                "as_of_date": normalized_as_of,
+                "regime": normalized_regime,
+            },
+            "scope": {
+                "requested_regime": normalized_regime,
+                "effective_scope": effective_scope,
+                "overall_sample_count": int(overall_summary.get("sample_count") or 0),
+                "regime_sample_count": int(requested_regime_feedback.get("sample_count") or 0),
+                "covered_regimes": sorted(regime_breakdown.keys()),
+            },
+            "overall_feedback": overall_summary,
+            "requested_regime_feedback": requested_regime_feedback,
+            "regime_breakdown": regime_breakdown,
+        }
+        return feedback
 
     def write_calibration_report(self, *, policy_id: str = "") -> Dict[str, Any]:
         report = self.build_calibration_report(policy_id=policy_id)

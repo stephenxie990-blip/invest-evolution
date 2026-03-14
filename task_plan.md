@@ -1,8 +1,8 @@
-# Phase 6 Task Plan
+# Phase 6 Closeout and v1.1 Transition Plan
 
 ## Goal
 
-按 RFC 推进第六阶段结构性重构，采用分波次实施方式，在保持现有 CLI / Web / runtime 契约稳定的前提下，逐步建立 `interface -> application -> domain -> infrastructure` 的清晰边界。
+记录 `Phase 6` 结构性重构的完成状态，并将该结果转化为 `v1.1` 的真实起点：在保持现有 CLI / Web / runtime 契约稳定的前提下，不再重复做大规模结构迁移，而是把已形成的 `interface -> application -> domain -> infrastructure` 接缝用于训练协议硬化、协议尾项固化与治理能力落地。
 
 ## Phases
 
@@ -18,10 +18,11 @@
 
 ## Current Focus
 
-- 执行“协议消费方收敛与旧路径退役”主线
-- 先完成全仓旧协议消费点盘点与分级，再按模型层、会议层、payload 边界、兼容层顺序收口
-- 优先把稳定字段从隐式 `metadata` / 裸 dict 假设迁移到显式契约对象
-- 每一步结束都更新 planning files，并做 focused verification
+- `Phase 6` 已视为完成，当前不再把结构性重构当作 `v1.1` 主任务。
+- 当前主线切换为：训练协议硬化、promotion/lineage 纪律、协议尾项固化、`Instructor`、`Guardrails`。
+- 已完成的 presentation / contract / service seam 直接作为 `v1.1` 起点消费，不重复规划“最小结构解耦”。
+- cleanup 继续保留，但仅按 blocker-driven 原则推进，不扩张成新一轮整理工程。
+- 每一步结束都更新 planning files，并做 focused verification。
 
 ## Protocol Convergence Plan
 
@@ -161,7 +162,10 @@
 ## Supplementary Planning Outputs
 
 - 已新增 `docs/plans/V1_1_IMPLEMENTATION_BLUEPRINT_20260314.md`
-- 蓝图将 `v1.1` 明确收敛为“训练协议硬化 + 最小必要结构解耦 + Instructor + Guardrails”
+- 2026-03-14 仓库扫描后，蓝图已按真实基线重写
+- `v1.1` 现明确收敛为“训练协议硬化 + protocol tail hardening + Instructor + Guardrails”
+- `Phase 6` A-F 与 cleanup gate 进展已被视为 `v1.1` 的既有底座，而不是待完成前置任务
+- `v1.1` 节奏已改为 `Week 0` 基线冻结 + `Week 1-5` 模块推进
 - `PySR / E2B / Temporal` 被明确留在 `v1.2+`，不进入 `v1.1` 主版本范围
 - 已启动 `pre-v1.1 cleanup gate`
 - 第一批清理已完成：
@@ -188,9 +192,110 @@
 - `.venv/bin/pytest -q` 通过，`[100%]`
 - `.venv/bin/python -m app.freeze_gate --mode quick` 通过
 
+## Post-Scan v1.1 Transition
+
+### Baseline assumptions
+
+- `Phase 6` Wave A-F 已完成，可作为 `v1.1` 直接依赖的结构底座。
+- `brain/presentation.py`、`app/interfaces/web/presentation.py`、`app/interfaces/web/contracts.py` 已成为新的 presentation / contract seam。
+- `app/stock_analysis_services.py`、`invest/contracts/agent_context.py`、`invest/contracts/stock_summary.py` 已经把 stock-analysis 和 canonical contract surface 往显式协议方向推进。
+- `pre-v1.1 cleanup gate` 已完成关键静默失败与低风险 import/global-state 收口，不宜在 `v1.1` 里继续无边界扩张。
+
+### Active v1.1 modules
+
+- 模块 A：训练协议与 experiment boundary
+- 模块 B：protocol tail hardening + cleanup gate blocker-only 推进
+- 模块 C：`Instructor` 接入现有 seam
+- 模块 D：`Guardrails` 接入稳定后的 protocol/task-bus 边界
+- 模块 E：观测、Freeze Gate、文档冻结
+
+### Implemented slice
+
+- 已完成 `Module A / Week 1` 的第一刀：
+  - 新增 `app/training/experiment_protocol.py`
+  - `configure_experiment()` 现在会生成 canonical `experiment_spec`
+  - controller 已显式持有 `experiment_review_window` 与 `experiment_promotion_policy`
+  - `TrainingResult` / `cycle_*.json` / commander body result 已显式记录 `experiment_spec` 与 `run_context`
+- 当前已落盘的 `run_context` 至少包含：
+  - `active_config_ref`
+  - `candidate_config_ref`
+  - `runtime_overrides`
+  - `review_basis_window`
+  - `fitness_source_cycles`
+  - `promotion_decision`
+- 这意味着训练产物已经从“纯结果 JSON”推进到“带协议上下文的结果 JSON”，后续可以继续接 `review window` 强化和 promotion lineage。
+
+### Planning rule
+
+- `v1.1` 期间不再启动新的 `Phase 6` 级结构迁移。
+- 如需 cleanup，只处理阻塞训练协议、结构化输出或治理接线的问题。
+- 每周推进顺序按蓝图的 `Week 0 + Week 1-5` 执行，不再沿用旧版“结构前置”假设。
+
 ## Wave E/F Final Verification
 
 - `.venv/bin/ruff check .` 通过
 - `.venv/bin/pyright .` 通过，`0 errors`
 - `.venv/bin/pytest -q` 通过，`[100%]`
 - `.venv/bin/python -m app.freeze_gate --mode quick` 通过
+
+## v1.1 remaining cuts status
+
+- 已完成：
+  - `Module A / cut 2` 滚动复盘事实窗口
+  - `Module A / cut 3` promotion / lineage 显式记录
+  - `Module B` protocol tail hardening
+  - `Module C` runtime structured output adapter
+  - `Module D` mutating workflow guardrails
+- 当前 `v1.1` 后续工作应切到：
+  - 复盘新增记录在 commander / web 侧是否需要补展示
+  - `Instructor` / schema-first adapter 是否要扩到更多高价值工具
+  - `Guardrails` 是否继续补充 patch 语义级校验
+
+## Instructor and observability status
+
+- 已完成：
+  - `Instructor` 风格 structured-output 继续扩到 config update 路径
+  - `training_plan_execute` 增加 `result_overview` 与 `latest_result` 归一化
+  - commander/web/runtime 三个展示入口都能看到 `promotion_record` 与 `lineage_record`
+- 后续如果继续推进：
+  - 给更多 `invest_*_get` / `invest_*_update` 路径补专属 normalize
+  - 把 promotion / lineage 摘要接进更显式的 dashboard/ops 卡片，而不只停留在 human receipt
+
+## 2026-03-15 Re-Audit After Refactor
+
+### Goal
+
+- 在“大调整和重构已经落地”的前提下，重新建立系统级理解，而不是沿用旧版 `v1.1` 假设。
+- 审查重点聚焦：
+  - 架构 seam 是否稳定
+  - 功能模块边界是否已切换
+  - 数据流 / 展示流 / 训练链路是否已经协议化
+  - 原升级方案是否需要重排
+
+### Confirmed baseline
+
+- `BrainRuntime` 已内建 `RuntimeGuardrails` 与 `StructuredOutputAdapter`，并将治理指标挂到 runtime payload；这意味着“先接第三方 Guardrails / Instructor”不再是当前版本的起点。
+- 训练链路已形成新的协议骨架：`ExperimentSpec`、`review_basis_window`、`cutoff_policy`、`promotion_policy`、`run_context`、`promotion_record`、`lineage_record`。
+- `ReviewMeeting` 输入已经从“单轮裸结果”扩展为“滚动事实窗口 + 相似样本 + 因果诊断”。
+- `brain/presentation.py` 与 `app/interfaces/web/presentation.py` 已成为稳定展示 seam，后续展示增强不应再回流到 entrypoint。
+- `app/stock_analysis_services.py` 与 `invest/contracts/*` 已成为 stock-analysis 与 contract tail 收口的真实落点。
+- `freeze_gate` 已把 contract drift、focused protocol regression、critical ruff、critical pyright 纳入 quick 门。
+
+### Revised priority
+
+- `P0`：继续硬化训练协议与 promotion/lineage 治理，一致化 Training Lab、runtime、commander、web 的记录与展示。
+- `P0`：继续推进 canonical contract tail hardening，优先清理隐式 metadata fallback 和兼容镜像误用。
+- `P1`：把内建 `StructuredOutputAdapter` 从规则 normalize 扩到更强 schema layer，但先沿现有 seam 做，不急于引第三方框架。
+- `P1`：把内建 `RuntimeGuardrails` 从静态阻断扩成策略化治理层，优先覆盖高风险 mutating workflow。
+- `P2`：在上述两层稳定后，再决定是否值得引入 `Instructor` / `Guardrails AI` 替换或包裹现有实现。
+- `P3`：`PySR` / `E2B` / `Temporal` 后移到 `v1.2+`，仅在当前协议面和治理面足够稳定后再接。
+
+### Planning rule
+
+- 不再把 `v1.1` 描述为“从零引入新框架”。
+- 现阶段的主任务是“把已经进入主链的内建治理与训练协议做深、做稳、做一致”。
+- 如后续继续规划，优先围绕：
+  - training protocol completion
+  - promotion/lineage discipline
+  - schema/contract tail hardening
+  - structured output / guardrails coverage expansion

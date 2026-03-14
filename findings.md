@@ -111,3 +111,61 @@
 - `AgentContext.effective_confidence()` 这种“对象自带兼容解析”的方法，比在 selection/training 里散落 `metadata.get("confidence")` 更稳，也更适合后续继续退役 metadata fallback。
 - `ask_stock` 这类外部 payload 的收口不能只停在“字段存在”，还需要测试 canonical section 的 shape；否则后续很容易在无意中把顶层兼容字段重新当主协议使用。
 - 当前顶层 `policy_id / research_case_id / attribution_id / resolved_security` 仍值得保留，但已经应该被视为“兼容镜像”，不是未来新增调用方的默认入口。
+
+### Repo scan to blueprint recalibration
+
+- 最近提交与 planning files 交叉核对后，可以把 `Phase 6` Wave A-F 视为已完成基线，而不是 `v1.1` 的未完前置条件。
+- `brain/presentation.py` 的出现说明 runtime human receipt/presentation 已经从 `brain/runtime.py` 中抽出，后续 `Instructor` 不应再围绕旧 receipt builder 设计。
+- `app/interfaces/web/presentation.py` 与 `app/interfaces/web/contracts.py` 已把 web display payload 和 contract helper 下沉到 interface 层，说明 `Guardrails` 与 structured output 都应该直接对接这些 seam。
+- `app/stock_analysis_services.py` 已成为 stock-analysis 主链的重要编排面，`v1.1` 不应继续把旧 `app/stock_analysis.py` 当作主要接入点。
+- `invest/contracts/agent_context.py` 的 `confidence/effective_confidence()` 与 `invest/contracts/stock_summary.py` 的 `StockSummaryView` 表明协议收敛已经开始落在显式契约对象上，后续更适合做 tail hardening，而不是再开一轮 schema 漫游式重构。
+- `pre-v1.1 cleanup gate` 已经推进到“只清阻塞项”更合理的阶段；如果继续把 cleanup 当主线，会稀释训练协议和治理工作的优先级。
+- 因此，`v1.1` 蓝图应从“训练协议硬化 + 最小结构解耦 + Instructor + Guardrails”修正为“训练协议硬化 + protocol tail hardening + Instructor + Guardrails”，并明确采用 `Week 0 + Week 1-5` 的推进节奏。
+
+### Module A slice 1 findings
+
+- 训练主链原先的 `experiment_spec` 只是未经规整的松散 dict，`TrainingExperimentService.configure_experiment()` 缺少 canonicalization，因此 protocol、dataset、optimization 这些边界难以复用和持久化。
+- 优化链已经隐含了“candidate config generated; active config unchanged” 与 “candidate auto-applied” 两种不同语义，但在 `TrainingResult`、`cycle_*.json` 和 commander body result 里没有被正式建模，导致 active/candidate 边界不可审计。
+- 新增 `app/training/experiment_protocol.py` 后，最小可用的协议层已经建立：
+  - `ExperimentSpec` 负责把实验输入规整为 canonical payload
+  - `build_cycle_run_context()` 负责把 `active_config_ref / candidate_config_ref / runtime_overrides / review_basis_window / fitness_source_cycles / promotion_decision` 收束成统一上下文
+- 这次实现故意把 `review_basis_window` 默认保守表达成当前可证明的事实窗口，而不是虚构“已经实现的滚动复盘”；这能让后续 Week 2 继续演进时更真实、更可审计。
+
+### v1.1 remaining cuts findings
+
+- `review_meeting` 的真实缺口不是 LLM prompt，而是输入事实长期只有单轮 `EvalReport`；现在通过 `build_review_input()` 已把滚动窗口事实正式接入 service 边界。
+- `promotion_decision` 只挂在 `run_context` 里时，调用方很难区分“上下文记录”与“治理记录”；拆出 `promotion_record` / `lineage_record` 后，candidate pending / auto-applied 语义终于可以被直接审计。
+- `build_cycle_run_context()` 在 auto-apply 场景下原本可能继续暴露旧 `model_output.config_name`；这个 active ref 漂移已经被修正，否则 lineage 会天然失真。
+- `selection` 链路里最危险的 tail 不是字段缺失，而是 `confidence` 在多个点位以弱类型进入聚合逻辑；统一 clamp 到 0-1 后，会议得分和 top-level confidence 都更稳定。
+- `structured output` 这轮最值得做的不是引完整第三方框架，而是在 runtime wrap 前加一层最小 normalize；这样能用极低改动把 `invest_ask_stock` 和 training plan 两条关键协议面先固定下来。
+- `guardrails` 的第一批高价值拦截点已经足够明确：占位符参数、空 patch、缺失 `plan_id`。这些都是 LLM/tool-calling 场景里高频且低成本可防的事故源。
+
+### Instructor expansion and observability findings
+
+- `Instructor` 路线继续往前走时，最有性价比的不是全量接管所有 tool，而是继续扩高价值、强约束、易失真的响应面；这轮把 config update 系列也纳入了 normalize 范围。
+- `promotion_record` / `lineage_record` 如果只存在于训练结果明细里，运营与调试场景还是要翻深层 JSON；补到 `training_lab.run.latest_result` 之后，API、web human view、runtime receipt 三个入口终于能一致看到它们。
+- human 展示层的真实问题不是“没有字段”，而是“摘要只显示前 4 条事实会把最关键的治理信息挤掉”；把现状摘要窗口放宽后，promotion / lineage 才真正进入可观察面。
+
+## 2026-03-15
+
+### System re-audit findings after the larger refactor
+
+- 旧版升级方案中的两个核心前提已经失效：
+  - “先接 `Instructor`” 已不准确，因为 `brain/runtime.py` 已经在主链中初始化并消费 `StructuredOutputAdapter`。
+  - “先接 `Guardrails`” 也已不准确，因为 `RuntimeGuardrails` 已经在 mutating workflow 前承担规则阻断。
+- 当前系统的主矛盾已经从“缺少框架接入”转为“现有协议化与治理能力是否足够深、足够一致、足够可审计”。
+- 训练链路最重要的结构变化，不是 service 数量增加，而是 `experiment_spec -> run_context -> promotion_record/lineage_record -> lab evaluation/web presentation` 这一条事实链已经闭合。
+- `ReviewMeeting` 的输入面已经实质升级：虽然核心仍是当前周期评估，但 service 边界已能接收 `recent_results`、`review_basis_window`、`similar_results`、`similarity_summary`、`causal_diagnosis`，这意味着“跨周期复盘”从叙述进入了真实实现。
+- `brain/presentation.py` 与 `app/interfaces/web/presentation.py` 的稳定，意味着未来的结构化输出、治理摘要、ops 卡片都应围绕 presentation seam 继续扩，而不是回写 `brain/runtime.py` 或 `app/web_server.py`。
+- `freeze_gate` 的 quick 模式已经把协议层回归测试纳入正式门槛，因此后续任何升级如果不能进入这些 focused suites，就不应算真正落地。
+
+### Upgrade-plan recalibration findings
+
+- `Instructor` 应从“框架接入项目”改名为“内建 structured-output 层的第二阶段深化”；第三方框架是否引入，应该降级为后续决策。
+- `Guardrails AI` 应从“P0 接入目标”改成“内建 runtime guardrails 的策略化升级参考”；先扩现有规则层，再决定是否外接。
+- `PySR`、`E2B`、`Temporal` 依然有借鉴价值，但对当前代码主链不是第一性矛盾，放在 `v1.2+` 更合理。
+- `v1.1` 后续更值得继续投资的地方是：
+  - protocol tail hardening
+  - training protocol completion
+  - promotion/lineage discipline
+  - structured output / guardrails coverage and policy depth

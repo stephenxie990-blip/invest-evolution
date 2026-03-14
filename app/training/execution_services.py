@@ -5,6 +5,7 @@ from typing import Any
 
 from config import config
 from invest.models import resolve_model_config_path
+from app.training.experiment_protocol import build_cycle_run_context, build_execution_snapshot
 
 logger = logging.getLogger(__name__)
 
@@ -172,10 +173,22 @@ class TrainingExecutionService:
             sim_result=sim_result,
             benchmark_daily_values=benchmark_daily_values,
         )
+        research_artifacts = controller.training_research_service.persist_cycle_research_artifacts(
+            controller,
+            cycle_id=cycle_id,
+            cutoff_date=cutoff_date,
+            model_output=model_output,
+            stock_data=stock_data,
+            selected=selected,
+            regime_result=regime_result,
+            selection_mode=selection_mode,
+        )
+        cycle_dict["research_artifacts"] = dict(research_artifacts or {})
         research_feedback = controller._load_research_feedback(
             cutoff_date=cutoff_date,
             model_name=getattr(model_output, "model_name", controller.model_name),
             config_name=getattr(model_output, "config_name", controller.model_config_path),
+            regime=str(regime_result.get("regime") or ""),
         )
         cycle_dict["research_feedback"] = dict(research_feedback or {})
         if research_feedback:
@@ -190,6 +203,30 @@ class TrainingExecutionService:
                 kind="research_feedback",
                 details=research_feedback,
                 metrics=controller._research_feedback_brief(research_feedback),
+            )
+        if research_artifacts:
+            controller._emit_module_log(
+                "research",
+                "训练样本已写入研究归因库",
+                f"cases={int(research_artifacts.get('saved_case_count') or 0)}, attributions={int(research_artifacts.get('saved_attribution_count') or 0)}",
+                cycle_id=cycle_id,
+                kind="research_persisted",
+                details=research_artifacts,
+                metrics={
+                    "saved_case_count": int(research_artifacts.get("saved_case_count") or 0),
+                    "saved_attribution_count": int(research_artifacts.get("saved_attribution_count") or 0),
+                },
+            )
+        cycle_dict["execution_snapshot"] = build_execution_snapshot(
+            controller,
+            cycle_id=cycle_id,
+            model_output=model_output,
+            selection_mode=selection_mode,
+            benchmark_passed=benchmark_passed,
+        )
+        if getattr(controller, "last_cutoff_policy_context", None):
+            cycle_dict["execution_snapshot"]["cutoff_policy_context"] = dict(
+                controller.last_cutoff_policy_context or {}
             )
         controller._emit_agent_status(
             "SimulatedTrader",
@@ -296,6 +333,38 @@ class TrainingExecutionService:
         review_applied = review_stage_result.review_applied
         review_event = review_stage_result.review_event
         optimization_events.append(review_event.to_dict())
+        run_context = build_cycle_run_context(
+            controller,
+            cycle_id=cycle_id,
+            model_output=model_output,
+            optimization_events=optimization_events,
+            execution_snapshot=dict(cycle_dict.get("execution_snapshot") or {}),
+        )
+        ab_comparison = controller.training_ab_service.run_candidate_ab_comparison(
+            controller,
+            cycle_id=cycle_id,
+            cutoff_date=cutoff_date,
+            stock_data=stock_data,
+            model_name=str(getattr(model_output, "model_name", controller.model_name) or controller.model_name),
+            active_config_ref=str(run_context.get("active_config_ref") or ""),
+            candidate_config_ref=str(run_context.get("candidate_config_ref") or ""),
+            baseline_regime=str(regime_result.get("regime") or ""),
+        )
+        if ab_comparison:
+            cycle_dict["ab_comparison"] = dict(ab_comparison)
+            controller._emit_module_log(
+                "promotion",
+                "候选策略 A/B 对照完成",
+                f"winner={dict(ab_comparison.get('comparison') or {}).get('winner', 'inconclusive')}",
+                cycle_id=cycle_id,
+                kind="candidate_ab_comparison",
+                details=ab_comparison,
+                metrics={
+                    "return_lift_pct": dict(ab_comparison.get("comparison") or {}).get("return_lift_pct"),
+                    "strategy_score_lift": dict(ab_comparison.get("comparison") or {}).get("strategy_score_lift"),
+                    "benchmark_lift": dict(ab_comparison.get("comparison") or {}).get("benchmark_lift"),
+                },
+            )
 
         config_snapshot_path = str(
             controller.config_service.write_runtime_snapshot(
@@ -304,6 +373,12 @@ class TrainingExecutionService:
             )
         )
         cycle_dict["analysis"] = review_decision.get("reasoning", "")
+        cycle_dict["review_decision"] = dict(review_decision or {})
+        cycle_dict["causal_diagnosis"] = dict(review_decision.get("causal_diagnosis") or {})
+        cycle_dict["similarity_summary"] = dict(review_decision.get("similarity_summary") or {})
+        cycle_dict["similar_results"] = [
+            dict(item) for item in list(review_decision.get("similar_results") or [])
+        ]
         audit_tags = controller.training_outcome_service.build_audit_tags(
             controller,
             data_mode=data_mode,
@@ -345,6 +420,8 @@ class TrainingExecutionService:
             audit_tags=audit_tags,
             model_output=model_output,
             research_feedback=research_feedback,
+            research_artifacts=research_artifacts,
+            ab_comparison=dict(cycle_dict.get("ab_comparison") or {}),
         )
         controller.training_lifecycle_service.finalize_cycle(
             controller,

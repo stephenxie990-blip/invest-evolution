@@ -580,7 +580,20 @@ def frontend_app(asset_path: str = ""):
 
 @app.route("/healthz")
 def healthz():
-    return jsonify({"status": "ok", "service": "invest-web"})
+    loop_running = bool(_loop is not None and _loop.is_running())
+    return jsonify(
+        {
+            "status": "ok",
+            "service": "invest-web",
+            "runtime": {
+                "initialized": _runtime is not None,
+                "loop_running": loop_running,
+                "event_buffer_size": _event_buffer.qsize(),
+                "event_history_size": len(_event_history),
+                "event_dispatcher_started": bool(_event_dispatcher_started),
+            },
+        }
+    )
 
 
 # ---- SSE (Server-Sent Events) ----

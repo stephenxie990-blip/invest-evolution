@@ -181,7 +181,135 @@ def summarize_training_evaluation_brief(evaluation: dict[str, Any]) -> dict[str,
     }
 
 
+def build_promotion_lineage_ops_panel(latest_result: dict[str, Any]) -> dict[str, Any]:
+    result = dict(latest_result or {})
+    promotion_record = dict(result.get("promotion_record") or {})
+    lineage_record = dict(result.get("lineage_record") or {})
+    if not promotion_record and not lineage_record:
+        return {"available": False}
+
+    active_config_ref = str(
+        lineage_record.get("active_config_ref")
+        or promotion_record.get("active_config_ref")
+        or ""
+    )
+    candidate_config_ref = str(
+        lineage_record.get("candidate_config_ref")
+        or promotion_record.get("candidate_config_ref")
+        or ""
+    )
+    candidate_meta_ref = str(
+        lineage_record.get("candidate_meta_ref")
+        or promotion_record.get("candidate_meta_ref")
+        or ""
+    )
+    review_window = dict(
+        lineage_record.get("review_basis_window")
+        or promotion_record.get("review_basis_window")
+        or {}
+    )
+    fitness_source_cycles = [
+        int(item)
+        for item in list(lineage_record.get("fitness_source_cycles") or [])
+        if str(item).strip()
+    ]
+    basis_stage = str(
+        lineage_record.get("basis_stage")
+        or promotion_record.get("basis_stage")
+        or dict(result.get("run_context") or {}).get("basis_stage")
+        or ""
+    )
+    promotion_status = str(promotion_record.get("status") or "not_evaluated")
+    gate_status = str(promotion_record.get("gate_status") or "not_applicable")
+    lineage_status = str(lineage_record.get("lineage_status") or "unknown")
+    active_candidate_drift = bool(
+        active_config_ref and candidate_config_ref and active_config_ref != candidate_config_ref
+    )
+    ops_flags = {
+        "candidate_pending": lineage_status == "candidate_pending",
+        "awaiting_gate": gate_status == "awaiting_gate",
+        "active_candidate_drift": active_candidate_drift,
+        "has_review_window": bool(review_window),
+        "has_fitness_source_cycles": bool(fitness_source_cycles),
+    }
+    warnings: list[str] = []
+    if ops_flags["candidate_pending"]:
+        warnings.append("候选配置仍待发布门确认")
+    if active_candidate_drift:
+        warnings.append("active 与 candidate 配置已发生漂移")
+    if candidate_config_ref and not review_window:
+        warnings.append("候选配置缺少 review basis window")
+    if candidate_config_ref and not fitness_source_cycles:
+        warnings.append("候选配置缺少 fitness source cycles")
+
+    if ops_flags["candidate_pending"] or ops_flags["awaiting_gate"]:
+        summary = "候选配置已生成，当前仍待发布门确认。"
+    elif gate_status == "applied_to_active":
+        summary = "候选配置已通过门控并应用到 active。"
+    else:
+        summary = "当前仅有 active 配置，尚未发现待发布候选。"
+
+    return {
+        "available": True,
+        "summary": summary,
+        "status": {
+            "promotion_status": promotion_status,
+            "gate_status": gate_status,
+            "lineage_status": lineage_status,
+            "basis_stage": basis_stage,
+        },
+        "refs": {
+            "active_config_ref": active_config_ref,
+            "candidate_config_ref": candidate_config_ref,
+            "candidate_meta_ref": candidate_meta_ref,
+        },
+        "review_window": review_window,
+        "fitness_source_cycles": fitness_source_cycles,
+        "basis_stage": basis_stage,
+        "ops_flags": ops_flags,
+        "warnings": warnings,
+        "mutation": {
+            "trigger": str(
+                promotion_record.get("mutation_trigger")
+                or lineage_record.get("mutation_trigger")
+                or ""
+            ),
+            "stage": str(
+                promotion_record.get("mutation_stage")
+                or lineage_record.get("mutation_stage")
+                or ""
+            ),
+            "notes": str(
+                promotion_record.get("mutation_notes")
+                or lineage_record.get("mutation_notes")
+                or ""
+            ),
+        },
+    }
+
+
+def summarize_latest_training_result(payload: dict[str, Any]) -> dict[str, Any]:
+    results = [dict(item) for item in list(payload.get("results") or []) if isinstance(item, dict)]
+    latest = dict(results[-1]) if results else {}
+    ops_panel = build_promotion_lineage_ops_panel(latest)
+    return {
+        "cycle_id": latest.get("cycle_id"),
+        "status": str(latest.get("status") or ""),
+        "return_pct": latest.get("return_pct"),
+        "benchmark_passed": bool(latest.get("benchmark_passed", False)),
+        "ab_comparison": dict(latest.get("ab_comparison") or {}),
+        "promotion_record": dict(latest.get("promotion_record") or {}),
+        "lineage_record": dict(latest.get("lineage_record") or {}),
+        "review_decision": dict(latest.get("review_decision") or {}),
+        "causal_diagnosis": dict(latest.get("causal_diagnosis") or {}),
+        "similarity_summary": dict(latest.get("similarity_summary") or {}),
+        "similar_results": [dict(item) for item in list(latest.get("similar_results") or [])],
+        "ops_panel": ops_panel,
+    }
+
+
 def attach_training_lab_paths(payload: dict[str, Any], lab: dict[str, Any]) -> None:
+    latest_result = summarize_latest_training_result(dict(lab["run"].get("payload") or {}))
     payload["training_lab"] = {
         "plan": {
             "plan_id": lab["plan"]["plan_id"],
@@ -191,6 +319,8 @@ def attach_training_lab_paths(payload: dict[str, Any], lab: dict[str, Any]) -> N
         "run": {
             "run_id": lab["run"]["run_id"],
             "path": lab["evaluation"]["artifacts"]["run_path"],
+            "latest_result": latest_result,
+            "ops_panel": dict(latest_result.get("ops_panel") or {}),
         },
         "evaluation": {
             "run_id": lab["evaluation"]["run_id"],

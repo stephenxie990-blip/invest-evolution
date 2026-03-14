@@ -100,3 +100,104 @@ def test_review_meeting_evo_fallback_turns_conservative_on_research_feedback_bia
     assert result["param_adjustments"]
     assert any("问股校准" in item for item in result["suggestions"])
     assert "偏保守" in result["reasoning"]
+
+
+def test_review_meeting_run_with_eval_report_accepts_explicit_recent_results_window():
+    meeting = ReviewMeeting(llm_caller=None)
+    report = EvalReport(
+        cycle_id=3,
+        as_of_date="20240301",
+        return_pct=1.2,
+        total_pnl=1200.0,
+        total_trades=3,
+        win_rate=2 / 3,
+        regime="bull",
+        is_profit=True,
+        selected_codes=["sh.600519"],
+        selection_mode="meeting",
+    )
+
+    result = meeting.run_with_eval_report(
+        report,
+        agent_accuracy={},
+        current_params={},
+        recent_results=[
+            {"cycle_id": 1, "is_profit": False, "return_pct": -1.0, "selection_mode": "meeting", "regime": "bear"},
+            {"cycle_id": 2, "is_profit": True, "return_pct": 0.8, "selection_mode": "algorithm", "regime": "oscillation"},
+            report.to_dict(),
+        ],
+        review_basis_window={"mode": "rolling", "size": 3, "cycle_ids": [1, 2, 3], "current_cycle_id": 3},
+    )
+
+    assert result["review_basis_window"]["cycle_ids"] == [1, 2, 3]
+    assert result["strategy_advice"]["metadata"]["review_basis_window"]["size"] == 3
+
+
+def test_review_meeting_compiles_similar_cases_and_causal_diagnosis_into_facts():
+    meeting = ReviewMeeting(llm_caller=None)
+
+    facts = meeting._compile_facts(  # pylint: disable=protected-access
+        recent_results=[
+            {"cycle_id": 8, "is_profit": False, "return_pct": -1.2, "selection_mode": "meeting", "regime": "bear"},
+            {"cycle_id": 9, "is_profit": True, "return_pct": 0.6, "selection_mode": "algorithm", "regime": "bull"},
+        ],
+        agent_accuracy={},
+        similar_results=[
+            {"cycle_id": 5, "regime": "bear", "return_pct": -1.5, "selection_mode": "meeting"},
+            {"cycle_id": 3, "regime": "bear", "return_pct": -0.9, "selection_mode": "meeting"},
+        ],
+        similarity_summary={
+            "matched_cycle_ids": [5, 3],
+            "dominant_regime": "bear",
+            "match_features": ["regime", "selection_mode", "benchmark_passed"],
+        },
+        causal_diagnosis={
+            "primary_driver": "regime_repeat_loss",
+            "summary": "同一市场状态下重复亏损，且复盘改动尚未形成修复。",
+            "drivers": [
+                {"code": "regime_repeat_loss", "score": 0.55, "evidence_cycle_ids": [5, 3]},
+                {"code": "review_not_applied", "score": 0.25, "evidence_cycle_ids": [8]},
+            ],
+        },
+    )
+
+    assert [item["cycle_id"] for item in facts["similar_cases"]] == [5, 3]
+    assert facts["similarity_summary"]["dominant_regime"] == "bear"
+    assert facts["causal_diagnosis"]["primary_driver"] == "regime_repeat_loss"
+    assert facts["causal_diagnosis"]["drivers"][0]["score"] == 0.55
+
+
+def test_review_meeting_run_with_eval_report_preserves_similarity_and_causal_metadata():
+    meeting = ReviewMeeting(llm_caller=None)
+    report = EvalReport(
+        cycle_id=4,
+        as_of_date="20240302",
+        return_pct=-1.1,
+        total_pnl=-1100.0,
+        total_trades=4,
+        win_rate=0.25,
+        regime="bear",
+        is_profit=False,
+        selected_codes=["sh.600519"],
+        selection_mode="meeting",
+    )
+
+    result = meeting.run_with_eval_report(
+        report,
+        agent_accuracy={},
+        current_params={},
+        recent_results=[report.to_dict()],
+        review_basis_window={"mode": "rolling", "size": 1, "cycle_ids": [4], "current_cycle_id": 4},
+        similar_results=[{"cycle_id": 2, "regime": "bear", "return_pct": -0.8, "selection_mode": "meeting"}],
+        similarity_summary={"matched_cycle_ids": [2], "dominant_regime": "bear"},
+        causal_diagnosis={
+            "primary_driver": "regime_repeat_loss",
+            "summary": "同一市场状态下重复亏损。",
+            "drivers": [{"code": "regime_repeat_loss", "score": 0.6, "evidence_cycle_ids": [2]}],
+        },
+    )
+
+    assert result["similarity_summary"]["matched_cycle_ids"] == [2]
+    assert result["causal_diagnosis"]["primary_driver"] == "regime_repeat_loss"
+    assert result["strategy_advice"]["metadata"]["similarity_summary"]["dominant_regime"] == "bear"
+    assert result["strategy_advice"]["metadata"]["causal_diagnosis"]["primary_driver"] == "regime_repeat_loss"

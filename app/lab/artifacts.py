@@ -29,6 +29,32 @@ _DEFAULT_PROMOTION_RESEARCH_FEEDBACK_GATE = {
     },
 }
 
+_DEFAULT_PROMOTION_REGIME_VALIDATION_GATE = {
+    "min_distinct_regimes": 2,
+    "min_samples_per_regime": 1,
+    "min_avg_return_pct": 0.0,
+    "min_win_rate": 0.40,
+    "min_benchmark_pass_rate": 0.40,
+    "max_dominant_regime_share": 0.75,
+}
+
+_DEFAULT_PROMOTION_RETURN_OBJECTIVES = {
+    "min_avg_return_pct": 0.0,
+    "min_median_return_pct": 0.0,
+    "min_cumulative_return_pct": 0.0,
+    "min_win_rate": 0.50,
+    "max_loss_share": 0.50,
+    "min_benchmark_pass_rate": 0.50,
+}
+
+_DEFAULT_PROMOTION_CANDIDATE_AB_GATE = {
+    "required_when_candidate_present": True,
+    "require_candidate_outperform_active": True,
+    "min_return_lift_pct": 0.0,
+    "min_strategy_score_lift": 0.0,
+    "min_benchmark_lift": 0.0,
+}
+
 
 def _deep_merge(base: dict[str, Any], patch: dict[str, Any] | None = None) -> dict[str, Any]:
     merged = dict(base or {})
@@ -125,6 +151,94 @@ def _build_research_feedback_guardrail_view(
     }
 
 
+def _build_regime_validation_guardrail_view(policy: dict[str, Any] | None) -> dict[str, Any]:
+    resolved = dict(policy or {})
+    if not resolved:
+        return {
+            "enabled": False,
+            "summary": "未启用 regime 分层验证。",
+            "reason_codes": [],
+            "thresholds": {},
+        }
+
+    summary = (
+        "默认启用 regime 分层验证："
+        f"至少覆盖 {int(resolved.get('min_distinct_regimes') or 0)} 个市场状态，"
+        f"每个状态样本数>={int(resolved.get('min_samples_per_regime') or 0)}，"
+        f"分状态平均收益>={_format_threshold(resolved.get('min_avg_return_pct'))}%，"
+        f"胜率>={_format_threshold(resolved.get('min_win_rate'))}，"
+        f"基准通过率>={_format_threshold(resolved.get('min_benchmark_pass_rate'))}。"
+    )
+    return {
+        "enabled": True,
+        "summary": summary,
+        "reason_codes": [
+            "default_regime_validation_gate_enabled",
+            "regime_diversity_guarded",
+            "regime_performance_guarded",
+        ],
+        "thresholds": jsonable(resolved),
+    }
+
+
+def _build_return_objectives_guardrail_view(policy: dict[str, Any] | None) -> dict[str, Any]:
+    resolved = dict(policy or {})
+    if not resolved:
+        return {
+            "enabled": False,
+            "summary": "未启用收益导向晋升目标。",
+            "reason_codes": [],
+            "thresholds": {},
+        }
+
+    summary = (
+        "默认启用收益导向晋升目标："
+        f"平均收益>={_format_threshold(resolved.get('min_avg_return_pct'))}%，"
+        f"中位收益>={_format_threshold(resolved.get('min_median_return_pct'))}%，"
+        f"累计收益>={_format_threshold(resolved.get('min_cumulative_return_pct'))}%，"
+        f"胜率>={_format_threshold(resolved.get('min_win_rate'))}，"
+        f"亏损占比<={_format_threshold(resolved.get('max_loss_share'))}，"
+        f"基准通过率>={_format_threshold(resolved.get('min_benchmark_pass_rate'))}。"
+    )
+    return {
+        "enabled": True,
+        "summary": summary,
+        "reason_codes": [
+            "default_return_objectives_gate_enabled",
+            "return_quality_guarded",
+        ],
+        "thresholds": jsonable(resolved),
+    }
+
+
+def _build_candidate_ab_guardrail_view(policy: dict[str, Any] | None) -> dict[str, Any]:
+    resolved = dict(policy or {})
+    if not resolved:
+        return {
+            "enabled": False,
+            "summary": "未启用候选策略 A/B 对照门。",
+            "reason_codes": [],
+            "thresholds": {},
+        }
+
+    summary = (
+        "默认启用候选策略 A/B 对照门："
+        f"候选对 active 的收益 lift>={_format_threshold(resolved.get('min_return_lift_pct'))}%，"
+        f"策略分 lift>={_format_threshold(resolved.get('min_strategy_score_lift'))}，"
+        f"基准通过 lift>={_format_threshold(resolved.get('min_benchmark_lift'))}。"
+    )
+    return {
+        "enabled": True,
+        "summary": summary,
+        "reason_codes": [
+            "default_candidate_ab_gate_enabled",
+            "candidate_ab_return_guarded",
+            "candidate_ab_benchmark_guarded",
+        ],
+        "thresholds": jsonable(resolved),
+    }
+
+
 def _build_guardrails(
     optimization: dict[str, Any] | None,
     *,
@@ -138,17 +252,35 @@ def _build_guardrails(
         dict(promotion_gate.get("research_feedback") or {}),
         overrides=dict(raw_promotion_gate.get("research_feedback") or {}),
     )
+    regime_validation_view = _build_regime_validation_guardrail_view(
+        dict(promotion_gate.get("regime_validation") or {}),
+    )
+    return_objectives_view = _build_return_objectives_guardrail_view(
+        dict(promotion_gate.get("return_objectives") or {}),
+    )
+    candidate_ab_view = _build_candidate_ab_guardrail_view(
+        dict(promotion_gate.get("candidate_ab") or {}),
+    )
     promotion_summary = (
         "晋升门已启用，使用默认模板+用户覆盖的 research_feedback 校准约束。"
         if research_feedback_view.get("policy_source", {}).get("user_overrides_present")
-        else "晋升门已启用，默认纳入 research_feedback 校准约束。"
+        else "晋升门已启用，默认纳入 research_feedback、regime 分层验证、收益目标与候选 A/B 对照约束。"
     )
     return {
         "promotion_gate": {
             "enabled": bool(promotion_gate),
             "summary": promotion_summary,
-            "reason_codes": ["promotion_gate_enabled", "promotion_gate_research_feedback_enabled"],
+            "reason_codes": [
+                "promotion_gate_enabled",
+                "promotion_gate_research_feedback_enabled",
+                "promotion_gate_regime_validation_enabled",
+                "promotion_gate_return_objectives_enabled",
+                "promotion_gate_candidate_ab_enabled",
+            ],
             "research_feedback": research_feedback_view,
+            "regime_validation": regime_validation_view,
+            "return_objectives": return_objectives_view,
+            "candidate_ab": candidate_ab_view,
         }
     }
 
@@ -238,6 +370,18 @@ class TrainingLabArtifactStore:
         promotion_gate['research_feedback'] = _deep_merge(
             _DEFAULT_PROMOTION_RESEARCH_FEEDBACK_GATE,
             dict(promotion_gate.get('research_feedback') or {}),
+        )
+        promotion_gate['regime_validation'] = _deep_merge(
+            _DEFAULT_PROMOTION_REGIME_VALIDATION_GATE,
+            dict(promotion_gate.get('regime_validation') or {}),
+        )
+        promotion_gate['return_objectives'] = _deep_merge(
+            _DEFAULT_PROMOTION_RETURN_OBJECTIVES,
+            dict(promotion_gate.get('return_objectives') or {}),
+        )
+        promotion_gate['candidate_ab'] = _deep_merge(
+            _DEFAULT_PROMOTION_CANDIDATE_AB_GATE,
+            dict(promotion_gate.get('candidate_ab') or {}),
         )
         payload['promotion_gate'] = promotion_gate
         return payload

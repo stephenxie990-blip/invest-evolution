@@ -183,6 +183,32 @@ def test_commander_result_dict_serializes_numpy_bool(tmp_path):
         config_snapshot_path='',
         optimization_events=[],
         audit_tags={'benchmark_passed': np.bool_(True)},
+        experiment_spec={'protocol': {'seed': 7}},
+        execution_snapshot={
+            'runtime_overrides': {'x': np.int64(1)},
+            'basis_stage': 'pre_optimization',
+        },
+        run_context={
+            'active_config_ref': 'cfg.yaml',
+            'candidate_config_ref': '',
+            'runtime_overrides': {'x': np.int64(1)},
+            'review_basis_window': {'mode': 'single_cycle', 'size': 1, 'cycle_ids': [1], 'current_cycle_id': 1},
+            'fitness_source_cycles': [],
+            'promotion_decision': {'status': 'not_evaluated', 'applied_to_active': False},
+        },
+        promotion_record={'status': 'not_evaluated', 'gate_status': 'not_applicable'},
+        lineage_record={'lineage_status': 'active_only', 'active_config_ref': 'cfg.yaml'},
+        review_decision={
+            'reasoning': 'tighten risk',
+            'causal_diagnosis': {'primary_driver': 'benchmark_gap'},
+            'similarity_summary': {'matched_cycle_ids': [2]},
+        },
+        causal_diagnosis={'primary_driver': 'benchmark_gap'},
+        similarity_summary={'matched_cycle_ids': [2]},
+        similar_results=[{'cycle_id': 2, 'return_pct': -0.8}],
+        realism_metrics={'avg_trade_amount': np.float64(1234.5), 'trade_record_count': np.int64(2)},
+        research_artifacts={'saved_case_count': np.int64(3), 'saved_attribution_count': np.int64(2)},
+        ab_comparison={'comparison': {'winner': 'candidate', 'return_lift_pct': np.float64(0.7)}},
     )
     result.research_feedback = {'recommendation': {'bias': 'tighten_risk'}}
     payload = body._to_result_dict(result)
@@ -190,6 +216,21 @@ def test_commander_result_dict_serializes_numpy_bool(tmp_path):
     assert payload['benchmark_passed'] is True
     assert payload['params']['x'] == 1
     assert payload['research_feedback']['recommendation']['bias'] == 'tighten_risk'
+    assert payload['research_artifacts']['saved_case_count'] == 3
+    assert payload['ab_comparison']['comparison']['winner'] == 'candidate'
+    assert payload['ab_comparison']['comparison']['return_lift_pct'] == 0.7
+    assert payload['experiment_spec']['protocol']['seed'] == 7
+    assert payload['execution_snapshot']['runtime_overrides']['x'] == 1
+    assert payload['execution_snapshot']['basis_stage'] == 'pre_optimization'
+    assert payload['run_context']['active_config_ref'] == 'cfg.yaml'
+    assert payload['promotion_record']['gate_status'] == 'not_applicable'
+    assert payload['lineage_record']['lineage_status'] == 'active_only'
+    assert payload['review_decision']['causal_diagnosis']['primary_driver'] == 'benchmark_gap'
+    assert payload['causal_diagnosis']['primary_driver'] == 'benchmark_gap'
+    assert payload['similarity_summary']['matched_cycle_ids'] == [2]
+    assert payload['similar_results'][0]['cycle_id'] == 2
+    assert payload['realism_metrics']['avg_trade_amount'] == 1234.5
+    assert payload['realism_metrics']['trade_record_count'] == 2
 
 
 def test_commander_snapshot_is_jsonable(tmp_path):
@@ -583,7 +624,21 @@ def test_generate_report_wrapper_preserves_fields(tmp_path):
         'recommendation': {'bias': 'tighten_risk', 'summary': 'ask calibration says tighten risk'},
     }
     controller.cycle_history.append(TrainingResult(
-        cycle_id=1, cutoff_date='20240101', selected_stocks=['x'], initial_capital=1, final_value=2, return_pct=1.0, is_profit=True, trade_history=[], params={}
+        cycle_id=1,
+        cutoff_date='20240101',
+        selected_stocks=['x'],
+        initial_capital=1,
+        final_value=2,
+        return_pct=1.0,
+        is_profit=True,
+        trade_history=[],
+        params={},
+        realism_metrics={
+            'avg_trade_amount': 1000.0,
+            'avg_turnover_rate': 0.2,
+            'avg_holding_days': 3.0,
+            'high_turnover_trade_count': 1,
+        },
     ))
 
     report = controller._generate_report()
@@ -591,6 +646,8 @@ def test_generate_report_wrapper_preserves_fields(tmp_path):
     assert report['successful_cycles'] == 1
     assert report['skipped_cycles'] == 1
     assert report['research_feedback']['recommendation']['bias'] == 'tighten_risk'
+    assert report['realism_summary']['cycles_with_realism_metrics'] == 1
+    assert report['realism_summary']['avg_trade_amount'] == 1000.0
 
 
 

@@ -16,6 +16,7 @@ from app.training.execution_services import TrainingExecutionService
 from app.training.lifecycle_services import TrainingLifecycleService
 from app.training.observability_services import TrainingObservabilityService
 from app.training.outcome_services import TrainingOutcomeService
+from app.training.ab_services import TrainingABService
 from app.training.policy_services import TrainingPolicyService
 from app.training.review_services import TrainingReviewService
 from app.training.review_stage_services import TrainingReviewStageResult, TrainingReviewStageService
@@ -62,6 +63,7 @@ def test_controller_exposes_training_services(tmp_path):
     assert isinstance(controller.training_lifecycle_service, TrainingLifecycleService)
     assert isinstance(controller.training_observability_service, TrainingObservabilityService)
     assert isinstance(controller.training_outcome_service, TrainingOutcomeService)
+    assert isinstance(controller.training_ab_service, TrainingABService)
     assert isinstance(controller.training_policy_service, TrainingPolicyService)
     assert isinstance(controller.training_review_service, TrainingReviewService)
     assert isinstance(controller.training_review_stage_service, TrainingReviewStageService)
@@ -310,6 +312,8 @@ def test_training_experiment_service_configures_protocol_dataset_and_model_scope
         experiment_simulation_days = None
         experiment_allowed_models = []
         experiment_llm = {}
+        experiment_review_window = {}
+        experiment_promotion_policy = {}
         allocator_enabled = False
         model_routing_enabled = False
         model_routing_mode = 'rule'
@@ -346,6 +350,8 @@ def test_training_experiment_service_configures_protocol_dataset_and_model_scope
             'protocol': {
                 'seed': '7',
                 'date_range': {'min': '2025-01-02', 'max': '2025-03-04'},
+                'review_window': {'mode': 'rolling', 'size': 5},
+                'cutoff_policy': {'mode': 'rolling', 'anchor_date': '2025-01-02', 'step_days': 14},
             },
             'dataset': {
                 'min_history_days': 240,
@@ -361,17 +367,38 @@ def test_training_experiment_service_configures_protocol_dataset_and_model_scope
                 'agent_override_enabled': True,
                 'agent_override_max_gap': 0.23,
             },
+            'optimization': {'promotion_gate': {'min_samples': 4}},
             'llm': {'timeout': 9, 'dry_run': True},
         },
     )
 
     assert controller.experiment_seed == 7
+    assert controller.experiment_spec['protocol']['date_range'] == {'min': '20250102', 'max': '20250304'}
+    assert controller.experiment_spec['protocol']['review_window'] == {'mode': 'rolling', 'size': 5}
+    assert controller.experiment_spec['protocol']['cutoff_policy'] == {
+        'mode': 'rolling',
+        'date': '',
+        'anchor_date': '20250102',
+        'step_days': 14,
+        'dates': [],
+    }
+    assert controller.experiment_spec['protocol']['promotion_policy'] == {'min_samples': 4}
     assert controller.experiment_min_date == '20250102'
     assert controller.experiment_max_date == '20250304'
     assert controller.experiment_min_history_days == 240
     assert controller.experiment_simulation_days == 45
     assert controller.experiment_allowed_models == ['value_quality', 'momentum']
     assert controller.experiment_llm['timeout'] == 9
+    assert controller.experiment_llm['mode'] == 'dry_run'
+    assert controller.experiment_review_window == {'mode': 'rolling', 'size': 5}
+    assert controller.experiment_cutoff_policy == {
+        'mode': 'rolling',
+        'date': '',
+        'anchor_date': '20250102',
+        'step_days': 14,
+        'dates': [],
+    }
+    assert controller.experiment_promotion_policy == {'min_samples': 4}
     assert llm_calls['spec']['dry_run'] is True
     assert controller.allocator_enabled is True
     assert controller.model_routing_enabled is True
@@ -577,6 +604,9 @@ def test_training_outcome_service_builds_audit_tags_and_cycle_result():
         model_routing_mode = 'rule'
         last_routing_decision = {'selected_model': 'mean_reversion', 'regime': 'oscillation'}
         current_params = {'position_size': 0.12}
+        experiment_review_window = {'mode': 'rolling', 'size': 3}
+        experiment_promotion_policy = {'min_samples': 2}
+        cycle_history = [SimpleNamespace(cycle_id=6), SimpleNamespace(cycle_id=7)]
 
     audit_tags = service.build_audit_tags(
         DummyController(),
@@ -616,10 +646,31 @@ def test_training_outcome_service_builds_audit_tags_and_cycle_result():
         agent_used=True,
         llm_used=False,
         benchmark_passed=True,
-        cycle_dict={'strategy_scores': {'overall_score': 0.8}, 'analysis': 'review ok'},
+        cycle_dict={
+            'strategy_scores': {'overall_score': 0.8},
+            'analysis': 'review ok',
+            'execution_snapshot': {
+                'basis_stage': 'pre_optimization',
+                'cycle_id': 8,
+                'model_name': 'value_quality',
+                'active_config_ref': 'executed.yaml',
+                'runtime_overrides': {'position_size': 0.08},
+                'routing_decision': {'selected_model': 'value_quality', 'regime': 'bull'},
+                'selection_mode': 'meeting_selection',
+                'benchmark_passed': True,
+            },
+        },
         review_applied=True,
         config_snapshot_path='snap.json',
-        optimization_events=[{'stage': 'review'}],
+        optimization_events=[
+            {
+                'stage': 'yaml_mutation',
+                'decision': {
+                    'config_path': 'candidate.yaml',
+                    'auto_applied': False,
+                },
+            }
+        ],
         audit_tags=audit_tags,
         model_output=SimpleNamespace(model_name='value_quality', config_name='value.yaml'),
         research_feedback={'recommendation': {'bias': 'maintain'}},
@@ -629,7 +680,23 @@ def test_training_outcome_service_builds_audit_tags_and_cycle_result():
     assert audit_tags['routing_regime'] == 'oscillation'
     assert cycle_result.analysis == 'review ok'
     assert cycle_result.model_name == 'value_quality'
-    assert cycle_result.config_name == 'value.yaml'
+    assert cycle_result.config_name == 'executed.yaml'
+    assert cycle_result.params == {'position_size': 0.08}
+    assert cycle_result.routing_decision == {'selected_model': 'value_quality', 'regime': 'bull'}
+    assert cycle_result.execution_snapshot['basis_stage'] == 'pre_optimization'
+    assert cycle_result.run_context['basis_stage'] == 'pre_optimization'
+    assert cycle_result.run_context['runtime_overrides'] == {'position_size': 0.08}
+    assert cycle_result.realism_metrics == {
+        'trade_record_count': 1,
+        'selection_mode': 'meeting_selection',
+        'optimization_event_count': 1,
+        'avg_trade_amount': 0.0,
+        'avg_turnover_rate': 0.0,
+        'high_turnover_trade_count': 0,
+        'avg_holding_days': 0.0,
+        'source_mix': {'unknown': 1.0},
+        'exit_trigger_mix': {},
+    }
 
 
 def test_run_continuous_delegates_to_lifecycle_service(monkeypatch, tmp_path):
@@ -955,8 +1022,30 @@ def test_training_review_stage_service_runs_review_flow():
 
     class DummyReviewMeetingService:
         @staticmethod
-        def run_with_eval_report(eval_report, *, agent_accuracy, current_params):
-            events.append(('review_meeting', eval_report, agent_accuracy, current_params))
+        def run_with_eval_report(
+            eval_report,
+            *,
+            agent_accuracy,
+            current_params,
+            recent_results=None,
+            review_basis_window=None,
+            similar_results=None,
+            similarity_summary=None,
+            causal_diagnosis=None,
+        ):
+            events.append(
+                (
+                    'review_meeting',
+                    eval_report,
+                    agent_accuracy,
+                    current_params,
+                    recent_results,
+                    review_basis_window,
+                    similar_results,
+                    similarity_summary,
+                    causal_diagnosis,
+                )
+            )
             return {
                 'reasoning': 'tighten risk',
                 'strategy_suggestions': ['reduce exposure'],
@@ -987,6 +1076,7 @@ def test_training_review_stage_service_runs_review_flow():
         review_meeting_service = DummyReviewMeetingService()
         agent_tracker = DummyTracker()
         current_params = {'position_size': 0.12}
+        experiment_review_window = {'mode': 'rolling', 'size': 3}
         review_meeting = SimpleNamespace(last_facts={'facts': 'ok'})
         meeting_recorder = SimpleNamespace(
             save_review=lambda decision, facts, cycle_id: saved_reviews.append(
@@ -994,6 +1084,36 @@ def test_training_review_stage_service_runs_review_flow():
             )
         )
         cycle_records = []
+        cycle_history = [
+            SimpleNamespace(
+                cycle_id=4,
+                cutoff_date='20240130',
+                return_pct=-1.2,
+                is_profit=False,
+                selection_mode='meeting',
+                benchmark_passed=False,
+                review_applied=False,
+                model_name='momentum',
+                config_name='configs/active.yaml',
+                routing_decision={'regime': 'bear'},
+                audit_tags={'routing_regime': 'bear'},
+                research_feedback={'recommendation': {'bias': 'tighten_risk'}},
+            ),
+            SimpleNamespace(
+                cycle_id=5,
+                cutoff_date='20240131',
+                return_pct=0.6,
+                is_profit=True,
+                selection_mode='algorithm',
+                benchmark_passed=True,
+                review_applied=True,
+                model_name='momentum',
+                config_name='configs/active.yaml',
+                routing_decision={'regime': 'oscillation'},
+                audit_tags={'routing_regime': 'oscillation'},
+                research_feedback={},
+            ),
+        ]
 
         @staticmethod
         def _emit_agent_status(*args, **kwargs):
@@ -1045,6 +1165,17 @@ def test_training_review_stage_service_runs_review_flow():
     assert cycle_dict['review_applied'] is True
     assert saved_reviews[0][2] == 6
     assert any(item[0] == 'apply_review_decision' for item in events)
+    review_call = next(item for item in events if item[0] == 'review_meeting')
+    assert review_call[6] == []
+    assert review_call[7]['matched_cycle_ids'] == []
+    assert review_call[8]['primary_driver'] == 'insufficient_history'
+    assert [entry['cycle_id'] for entry in review_call[4]] == [4, 5, 6]
+    assert review_call[5] == {
+        'mode': 'rolling',
+        'size': 3,
+        'cycle_ids': [4, 5, 6],
+        'current_cycle_id': 6,
+    }
 
 
 def test_save_cycle_result_delegates_to_persistence_service(tmp_path):
@@ -1069,6 +1200,23 @@ def test_save_cycle_result_delegates_to_persistence_service(tmp_path):
         config_snapshot_path='',
         optimization_events=[],
         audit_tags={},
+        experiment_spec={'protocol': {'seed': 7}},
+        run_context={
+            'active_config_ref': 'configs/active.yaml',
+            'candidate_config_ref': 'data/evolution/generations/candidate.yaml',
+            'runtime_overrides': {'position_size': 0.12},
+            'review_basis_window': {'mode': 'single_cycle', 'size': 1, 'cycle_ids': [3], 'current_cycle_id': 3},
+            'fitness_source_cycles': [1, 2],
+            'promotion_decision': {'status': 'candidate_generated', 'applied_to_active': False},
+        },
+        promotion_record={
+            'status': 'candidate_generated',
+            'gate_status': 'awaiting_gate',
+        },
+        lineage_record={
+            'lineage_status': 'candidate_pending',
+            'active_config_ref': 'configs/active.yaml',
+        },
     )
 
     controller._save_cycle_result(result)  # pylint: disable=protected-access
@@ -1077,6 +1225,11 @@ def test_save_cycle_result_delegates_to_persistence_service(tmp_path):
     assert payload['cycle_id'] == 3
     assert payload['return_pct'] == 1.5
     assert payload['benchmark_passed'] is True
+    assert payload['experiment_spec']['protocol']['seed'] == 7
+    assert payload['run_context']['active_config_ref'] == 'configs/active.yaml'
+    assert payload['run_context']['promotion_decision']['status'] == 'candidate_generated'
+    assert payload['promotion_record']['gate_status'] == 'awaiting_gate'
+    assert payload['lineage_record']['lineage_status'] == 'candidate_pending'
 
 
 def test_generate_report_delegates_to_freeze_gate_service(monkeypatch, tmp_path):
@@ -1116,7 +1269,85 @@ def test_training_cycle_data_service_prepares_context():
         cutoff_date='20240201',
         requested_data_mode='mock',
         llm_mode='dry_run',
+        cutoff_policy_context={'mode': 'random'},
     )
+
+
+def test_training_cycle_data_service_respects_fixed_cutoff_policy():
+    class DummyDataManager:
+        requested_mode = 'mock'
+
+        def random_cutoff_date(self, *, min_date='20180101', max_date=None):
+            raise AssertionError('fixed cutoff policy should not call random_cutoff_date')
+
+    class DummyController:
+        current_cycle_id = 4
+        experiment_seed = None
+        experiment_min_date = '20240101'
+        experiment_max_date = '20241231'
+        experiment_cutoff_policy = {'mode': 'fixed', 'date': '20240215'}
+        data_manager = DummyDataManager()
+        llm_mode = 'dry_run'
+
+    service = TrainingCycleDataService()
+    context = service.prepare_cycle_context(DummyController())
+
+    assert context == TrainingCycleContext(
+        cycle_id=5,
+        cutoff_date='20240215',
+        requested_data_mode='mock',
+        llm_mode='dry_run',
+        cutoff_policy_context={'mode': 'fixed'},
+    )
+
+
+def test_training_cycle_data_service_regime_balanced_selects_undercovered_regime():
+    class DummyDataManager:
+        requested_mode = 'mock'
+
+        def __init__(self):
+            self._dates = iter(['20240201', '20240220', '20240308'])
+
+        def random_cutoff_date(self, *, min_date='20180101', max_date=None):
+            del min_date, max_date
+            return next(self._dates)
+
+    class DummyRoutingService:
+        @staticmethod
+        def preview_routing(owner, *, cutoff_date, stock_count, min_history_days, allowed_models=None):
+            del owner, stock_count, min_history_days, allowed_models
+            mapping = {
+                '20240201': {'regime': 'bull', 'regime_confidence': 0.81},
+                '20240220': {'regime': 'oscillation', 'regime_confidence': 0.66},
+                '20240308': {'regime': 'bear', 'regime_confidence': 0.73},
+            }
+            return mapping[cutoff_date]
+
+    class DummyController:
+        current_cycle_id = 4
+        experiment_seed = None
+        experiment_min_date = '20240101'
+        experiment_max_date = '20241231'
+        experiment_min_history_days = 180
+        experiment_cutoff_policy = {'mode': 'regime_balanced', 'probe_count': 3}
+        experiment_allowed_models = []
+        cycle_history = [
+            SimpleNamespace(routing_decision={'regime': 'bull'}),
+            SimpleNamespace(routing_decision={'regime': 'bull'}),
+            SimpleNamespace(routing_decision={'regime': 'bear'}),
+        ]
+        data_manager = DummyDataManager()
+        training_routing_service = DummyRoutingService()
+        llm_mode = 'dry_run'
+        last_cutoff_policy_context = {}
+
+    service = TrainingCycleDataService()
+    context = service.prepare_cycle_context(DummyController())
+
+    assert context.cutoff_date == '20240220'
+    assert context.cutoff_policy_context['mode'] == 'regime_balanced'
+    assert context.cutoff_policy_context['target_regime'] == 'oscillation'
+    assert context.cutoff_policy_context['selected_by'] == 'target_regime_match'
 
 
 def test_training_cycle_data_service_loads_diagnostics_and_resolution():

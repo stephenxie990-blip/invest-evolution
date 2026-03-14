@@ -44,8 +44,6 @@ exclude = [
   ".venv",
   "external",
   "runtime",
-  "历史归档区",
-  "项目收口备份0312",
 ]
 
 [tool.pyright]
@@ -57,8 +55,6 @@ exclude = [
   "**/.venv",
   "**/external",
   "**/runtime",
-  "**/历史归档区",
-  "**/项目收口备份0312",
 ]
 
 [tool.setuptools]

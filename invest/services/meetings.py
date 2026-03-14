@@ -34,6 +34,11 @@ class ReviewMeetingLike(Protocol):
         agent_accuracy: dict[str, Any],
         current_params: dict[str, Any],
         regime_history: list[str] | None = None,
+        recent_results: list[dict[str, Any]] | None = None,
+        review_basis_window: dict[str, Any] | None = None,
+        similar_results: list[dict[str, Any]] | None = None,
+        similarity_summary: dict[str, Any] | None = None,
+        causal_diagnosis: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         ...
 
@@ -76,12 +81,22 @@ class ReviewMeetingService:
         agent_accuracy: dict[str, Any],
         current_params: dict[str, Any],
         regime_history: list[str] | None = None,
+        recent_results: list[dict[str, Any]] | None = None,
+        review_basis_window: dict[str, Any] | None = None,
+        similar_results: list[dict[str, Any]] | None = None,
+        similarity_summary: dict[str, Any] | None = None,
+        causal_diagnosis: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         return self.meeting.run_with_eval_report(
             eval_report,
             agent_accuracy=agent_accuracy,
             current_params=current_params,
             regime_history=regime_history,
+            recent_results=recent_results,
+            review_basis_window=review_basis_window,
+            similar_results=similar_results,
+            similarity_summary=similarity_summary,
+            causal_diagnosis=causal_diagnosis,
         )
 
     def set_policy(self, policy: dict[str, Any] | None = None) -> None:
