@@ -35,7 +35,7 @@ def test_run_training_cycle_emits_cutoff_date_before_diagnostics(
     try:
         result = controller.run_training_cycle()
     finally:
-        train_module._event_callback = None
+        train_module._event_callback_state.callback = None
 
     assert result is None
     assert events

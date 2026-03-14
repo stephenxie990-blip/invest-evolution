@@ -59,6 +59,7 @@ from app.training.lifecycle_services import TrainingLifecycleService
 from app.training.observability_services import TrainingObservabilityService
 from app.training.outcome_services import TrainingOutcomeService
 from app.training.policy_services import TrainingPolicyService
+from app.training import runtime_hooks as training_runtime_hooks
 from app.training.review_services import TrainingReviewService
 from app.training.review_stage_services import TrainingReviewStageService
 from app.training.selection_services import TrainingSelectionService
@@ -66,6 +67,11 @@ from app.training.routing_services import TrainingRoutingService
 from app.training.simulation_services import TrainingSimulationService
 
 logger = logging.getLogger(__name__)
+
+SelfAssessmentSnapshot = training_runtime_hooks.SelfAssessmentSnapshot
+_event_callback_state = training_runtime_hooks._event_callback_state
+emit_event = training_runtime_hooks.emit_event
+set_event_callback = training_runtime_hooks.set_event_callback
 
 
 def _build_mock_provider() -> MockDataProvider:
@@ -81,25 +87,6 @@ def _build_mock_provider() -> MockDataProvider:
         seed_cutoff_min=seed_cutoff_min,
         seed_cutoff_tail=max(60, simulation_days + 10),
     )
-
-# 事件发射回调
-_event_callback: Optional[Callable] = None
-
-
-def set_event_callback(callback: Callable):
-    """设置事件回调，用于推送实时事件到前端"""
-    global _event_callback
-    _event_callback = callback
-
-
-def emit_event(event_type: str, data: dict):
-    """发射事件到前端"""
-    if _event_callback:
-        try:
-            _event_callback(event_type, data)
-        except Exception:
-            pass
-
 
 def _default_training_diagnostics(cutoff_date: str, stock_count: int, min_history_days: int) -> dict[str, Any]:
     return {
@@ -234,21 +221,6 @@ class OptimizationEvent:
             "notes": self.notes,
             "ts": self.ts,
         }
-
-
-@dataclass
-class SelfAssessmentSnapshot:
-    """单周期自我评估快照（用于冻结门控与追踪）"""
-    cycle_id: int
-    cutoff_date: str
-    regime: str
-    plan_source: str
-    return_pct: float
-    is_profit: bool
-    sharpe_ratio: float = 0.0
-    max_drawdown: float = 0.0
-    excess_return: float = 0.0
-    benchmark_passed: bool = False
 
 
 # ============================================================
@@ -708,6 +680,10 @@ class SelfLearningController:
 
     def _event_context(self, cycle_id: int | None = None) -> Dict[str, Any]:
         return self.training_observability_service.event_context(self, cycle_id)
+
+    @staticmethod
+    def _emit_runtime_event(event_type: str, data: dict) -> None:
+        emit_event(event_type, data)
 
     def _emit_agent_status(
         self,

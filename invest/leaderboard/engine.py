@@ -2,8 +2,11 @@ from __future__ import annotations
 
 import json
 from collections import defaultdict
+import logging
 from pathlib import Path
 from typing import Any, Dict, Iterable, List
+
+logger = logging.getLogger(__name__)
 
 
 def _infer_model_name(payload: Dict[str, Any], path: Path) -> str:
@@ -70,7 +73,8 @@ def collect_cycle_records(root_dir: str | Path) -> List[Dict[str, Any]]:
             continue
         try:
             records.append(load_cycle_record(path))
-        except Exception:
+        except Exception as exc:
+            logger.warning("Skipped invalid cycle record %s: %s", path, exc)
             continue
     return records
 

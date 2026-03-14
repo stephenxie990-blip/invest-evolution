@@ -6,6 +6,7 @@ import logging
 import os
 import random
 from datetime import datetime, timedelta
+from importlib import import_module
 from pathlib import Path
 from typing import Dict, Iterable, Mapping, Optional, Protocol, cast
 
@@ -21,6 +22,18 @@ from .ingestion import DataIngestionService
 from .quality import DataQualityService
 
 logger = logging.getLogger(__name__)
+
+
+def _load_baostock_module():
+    return import_module("baostock")
+
+
+def _load_benchmark_service_class():
+    return import_module("market_data.services.benchmark").BenchmarkDataService
+
+
+def _load_market_query_service_class():
+    return import_module("market_data.services.query").MarketQueryService
 
 
 _DEFAULT_QUALITY_CACHE_TTL_SECONDS = 300
@@ -330,7 +343,7 @@ class EvolutionDataLoader:
         if self.data_source != "baostock":
             raise RuntimeError(f"在线数据源 {self.data_source} 暂未统一接入")
 
-        import baostock as bs
+        bs = _load_baostock_module()
 
         cutoff = normalize_date(cutoff_date)
         start_date = (datetime.strptime(cutoff, "%Y%m%d") - timedelta(days=900)).strftime("%Y-%m-%d")
@@ -398,8 +411,8 @@ class DataManager:
         self._capital_flow = CapitalFlowDatasetService(repository=self._offline.repository)
         self._events = EventDatasetService(repository=self._offline.repository)
         self._intraday = IntradayDatasetBuilder(repository=self._offline.repository)
-        from .services.benchmark import BenchmarkDataService
-        from .services.query import MarketQueryService
+        MarketQueryService = _load_market_query_service_class()
+        BenchmarkDataService = _load_benchmark_service_class()
 
         self._query = MarketQueryService(dataset_service=self._web)
         self._benchmark = BenchmarkDataService(repository=self._offline.repository)

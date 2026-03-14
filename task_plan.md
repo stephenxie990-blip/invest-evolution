@@ -18,10 +18,10 @@
 
 ## Current Focus
 
-- 按 `Wave B -> Wave C -> Wave D` 顺序完成本轮结构性收口
-- 将 `SelfLearningController` 残余控制器编排继续下沉到 training services
-- 统一 invest / meetings / evolution 的 facade 使用边界，减少上层直接依赖细节对象
-- 将更多 `market_data` 上层调用迁移到显式 facade，并补充对应测试与验证
+- 插入 `pre-v1.1 cleanup gate`，先完成仓库级代码瘦身与清洁
+- 优先清理静默异常、无日志降级、无效 `finally/pass`、可收口的兼容残壳
+- 对剩余 `late import / global state / plugin parse` 等结构异味做分桶治理
+- 清洁门通过后，再恢复 `v1.1 Module A` 的训练协议硬化主线
 
 ## Wave Completion Definition
 
@@ -69,6 +69,36 @@
 - 每个波次结束都做最小验证
 - 优先抽职责，不做大规模 rename
 
+## Pre-v1.1 Cleanup Gate
+
+### Goal
+
+- 在进入 `v1.1` 新能力开发前，先收掉高确定性的静态质量债务
+- 降低“继续叠功能”时被历史静默失败和兼容胶水反噬的概率
+
+### Cleanup buckets
+
+- Bucket 1：静默异常与无日志降级
+- Bucket 2：JSON/JSONL/event 读取链路的损坏输入可观测性
+- Bucket 3：无效空块、可删除的 `finally: pass`、兼容壳杂质
+- Bucket 4：可以安全迁移的 `late import`
+- Bucket 5：更长期的 `global state / bootstrap singleton / optional dependency seam`
+
+### Exit criteria
+
+- 高价值运行链路中不再存在可直接确认的 `except: pass / continue` 静默吞错
+- artifact / event / memory / callback 读取失败具备日志
+- 新增清洁回归测试通过
+- focused verification 与全量验证重新回绿
+
+### Current status
+
+- Bucket 1：已完成，核心目录 `S110 / S112` 清零
+- Bucket 2：已完成主要链路，artifact / event / memory / callback 已具备可观测性
+- Bucket 3：已完成首批无效空块清理，后续按碰到即收
+- Bucket 4：已完成，`PLC0415` 已从 32 降到 0
+- Bucket 5：已完成第一阶段，`PLW0603` 已清零；下一步聚焦真正的 bootstrap/provider seam
+
 ## Risks
 
 | Risk | Impact | Mitigation |
@@ -113,6 +143,15 @@
 - 已新增 `docs/plans/V1_1_IMPLEMENTATION_BLUEPRINT_20260314.md`
 - 蓝图将 `v1.1` 明确收敛为“训练协议硬化 + 最小必要结构解耦 + Instructor + Guardrails”
 - `PySR / E2B / Temporal` 被明确留在 `v1.2+`，不进入 `v1.1` 主版本范围
+- 已启动 `pre-v1.1 cleanup gate`
+- 第一批清理已完成：
+  - `app/train.py` 的 event callback 失败不再静默吞掉
+  - `app/runtime_artifact_reader.py` 的 JSON / JSONL / text 读取失败开始记录告警
+  - `app/commander_support/observability.py` 的 runtime event JSONL 损坏行开始记录告警
+  - `app/llm_gateway.py` 的 LiteLLM 初始化属性写入失败开始记录 debug 日志
+  - `app/commander.py` 的 cycle artifact 路径拼装失败开始记录告警
+  - `app/commander_support/services.py` 删除无效 `finally: pass`
+  - 新增 `tests/test_observability_helpers.py`
 
 ## Verification Snapshot
 

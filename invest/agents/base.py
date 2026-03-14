@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Dict, List, Optional, TypedDict
 
+from config import agent_config_registry, config
 from config.control_plane import build_component_llm_caller
 from invest.shared import LLMCaller
 
@@ -29,7 +30,6 @@ class AgentConfig:
     role: str          # "commander" / "hunter" / "regime" / "judge" / "strategist"
 
     def _raw_registry_config(self) -> dict[str, Any]:
-        from config import agent_config_registry
         return agent_config_registry.get_config(self.name)
 
     @property
@@ -45,8 +45,6 @@ class AgentConfig:
 
     @property
     def llm_model(self) -> str:
-        from config import config
-
         model = self.llm_model_setting.lower()
         if model in _MODEL_ALIAS_FAST:
             return config.llm_fast_model

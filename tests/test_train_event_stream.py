@@ -52,7 +52,11 @@ def test_cycle_start_event_carries_cutoff_date(monkeypatch, tmp_path):
     monkeypatch.setattr(controller.data_manager, "random_cutoff_date", lambda **_: "20240229")
     monkeypatch.setattr(controller.data_manager, "diagnose_training_data", lambda **_: {"ready": True})
     monkeypatch.setattr(controller.data_manager, "load_stock_data", lambda *args, **kwargs: {})
-    monkeypatch.setattr(train_module, "_event_callback", lambda event_type, data: events.append((event_type, data)))
+    monkeypatch.setattr(
+        train_module._event_callback_state,
+        "callback",
+        lambda event_type, data: events.append((event_type, data)),
+    )
 
     result = controller.run_training_cycle()
 

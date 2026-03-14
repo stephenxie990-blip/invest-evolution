@@ -25,10 +25,7 @@ class EvolutionService:
         self.engine = engine or EvolutionEngine(**engine_kwargs)
 
     def initialize_population(self, base_params: dict[str, Any] | None = None) -> None:
-        try:
-            self.engine.initialize_population(base_params=base_params)
-        except TypeError:
-            self.engine.initialize_population(base_params)
+        self.engine.initialize_population(base_params=base_params)
 
     def evolve(self, fitness_scores: list[float]) -> list[Any]:
         return self.engine.evolve(fitness_scores)

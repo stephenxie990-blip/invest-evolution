@@ -116,7 +116,7 @@ class TrainingExperimentService:
             str(name) for name in allowed_models if str(name).strip()
         ]
         controller.experiment_llm = llm
-        controller.training_llm_runtime_service.apply_experiment_overrides(controller, llm)
+        controller._apply_experiment_llm_overrides(llm)
 
         if model_scope.get("allocator_enabled") is not None:
             enabled = bool(model_scope.get("allocator_enabled"))
@@ -151,7 +151,7 @@ class TrainingExperimentService:
                 model_scope.get("agent_override_max_gap") or 0.0
             )
 
-        controller.training_routing_service.refresh_routing_coordinator(controller)
+        controller._refresh_model_routing_coordinator()
         if (
             controller.experiment_allowed_models
             and controller.model_name not in controller.experiment_allowed_models
@@ -159,10 +159,7 @@ class TrainingExperimentService:
             controller.model_name = controller.experiment_allowed_models[0]
             controller.model_config_path = str(resolve_model_config_path(controller.model_name))
             controller.current_params = {}
-            controller.training_routing_service.reload_investment_model(
-                controller,
-                controller.model_config_path,
-            )
+            controller._reload_investment_model(controller.model_config_path)
 
 
 class TrainingFeedbackService:

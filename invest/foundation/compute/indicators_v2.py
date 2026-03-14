@@ -2,12 +2,15 @@ from __future__ import annotations
 
 from collections import deque
 from dataclasses import dataclass
+import logging
 from math import sqrt
 from typing import Any, Deque, Generic, Optional, TypeVar
 
 import pandas as pd
 
 from .indicators import get_date_col
+
+logger = logging.getLogger(__name__)
 
 T = TypeVar("T")
 
@@ -481,8 +484,8 @@ def _as_float(value: Any) -> float | None:
     try:
         if pd.isna(value):
             return None
-    except Exception:
-        pass
+    except (TypeError, ValueError) as exc:
+        logger.debug("pd.isna check failed for %r: %s", value, exc)
     try:
         return float(value)
     except (TypeError, ValueError):

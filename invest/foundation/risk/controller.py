@@ -4,6 +4,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import numpy as np
 import pandas as pd
 
+from config import industry_registry
 from ..engine.contracts import EmergencyAction, EmergencyEvent, EmergencyType
 
 logger = logging.getLogger(__name__)
@@ -347,7 +348,6 @@ class PortfolioRiskManager:
         self.market_bear_threshold = float(portfolio.get("bear_threshold", _section_fallback("portfolio", "bear_threshold")) or _section_fallback("portfolio", "bear_threshold"))
 
     def get_industry(self, code: str) -> str:
-        from config import industry_registry
         return industry_registry.get_industry(code)
 
     def check_market_state(self, hs300_data: Optional[pd.DataFrame]) -> str:

@@ -2,6 +2,7 @@ import logging
 import os
 import time
 from datetime import datetime, timedelta
+from importlib import import_module
 from typing import Any, Protocol, Sequence, cast
 
 import numpy as np
@@ -13,6 +14,18 @@ from .quality import DataQualityService
 from .repository import MarketDataRepository
 
 logger = logging.getLogger(__name__)
+
+
+def _load_baostock_module() -> Any:
+    return import_module("baostock")
+
+
+def _load_akshare_module() -> Any:
+    return import_module("akshare")
+
+
+def _load_tushare_module() -> Any:
+    return import_module("tushare")
 
 
 class _BaoStockResult(Protocol):
@@ -341,7 +354,7 @@ class DataIngestionService:
         return {str(row["code"]): _safe_float(row.get("close")) for _, row in frame.iterrows()}
 
     def sync_security_master(self) -> dict[str, Any]:
-        import baostock as bs
+        bs = _load_baostock_module()
 
         login = bs.login()
         if getattr(login, "error_code", "0") != "0":
@@ -389,7 +402,7 @@ class DataIngestionService:
         start_date: str = "20160101",
         end_date: str | None = None,
     ) -> dict[str, Any]:
-        import baostock as bs
+        bs = _load_baostock_module()
 
         start = normalize_date(start_date)
         end = normalize_date(end_date or datetime.now().strftime("%Y%m%d"))
@@ -467,7 +480,7 @@ class DataIngestionService:
         start_date: str = "20160101",
         end_date: str | None = None,
     ) -> dict[str, Any]:
-        import baostock as bs
+        bs = _load_baostock_module()
 
         start = normalize_date(start_date)
         end = normalize_date(end_date or datetime.now().strftime("%Y%m%d"))
@@ -585,7 +598,7 @@ class DataIngestionService:
         end_date: str | None = None,
         market: str = "CN_A",
     ) -> dict[str, Any]:
-        import akshare as ak
+        ak = _load_akshare_module()
 
         frame = _akshare_call(ak.tool_trade_date_hist_sina)
         if frame is None or frame.empty:
@@ -750,7 +763,7 @@ class DataIngestionService:
         start_date: str = "20100331",
         end_date: str | None = None,
     ) -> dict[str, Any]:
-        import akshare as ak
+        ak = _load_akshare_module()
 
         securities = self.repository.query_securities(codes)
         if not securities:
@@ -836,7 +849,7 @@ class DataIngestionService:
         offset: int = 0,
         test_mode: bool = False,
     ) -> dict[str, Any]:
-        import akshare as ak
+        ak = _load_akshare_module()
 
         securities = self.repository.query_securities(codes)
         if offset > 0:
@@ -1001,7 +1014,7 @@ class DataIngestionService:
         start_date: str,
         end_date: str | None = None,
     ) -> dict[str, Any]:
-        import akshare as ak
+        ak = _load_akshare_module()
 
         start = normalize_date(start_date)
         end = normalize_date(end_date or datetime.now().strftime("%Y%m%d"))
@@ -1055,7 +1068,7 @@ class DataIngestionService:
         if not self.tushare_token:
             raise RuntimeError("未配置 TUSHARE_TOKEN")
 
-        import tushare as ts
+        ts = _load_tushare_module()
 
         ts.set_token(self.tushare_token)
         pro = ts.pro_api()
@@ -1144,7 +1157,7 @@ class DataIngestionService:
         if not self.tushare_token:
             raise RuntimeError("未配置 TUSHARE_TOKEN")
 
-        import tushare as ts
+        ts = _load_tushare_module()
 
         ts.set_token(self.tushare_token)
         pro = ts.pro_api()

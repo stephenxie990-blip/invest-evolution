@@ -1,6 +1,7 @@
 import logging
 from typing import Any, Dict, List, Optional, Callable
 
+from invest.agents import EvoJudgeAgent, ReviewDecisionAgent, StrategistAgent
 from invest.shared import AgentTracker, LLMCaller
 from invest.contracts import EvalReport, StrategyAdvice
 from invest.foundation.risk import sanitize_risk_params
@@ -162,7 +163,6 @@ class ReviewMeeting:
         deep_llm_caller: Optional[LLMCaller] = None,
         progress_callback: Optional[Callable[[dict], None]] = None,
     ):
-        from invest.agents import StrategistAgent, EvoJudgeAgent, ReviewDecisionAgent
         self.llm = llm_caller
         self.tracker = agent_tracker
         self.strategist = strategist or StrategistAgent()

@@ -269,8 +269,12 @@ class StrategyGeneRegistry:
                             literal = ast.literal_eval(node.value)
                             if isinstance(literal, dict):
                                 meta = literal
-                        except Exception:
-                            pass
+                        except Exception as exc:
+                            logger.warning(
+                                "Failed to parse python strategy gene metadata from %s: %s",
+                                path,
+                                exc,
+                            )
             elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 functions.append(node.name)
 

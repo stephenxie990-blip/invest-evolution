@@ -61,7 +61,8 @@ def safe_read_json(runtime: Any, path_str: str) -> Any:
         return None
     try:
         return json.loads(path.read_text(encoding="utf-8"))
-    except Exception:
+    except Exception as exc:
+        logger.warning("Failed to read JSON artifact %s: %s", path, exc)
         return None
 
 
@@ -71,7 +72,8 @@ def safe_read_text(runtime: Any, path_str: str, *, limit: int = 12000) -> str:
         return ""
     try:
         return path.read_text(encoding="utf-8")[:limit]
-    except Exception:
+    except Exception as exc:
+        logger.warning("Failed to read text artifact %s: %s", path, exc)
         return ""
 
 
@@ -80,6 +82,7 @@ def safe_read_jsonl(runtime: Any, path_str: str, *, limit: int = 400) -> list[di
     if path is None:
         return []
     rows: list[dict[str, Any]] = []
+    invalid_lines = 0
     try:
         for line in path.read_text(encoding="utf-8").splitlines():
             line = line.strip()
@@ -88,7 +91,11 @@ def safe_read_jsonl(runtime: Any, path_str: str, *, limit: int = 400) -> list[di
             try:
                 rows.append(json.loads(line))
             except Exception:
+                invalid_lines += 1
                 continue
-    except Exception:
+    except Exception as exc:
+        logger.warning("Failed to read JSONL artifact %s: %s", path, exc)
         return []
+    if invalid_lines:
+        logger.warning("Skipped %d invalid JSONL row(s) while reading %s", invalid_lines, path)
     return rows[-max(1, int(limit)):]

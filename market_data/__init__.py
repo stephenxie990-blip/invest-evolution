@@ -11,14 +11,6 @@ from .ingestion import DataIngestionService
 from .manager import DataManager, DataProvider, DataSourceUnavailableError, EvolutionDataLoader, MockDataProvider, generate_mock_stock_data
 from .quality import DataQualityService
 from .repository import MarketDataRepository
-from .services import (
-    BenchmarkDataService,
-    DataAvailabilityService,
-    MarketSyncService,
-    MarketQueryService,
-    QualityAuditService,
-    TrainingDatasetResolver,
-)
 
 __all__ = [
     "DataManager",
@@ -37,10 +29,4 @@ __all__ = [
     "DataIngestionService",
     "DataQualityService",
     "MarketDataRepository",
-    "DataAvailabilityService",
-    "TrainingDatasetResolver",
-    "BenchmarkDataService",
-    "MarketQueryService",
-    "QualityAuditService",
-    "MarketSyncService",
 ]

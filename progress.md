@@ -159,3 +159,159 @@
   - `.venv/bin/pyright .` -> 0 errors
   - `.venv/bin/pytest -q` -> pass
   - `.venv/bin/python -m app.freeze_gate --mode quick` -> pass
+
+### Pre-v1.1 cleanup gate kickoff
+
+- 将 `v1.1` 主线暂时前置一个仓库级代码清洁阶段，先处理高确定性的静态质量债务
+- 首轮扫描使用 `ruff` 规则聚焦 `S110/S112/PLC0415/PLW0603`，并人工复核 `pass`/宽异常语义
+- 当前量化结果（仅 `app/ brain/ invest/ market_data/`）：
+  - `PLC0415 import-outside-top-level`: 32 处
+  - `PLW0603 global-statement`: 10 处
+  - `S110 try-except-pass`: 3 处
+  - `S112 try-except-continue`: 2 处
+
+### Completed
+
+- 完成第一批“静默失败改可观测”清理：
+  - `app/train.py` 的 `emit_event()` 在 callback 异常时记录 warning
+  - `app/runtime_artifact_reader.py` 在 JSON/JSONL/text 读取失败或 JSONL 脏行时记录 warning
+  - `app/commander_support/observability.py` 在 runtime events 脏行和非法 `ts_ms` 时记录 warning
+  - `app/llm_gateway.py` 改为顶层 `logging`，并在 LiteLLM 属性初始化失败时记录 debug
+  - `app/commander.py` 在 cycle artifact 路径拼装失败时记录 warning
+  - `app/commander_support/services.py` 删除无意义 `finally: pass`
+- 补充清洁回归测试：
+  - `tests/test_observability_helpers.py`
+  - `tests/test_agent_observability_contract.py`
+  - `tests/test_llm_gateway.py`
+
+### Verification
+
+- Focused:
+  - `.venv/bin/ruff check app/train.py app/runtime_artifact_reader.py app/commander_support/observability.py app/llm_gateway.py app/commander.py app/commander_support/services.py tests/test_llm_gateway.py tests/test_agent_observability_contract.py tests/test_observability_helpers.py` -> pass
+  - `.venv/bin/pytest -q tests/test_llm_gateway.py tests/test_agent_observability_contract.py tests/test_observability_helpers.py tests/test_commander_unified_entry.py tests/test_training_controller_services.py` -> pass
+
+### Cleanup wave 2/3
+
+- 继续推进 `pre-v1.1 cleanup gate`，优先消灭剩余 `S110/S112`，再收低风险 `late import`
+- 第二轮清理聚焦：
+  - `app/strategy_gene_registry.py`
+  - `brain/runtime.py`
+  - `brain/plugins.py`
+  - `invest/leaderboard/engine.py`
+  - `invest/foundation/compute/indicators_v2.py`
+  - `app/commander_support/config.py`
+- 第三轮清理聚焦：
+  - `app/web_server.py`
+  - `invest/agents/base.py`
+  - `invest/evolution/analyzers.py`
+  - `invest/foundation/risk/controller.py`
+
+### Completed
+
+- 完成第二批“剩余静默吞错清零”修复：
+  - `app/strategy_gene_registry.py` 的 Python 基因元数据解析失败现在会记录 warning
+  - `brain/runtime.py` 的 progress callback 失败现在会记录 warning
+  - `brain/plugins.py` 的坏插件 JSON 不再静默跳过
+  - `invest/leaderboard/engine.py` 的坏周期文件不再静默跳过
+  - `invest/foundation/compute/indicators_v2.py` 的 `pd.isna()` 边界异常收敛为 debug 降级
+  - `app/commander_support/config.py` 移除了无副作用 `late import`
+- 新增回归：
+  - `tests/test_cleanup_regressions.py`
+- 完成第三批“低风险 late import 收口”：
+  - `app/web_server.py`
+  - `invest/agents/base.py`
+  - `invest/evolution/analyzers.py`
+  - `invest/foundation/risk/controller.py`
+
+### Verification
+
+- Focused wave 2:
+  - `.venv/bin/ruff check app/strategy_gene_registry.py brain/runtime.py invest/foundation/compute/indicators_v2.py brain/plugins.py invest/leaderboard/engine.py app/commander_support/config.py tests/test_cleanup_regressions.py` -> pass
+  - `.venv/bin/pytest -q tests/test_cleanup_regressions.py tests/test_brain_extensions.py tests/test_brain_runtime.py tests/test_leaderboard.py tests/test_leaderboard_snapshot_exclusion.py tests/test_strategy_gene_validation.py` -> pass
+- Focused wave 3:
+  - `.venv/bin/ruff check app/web_server.py invest/agents/base.py invest/evolution/analyzers.py invest/foundation/risk/controller.py tests/test_structure_guards.py tests/test_brain_extensions.py tests/test_commander_unified_entry.py tests/test_train_ui_semantics.py` -> pass
+  - `.venv/bin/pytest -q tests/test_structure_guards.py tests/test_brain_extensions.py tests/test_commander_unified_entry.py tests/test_train_ui_semantics.py tests/test_strategy_gene_validation.py` -> pass
+
+### Current debt snapshot
+
+- `S110 / S112`: 0
+- `PLC0415 import-outside-top-level`: 26
+- `PLW0603 global-statement`: 10
+
+### Cleanup wave 4/5
+
+- Wave 4：`app/train.py` 事件回调全局状态改为显式状态容器
+- Wave 5：兼容优先地清理 `app/web_server.py` 的 `global statement`，并继续收口一批安全的内部 `late import`
+
+### Completed
+
+- 完成 `app/train.py` 的 event callback 状态容器化：
+  - `_event_callback` -> `_event_callback_state.callback`
+  - 保持 `set_event_callback()` / `emit_event()` 契约不变
+- 更新训练事件流相关测试：
+  - `tests/test_agent_observability_contract.py`
+  - `tests/test_train_cycle.py`
+  - `tests/test_train_event_stream.py`
+- 完成 `app/web_server.py` 的 `global statement` 清理，保留外部 monkeypatch 表面不变
+- 安全上提一批内部 `late import`：
+  - `invest/meetings/selection.py`
+  - `invest/meetings/review.py`
+  - `invest/foundation/engine/helpers.py`
+- 识别并验证：
+  - `market_data.manager` 里的 service facade import 机械上提会触发循环依赖，已回退该处改动
+
+### Verification
+
+- Focused wave 4:
+  - `.venv/bin/ruff check app/train.py tests/test_agent_observability_contract.py tests/test_train_cycle.py tests/test_train_event_stream.py` -> pass
+  - `.venv/bin/pytest -q tests/test_agent_observability_contract.py tests/test_train_cycle.py tests/test_train_event_stream.py tests/test_train_ui_semantics.py tests/test_web_server_security.py` -> pass
+- Focused wave 5:
+  - `.venv/bin/ruff check app/web_server.py --select PLW0603,PLC0415` -> pass
+  - `.venv/bin/pytest -q tests/test_train_event_stream.py tests/test_web_server_security.py tests/test_web_server_contract_headers.py tests/test_web_server_runtime_and_bool.py` -> pass
+  - `.venv/bin/ruff check invest/meetings/selection.py invest/meetings/review.py invest/foundation/engine/helpers.py market_data/manager.py` -> pass
+  - `.venv/bin/pytest -q tests/test_train_ui_semantics.py tests/test_structure_guards.py tests/test_data_unification.py tests/test_market_data_gateway.py tests/test_brain_extensions.py` -> pass
+
+### Updated debt snapshot
+
+- `S110 / S112`: 0
+- `PLW0603 global-statement`: 0
+- `PLC0415 import-outside-top-level`: 23
+
+### Cleanup wave 6/7
+
+- Wave 6：继续压 `web_*` 与 training seam 剩余 `PLC0415`
+- Wave 7：将 `market_data` 中的延迟导入改成显式可选依赖 / provider loader，收口剩余 `PLC0415`
+
+### Completed
+
+- 完成 `app/web_ops_routes.py` 与 `app/web_data_routes.py` 的剩余 `PLC0415` 清理
+- 新增 `app/training/runtime_hooks.py`，将：
+  - `SelfAssessmentSnapshot`
+  - 训练事件回调状态
+  - `emit_event()` / `set_event_callback()`
+  从 `app.train` 抽成独立 runtime hook 模块
+- `app/train.py` 保持原有导出表面不变，改为 re-export runtime hooks
+- `app/training/lifecycle_services.py` 不再反向依赖 `app.train`
+- 将 `cycle_complete` 事件发射显式提升为控制器 seam：`_emit_runtime_event()`
+- `market_data` 剩余延迟导入已统一收口为显式 loader/helper：
+  - `market_data/ingestion.py`
+  - `market_data/manager.py`
+  - `market_data/services/benchmark.py`
+- `market_data` 中 `baostock / akshare / tushare / DataManager / service class` 的按需加载不再依赖局部 `import` 语句
+
+### Verification
+
+- Focused wave 6:
+  - `.venv/bin/ruff check app/web_ops_routes.py app/web_data_routes.py` -> pass
+  - `.venv/bin/pytest -q tests/test_web_server_contract_headers.py tests/test_web_server_security.py tests/test_control_plane_api.py tests/test_web_server_runtime_and_bool.py` -> pass
+  - `.venv/bin/ruff check app/train.py app/training/lifecycle_services.py app/training/runtime_hooks.py tests/test_train_cycle.py tests/test_train_event_stream.py tests/test_agent_observability_contract.py tests/test_training_controller_services.py` -> pass
+  - `.venv/bin/pytest -q tests/test_train_cycle.py tests/test_train_event_stream.py tests/test_agent_observability_contract.py tests/test_training_controller_services.py tests/test_train_ui_semantics.py` -> pass
+- Focused wave 7:
+  - `.venv/bin/ruff check market_data/ingestion.py market_data/manager.py market_data/services/benchmark.py` -> pass
+  - `.venv/bin/pytest -q tests/test_market_data_gateway.py tests/test_data_unification.py tests/test_phase6_wave_a.py tests/test_brain_extensions.py tests/test_train_ui_semantics.py` -> pass
+
+### Current debt snapshot
+
+- `S110 / S112`: 0
+- `PLW0603 global-statement`: 0
+- `PLC0415 import-outside-top-level`: 0

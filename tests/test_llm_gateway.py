@@ -71,3 +71,21 @@ def test_llm_gateway_hard_timeout_fails_fast(monkeypatch):
     with pytest.raises(LLMGatewayError, match='timeout'):
         gateway.completion_raw(messages=[{"role": "user", "content": "hi"}], temperature=0.2, max_tokens=16)
     assert calls["n"] == 1
+
+
+def test_llm_gateway_logs_failed_litellm_attribute_configuration(monkeypatch, caplog):
+    class DummyLiteLLM:
+        set_verbose = True
+        suppress_debug_info = False
+        turn_off_message_logging = False
+
+        def __setattr__(self, name, value):
+            raise RuntimeError(f"cannot set {name}")
+
+    import app.llm_gateway as mod
+
+    monkeypatch.setattr(mod, "litellm", DummyLiteLLM())
+    with caplog.at_level("DEBUG"):
+        LLMGateway(model="gpt-5.4", api_key="token", api_base="https://example.com")
+
+    assert "Failed to configure litellm.set_verbose=False" in caplog.text

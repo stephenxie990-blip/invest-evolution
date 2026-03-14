@@ -4,6 +4,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any, Callable, Dict, List, Optional
 
+from invest.agents import ContrarianAgent, DefensiveAgent, QualityAgent, TrendHunterAgent
 from invest.shared import (
     LLMCaller,
     PositionPlan,
@@ -62,13 +63,6 @@ class SelectionMeeting:
         deep_llm_caller: Optional[LLMCaller] = None,
         progress_callback: Optional[Callable[[dict], None]] = None,
     ):
-        from invest.agents import (
-            TrendHunterAgent,
-            ContrarianAgent,
-            QualityAgent,
-            DefensiveAgent,
-        )
-
         self.llm = llm_caller
         self.agent_weights = agent_weights or {
             "trend_hunter": 1.0,

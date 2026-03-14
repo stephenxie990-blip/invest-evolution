@@ -293,6 +293,7 @@ def test_training_experiment_service_configures_protocol_dataset_and_model_scope
     llm_calls = {}
     refresh_calls = {}
     reload_calls = {}
+    direct_service_calls = {"llm": 0, "refresh": 0, "reload": 0}
 
     monkeypatch.setattr(
         controller_services_module,
@@ -322,12 +323,21 @@ def test_training_experiment_service_configures_protocol_dataset_and_model_scope
         model_config_path = 'configs/mean_reversion.yaml'
         current_params = {'position_size': 0.2}
         training_llm_runtime_service = SimpleNamespace(
-            apply_experiment_overrides=lambda owner, llm_spec=None: llm_calls.setdefault('spec', dict(llm_spec or {}))
+            apply_experiment_overrides=lambda owner, llm_spec=None: direct_service_calls.__setitem__('llm', direct_service_calls['llm'] + 1)
         )
         training_routing_service = SimpleNamespace(
-            refresh_routing_coordinator=lambda owner: refresh_calls.setdefault('called', True),
-            reload_investment_model=lambda owner, config_path=None: reload_calls.setdefault('config_path', config_path),
+            refresh_routing_coordinator=lambda owner: direct_service_calls.__setitem__('refresh', direct_service_calls['refresh'] + 1),
+            reload_investment_model=lambda owner, config_path=None: direct_service_calls.__setitem__('reload', direct_service_calls['reload'] + 1),
         )
+
+        def _apply_experiment_llm_overrides(self, llm_spec=None):
+            llm_calls['spec'] = dict(llm_spec or {})
+
+        def _refresh_model_routing_coordinator(self):
+            refresh_calls['called'] = True
+
+        def _reload_investment_model(self, config_path=None):
+            reload_calls['config_path'] = config_path
 
     controller = DummyController()
     service.configure_experiment(
@@ -377,6 +387,74 @@ def test_training_experiment_service_configures_protocol_dataset_and_model_scope
     assert controller.model_config_path == 'configs/value_quality.yaml'
     assert controller.current_params == {}
     assert reload_calls['config_path'] == 'configs/value_quality.yaml'
+    assert direct_service_calls == {'llm': 0, 'refresh': 0, 'reload': 0}
+
+
+def test_training_experiment_service_respects_controller_compatibility_hooks(monkeypatch):
+    import app.training.controller_services as controller_services_module
+
+    service = TrainingExperimentService()
+    observed = {"llm": 0, "refresh": 0, "reload": 0}
+
+    monkeypatch.setattr(
+        controller_services_module,
+        'resolve_model_config_path',
+        lambda model_name: f'configs/{model_name}.yaml',
+    )
+
+    class DummyController:
+        experiment_spec = {}
+        experiment_seed = None
+        experiment_min_date = None
+        experiment_max_date = None
+        experiment_min_history_days = None
+        experiment_simulation_days = None
+        experiment_allowed_models = []
+        experiment_llm = {}
+        allocator_enabled = False
+        model_routing_enabled = False
+        model_routing_mode = 'rule'
+        model_routing_allowed_models = []
+        model_switch_cooldown_cycles = 0
+        model_switch_min_confidence = 0.0
+        model_switch_hysteresis_margin = 0.0
+        model_routing_agent_override_enabled = False
+        model_routing_agent_override_max_gap = 0.0
+        model_name = 'mean_reversion'
+        model_config_path = 'configs/mean_reversion.yaml'
+        current_params = {'position_size': 0.2}
+        training_llm_runtime_service = SimpleNamespace(
+            apply_experiment_overrides=lambda owner, llm_spec=None: (_ for _ in ()).throw(AssertionError('service path should not be called directly'))
+        )
+        training_routing_service = SimpleNamespace(
+            refresh_routing_coordinator=lambda owner: (_ for _ in ()).throw(AssertionError('service path should not be called directly')),
+            reload_investment_model=lambda owner, config_path=None: (_ for _ in ()).throw(AssertionError('service path should not be called directly')),
+        )
+
+        def _apply_experiment_llm_overrides(self, llm_spec=None):
+            observed['llm'] += 1
+            self.experiment_llm_applied = dict(llm_spec or {})
+
+        def _refresh_model_routing_coordinator(self):
+            observed['refresh'] += 1
+
+        def _reload_investment_model(self, config_path=None):
+            observed['reload'] += 1
+            self.reloaded_config_path = config_path
+
+    controller = DummyController()
+
+    service.configure_experiment(
+        controller,
+        {
+            'model_scope': {'allowed_models': ['value_quality']},
+            'llm': {'timeout': 9, 'dry_run': True},
+        },
+    )
+
+    assert observed == {'llm': 1, 'refresh': 1, 'reload': 1}
+    assert controller.experiment_llm_applied['timeout'] == 9
+    assert controller.reloaded_config_path == 'configs/value_quality.yaml'
 
 
 def test_refresh_runtime_from_config_delegates_to_routing_service(monkeypatch, tmp_path):
@@ -611,6 +689,10 @@ def test_training_lifecycle_service_finalize_cycle_updates_meta_and_callback(mon
         @staticmethod
         def _emit_module_log(*args, **kwargs):
             logs.append(('module', args, kwargs))
+
+        @staticmethod
+        def _emit_runtime_event(event_type, data):
+            emitted.append((event_type, data))
 
     cycle_result = TrainingResult(
         cycle_id=2,

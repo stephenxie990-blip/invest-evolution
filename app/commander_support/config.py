@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import config as config_module
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -27,8 +28,6 @@ def sync_runtime_path_config(
     meeting_recorder_cls: Any,
     evolution_config_service_cls: Any,
 ) -> None:
-    import config as config_module
-
     apply_runtime_path_overrides(runtime.cfg, payload, editable_keys=editable_keys)
     controller = runtime.body.controller
     controller.output_dir = Path(runtime.cfg.training_output_dir)

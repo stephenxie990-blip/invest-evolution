@@ -4,6 +4,7 @@ from typing import Dict, List, Optional, cast
 import numpy as np
 import pandas as pd
 
+from invest.shared import compute_rsi
 from .contracts import CandidatePool, CandidateStock
 
 logger = logging.getLogger(__name__)
@@ -70,7 +71,6 @@ class DailyRanker:
         return score
 
     def _calc_rsi(self, close: np.ndarray, period: int = 14) -> float:
-        from invest.shared import compute_rsi
         return compute_rsi(pd.Series(close), period)
 
     def _macd_bullish(self, close: np.ndarray) -> bool:

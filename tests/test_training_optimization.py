@@ -40,7 +40,8 @@ class FakeEvolutionEngine:
         self.population = []
         self.last_fitness = None
 
-    def initialize_population(self, params):
+    def initialize_population(self, base_params=None):
+        params = dict(base_params or {})
         self.population = [dict(params), dict(params), dict(params)]
 
     def evolve(self, fitness_scores):

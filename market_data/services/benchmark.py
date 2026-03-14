@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from importlib import import_module
 from typing import Any, Protocol
 
 import pandas as pd
@@ -50,9 +51,8 @@ class BenchmarkDataService:
         self.repository = repository
         self._manager_kwargs = manager_kwargs
         if self.data_manager is None and self.repository is None:
-            from market_data.manager import DataManager
-
-            self.data_manager = DataManager(**manager_kwargs)
+            data_manager_cls = import_module("market_data.manager").DataManager
+            self.data_manager = data_manager_cls(**manager_kwargs)
 
     def get_benchmark_daily_values(
         self,

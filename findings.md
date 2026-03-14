@@ -75,3 +75,26 @@
 - 在抽 presenter 时，必须保留 `latest_event.kind/label/detail/broadcast_text` 和“只有内部事件时的解释文本”这些细节字段，否则 `commander unified entry` 的 human receipt 会立刻回归；这一点已经通过 focused 回归验证。
 - `Wave F` 的守卫不应只检查“文件存在”，还要检查新 helper 不反向依赖 entrypoint；因此这轮新增了针对 `app/interfaces/web/*` 与 `brain/presentation.py` 的 import guard。
 - 当前 `app/web_server.py` 仍然保留少量兼容 helper 和 bootstrap 逻辑，但已经不再承担 contract/document serving 的具体实现；这满足“thin adapter”目标且风险可控。
+
+### Pre-v1.1 cleanup findings
+
+- 在进入 `v1.1` 训练协议硬化前，仓库更需要一个“清洁闸门”，因为当前主要风险已不是结构缺口，而是历史兼容层累积下来的静默失败与不可观测降级。
+- 首轮量化扫描显示，`app/ brain/ invest/ market_data/` 里仍有 47 处高价值静态异味，其中 `late import` 最多，但并非都应立即消灭；很多是可选依赖或循环依赖缓冲带，需要按语义分治。
+- 第一批最值得先收的不是 `late import`，而是运行链路中的静默吞错：event callback、artifact reader、runtime event JSONL、LiteLLM 初始化、cycle artifact 拼装。这些问题修复收益高且兼容风险低。
+- `PLW0603 global-statement` 目前主要集中在 `app/web_server.py` 和 `app/train.py` 的 bootstrap 单例/事件桥接，不属于“垃圾代码”，但确实是后续结构治理的重点。
+- `market_data/ingestion.py`、`market_data/manager.py`、`web_ops_routes.py` 中的大量 `late import` 不能简单按 lint 全量上提；其中不少是为了隔离 `akshare/baostock/tushare` 可选依赖或避免启动时副作用，需要单独设计 provider seam。
+- 第二批清理后，`S110 / S112` 已经在核心目录清零，说明“先收静默失败，再谈结构重构”这条顺序是正确的。
+- 第三批清理把低风险 `late import` 从 32 处压到 26 处，但剩余 26 处里相当一部分已经靠近真正的架构边界问题，而不再只是代码风格问题。
+- 现阶段最值得继续推进的结构债务，不再是零散 `except/pass`，而是两类：
+  - `app/web_server.py` / `app/train.py` 的 `global state` 与 bootstrap 单例
+  - `market_data/*` / `web_ops_routes.py` 中围绕可选依赖和 runtime fallback 的 `late import`
+- 下一批如果继续清 `PLC0415`，应该优先做“无副作用 import 上提”和“抽 provider seam”，而不是机械式把所有 import 提到文件顶部。
+- `app/train.py` 的事件回调状态容器化证明了一个低风险收口模式：保留模块级 API，内部改成显式 state object，就能在不破坏上层契约的前提下清掉一部分全局状态异味。
+- `app/web_server.py` 的 `PLW0603` 已可在不改 monkeypatch 表面的前提下清零，说明“先去掉函数内 global 写法，再考虑物理状态容器化”是更稳的路径。
+- `market_data.manager` 这轮提供了一个明确反例：看似安全的 service import 上提实际会触发 `market_data.services -> market_data.manager` 循环依赖，所以剩余 `PLC0415` 不能按 lint 机械消除。
+- 继续收口 `PLC0415` 的优先顺序应调整为：
+  - 业务内部纯模块依赖：继续上提
+  - `market_data` 与 `web_ops_routes`：先设计 provider seam / runtime accessor，再动 import
+- 后续实践证明，上面的判断是对的：`web_ops_routes` 适合直接上提，而 `market_data` 则更适合抽成显式 loader/helper，而不是强行提前导入可选依赖。
+- `app/training/runtime_hooks.py` 的引入为 training 子系统提供了一个干净的 runtime seam，既消除了 `lifecycle_services -> app.train` 的反向依赖，又保留了 `app.train` 的兼容导出面。
+- `market_data` 的剩余 `PLC0415` 全部清零后，说明这批债务已经从“代码风格问题”升级为了“依赖加载策略问题”；用显式 loader 表达可选依赖，比散落局部 import 更清晰也更可测试。

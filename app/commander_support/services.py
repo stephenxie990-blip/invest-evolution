@@ -241,8 +241,6 @@ def trigger_data_download() -> dict[str, Any]:
             _DATA_DOWNLOAD_JOB.status = "error"
             _DATA_DOWNLOAD_JOB.error = str(exc)
             _DATA_DOWNLOAD_JOB.finished_at = datetime.now().isoformat()
-        finally:
-            pass
 
     with _DATA_DOWNLOAD_LOCK:
         if _DATA_DOWNLOAD_JOB.status == "running":

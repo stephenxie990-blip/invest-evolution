@@ -13,6 +13,7 @@ import argparse
 import asyncio
 import atexit
 from collections import deque
+import config as config_module
 import time
 import hmac
 import json
@@ -88,7 +89,6 @@ def _event_sink(event_type: str, data: dict):
 
 
 def _ensure_event_dispatcher() -> None:
-    global _event_dispatcher_started
     if _event_dispatcher_started:
         return
     with _event_condition:
@@ -96,17 +96,17 @@ def _ensure_event_dispatcher() -> None:
             return
         t = threading.Thread(target=_event_dispatch_loop, name="web-sse-dispatcher", daemon=True)
         t.start()
-        _event_dispatcher_started = True
+        globals()["_event_dispatcher_started"] = True
 
 
 def _event_dispatch_loop() -> None:
-    global _event_seq
     while True:
         event = _event_buffer.get()
         with _event_condition:
-            _event_seq += 1
+            next_seq = _event_seq + 1
+            globals()["_event_seq"] = next_seq
             _event_history.append({
-                "id": _event_seq,
+                "id": next_seq,
                 "type": event["type"],
                 "data": event["data"],
             })
@@ -243,12 +243,10 @@ def _normalize_chat_session_token(value: Any, *, field_name: str, prefix: str) -
 
 
 def shutdown_runtime_services() -> None:
-    global _loop, _runtime
-
     runtime = _runtime
     loop = _loop
-    _runtime = None
-    _loop = None
+    globals()["_runtime"] = None
+    globals()["_loop"] = None
     if runtime is None:
         return
     if loop is not None:
@@ -264,16 +262,13 @@ def shutdown_runtime_services() -> None:
 
 
 def _register_runtime_shutdown() -> None:
-    global _runtime_shutdown_registered
     if _runtime_shutdown_registered:
         return
     atexit.register(shutdown_runtime_services)
-    _runtime_shutdown_registered = True
+    globals()["_runtime_shutdown_registered"] = True
 
 
 def bootstrap_runtime_services(*, host: str, mock: bool = False, source: str = "cli") -> CommanderRuntime:
-    global _loop, _runtime
-
     with _runtime_bootstrap_lock:
         if _runtime is not None and _loop is not None:
             return _runtime
@@ -309,8 +304,8 @@ def bootstrap_runtime_services(*, host: str, mock: bool = False, source: str = "
             daemon=True,
         )
 
-        _runtime = runtime
-        _loop = loop
+        globals()["_runtime"] = runtime
+        globals()["_loop"] = loop
         loop_thread.start()
         try:
             _run_async(runtime.start())
@@ -319,8 +314,8 @@ def bootstrap_runtime_services(*, host: str, mock: bool = False, source: str = "
                 loop.call_soon_threadsafe(loop.stop)
             except Exception:
                 logger.debug("Failed to stop event loop after bootstrap error", exc_info=True)
-            _runtime = None
-            _loop = None
+            globals()["_runtime"] = None
+            globals()["_loop"] = None
             raise
 
         _register_runtime_shutdown()
@@ -355,8 +350,6 @@ _OPTIONALLY_PUBLIC_READ_PATHS = {
 
 
 def _current_web_config():
-    import config as config_module
-
     return config_module.config
 
 

@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import json
+import logging
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 from app.runtime_artifact_reader import safe_read_json, safe_read_jsonl, safe_read_text
+
+logger = logging.getLogger(__name__)
 
 
 def append_event_row(path: Path, event: str, payload: dict[str, Any], *, source: str = "runtime") -> dict[str, Any]:
@@ -31,6 +34,7 @@ def read_event_rows(path: Path, *, limit: int = 100) -> list[dict[str, Any]]:
     if not path.exists():
         return []
     rows: list[dict[str, Any]] = []
+    invalid_lines = 0
     for line in path.read_text(encoding="utf-8").splitlines():
         line = line.strip()
         if not line:
@@ -38,7 +42,10 @@ def read_event_rows(path: Path, *, limit: int = 100) -> list[dict[str, Any]]:
         try:
             rows.append(json.loads(line))
         except Exception:
+            invalid_lines += 1
             continue
+    if invalid_lines:
+        logger.warning("Skipped %d invalid runtime event row(s) from %s", invalid_lines, path)
     return rows[-max(1, int(limit)):]
 
 
@@ -63,7 +70,8 @@ def memory_brief_row(row: dict[str, Any]) -> dict[str, Any]:
     if ts_ms:
         try:
             item["ts"] = datetime.fromtimestamp(int(ts_ms) / 1000).isoformat()
-        except Exception:
+        except Exception as exc:
+            logger.warning("Failed to normalize memory ts_ms=%r: %s", ts_ms, exc)
             item["ts"] = ""
     metadata = item.get("metadata") if isinstance(item.get("metadata"), dict) else {}
     if metadata:

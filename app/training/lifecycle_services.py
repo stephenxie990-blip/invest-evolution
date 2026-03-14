@@ -4,6 +4,8 @@ import logging
 from datetime import datetime
 from typing import Any
 
+from app.training.runtime_hooks import SelfAssessmentSnapshot, emit_event
+
 logger = logging.getLogger(__name__)
 
 
@@ -31,8 +33,6 @@ class TrainingLifecycleService:
         degrade_reason: str,
         research_feedback: dict[str, Any] | None,
     ) -> None:
-        from app.train import SelfAssessmentSnapshot, emit_event
-
         controller.cycle_history.append(cycle_result)
         controller.current_cycle_id += 1
         controller.training_persistence_service.record_self_assessment(
@@ -61,7 +61,8 @@ class TrainingLifecycleService:
         }
         controller.training_persistence_service.save_cycle_result(controller, cycle_result)
 
-        emit_event(
+        event_emitter = getattr(controller, "_emit_runtime_event", emit_event)
+        event_emitter(
             "cycle_complete",
             {
                 "cycle_id": cycle_id,

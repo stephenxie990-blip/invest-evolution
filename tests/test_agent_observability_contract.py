@@ -90,3 +90,15 @@ def test_review_progress_emits_contract_backed_observability_events(monkeypatch,
     assert meeting_speech['meeting'] == 'review'
     assert meeting_speech['role'] == 'reviewer'
     assert meeting_speech['confidence'] == 0.76
+
+
+def test_emit_event_logs_callback_failure(monkeypatch, caplog):
+    def _boom(_event_type, _data):
+        raise RuntimeError("dispatch failed")
+
+    monkeypatch.setattr(train_module._event_callback_state, "callback", _boom)
+
+    with caplog.at_level("WARNING"):
+        train_module.emit_event("module_log", {"module": "selection"})
+
+    assert "Event callback failed for module_log" in caplog.text

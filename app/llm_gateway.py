@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import logging
 import os
 import signal
 import threading
@@ -19,6 +20,8 @@ try:
     import litellm
 except Exception:  # pragma: no cover
     litellm = None
+
+logger = logging.getLogger(__name__)
 
 
 class LLMGatewayError(RuntimeError):
@@ -68,15 +71,14 @@ class LLMGateway:
 
     def __post_init__(self):
         masked_key = f"{self.api_key[:4]}...{self.api_key[-4:]}" if self.api_key and len(self.api_key) > 8 else "***"
-        import logging
-        logging.getLogger(__name__).debug(f"LLMGateway initialized for model {self.model} with key {masked_key}")
+        logger.debug("LLMGateway initialized for model %s with key %s", self.model, masked_key)
         if litellm is not None:
             for attr, value in (("set_verbose", False), ("suppress_debug_info", True), ("turn_off_message_logging", True)):
                 if hasattr(litellm, attr):
                     try:
                         setattr(litellm, attr, value)
-                    except Exception:
-                        pass
+                    except Exception as exc:
+                        logger.debug("Failed to configure litellm.%s=%r: %s", attr, value, exc)
 
     @property
     def available(self) -> bool:

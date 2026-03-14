@@ -612,8 +612,8 @@ class CommanderRuntime:
         if cycle_id not in (None, ""):
             try:
                 artifacts.update(self.body._artifact_paths_for_cycle(int(cycle_id)))  # pylint: disable=protected-access
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.warning("Failed to resolve artifact paths for cycle %s: %s", cycle_id, exc)
         config_snapshot_path = str(payload.get("config_snapshot_path") or "").strip()
         if config_snapshot_path:
             artifacts.setdefault("config_snapshot_path", config_snapshot_path)

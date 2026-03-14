@@ -4,6 +4,7 @@ from typing import Callable, Dict, List
 
 import numpy as np
 
+from config import industry_registry
 from invest.shared.llm import parse_llm_json_object
 
 logger = logging.getLogger(__name__)
@@ -282,7 +283,6 @@ class TradingAnalyzer:
 
     def get_industry(self, code: str) -> str:
         """获取行业"""
-        from config import industry_registry
         return industry_registry.get_industry(code)
 
     def analyze_trades(

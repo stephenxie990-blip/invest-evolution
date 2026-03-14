@@ -6,10 +6,13 @@ Supported now: declarative JSON tools under plugins/*.json
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
 from typing import Any
 
 from .runtime import BrainTool
+
+logger = logging.getLogger(__name__)
 
 
 class DeclarativePluginTool(BrainTool):
@@ -72,7 +75,8 @@ class PluginLoader:
         for path in sorted(self.plugin_dir.glob("*.json")):
             try:
                 data = json.loads(path.read_text(encoding="utf-8"))
-            except Exception:
+            except Exception as exc:
+                logger.warning("Skipped invalid plugin definition %s: %s", path, exc)
                 continue
             name = str(data.get("name") or "").strip()
             description = str(data.get("description") or "").strip()
