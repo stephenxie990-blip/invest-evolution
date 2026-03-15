@@ -4,21 +4,21 @@ params:
   candidate_pool_size: 100
   top_n: 5
   max_positions: 4
-  cash_reserve: 0.28
-  stop_loss_pct: 0.0228
-  take_profit_pct: 0.15
-  trailing_pct: 0.085
-  position_size: 0.105
-  ma_short: 5
-  ma_long: 20
-  rsi_period: 14
-  rsi_oversold: 30
-  rsi_overbought: 70
+  cash_reserve: 0.2
+  stop_loss_pct: 0.06635932237167251
+  take_profit_pct: 0.13581032228522724
+  trailing_pct: 0.1
+  position_size: 0.2479524116056
+  ma_short: 5.0
+  ma_long: 26.0
+  rsi_period: 12.0
+  rsi_oversold: 27.992299676851594
+  rsi_overbought: 74.6007750951849
   signal_threshold: 0.7
 risk:
-  stop_loss_pct: 0.0228
-  take_profit_pct: 0.15
-  trailing_pct: 0.085
+  stop_loss_pct: 0.06635932237167251
+  take_profit_pct: 0.13581032228522724
+  trailing_pct: 0.1
 execution:
   initial_capital: 100000
   commission_rate: 0.00025
@@ -111,11 +111,67 @@ train:
   freeze_profit_required: 7
   max_losses_before_optimize: 3
   auto_apply_mutation: false
+  promotion_gate:
+    min_samples: 3
+    research_feedback:
+      min_sample_count: 5
+      blocked_biases:
+      - tighten_risk
+      - recalibrate_probability
+      max_brier_like_direction_score: 0.25
+      horizons:
+        T+20:
+          min_hit_rate: 0.45
+          max_invalidation_rate: 0.3
+          min_interval_hit_rate: 0.4
+    regime_validation:
+      min_distinct_regimes: 2
+      min_samples_per_regime: 1
+      min_avg_return_pct: 0.0
+      min_win_rate: 0.4
+      min_benchmark_pass_rate: 0.4
+      max_dominant_regime_share: 0.75
+    return_objectives:
+      min_avg_return_pct: 0.0
+      min_median_return_pct: 0.0
+      min_cumulative_return_pct: 0.0
+      min_win_rate: 0.5
+      max_loss_share: 0.5
+      min_benchmark_pass_rate: 0.5
+    candidate_ab:
+      required_when_candidate_present: true
+      require_candidate_outperform_active: true
+      min_return_lift_pct: 0.0
+      min_strategy_score_lift: 0.0
+      min_benchmark_lift: 0.0
   freeze_gate:
     avg_return_gt: 0.0
     avg_sharpe_gte: 0.8
     avg_max_drawdown_lt: 15.0
     benchmark_pass_rate_gte: 0.6
+    governance:
+      max_candidate_pending_count: 0
+      max_override_pending_count: 0
+      max_active_candidate_drift_rate: 0.0
+  quality_gate_matrix:
+    review:
+      min_strategy_score: 0.45
+      min_benchmark_pass_rate: 0.05
+      max_drawdown_pct: 18.0
+    routing:
+      min_score: 0.0
+      min_avg_return_pct: 0.0
+      min_avg_strategy_score: 0.0
+      min_benchmark_pass_rate: 0.0
+      max_avg_drawdown: 15.0
+      allowed_deployment_stages:
+      - active
+    promotion:
+      max_pending_cycles: 3
+      max_pending_candidates: 1
+      max_override_cycles: 2
+      allowed_deployment_stages:
+      - candidate
 evaluation_policy:
   weights:
     signal_accuracy: 0.3
@@ -168,4 +224,4 @@ agent_weights:
   contrarian: 1.0
 context:
   style: concise
-  last_trigger: research_feedback
+  last_trigger: consecutive_losses

@@ -5,6 +5,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from invest.shared.model_governance import normalize_promotion_gate_policy
+
 
 def jsonable(value: Any) -> Any:
     if isinstance(value, dict):
@@ -14,46 +16,6 @@ def jsonable(value: Any) -> Any:
     if isinstance(value, Path):
         return str(value)
     return value
-
-
-_DEFAULT_PROMOTION_RESEARCH_FEEDBACK_GATE = {
-    "min_sample_count": 5,
-    "blocked_biases": ["tighten_risk", "recalibrate_probability"],
-    "max_brier_like_direction_score": 0.25,
-    "horizons": {
-        "T+20": {
-            "min_hit_rate": 0.45,
-            "max_invalidation_rate": 0.30,
-            "min_interval_hit_rate": 0.40,
-        }
-    },
-}
-
-_DEFAULT_PROMOTION_REGIME_VALIDATION_GATE = {
-    "min_distinct_regimes": 2,
-    "min_samples_per_regime": 1,
-    "min_avg_return_pct": 0.0,
-    "min_win_rate": 0.40,
-    "min_benchmark_pass_rate": 0.40,
-    "max_dominant_regime_share": 0.75,
-}
-
-_DEFAULT_PROMOTION_RETURN_OBJECTIVES = {
-    "min_avg_return_pct": 0.0,
-    "min_median_return_pct": 0.0,
-    "min_cumulative_return_pct": 0.0,
-    "min_win_rate": 0.50,
-    "max_loss_share": 0.50,
-    "min_benchmark_pass_rate": 0.50,
-}
-
-_DEFAULT_PROMOTION_CANDIDATE_AB_GATE = {
-    "required_when_candidate_present": True,
-    "require_candidate_outperform_active": True,
-    "min_return_lift_pct": 0.0,
-    "min_strategy_score_lift": 0.0,
-    "min_benchmark_lift": 0.0,
-}
 
 
 def _deep_merge(base: dict[str, Any], patch: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -416,24 +378,9 @@ class TrainingLabArtifactStore:
     @staticmethod
     def _normalize_optimization_payload(optimization: dict[str, Any] | None = None) -> dict[str, Any]:
         payload = dict(optimization or {})
-        promotion_gate = dict(payload.get('promotion_gate') or {})
-        promotion_gate['research_feedback'] = _deep_merge(
-            _DEFAULT_PROMOTION_RESEARCH_FEEDBACK_GATE,
-            dict(promotion_gate.get('research_feedback') or {}),
+        payload['promotion_gate'] = normalize_promotion_gate_policy(
+            dict(payload.get('promotion_gate') or {})
         )
-        promotion_gate['regime_validation'] = _deep_merge(
-            _DEFAULT_PROMOTION_REGIME_VALIDATION_GATE,
-            dict(promotion_gate.get('regime_validation') or {}),
-        )
-        promotion_gate['return_objectives'] = _deep_merge(
-            _DEFAULT_PROMOTION_RETURN_OBJECTIVES,
-            dict(promotion_gate.get('return_objectives') or {}),
-        )
-        promotion_gate['candidate_ab'] = _deep_merge(
-            _DEFAULT_PROMOTION_CANDIDATE_AB_GATE,
-            dict(promotion_gate.get('candidate_ab') or {}),
-        )
-        payload['promotion_gate'] = promotion_gate
         return payload
 
     def build_training_plan_payload(

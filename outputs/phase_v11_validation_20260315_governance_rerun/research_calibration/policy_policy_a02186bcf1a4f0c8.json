@@ -1,0 +1,62 @@
+{
+  "generated_at": "2026-03-15T14:16:35.800515",
+  "subject": {
+    "policy_id": "policy_a02186bcf1a4f0c8"
+  },
+  "matched_case_count": 4,
+  "sample_count": 4,
+  "brier_like_direction_score": 0.201182,
+  "invalidation_timeliness": {
+    "sample_count": 4,
+    "avg_first_invalidation_horizon": 8.75
+  },
+  "scenario_hit_distribution": {
+    "base": 2,
+    "bear": 1,
+    "bull": 1
+  },
+  "horizons": {
+    "T+5": {
+      "count": 4,
+      "label_counts": {
+        "invalidated": 3,
+        "miss": 1
+      },
+      "hit_rate": 0.0,
+      "invalidation_rate": 0.75,
+      "timeout_rate": 0.0,
+      "interval_hit_rate": 0.5
+    },
+    "T+10": {
+      "count": 4,
+      "label_counts": {
+        "invalidated": 3,
+        "hit": 1
+      },
+      "hit_rate": 0.25,
+      "invalidation_rate": 0.75,
+      "timeout_rate": 0.0,
+      "interval_hit_rate": 0.25
+    },
+    "T+20": {
+      "count": 4,
+      "label_counts": {
+        "invalidated": 4
+      },
+      "hit_rate": 0.0,
+      "invalidation_rate": 1.0,
+      "timeout_rate": 0.0,
+      "interval_hit_rate": 0.5
+    },
+    "T+60": {
+      "count": 4,
+      "label_counts": {
+        "invalidated": 4
+      },
+      "hit_rate": 0.0,
+      "invalidation_rate": 1.0,
+      "timeout_rate": 0.0,
+      "interval_hit_rate": 0.5
+    }
+  }
+}

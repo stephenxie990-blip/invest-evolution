@@ -53,6 +53,63 @@ def test_write_leaderboard_outputs_json_file(tmp_path):
     assert data["total_models"] == 1
 
 
+def test_leaderboard_backfills_resolved_gate_policy_from_latest_config_ref(tmp_path):
+    config_path = tmp_path / "configs" / "momentum_v2.yaml"
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    config_path.write_text(
+        "\n".join(
+            [
+                "name: momentum_v2",
+                "train:",
+                "  promotion_gate:",
+                "    min_samples: 4",
+                "  freeze_gate:",
+                "    governance:",
+                "      max_candidate_pending_count: 0",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    run_dir = tmp_path / "rerun"
+    run_dir.mkdir(parents=True, exist_ok=True)
+    for cycle_id in (1, 2, 3):
+        (run_dir / f"cycle_{cycle_id}.json").write_text(
+            json.dumps(
+                {
+                    "cycle_id": cycle_id,
+                    "cutoff_date": "20250101",
+                    "return_pct": 1.0,
+                    "is_profit": True,
+                    "benchmark_passed": True,
+                    "model_name": "momentum",
+                    "config_name": "momentum_v2",
+                    "self_assessment": {
+                        "regime": "bull",
+                        "sharpe_ratio": 1.1,
+                        "max_drawdown": 3.0,
+                        "excess_return": 0.4,
+                        "overall_score": 0.72,
+                    },
+                    "run_context": {
+                        "active_config_ref": str(config_path),
+                    },
+                    "lineage_record": {
+                        "active_config_ref": str(config_path),
+                    },
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+
+    board = write_leaderboard(tmp_path)
+
+    assert board["policy"]["train"]["promotion_gate"]["min_samples"] == 4
+    assert board["policy"]["train"]["freeze_gate"]["avg_sharpe_gte"] == 0.8
+    assert board["policy"]["train"]["freeze_gate"]["governance"]["max_candidate_pending_count"] == 0
+    assert board["policy"]["train"]["freeze_gate"]["governance"]["max_override_pending_count"] == 0
+
+
 def test_leaderboard_carries_avg_strategy_score(tmp_path):
     from invest.leaderboard import write_leaderboard
 
@@ -88,3 +145,95 @@ def test_leaderboard_marks_under_sampled_entries_ineligible(tmp_path):
     assert defensive['eligible_for_routing'] is True
     assert board['best_model']['model_name'] == 'defensive_low_vol'
     assert all(item['model_name'] != 'momentum' for item in board['regime_leaderboards'].get('bull', []))
+
+
+def test_leaderboard_quality_gate_blocks_negative_score_and_candidate_stage(tmp_path):
+    run_dir = tmp_path / "mean_reversion_run"
+    run_dir.mkdir(parents=True, exist_ok=True)
+    for cycle_id, return_pct in ((1, -2.0), (2, -1.5), (3, -1.2)):
+        (run_dir / f"cycle_{cycle_id}.json").write_text(
+            json.dumps(
+                {
+                    "cycle_id": cycle_id,
+                    "cutoff_date": "20250101",
+                    "return_pct": return_pct,
+                    "is_profit": False,
+                    "benchmark_passed": False,
+                    "model_name": "mean_reversion",
+                    "config_name": "mean_reversion_v1",
+                    "self_assessment": {
+                        "regime": "oscillation",
+                        "sharpe_ratio": 0.2,
+                        "max_drawdown": 16.0,
+                        "excess_return": -1.0,
+                        "overall_score": 0.3,
+                    },
+                    "run_context": {
+                        "active_config_ref": "configs/active.yaml",
+                        "candidate_config_ref": "configs/candidate.yaml",
+                        "promotion_decision": {"applied_to_active": False},
+                        "deployment_stage": "candidate",
+                    },
+                    "lineage_record": {
+                        "deployment_stage": "candidate",
+                        "lineage_status": "candidate_pending",
+                        "candidate_config_ref": "configs/candidate.yaml",
+                        "active_config_ref": "configs/active.yaml",
+                    },
+                    "promotion_record": {
+                        "status": "candidate_pending",
+                        "gate_status": "awaiting_gate",
+                    },
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+
+    board = write_leaderboard(tmp_path)
+    entry = board["entries"][0]
+
+    assert entry["eligible_for_routing"] is False
+    assert entry["deployment_stage"] == "candidate"
+    assert entry["ineligible_reason"].startswith("quality_gate:")
+    assert any(item["name"] == "block_negative_score" and item["passed"] is False for item in entry["quality_gate"]["failed_checks"])
+    assert any(item["name"] == "allowed_deployment_stages" and item["passed"] is False for item in entry["quality_gate"]["failed_checks"])
+
+
+def test_leaderboard_policy_uses_explicit_runtime_train_overrides(tmp_path):
+    run_dir = tmp_path / "explicit_policy"
+    run_dir.mkdir(parents=True, exist_ok=True)
+    for cycle_id in (1, 2, 3):
+        (run_dir / f"cycle_{cycle_id}.json").write_text(
+            json.dumps(
+                {
+                    "cycle_id": cycle_id,
+                    "cutoff_date": "20250101",
+                    "return_pct": 0.4,
+                    "is_profit": True,
+                    "benchmark_passed": True,
+                    "model_name": "momentum",
+                    "config_name": "momentum_v1",
+                    "self_assessment": {
+                        "regime": "bull",
+                        "sharpe_ratio": 0.9,
+                        "max_drawdown": 2.0,
+                        "excess_return": 0.2,
+                        "overall_score": 0.61,
+                    },
+                    "run_context": {
+                        "resolved_train_policy": {
+                            "promotion_gate": {"min_samples": 6},
+                            "freeze_gate": {"benchmark_pass_rate_gte": 0.7},
+                        }
+                    },
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+
+    board = write_leaderboard(tmp_path)
+
+    assert board["policy"]["train"]["promotion_gate"]["min_samples"] == 6
+    assert board["policy"]["train"]["freeze_gate"]["benchmark_pass_rate_gte"] == 0.7

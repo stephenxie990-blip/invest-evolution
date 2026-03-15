@@ -1,4 +1,5 @@
 from app.train import SelfLearningController, TrainingResult
+from app.training.reporting import build_freeze_report
 from app.training.runtime_hooks import SelfAssessmentSnapshot
 
 
@@ -176,6 +177,15 @@ def test_should_freeze_allows_good_research_feedback(monkeypatch, tmp_path):
         brier=0.12,
     )
 
+    for item in controller.cycle_history:
+        item.promotion_record = {"attempted": False, "gate_status": "not_applicable"}
+        item.lineage_record = {
+            "lineage_status": "active_only",
+            "deployment_stage": "active",
+            "active_config_ref": "active.yaml",
+            "candidate_config_ref": "",
+        }
+
     monkeypatch.setattr(
         controller,
         "_rolling_self_assessment",
@@ -224,3 +234,39 @@ def test_generate_report_includes_freeze_gate_evaluation(tmp_path):
     assert report["freeze_gate_evaluation"]["research_feedback_gate"]["passed"] is False
     assert report["governance_metrics"]["promotion_attempt_count"] > 0
     assert report["freeze_gate_evaluation"]["governance_metrics"]["candidate_pending_count"] > 0
+
+
+def test_build_freeze_report_injects_default_freeze_gate_thresholds(tmp_path):
+    controller = SelfLearningController(
+        output_dir=str(tmp_path / "training"),
+        meeting_log_dir=str(tmp_path / "meetings"),
+        config_audit_log_path=str(tmp_path / "audit" / "changes.jsonl"),
+        config_snapshot_dir=str(tmp_path / "snapshots"),
+    )
+    _seed_cycle_history(controller)
+
+    report = build_freeze_report(
+        controller.cycle_history,
+        controller.current_params,
+        freeze_total_cycles=10,
+        freeze_profit_required=7,
+        freeze_gate_policy={"governance": {"max_candidate_pending_count": 0}},
+        rolling={
+            "window": 10,
+            "profit_count": 8,
+            "win_rate": 0.8,
+            "avg_return": 1.6,
+            "avg_sharpe": 1.1,
+            "avg_max_drawdown": 8.0,
+            "avg_excess_return": 0.9,
+            "benchmark_pass_rate": 0.8,
+        },
+        research_feedback=_make_feedback(bias="maintain", sample_count=12, t20_hit=0.62, t20_invalid=0.12, t20_interval=0.58, t60_hit=0.56, t60_invalid=0.18, t60_interval=0.49, brier=0.12),
+    )
+
+    freeze_gate = report["freeze_gate"]
+    assert freeze_gate["required_avg_sharpe"] == 0.8
+    assert freeze_gate["required_benchmark_pass_rate"] == 0.60
+    assert freeze_gate["research_feedback"]["min_sample_count"] == 8
+    assert freeze_gate["governance"]["max_candidate_pending_count"] == 0
+    assert freeze_gate["governance"]["max_override_pending_count"] == 0

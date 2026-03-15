@@ -2,29 +2,37 @@
   "parent_config": "/Users/zhangsan/Desktop/投资进化系统v1.0/invest/models/configs/momentum_v1.yaml",
   "output_config": "/Users/zhangsan/Desktop/投资进化系统v1.0/data/evolution/generations/momentum_v1_cycle_0011.yaml",
   "param_adjustments": {
-    "position_size": 0.105,
-    "stop_loss_pct": 0.0228,
-    "cash_reserve": 0.28,
-    "trailing_pct": 0.085
+    "stop_loss_pct": 0.06635932237167251,
+    "take_profit_pct": 0.13581032228522724,
+    "position_size": 0.2479524116056,
+    "ma_short": 5,
+    "ma_long": 26,
+    "rsi_period": 12,
+    "rsi_oversold": 27.992299676851594,
+    "rsi_overbought": 74.6007750951849
   },
   "scoring_adjustments": {},
   "applied_adjustments": {
     "params": {
-      "position_size": 0.105,
-      "stop_loss_pct": 0.0228,
-      "cash_reserve": 0.28,
-      "trailing_pct": 0.085
+      "stop_loss_pct": 0.06635932237167251,
+      "take_profit_pct": 0.13581032228522724,
+      "position_size": 0.2479524116056,
+      "ma_short": 5.0,
+      "ma_long": 26.0,
+      "rsi_period": 12.0,
+      "rsi_oversold": 27.992299676851594,
+      "rsi_overbought": 74.6007750951849
     },
     "scoring": {}
   },
   "narrative_adjustments": {
-    "last_trigger": "research_feedback"
+    "last_trigger": "consecutive_losses"
   },
-  "generated_at": "2026-03-15T01:23:52.059433",
+  "generated_at": "2026-03-15T13:53:41.867723",
   "parent_meta": {
     "cycle_id": 11,
-    "trigger": "research_feedback",
+    "trigger": "consecutive_losses",
     "auto_apply": false,
-    "feedback_bias": "tighten_risk"
+    "feedback_bias": ""
   }
 }

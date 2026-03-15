@@ -353,6 +353,8 @@ class ReviewMeeting:
                 "review_window_size": len(compiled_results),
                 "similarity_summary": dict(similarity_summary or {}),
                 "causal_diagnosis": dict(causal_diagnosis or {}),
+                "evidence_gate": dict(decision.get("evidence_gate") or {}),
+                "reasoning_alignment": dict(decision.get("reasoning_alignment") or {}),
             },
         )
         result = dict(decision)
@@ -360,6 +362,8 @@ class ReviewMeeting:
         result["similar_results"] = [dict(item) for item in list(similar_results or [])]
         result["similarity_summary"] = dict(similarity_summary or {})
         result["causal_diagnosis"] = dict(causal_diagnosis or {})
+        result["evidence_gate"] = dict(decision.get("evidence_gate") or {})
+        result["reasoning_alignment"] = dict(decision.get("reasoning_alignment") or {})
         result["strategy_advice"] = advice.to_dict()
         return result
 
@@ -464,6 +468,114 @@ class ReviewMeeting:
                 pass
         return "；".join(parts)
 
+    @staticmethod
+    def _evaluate_evidence_gate(
+        current_result: dict,
+        *,
+        similar_results: List[dict] | None = None,
+        causal_diagnosis: dict[str, Any] | None = None,
+        research_feedback: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        similar_cases = [dict(item) for item in list(similar_results or [])]
+        diagnosis = dict(causal_diagnosis or {})
+        feedback = dict(research_feedback or {})
+        current_is_loss = not bool(current_result.get("is_profit", False))
+        checks: list[dict[str, Any]] = []
+
+        strict_matches = [
+            item
+            for item in similar_cases
+            if (
+                bool(item.get("strict_failure_match", False))
+                or "strict_failure_match" not in item
+            )
+        ]
+        if current_is_loss:
+            checks.append(
+                {
+                    "name": "similar_failure_support",
+                    "passed": bool(strict_matches),
+                    "actual": len(strict_matches),
+                    "threshold": 1,
+                }
+            )
+
+        drivers = [dict(item) for item in list(diagnosis.get("drivers") or [])]
+        supported_drivers = [
+            item for item in drivers if list(item.get("evidence_cycle_ids") or [])
+        ]
+        if current_is_loss:
+            checks.append(
+                {
+                    "name": "causal_driver_evidence",
+                    "passed": bool(supported_drivers),
+                    "actual": len(supported_drivers),
+                    "threshold": 1,
+                }
+            )
+
+        feedback_sample_count = int(feedback.get("sample_count") or 0)
+        if feedback:
+            checks.append(
+                {
+                    "name": "research_feedback_sample_count",
+                    "passed": feedback_sample_count >= 3,
+                    "actual": feedback_sample_count,
+                    "threshold": 3,
+                }
+            )
+
+        support_cycle_ids: list[int] = []
+        for item in strict_matches:
+            cycle_id = item.get("cycle_id")
+            if cycle_id is not None and int(cycle_id) not in support_cycle_ids:
+                support_cycle_ids.append(int(cycle_id))
+        primary_driver = str(diagnosis.get("primary_driver") or "").strip()
+        for driver in supported_drivers:
+            if primary_driver and str(driver.get("code") or "").strip() != primary_driver:
+                continue
+            for cycle_id in list(driver.get("evidence_cycle_ids") or []):
+                if int(cycle_id) not in support_cycle_ids:
+                    support_cycle_ids.append(int(cycle_id))
+
+        failed_checks = [item for item in checks if not bool(item.get("passed", False))]
+        summary = (
+            "结构化证据支持充分，可以执行本轮复盘调参。"
+            if not failed_checks
+            else "相似失败样本和结构化证据不足，暂不支持本轮直接调参。"
+        )
+        if not checks:
+            summary = "当前以观察性复盘为主，本轮不强制追加证据门。"
+        return {
+            "passed": not failed_checks,
+            "checks": checks,
+            "failed_checks": failed_checks,
+            "support_cycle_ids": support_cycle_ids,
+            "summary": summary,
+        }
+
+    @staticmethod
+    def _assess_reasoning_alignment(reasoning: str, facts: dict) -> dict[str, Any]:
+        text = str(reasoning or "").strip()
+        diagnosis = dict(facts.get("causal_diagnosis") or {})
+        feedback = dict(facts.get("research_feedback") or {})
+        recommendation = dict(feedback.get("recommendation") or {})
+        anchors: list[str] = []
+        primary_driver = str(diagnosis.get("primary_driver") or "").strip()
+        if primary_driver:
+            anchors.append(primary_driver)
+        feedback_bias = str(recommendation.get("bias") or "").strip()
+        if feedback_bias:
+            anchors.append(feedback_bias)
+        if not anchors:
+            return {"passed": True, "anchors": [], "matched_anchors": []}
+        matched = [anchor for anchor in anchors if anchor in text]
+        return {
+            "passed": bool(matched),
+            "anchors": anchors,
+            "matched_anchors": matched,
+        }
+
     def _compile_facts(
         self,
         recent_results: List[dict],
@@ -508,6 +620,13 @@ class ReviewMeeting:
             feedback = self._extract_research_feedback(r)
             if feedback:
                 research_feedback = feedback
+        current_result = dict(recent_results[-1] or {})
+        evidence_gate = self._evaluate_evidence_gate(
+            current_result,
+            similar_results=similar_results,
+            causal_diagnosis=causal_diagnosis,
+            research_feedback=research_feedback,
+        )
 
         return {
             "empty": False,
@@ -543,6 +662,7 @@ class ReviewMeeting:
             "similar_cases": [dict(item) for item in list(similar_results or [])],
             "similarity_summary": dict(similarity_summary or {}),
             "causal_diagnosis": dict(causal_diagnosis or {}),
+            "evidence_gate": evidence_gate,
         }
 
     def _log_facts(self, facts: dict):
@@ -629,7 +749,10 @@ class ReviewMeeting:
         current_params: dict,
     ) -> dict:
         if not self.llm or facts.get("empty"):
-            return self._review_decision_fallback(facts, evo_assessment)
+            return self._validate_decision(
+                self._review_decision_fallback(facts, evo_assessment),
+                facts,
+            )
 
         if hasattr(self.review_decision_agent, "set_policy"):
             self.review_decision_agent.set_policy(self.review_policy)
@@ -931,6 +1054,23 @@ class ReviewMeeting:
 
         if not isinstance(result.get("reasoning"), str):
             result["reasoning"] = ""
+        evidence_gate = dict(facts.get("evidence_gate") or {})
+        if evidence_gate:
+            result["evidence_gate"] = evidence_gate
+            if not bool(evidence_gate.get("passed", True)):
+                result["param_adjustments"] = {}
+                result["agent_weight_adjustments"] = {}
+                gate_summary = str(evidence_gate.get("summary") or "证据不足")
+                result["strategy_suggestions"] = _string_items(
+                    [gate_summary, *list(result.get("strategy_suggestions") or [])],
+                    limit=6,
+                )
+                result["reasoning"] = f"{result.get('reasoning', '').strip()} {gate_summary}".strip()
+        reasoning_alignment = self._assess_reasoning_alignment(result.get("reasoning", ""), facts)
+        result["reasoning_alignment"] = reasoning_alignment
+        if not bool(reasoning_alignment.get("passed", True)) and list(reasoning_alignment.get("anchors") or []):
+            anchors = ",".join(str(item) for item in list(reasoning_alignment.get("anchors") or []))
+            result["reasoning"] = f"{result.get('reasoning', '').strip()} 需明确引用证据锚点：{anchors}。".strip()
         applied_summary = self._build_applied_summary(result)
         if applied_summary:
             result["applied_summary"] = applied_summary

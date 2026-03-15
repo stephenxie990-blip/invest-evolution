@@ -6,6 +6,13 @@ from pathlib import Path
 from typing import Any
 
 from config import normalize_date
+from invest.shared.model_governance import (
+    evaluate_promotion_discipline,
+    infer_deployment_stage,
+    normalize_freeze_gate_policy,
+    normalize_promotion_gate_policy,
+    resolve_model_governance_matrix,
+)
 
 
 def _optional_int(value: Any) -> int | None:
@@ -145,7 +152,7 @@ def _fitness_source_cycles(controller: Any, optimization_events: list[dict[str, 
 
 def latest_yaml_mutation_event(optimization_events: list[dict[str, Any]] | None = None) -> dict[str, Any]:
     for event in reversed(list(optimization_events or [])):
-        if str(event.get("stage") or "") == "yaml_mutation":
+        if str(event.get("stage") or "") in {"yaml_mutation", "yaml_mutation_skipped"}:
             return dict(event)
     return {}
 
@@ -273,11 +280,17 @@ def build_cycle_run_context(
     model_output: Any | None,
     optimization_events: list[dict[str, Any]] | None = None,
     execution_snapshot: dict[str, Any] | None = None,
+    evaluation_context: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     snapshot = dict(execution_snapshot or {})
+    evaluation = dict(evaluation_context or {})
     mutation_event = latest_yaml_mutation_event(optimization_events)
     mutation_decision = dict(mutation_event.get("decision") or {})
-    candidate_config_ref = _normalize_config_ref(mutation_decision.get("config_path") or "")
+    candidate_config_ref = _normalize_config_ref(
+        mutation_decision.get("config_path")
+        or mutation_decision.get("pending_candidate_ref")
+        or ""
+    )
     auto_applied = bool(mutation_decision.get("auto_applied", False))
     active_config_ref = _normalize_config_ref(
         (
@@ -291,7 +304,7 @@ def build_cycle_run_context(
     )
     review_window = dict(getattr(controller, "experiment_review_window", {}) or {})
 
-    return {
+    context = {
         "basis_stage": str(snapshot.get("basis_stage") or "post_cycle_result"),
         "active_config_ref": active_config_ref,
         "candidate_config_ref": candidate_config_ref,
@@ -307,6 +320,8 @@ def build_cycle_run_context(
             controller,
             optimization_events=optimization_events,
         ),
+        "ab_comparison": deepcopy(dict(evaluation.get("ab_comparison") or {})),
+        "research_feedback": deepcopy(dict(evaluation.get("research_feedback") or {})),
         "promotion_decision": _promotion_decision(
             controller=controller,
             active_config_ref=active_config_ref,
@@ -315,6 +330,31 @@ def build_cycle_run_context(
             mutation_event=mutation_event,
         ),
     }
+    discipline = evaluate_promotion_discipline(
+        run_context=context,
+        cycle_history=list(getattr(controller, "cycle_history", []) or []),
+        policy=dict((getattr(controller, "quality_gate_matrix", {}) or {}).get("promotion") or {}),
+        optimization_events=optimization_events,
+    )
+    context["deployment_stage"] = str(discipline.get("deployment_stage") or "active")
+    context["promotion_discipline"] = discipline
+    context["quality_gate_matrix"] = resolve_model_governance_matrix(
+        dict(getattr(controller, "quality_gate_matrix", {}) or {})
+    )
+    context["resolved_train_policy"] = {
+        "promotion_gate": normalize_promotion_gate_policy(
+            dict(getattr(controller, "promotion_gate_policy", {}) or {})
+        ),
+        "freeze_gate": normalize_freeze_gate_policy(
+            dict(getattr(controller, "freeze_gate_policy", {}) or {})
+        ),
+        "quality_gate_matrix": dict(context["quality_gate_matrix"]),
+    }
+    context["governance_stage"] = infer_deployment_stage(
+        run_context=context,
+        optimization_events=optimization_events,
+    )
+    return context
 
 
 def build_execution_snapshot(

@@ -132,6 +132,14 @@ def test_build_cycle_run_context_tracks_candidate_and_review_basis_window():
     assert context["fitness_source_cycles"] == [3, 4, 5]
     assert context["promotion_decision"]["status"] == "candidate_generated"
     assert context["promotion_decision"]["applied_to_active"] is False
+    assert context["deployment_stage"] == "candidate"
+    assert context["promotion_discipline"]["status"] == "candidate_pending"
+    assert context["resolved_train_policy"]["promotion_gate"]["min_samples"] == 3
+    assert context["resolved_train_policy"]["freeze_gate"]["avg_sharpe_gte"] == 0.8
+    assert (
+        context["resolved_train_policy"]["quality_gate_matrix"]["routing"]["allowed_deployment_stages"]
+        == ["active"]
+    )
 
 
 def test_build_cycle_run_context_uses_candidate_as_active_after_auto_apply():
@@ -165,6 +173,7 @@ def test_build_cycle_run_context_uses_candidate_as_active_after_auto_apply():
     assert context["active_config_ref"] == expected_ref
     assert context["candidate_config_ref"] == expected_ref
     assert context["promotion_decision"]["status"] == "candidate_auto_applied"
+    assert context["deployment_stage"] == "active"
 
 
 def test_build_cycle_run_context_skips_fitness_sources_without_yaml_mutation():
@@ -194,6 +203,7 @@ def test_build_cycle_run_context_skips_fitness_sources_without_yaml_mutation():
         "current_cycle_id": 5,
     }
     assert context["fitness_source_cycles"] == []
+    assert context["deployment_stage"] == "active"
 
 
 def test_build_cycle_run_context_prefers_execution_snapshot_state():
@@ -221,3 +231,4 @@ def test_build_cycle_run_context_prefers_execution_snapshot_state():
     assert context["basis_stage"] == "pre_optimization"
     assert context["active_config_ref"] == str(Path("configs/executed.yaml").resolve())
     assert context["runtime_overrides"] == {"position_size": 0.08, "max_positions": 4}
+    assert context["quality_gate_matrix"]["routing"]["allowed_deployment_stages"] == ["active"]

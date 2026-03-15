@@ -1,16 +1,38 @@
-# 投资进化系统 v1.0
+# Invest Evolution / 投资进化系统
 
-当前仓库是一套**A 股离线数据驱动的策略训练与运行平台**：它把 `Commander` 指挥运行时、训练主循环、统一数据层、Web 控制台、训练实验室、模型排行榜与 allocator 放在同一个工程里。
+> Agent-first investment training / research / runtime platform with governance-first controls.  
+> 一个以 Agent 为第一用户、以可控性为核心约束的投资训练 / 研究 / 运行一体化平台。
+
+当前仓库不是单一“量化策略脚本集合”，而是把 `Commander` 指挥运行时、训练主循环、统一数据层、Training Lab、模型治理、Agent 协作与 Web/API 控制面收进同一工程的系统。
 
 当前代码主链已经稳定收敛到以下能力：
 
 - **统一入口**：CLI、训练入口、Web 服务都以 `app/` 下实现为准，根目录同名脚本只保留兼容启动壳。
 - **统一数据层**：`market_data/` 负责 SQLite canonical schema、离线同步、质量审计、训练/网页读取构造器。
-- **统一训练闭环**：`SelfLearningController` 完成“数据加载 → 模型产出 → Agent 会议 → 模拟交易 → 评估 → 复盘 → 优化/固化”。
+- **统一训练闭环**：`SelfLearningController` 完成“数据加载 → 模型产出 → Agent 会议 → 模拟交易 → 评估 → 复盘 → 优化 / 晋级纪律 / 冻结门控”。
 - **统一运行时**：`CommanderRuntime` 把 `brain/` 本地 agent loop 与投资训练主体融合到单进程内。
 - **统一实验产物**：训练计划、训练运行、训练评估、周期结果、会议记录、配置快照、优化事件都落盘到 `runtime/`。
 
-## 当前功能一览
+## 项目定位 / Positioning
+
+- **Agent-first**：系统的“第一用户”是 Agent 与运行时，而不是 UI。
+- **Governance-first**：系统强调 promotion、routing、deployment stage、freeze gate 等治理边界，而不是无约束自治。
+- **Scenario-first, but extensible**：当前最完整的是投资场景，但底层已经具备迁移到其他高反馈决策场景的结构雏形。
+
+## 这是什么 / What This Is
+
+- 一个统一了 `CLI + Web/API + BrainRuntime + InvestmentBodyService + SelfLearningController` 的运行时。
+- 一个把实验协议、训练工件、模型榜单、分配器、会议记录和治理事件收进同一数据 / 工件平面的研究平台。
+- 一个让多个 Agent 围绕同一事实底座协作、并受到明确角色与输出协议约束的系统。
+
+## 这不是什么 / What This Is Not
+
+- 不是只靠 buzzword 拼起来的“Agent 外壳”。
+- 不是直接面向最终交易执行的高频生产系统。
+- 不是已经完成效果收敛的自动赚钱机器。
+- 不是以人类点击 UI 为核心交互范式的软件。
+
+## 当前功能一览 / What Works Today
 
 ### 1. 训练与研究
 
@@ -308,6 +330,8 @@ pytest -q
 ## 相关文档
 
 - `docs/README.md`：文档索引与分层导航
+- `docs/audits/PROJECT_INTERPRETATION_REPORT_20260315.md`：本轮升级后的解读与评审主报告
+- `docs/audits/MODEL_GOVERNANCE_RERUN_COMPARISON_20260315.md`：治理复跑对比结论
 - `docs/MAIN_FLOW.md`：系统主链路
 - `docs/TRAINING_FLOW.md`：训练周期细节
 - `docs/AGENT_INTERACTION.md`：Agent 与会议协作
@@ -315,15 +339,17 @@ pytest -q
 - `docs/DATA_ACCESS_ARCHITECTURE.md`：数据层架构
 - `docs/CONFIG_GOVERNANCE.md`：配置治理与审计
 - `docs/RUNTIME_STATE_DESIGN.md`：运行态文件设计
-- `docs/audits/PROJECT_AUDIT_20260310.md`：当前实现审计摘要
+- `docs/archive/README.md`：历史计划、旧评审与会话文档归档索引
 
 ## 现阶段建议的阅读顺序
 
 1. 先读 `README.md`
-2. 再看 `docs/MAIN_FLOW.md`
-3. 需要训练细节时看 `docs/TRAINING_FLOW.md`
-4. 需要数据层时看 `docs/DATA_ACCESS_ARCHITECTURE.md`
-5. 需要运行时/配置排障时看 `docs/RUNTIME_STATE_DESIGN.md` 与 `docs/CONFIG_GOVERNANCE.md`
+2. 再看 `docs/audits/PROJECT_INTERPRETATION_REPORT_20260315.md`
+3. 然后看 `docs/MAIN_FLOW.md`
+4. 需要训练细节时看 `docs/TRAINING_FLOW.md`
+5. 需要 Agent 协作逻辑时看 `docs/AGENT_INTERACTION.md`
+6. 需要数据层时看 `docs/DATA_ACCESS_ARCHITECTURE.md`
+7. 需要运行时/配置排障时看 `docs/RUNTIME_STATE_DESIGN.md` 与 `docs/CONFIG_GOVERNANCE.md`
 
 
 ## 发布与安全手册

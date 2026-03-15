@@ -118,7 +118,9 @@ class TrainingExperimentService:
         )
         controller.experiment_review_window = dict(protocol.get("review_window") or normalized_spec.review_window)
         controller.experiment_promotion_policy = dict(
-            protocol.get("promotion_policy") or normalized_spec.promotion_policy
+            protocol.get("promotion_policy")
+            or normalized_spec.promotion_policy
+            or getattr(controller, "promotion_gate_policy", {})
         )
 
         allowed_models = model_scope.get("allowed_models") or []
@@ -444,6 +446,29 @@ class TrainingPersistenceService:
         snapshot = build_self_assessment_snapshot(snapshot_factory, cycle_result, cycle_dict)
         controller.assessment_history.append(snapshot)
 
+    def refresh_leaderboards(self, controller: Any) -> None:
+        run_root = Path(controller.output_dir)
+        aggregate_root = run_root.parent
+        leaderboard_policy = {
+            "quality_gate_matrix": dict(getattr(controller, "quality_gate_matrix", {}) or {}),
+            "train": {
+                "promotion_gate": dict(getattr(controller, "promotion_gate_policy", {}) or {}),
+                "freeze_gate": dict(getattr(controller, "freeze_gate_policy", {}) or {}),
+                "quality_gate_matrix": dict(getattr(controller, "quality_gate_matrix", {}) or {}),
+            },
+        }
+        write_leaderboard(
+            run_root,
+            run_root / "leaderboard.json",
+            policy=leaderboard_policy,
+        )
+        if aggregate_root != run_root:
+            write_leaderboard(
+                aggregate_root,
+                aggregate_root / "leaderboard.json",
+                policy=leaderboard_policy,
+            )
+
     def save_cycle_result(self, controller: Any, result: Any) -> None:
         path = Path(controller.output_dir) / f"cycle_{result.cycle_id}.json"
 
@@ -542,8 +567,7 @@ class TrainingPersistenceService:
             )
         with open(path, "w", encoding="utf-8") as handle:
             json.dump(data, handle, ensure_ascii=False, indent=2)
-        leaderboard_root = Path(controller.output_dir).parent
         try:
-            write_leaderboard(leaderboard_root)
+            self.refresh_leaderboards(controller)
         except Exception:
             logger.debug("leaderboard update failed", exc_info=True)

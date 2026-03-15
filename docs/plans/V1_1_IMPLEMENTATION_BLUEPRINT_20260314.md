@@ -9,8 +9,8 @@
 
 本蓝图承接两份既有计划：
 
-- [Agent Foundation Phased Implementation Plan](/Users/zhangsan/Desktop/投资进化系统v1.0/docs/plans/AGENT_FOUNDATION_PHASED_IMPLEMENTATION_PLAN_20260313.md)
-- [Phase 6 Structural Refactor Plan](/Users/zhangsan/Desktop/投资进化系统v1.0/docs/plans/PHASE6_IMPLEMENTATION_PLAN_20260313.md)
+- [Agent Foundation Phased Implementation Plan](/Users/zhangsan/Desktop/投资进化系统v1.0/docs/archive/plans/AGENT_FOUNDATION_PHASED_IMPLEMENTATION_PLAN_20260313.md)
+- [Phase 6 Structural Refactor Plan](/Users/zhangsan/Desktop/投资进化系统v1.0/docs/archive/plans/PHASE6_IMPLEMENTATION_PLAN_20260313.md)
 
 但它已经根据当前仓库真实状态做了校正。现在的关键判断是：
 

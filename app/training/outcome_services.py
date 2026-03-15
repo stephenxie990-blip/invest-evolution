@@ -180,6 +180,10 @@ class TrainingOutcomeService:
             model_output=model_output,
             optimization_events=optimization_events,
             execution_snapshot=execution_snapshot,
+            evaluation_context={
+                "ab_comparison": dict(ab_comparison or {}),
+                "research_feedback": dict(research_feedback or {}),
+            },
         )
         promotion_record = build_promotion_record(
             cycle_id=cycle_id,

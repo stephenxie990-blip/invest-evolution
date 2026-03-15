@@ -3,7 +3,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from app.training.experiment_protocol import build_review_basis_window
 from app.training.review_protocol import build_review_input
+from invest.shared.model_governance import build_optimization_event_lineage, normalize_config_ref
 
 
 @dataclass(frozen=True)
@@ -100,6 +102,7 @@ class TrainingReviewStageService:
         controller.meeting_recorder.save_review(review_decision, review_facts, cycle_id)
 
         review_event = optimization_event_factory(
+            cycle_id=cycle_id,
             trigger="review_meeting",
             stage="review_decision",
             decision={
@@ -108,6 +111,36 @@ class TrainingReviewStageService:
                 "agent_weight_adjustments": review_decision.get("agent_weight_adjustments", {}),
             },
             applied_change={},
+            lineage=build_optimization_event_lineage(
+                cycle_id=cycle_id,
+                model_name=str(
+                    getattr(model_output, "model_name", "")
+                    or getattr(controller, "model_name", "")
+                    or ""
+                ),
+                active_config_ref=normalize_config_ref(
+                    getattr(model_output, "config_name", "")
+                    or getattr(controller, "model_config_path", "")
+                    or ""
+                ),
+                candidate_config_ref="",
+                promotion_status="not_evaluated",
+                deployment_stage="active",
+                review_basis_window=build_review_basis_window(
+                    controller,
+                    cycle_id=cycle_id,
+                    review_window=dict(getattr(controller, "experiment_review_window", {}) or {}),
+                ),
+                fitness_source_cycles=[],
+                runtime_override_keys=[],
+            ),
+            evidence={
+                "return_pct": float(getattr(eval_report, "return_pct", 0.0) or 0.0),
+                "benchmark_passed": bool(getattr(eval_report, "benchmark_passed", False)),
+                "strategy_suggestion_count": len(review_decision.get("strategy_suggestions", [])),
+                "param_adjustment_count": len(review_decision.get("param_adjustments", {})),
+                "agent_weight_adjustment_count": len(review_decision.get("agent_weight_adjustments", {})),
+            },
             notes=review_decision.get("reasoning", ""),
         )
         review_applied = controller.training_review_service.apply_review_decision(
@@ -116,7 +149,48 @@ class TrainingReviewStageService:
             review_decision=review_decision,
             review_event=review_event,
         )
+        review_event.lineage = build_optimization_event_lineage(
+            cycle_id=cycle_id,
+            model_name=str(
+                getattr(model_output, "model_name", "")
+                or getattr(controller, "model_name", "")
+                or ""
+            ),
+            active_config_ref=normalize_config_ref(
+                getattr(model_output, "config_name", "")
+                or getattr(controller, "model_config_path", "")
+                or ""
+            ),
+            candidate_config_ref="",
+            promotion_status="override_pending" if review_applied else "not_evaluated",
+            deployment_stage="override" if review_applied else "active",
+            review_basis_window=build_review_basis_window(
+                controller,
+                cycle_id=cycle_id,
+                review_window=dict(getattr(controller, "experiment_review_window", {}) or {}),
+            ),
+            fitness_source_cycles=[],
+            runtime_override_keys=sorted(
+                {
+                    *(
+                        str(key)
+                        for key in dict(
+                            getattr(review_event, "applied_change", {}).get("params") or {}
+                        ).keys()
+                    ),
+                    *(
+                        str(key)
+                        for key in dict(
+                            getattr(review_event, "applied_change", {}).get("agent_weights") or {}
+                        ).keys()
+                    ),
+                }
+            ),
+        )
         cycle_dict["review_applied"] = review_applied
+        append_event = getattr(controller, "_append_optimization_event", None)
+        if callable(append_event):
+            append_event(review_event)
         controller._emit_module_log(
             "review",
             "复盘会议结论",

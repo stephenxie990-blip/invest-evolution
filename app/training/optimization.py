@@ -5,6 +5,7 @@ from typing import Any, Callable
 
 from invest.evolution import derive_scoring_adjustments
 from invest.services import EvolutionService
+from invest.shared.model_governance import build_optimization_event_lineage, normalize_config_ref
 
 logger = logging.getLogger(__name__)
 
@@ -45,6 +46,29 @@ def _reload_investment_model(controller: Any, config_path: str) -> None:
     controller._reload_investment_model(config_path)
 
 
+def _latest_open_candidate_ref(controller: Any) -> str:
+    for item in reversed(list(getattr(controller, "cycle_history", []) or [])):
+        lineage_record = dict(
+            item.get("lineage_record", {}) if isinstance(item, dict) else getattr(item, "lineage_record", {})
+            or {}
+        )
+        if str(lineage_record.get("lineage_status") or "") in {
+            "candidate_pruned",
+            "candidate_expired",
+            "candidate_applied",
+            "override_expired",
+        }:
+            continue
+        if str(lineage_record.get("deployment_stage") or "") != "candidate" and str(
+            lineage_record.get("lineage_status") or ""
+        ) != "candidate_pending":
+            continue
+        ref = normalize_config_ref(lineage_record.get("candidate_config_ref") or "")
+        if ref:
+            return ref
+    return ""
+
+
 def _benchmark_oriented_fitness(result: Any) -> float:
     base_return = max(min(float(getattr(result, "return_pct", 0.0) or 0.0), 50.0), -50.0)
     strategy_scores = dict(getattr(result, "strategy_scores", {}) or {})
@@ -63,6 +87,37 @@ def trigger_loss_optimization(
     feedback_plan: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     cycle_id = cycle_dict.get('cycle_id')
+    model_name = str(cycle_dict.get('model_name') or getattr(controller, 'model_name', '') or '')
+    active_config_ref = normalize_config_ref(
+        cycle_dict.get('config_name')
+        or getattr(controller, 'model_config_path', '')
+        or ''
+    )
+    fitness_source_cycles = [
+        int(getattr(item, 'cycle_id'))
+        for item in list(getattr(controller, 'cycle_history', []) or [])[-10:]
+        if getattr(item, 'cycle_id', None) is not None
+    ]
+
+    def _lineage(
+        *,
+        candidate_config_ref: str = '',
+        deployment_stage: str = 'active',
+        runtime_override_keys: list[str] | None = None,
+        promotion_status: str = 'not_evaluated',
+    ) -> dict[str, Any]:
+        return build_optimization_event_lineage(
+            cycle_id=int(cycle_id) if cycle_id is not None else None,
+            model_name=model_name,
+            active_config_ref=active_config_ref,
+            candidate_config_ref=candidate_config_ref,
+            promotion_status=promotion_status,
+            deployment_stage=deployment_stage,
+            review_basis_window={},
+            fitness_source_cycles=fitness_source_cycles,
+            runtime_override_keys=runtime_override_keys,
+        )
+
     if trigger_reason == 'research_feedback':
         opening_message = 'ask 侧校准反馈触发自我优化...'
         opening_details = {
@@ -108,6 +163,7 @@ def trigger_loss_optimization(
             if feedback_scoring:
                 scoring_adjustments.update(feedback_scoring)
             feedback_event = event_factory(
+                cycle_id=int(cycle_id) if cycle_id is not None else None,
                 trigger=trigger_reason,
                 stage='research_feedback',
                 decision={
@@ -117,6 +173,22 @@ def trigger_loss_optimization(
                 },
                 suggestions=list(feedback_plan.get('suggestions') or []),
                 applied_change={'params': dict(feedback_adjustments), 'scoring': dict(feedback_scoring)},
+                lineage=_lineage(
+                    deployment_stage='active',
+                    runtime_override_keys=sorted(
+                        {
+                            *(str(key) for key in feedback_adjustments.keys()),
+                            *(str(key) for key in feedback_scoring.keys()),
+                        }
+                    ),
+                ),
+                evidence={
+                    'failed_horizons': list(feedback_plan.get('failed_horizons') or []),
+                    'failed_check_names': list(feedback_plan.get('failed_check_names') or []),
+                    'sample_count': int(feedback_plan.get('sample_count') or 0),
+                    'severity': float(feedback_plan.get('severity') or 0.0),
+                    'benchmark_context': dict(feedback_plan.get('benchmark_context') or {}),
+                },
                 notes=str(feedback_plan.get('summary') or ''),
             )
             events.append(feedback_event.to_dict())
@@ -140,10 +212,16 @@ def trigger_loss_optimization(
             logger.info('LLM 分析: %s', analysis.cause)
             logger.info('建议: %s', analysis.suggestions)
             llm_event = event_factory(
+                cycle_id=int(cycle_id) if cycle_id is not None else None,
                 trigger='consecutive_losses',
                 stage='llm_analysis',
                 decision={'cause': analysis.cause},
                 suggestions=list(getattr(analysis, 'suggestions', []) or []),
+                lineage=_lineage(deployment_stage='active'),
+                evidence={
+                    'consecutive_losses': controller.consecutive_losses,
+                    'trade_record_count': len(list(trade_dicts or [])),
+                },
             )
 
             adjustments = controller.llm_optimizer.generate_strategy_fix(analysis) or {}
@@ -193,6 +271,7 @@ def trigger_loss_optimization(
                 evolution_service.evolve(fitness_scores)
                 best_params = evolution_service.get_best_params()
                 evo_event = event_factory(
+                    cycle_id=int(cycle_id) if cycle_id is not None else None,
                     trigger='consecutive_losses',
                     stage='evolution_engine',
                     decision={
@@ -200,6 +279,14 @@ def trigger_loss_optimization(
                         'fitness_policy': 'benchmark_oriented_v1',
                     },
                     applied_change=dict(best_params or {}),
+                    lineage=_lineage(
+                        deployment_stage='active',
+                        runtime_override_keys=sorted(str(key) for key in (best_params or {}).keys()),
+                    ),
+                    evidence={
+                        'fitness_sample_count': len(fitness_scores),
+                        'population_size': _population_size(controller),
+                    },
                     notes='population evolved',
                 )
                 if best_params:
@@ -219,50 +306,102 @@ def trigger_loss_optimization(
                 )
 
         if config_adjustments:
-            mutation = controller.model_mutator.mutate(
-                controller.model_config_path,
-                param_adjustments=config_adjustments,
-                scoring_adjustments=scoring_adjustments or None,
-                narrative_adjustments={'last_trigger': trigger_reason},
-                generation_label=f"cycle_{int(cycle_id or 0):04d}",
-                parent_meta={
-                    'cycle_id': cycle_id,
-                    'trigger': trigger_reason,
-                    'auto_apply': controller.auto_apply_mutation,
-                    'feedback_bias': dict((feedback_plan or {}).get('recommendation') or {}).get('bias', ''),
-                },
-            )
-            auto_applied = bool(controller.auto_apply_mutation)
-            if auto_applied:
-                _reload_investment_model(controller, mutation['config_path'])
-            mutation_event = event_factory(
-                trigger=trigger_reason,
-                stage='yaml_mutation',
-                decision={'config_path': mutation['config_path'], 'auto_applied': auto_applied},
-                applied_change={'params': dict(config_adjustments), 'scoring': dict(scoring_adjustments)},
-                notes='active model config mutated' if auto_applied else 'candidate model config generated; active config unchanged',
-            )
+            pending_candidate_ref = _latest_open_candidate_ref(controller)
+            if pending_candidate_ref and not bool(controller.auto_apply_mutation):
+                mutation_event = event_factory(
+                    cycle_id=int(cycle_id) if cycle_id is not None else None,
+                    trigger=trigger_reason,
+                    stage='yaml_mutation_skipped',
+                    decision={
+                        'skipped': True,
+                        'pending_candidate_ref': pending_candidate_ref,
+                        'auto_applied': False,
+                    },
+                    applied_change={'params': dict(config_adjustments), 'scoring': dict(scoring_adjustments)},
+                    lineage=_lineage(
+                        candidate_config_ref=pending_candidate_ref,
+                        deployment_stage='candidate',
+                        runtime_override_keys=sorted(
+                            {
+                                *(str(key) for key in config_adjustments.keys()),
+                                *(str(key) for key in scoring_adjustments.keys()),
+                            }
+                        ),
+                        promotion_status='candidate_generated',
+                    ),
+                    evidence={
+                        'skip_reason': 'pending_candidate_unresolved',
+                        'pending_candidate_ref': pending_candidate_ref,
+                        'auto_applied': False,
+                    },
+                    notes='existing pending candidate reused; skip generating another candidate config',
+                )
+                mutation_log_message = '已有 pending candidate，跳过重复生成新候选配置'
+            else:
+                mutation = controller.model_mutator.mutate(
+                    controller.model_config_path,
+                    param_adjustments=config_adjustments,
+                    scoring_adjustments=scoring_adjustments or None,
+                    narrative_adjustments={'last_trigger': trigger_reason},
+                    generation_label=f"cycle_{int(cycle_id or 0):04d}",
+                    parent_meta={
+                        'cycle_id': cycle_id,
+                        'trigger': trigger_reason,
+                        'auto_apply': controller.auto_apply_mutation,
+                        'feedback_bias': dict((feedback_plan or {}).get('recommendation') or {}).get('bias', ''),
+                    },
+                )
+                auto_applied = bool(controller.auto_apply_mutation)
+                if auto_applied:
+                    _reload_investment_model(controller, mutation['config_path'])
+                mutation_event = event_factory(
+                    cycle_id=int(cycle_id) if cycle_id is not None else None,
+                    trigger=trigger_reason,
+                    stage='yaml_mutation',
+                    decision={'config_path': mutation['config_path'], 'auto_applied': auto_applied},
+                    applied_change={'params': dict(config_adjustments), 'scoring': dict(scoring_adjustments)},
+                    lineage=_lineage(
+                        candidate_config_ref=mutation['config_path'],
+                        deployment_stage='active' if auto_applied else 'candidate',
+                        runtime_override_keys=sorted(
+                            {
+                                *(str(key) for key in config_adjustments.keys()),
+                                *(str(key) for key in scoring_adjustments.keys()),
+                            }
+                        ),
+                        promotion_status='candidate_auto_applied' if auto_applied else 'candidate_generated',
+                    ),
+                    evidence={
+                        'mutation_meta': dict(mutation.get('meta') or {}),
+                        'auto_applied': auto_applied,
+                    },
+                    notes='active model config mutated' if auto_applied else 'candidate model config generated; active config unchanged',
+                )
+                mutation_log_message = (
+                    f"新的模型配置已生成并已接管 active：{mutation['config_path']}"
+                    if auto_applied
+                    else f"新的候选模型配置已生成（未自动接管 active）：{mutation['config_path']}"
+                )
             events.append(mutation_event.to_dict())
             controller._append_optimization_event(mutation_event)
             controller._emit_module_log(
                 'optimization',
                 '模型配置已变异',
-                (
-                    f"新的模型配置已生成并已接管 active：{mutation['config_path']}"
-                    if auto_applied
-                    else f"新的候选模型配置已生成（未自动接管 active）：{mutation['config_path']}"
-                ),
+                mutation_log_message,
                 cycle_id=cycle_id,
-                kind='yaml_mutation',
-                details=mutation['meta'],
+                kind=str(mutation_event.stage),
+                details=dict(getattr(mutation_event, 'evidence', {}) or {}),
                 metrics={'adjustment_count': len(config_adjustments)},
             )
 
     except Exception as exc:
         err_event = event_factory(
+            cycle_id=int(cycle_id) if cycle_id is not None else None,
             trigger=trigger_reason,
             stage='optimization_error',
             status='error',
+            lineage=_lineage(deployment_stage='active'),
+            evidence={'exception_type': exc.__class__.__name__},
             notes=str(exc),
         )
         events.append(err_event.to_dict())

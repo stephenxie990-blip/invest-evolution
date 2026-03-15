@@ -10,6 +10,7 @@ from invest.allocator import build_allocation_plan, load_leaderboard
 from invest.contracts import ModelRoutingDecision
 from invest.foundation.compute.features import compute_market_stats
 from invest.models import list_models, resolve_model_config_path
+from invest.shared.model_regime import regime_compatibility
 
 DEFAULT_ROUTING_POLICY: Dict[str, Any] = {
     "bull_avg_change_20d": 3.0,
@@ -28,6 +29,7 @@ DEFAULT_ROUTING_POLICY: Dict[str, Any] = {
     "cooldown_exception_min_return_gap": 0.75,
     "cooldown_exception_current_benchmark_pass_rate_max": 0.45,
     "cooldown_exception_current_avg_return_pct_max": 0.0,
+    "min_regime_style_compatibility": 0.40,
 }
 
 DEFAULT_ROUTING_ALLOWED_MODELS = list_models()
@@ -339,15 +341,14 @@ class ModelRoutingCoordinator:
         )
         filtered_models = [name for name in allocation.active_models if name in allowed]
         filtered_weights = {name: weight for name, weight in allocation.model_weights.items() if name in allowed}
-        if not filtered_models:
-            filtered_models = [current_model]
-        if not filtered_weights:
-            filtered_weights = {current_model: 1.0}
-        rule_selected = filtered_models[0]
+        no_qualified_candidates = not filtered_models
+        if not filtered_weights and filtered_models:
+            filtered_weights = {filtered_models[0]: 1.0}
+        rule_selected = filtered_models[0] if filtered_models else current_model
         agent_advice: Dict[str, Any] = {}
         candidate_model = rule_selected
         decision_source = "rule_allocator"
-        if routing_mode in {"hybrid", "agent"} and selector_agent is not None:
+        if not no_qualified_candidates and routing_mode in {"hybrid", "agent"} and selector_agent is not None:
             agent_advice = selector_agent.analyze({
                 "regime": regime_payload.get("regime"),
                 "current_model": current_model,
@@ -372,7 +373,32 @@ class ModelRoutingCoordinator:
         regime_confidence = float(regime_payload.get("confidence", 0.0) or 0.0)
         decision_confidence = round(max(regime_confidence, float(allocation.confidence or 0.0)), 4)
         cooldown_exception = {"applied": False, "reason": "", "details": {}}
-        if candidate_model != current_model:
+        if no_qualified_candidates:
+            hold_current = True
+            hold_reason = "no_qualified_routing_candidates"
+            candidate_model = current_model
+            current_weight = 1.0
+            candidate_weight = 1.0
+            filtered_models = [current_model]
+            filtered_weights = {current_model: 1.0}
+        elif candidate_model != current_model:
+            min_style_compatibility = float(
+                self.routing_policy.get("min_regime_style_compatibility", 0.40) or 0.40
+            )
+            candidate_style_compatibility = regime_compatibility(
+                candidate_model,
+                str(regime_payload.get("regime") or "unknown"),
+            )
+            current_style_compatibility = regime_compatibility(
+                current_model,
+                str(regime_payload.get("regime") or "unknown"),
+            )
+            if (
+                candidate_style_compatibility < min_style_compatibility
+                and current_style_compatibility >= candidate_style_compatibility
+            ):
+                hold_current = True
+                hold_reason = "regime_style_mismatch"
             if decision_confidence < self.min_confidence:
                 hold_current = True
                 hold_reason = "routing_confidence_below_threshold"
@@ -393,8 +419,19 @@ class ModelRoutingCoordinator:
                 else:
                     hold_current = True
                     hold_reason = "routing_cooldown_active"
+        guardrail_checks.append({"name": "qualified_candidates_available", "passed": not no_qualified_candidates, "actual": 0 if no_qualified_candidates else len(filtered_models), "threshold": 1})
         guardrail_checks.append({"name": "min_confidence", "passed": decision_confidence >= self.min_confidence, "actual": decision_confidence, "threshold": self.min_confidence})
         guardrail_checks.append({"name": "hysteresis_margin", "passed": (candidate_weight - current_weight) >= self.hysteresis_margin or candidate_model == current_model, "actual": round(candidate_weight - current_weight, 4), "threshold": self.hysteresis_margin})
+        guardrail_checks.append(
+            {
+                "name": "regime_compatibility",
+                "passed": regime_compatibility(candidate_model, str(regime_payload.get("regime") or "unknown"))
+                >= float(self.routing_policy.get("min_regime_style_compatibility", 0.40) or 0.40)
+                or candidate_model == current_model,
+                "actual": regime_compatibility(candidate_model, str(regime_payload.get("regime") or "unknown")),
+                "threshold": float(self.routing_policy.get("min_regime_style_compatibility", 0.40) or 0.40),
+            }
+        )
         if current_cycle_id is not None and last_switch_cycle_id is not None:
             cycles_since_switch = current_cycle_id - last_switch_cycle_id
             guardrail_checks.append({"name": "cooldown_cycles", "passed": cycles_since_switch > self.cooldown_cycles or candidate_model == current_model or bool(cooldown_exception.get("applied")), "actual": cycles_since_switch, "threshold": self.cooldown_cycles, "exception_applied": bool(cooldown_exception.get("applied"))})
@@ -438,6 +475,19 @@ class ModelRoutingCoordinator:
                 "market_observation": observation.to_dict(),
                 "rule_result": dict(regime_payload.get("rule_result") or {}),
                 "agent_result": dict(regime_payload.get("agent_result") or {}),
+                "allocator_quality": {
+                    "qualified_candidate_count": int(allocation.metadata.get("qualified_candidate_count", 0) or 0),
+                    "failed_quality_entries": list(allocation.metadata.get("failed_quality_entries") or []),
+                    "top_candidates": list(allocation.metadata.get("top_candidates") or []),
+                    "current_model_compatibility": regime_compatibility(
+                        current_model,
+                        str(regime_payload.get("regime") or "unknown"),
+                    ),
+                    "selected_model_compatibility": regime_compatibility(
+                        selected_model,
+                        str(regime_payload.get("regime") or "unknown"),
+                    ),
+                },
             },
             agent_advice=agent_advice,
             allocation_plan=allocation.to_dict(),

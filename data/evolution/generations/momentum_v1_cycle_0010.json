@@ -1,0 +1,36 @@
+{
+  "parent_config": "/Users/zhangsan/Desktop/投资进化系统v1.0/invest/models/configs/momentum_v1.yaml",
+  "output_config": "/Users/zhangsan/Desktop/投资进化系统v1.0/data/evolution/generations/momentum_v1_cycle_0010.yaml",
+  "param_adjustments": {
+    "position_size": 0.050159999999999996,
+    "stop_loss_pct": 0.020720000000000006,
+    "take_profit_pct": 0.05,
+    "cash_reserve": 0.8,
+    "trailing_pct": 0.03,
+    "max_hold_days": 5,
+    "signal_threshold": 0.95
+  },
+  "scoring_adjustments": {},
+  "applied_adjustments": {
+    "params": {
+      "position_size": 0.050159999999999996,
+      "stop_loss_pct": 0.020720000000000006,
+      "take_profit_pct": 0.05,
+      "cash_reserve": 0.8,
+      "trailing_pct": 0.03,
+      "max_hold_days": 5.0,
+      "signal_threshold": 0.95
+    },
+    "scoring": {}
+  },
+  "narrative_adjustments": {
+    "last_trigger": "research_feedback"
+  },
+  "generated_at": "2026-03-15T13:50:04.292384",
+  "parent_meta": {
+    "cycle_id": 10,
+    "trigger": "research_feedback",
+    "auto_apply": false,
+    "feedback_bias": "tighten_risk"
+  }
+}

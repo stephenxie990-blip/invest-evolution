@@ -5,6 +5,11 @@ from typing import Any
 from invest.foundation.metrics.benchmark import BenchmarkEvaluator
 from invest.foundation.risk.controller import sanitize_risk_params
 from invest.models.defaults import COMMON_BENCHMARK_DEFAULTS
+from invest.shared.model_governance import (
+    normalize_freeze_gate_policy,
+    normalize_promotion_gate_policy,
+    resolve_model_governance_matrix,
+)
 
 
 class TrainingPolicyService:
@@ -124,7 +129,17 @@ class TrainingPolicyService:
             )
             or controller.max_losses_before_optimize
         )
-        controller.freeze_gate_policy = dict(controller.train_policy.get("freeze_gate", {}) or {})
+        controller.freeze_gate_policy = normalize_freeze_gate_policy(
+            dict(controller.train_policy.get("freeze_gate") or {})
+        )
+        controller.promotion_gate_policy = normalize_promotion_gate_policy(
+            dict(controller.train_policy.get("promotion_gate") or {})
+        )
+        controller.quality_gate_matrix = resolve_model_governance_matrix(
+            dict(controller.train_policy.get("quality_gate_matrix") or {})
+        )
+        if not dict(getattr(controller, "experiment_promotion_policy", {}) or {}):
+            controller.experiment_promotion_policy = dict(controller.promotion_gate_policy)
         controller.auto_apply_mutation = bool(controller.train_policy.get("auto_apply_mutation", False))
         controller.research_feedback_policy = dict(
             controller.train_policy.get("research_feedback", {}) or {}

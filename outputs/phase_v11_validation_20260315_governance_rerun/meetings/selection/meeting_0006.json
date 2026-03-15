@@ -1,0 +1,312 @@
+{
+  "cycle": 4,
+  "timestamp": "2026-03-15T13:30:12.171751",
+  "type": "selection",
+  "regime": "oscillation",
+  "confidence": 0.9506696,
+  "hunters": [
+    {
+      "name": "trend_hunter",
+      "label": "TrendHunterAgent",
+      "result": {
+        "picks": [
+          {
+            "code": "sh.600063",
+            "score": 0.8344400000000001,
+            "reasoning": ""
+          },
+          {
+            "code": "sh.600099",
+            "score": 0.7074600000000001,
+            "reasoning": ""
+          },
+          {
+            "code": "sh.600072",
+            "score": 0.67118,
+            "reasoning": ""
+          },
+          {
+            "code": "sh.600038",
+            "score": 0.6167600000000001,
+            "reasoning": ""
+          }
+        ],
+        "confidence": 0.76,
+        "overall_view": "",
+        "contract_status": "validated"
+      },
+      "success": true,
+      "observability": {
+        "status": "completed",
+        "duration_ms": 15953.051,
+        "picks_count": 4,
+        "confidence": 0.76,
+        "cost": 1.0,
+        "role": "primary_trend",
+        "llm": {
+          "mode": "live",
+          "model": "openai/MiniMax-M2.5",
+          "call_count": 1,
+          "input_tokens": 531,
+          "output_tokens": 946,
+          "total_time_ms": 15951.932
+        }
+      }
+    },
+    {
+      "name": "quality_agent",
+      "label": "QualityAgent",
+      "result": {
+        "picks": [
+          {
+            "code": "sh.600038",
+            "score": 0.84,
+            "reasoning": "20日涨幅仅+2.6%，短期涨幅温和，估值透支风险相对更低；均线多头、RSI 57、MACD看多，趋势稳健但不过热，符合价值质量风格中\"基本面预期稳定+技术面不过度拥挤\"的偏好。量比0.9显示资金追涨情绪不强，在震荡市中更适合配置。"
+          },
+          {
+            "code": "sh.600072",
+            "score": 0.78,
+            "reasoning": "20日涨幅+2.0%，处于候选中较低水平，说明短期未明显脱离合理区间；均线多头，RSI 57，MACD看多，技术状态健康且未过热。量比1.3表明有一定资金关注但未极端放量，兼顾稳健与活跃度，适合作为价值质量型标的。"
+          },
+          {
+            "code": "sh.600099",
+            "score": 0.74,
+            "reasoning": "20日涨幅+3.5%，涨幅适中；均线多头、MACD看多，RSI 60处于偏强但尚未明显超买区间，趋势质量较好。量比1.4说明存在一定增量资金支持，在震荡市中具备相对稳健的进攻属性，但相比前两只略偏强势，性价比稍次。"
+          }
+        ],
+        "confidence": 0.7,
+        "overall_view": "在当前震荡市中，价值质量风格更应优先选择涨幅温和、趋势稳定、技术指标不过热的标的。综合比较，sh.600038、sh.600072、sh.600099更符合\"估值相对合理+质量稳定\"的筛选思路；sh.600063近20日涨幅过大，存在阶段性透支风险，sh.600008虽稳但弹性和资金关注度略弱。"
+      },
+      "success": true,
+      "observability": {
+        "status": "completed",
+        "duration_ms": 11222.396,
+        "picks_count": 3,
+        "confidence": 0.7,
+        "cost": 0.8,
+        "role": "quality_filter",
+        "llm": {
+          "mode": "live",
+          "model": "gpt-5.4",
+          "call_count": 1,
+          "input_tokens": 416,
+          "output_tokens": 445,
+          "total_time_ms": 11219.835
+        }
+      }
+    }
+  ],
+  "selected": [
+    "sh.600038",
+    "sh.600072",
+    "sh.600099",
+    "sh.600063"
+  ],
+  "selected_meta": [
+    {
+      "code": "sh.600038",
+      "score": 1.057,
+      "source": "quality_agent",
+      "sources": [
+        "trend_hunter",
+        "quality_agent"
+      ],
+      "trailing_pct": null,
+      "reasoning": "20日涨幅仅+2.6%，短期涨幅温和，估值透支风险相对更低；均线多头、RSI 57、MACD看多，趋势稳健但不过热，符合价值质量风格中\"基本面预期稳定+技术面不过度拥挤\"的偏好。量比0.9显示资金追涨情绪不强，在震荡市中更适合配置。"
+    },
+    {
+      "code": "sh.600072",
+      "score": 1.056,
+      "source": "quality_agent",
+      "sources": [
+        "trend_hunter",
+        "quality_agent"
+      ],
+      "trailing_pct": null,
+      "reasoning": "20日涨幅+2.0%，处于候选中较低水平，说明短期未明显脱离合理区间；均线多头，RSI 57，MACD看多，技术状态健康且未过热。量比1.3表明有一定资金关注但未极端放量，兼顾稳健与活跃度，适合作为价值质量型标的。"
+    },
+    {
+      "code": "sh.600099",
+      "score": 1.056,
+      "source": "trend_hunter",
+      "sources": [
+        "trend_hunter",
+        "quality_agent"
+      ],
+      "trailing_pct": 0.1,
+      "reasoning": "20日涨幅+3.5%，涨幅适中；均线多头、MACD看多，RSI 60处于偏强但尚未明显超买区间，趋势质量较好。量比1.4说明存在一定增量资金支持，在震荡市中具备相对稳健的进攻属性，但相比前两只略偏强势，性价比稍次。"
+    },
+    {
+      "code": "sh.600063",
+      "score": 0.634,
+      "source": "trend_hunter",
+      "sources": [
+        "trend_hunter"
+      ],
+      "trailing_pct": 0.1,
+      "reasoning": ""
+    }
+  ],
+  "selected_roster": [
+    {
+      "name": "trend_hunter",
+      "label": "TrendHunterAgent",
+      "cost": 1.0,
+      "role": "primary_trend"
+    },
+    {
+      "name": "quality_agent",
+      "label": "QualityAgent",
+      "cost": 0.8,
+      "role": "quality_filter"
+    }
+  ],
+  "candidate_roster": [
+    {
+      "name": "trend_hunter",
+      "label": "TrendHunterAgent",
+      "cost": 1.0,
+      "role": "primary_trend"
+    },
+    {
+      "name": "quality_agent",
+      "label": "QualityAgent",
+      "cost": 0.8,
+      "role": "quality_filter"
+    },
+    {
+      "name": "defensive_agent",
+      "label": "DefensiveAgent",
+      "cost": 0.65,
+      "role": "risk_sentinel"
+    }
+  ],
+  "budget_policy": {
+    "regime": "oscillation",
+    "model_name": "momentum",
+    "target_hunters": 3,
+    "selected_hunters": 2,
+    "budget_limit": 2.35,
+    "budget_used": 1.8
+  },
+  "observability": {
+    "timings_ms": {
+      "total": 36546.943,
+      "agents": 15953.688,
+      "debate": 20593.03,
+      "aggregation": 0.225
+    },
+    "budget": {
+      "regime": "oscillation",
+      "model_name": "momentum",
+      "target_hunters": 3,
+      "selected_hunters": 2,
+      "budget_limit": 2.35,
+      "budget_used": 1.8
+    },
+    "llm": {
+      "used": true,
+      "mode": "live",
+      "model": "gpt-5.4,openai/MiniMax-M2.5",
+      "call_count": 14,
+      "input_tokens": 4954,
+      "output_tokens": 3909,
+      "total_time_ms": 104698.839
+    },
+    "agents": [
+      {
+        "name": "trend_hunter",
+        "label": "TrendHunterAgent",
+        "status": "completed",
+        "duration_ms": 15953.051,
+        "picks_count": 4,
+        "confidence": 0.76,
+        "cost": 1.0,
+        "role": "primary_trend",
+        "llm": {
+          "mode": "live",
+          "model": "openai/MiniMax-M2.5",
+          "call_count": 1,
+          "input_tokens": 531,
+          "output_tokens": 946,
+          "total_time_ms": 15951.932
+        }
+      },
+      {
+        "name": "quality_agent",
+        "label": "QualityAgent",
+        "status": "completed",
+        "duration_ms": 11222.396,
+        "picks_count": 3,
+        "confidence": 0.7,
+        "cost": 0.8,
+        "role": "quality_filter",
+        "llm": {
+          "mode": "live",
+          "model": "gpt-5.4",
+          "call_count": 1,
+          "input_tokens": 416,
+          "output_tokens": 445,
+          "total_time_ms": 11219.835
+        }
+      }
+    ],
+    "debate": {
+      "enabled": true,
+      "count": 4,
+      "verdict_breakdown": {
+        "buy": 0,
+        "hold": 4,
+        "avoid": 0
+      },
+      "items": [
+        {
+          "code": "sh.600063",
+          "verdict": "hold",
+          "confidence": 0.64,
+          "bull_summary": "5日涨8.5%，MACD看多、均线多头，RSI 64未过热，布林0.81处强势区，震荡市中仍保持多头结构，若放量站稳前高有望延续强势。",
+          "bear_summary": "空方未提供实质反驳；但短线已明显上涨，接近布林上沿，震荡市环境下追高回撤风险客观存在。",
+          "reasoning": "多头技术面占优且相对强势明确，但市场仅震荡格局、环境置信度一般，且短线已有涨幅，缺少空方证伪不等于低风险，宜持有观察胜于追买。",
+          "source": "debate_llm",
+          "duration_ms": 18594.877
+        },
+        {
+          "code": "sh.600072",
+          "verdict": "hold",
+          "confidence": 0.62,
+          "bull_summary": "技术面偏强，MACD看多、均线多头、RSI 57未过热，布林位置0.74显示贴近上轨，近5日小幅上涨，震荡市中具相对韧性。",
+          "bear_summary": "空方未提供具体论据；潜在风险在于震荡市置信度仅50%，接近上轨后续上攻仍需量能确认，追高性价比一般。",
+          "reasoning": "多方证据集中于短线技术强势，但市场仅属震荡环境且缺少量能与基本面支撑。空方虽缺席，仍需防范上轨附近回落，故以持有观望更稳妥。",
+          "source": "debate_llm",
+          "duration_ms": 18913.898
+        },
+        {
+          "code": "sh.600099",
+          "verdict": "hold",
+          "confidence": 0.63,
+          "bull_summary": "技术面偏强，MACD看多、均线多头、RSI 60未过热，布林位置0.74显示股价处于中上轨，震荡市中表现抗跌并维持多头结构，存在后续放量突破与补涨空间。",
+          "bear_summary": "空方未提出实质性反驳；潜在隐忧在于近5日涨幅仅+0.3%，市场处于震荡环境，若量能不足则上攻持续性和弹性仍待验证。",
+          "reasoning": "技术指标整体偏多，但市场仅为震荡市且缺少量能与基本面佐证，短线胜率尚可、赔率一般，宜持有观察而非激进买入。",
+          "source": "debate_llm",
+          "duration_ms": 19432.6
+        },
+        {
+          "code": "sh.600038",
+          "verdict": "hold",
+          "confidence": 0.62,
+          "bull_summary": "军机总装龙头，行业壁垒高、订单确定性强，受益装备升级与军贸扩容；技术面MA多头、MACD看多、RSI 57未过热，震荡市中强势横盘。",
+          "bear_summary": "空方未提供实质论据；潜在风险仅在军工业绩兑现节奏波动、估值修复不及预期及震荡市下上行弹性受限。",
+          "reasoning": "多方逻辑完整且基本面与技术面共振，但缺少空方对冲论据，市场仅震荡中性，现阶段更适合持有而非激进追买。",
+          "source": "debate_llm",
+          "duration_ms": 20587.369
+        }
+      ]
+    }
+  },
+  "source": "llm",
+  "meeting_id": 6,
+  "cutoff_date": "20210625",
+  "model_name": "momentum",
+  "config_name": "momentum_v1",
+  "agent_context_summary": "当前市场大致处于 oscillation 状态。 市场广度 75%，近20日平均涨跌幅 +1.34%，站上MA20比例 61%。"
+}

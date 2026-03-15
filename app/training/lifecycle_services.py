@@ -12,6 +12,20 @@ logger = logging.getLogger(__name__)
 class TrainingLifecycleService:
     """Owns cycle completion bookkeeping and continuous-run lifecycle control."""
 
+    @staticmethod
+    def _refresh_leaderboards(controller: Any) -> None:
+        refresh = getattr(
+            getattr(controller, "training_persistence_service", None),
+            "refresh_leaderboards",
+            None,
+        )
+        if not callable(refresh):
+            return
+        try:
+            refresh(controller)
+        except Exception:
+            logger.debug("final leaderboard refresh failed", exc_info=True)
+
     def finalize_cycle(
         self,
         controller: Any,
@@ -126,6 +140,7 @@ class TrainingLifecycleService:
             if controller.freeze_gate_service.should_freeze(controller):
                 logger.info("🎉 达到固化条件！")
                 if controller.stop_on_freeze:
+                    self._refresh_leaderboards(controller)
                     return controller.freeze_gate_service.freeze_model(controller)
                 logger.info("配置为继续训练，不因固化条件提前停止")
 
@@ -147,4 +162,5 @@ class TrainingLifecycleService:
                 controller.consecutive_losses,
             )
 
+        self._refresh_leaderboards(controller)
         return controller.freeze_gate_service.generate_training_report(controller)

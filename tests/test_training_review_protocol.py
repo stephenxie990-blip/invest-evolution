@@ -188,3 +188,84 @@ def test_build_review_input_adds_similar_sample_retrieval_and_causal_diagnosis()
     assert review_input["causal_diagnosis"]["drivers"][0]["code"] == "regime_repeat_loss"
     assert review_input["causal_diagnosis"]["drivers"][0]["evidence_cycle_ids"] == [3, 1]
     assert "同一市场状态下重复亏损" in review_input["causal_diagnosis"]["summary"]
+
+
+def test_build_review_input_filters_to_matching_failure_signature_and_bias():
+    controller = SimpleNamespace(
+        cycle_history=[
+            SimpleNamespace(
+                cycle_id=1,
+                cutoff_date="20240101",
+                return_pct=-1.4,
+                is_profit=False,
+                selection_mode="meeting",
+                benchmark_passed=False,
+                review_applied=False,
+                model_name="momentum",
+                config_name="configs/momentum_a.yaml",
+                routing_decision={"regime": "bear"},
+                audit_tags={"routing_regime": "bear"},
+                research_feedback={"sample_count": 6, "recommendation": {"bias": "tighten_risk"}},
+                causal_diagnosis={"primary_driver": "benchmark_gap"},
+                llm_used=True,
+            ),
+            SimpleNamespace(
+                cycle_id=2,
+                cutoff_date="20240102",
+                return_pct=-0.6,
+                is_profit=False,
+                selection_mode="meeting",
+                benchmark_passed=True,
+                review_applied=False,
+                model_name="momentum",
+                config_name="configs/momentum_a.yaml",
+                routing_decision={"regime": "bear"},
+                audit_tags={"routing_regime": "bear"},
+                research_feedback={"sample_count": 6, "recommendation": {"bias": "maintain"}},
+                causal_diagnosis={"primary_driver": "benchmark_gap"},
+                llm_used=True,
+            ),
+            SimpleNamespace(
+                cycle_id=3,
+                cutoff_date="20240103",
+                return_pct=0.9,
+                is_profit=True,
+                selection_mode="meeting",
+                benchmark_passed=False,
+                review_applied=True,
+                model_name="momentum",
+                config_name="configs/momentum_a.yaml",
+                routing_decision={"regime": "bear"},
+                audit_tags={"routing_regime": "bear"},
+                research_feedback={"sample_count": 6, "recommendation": {"bias": "tighten_risk"}},
+                causal_diagnosis={"primary_driver": "benchmark_gap"},
+                llm_used=True,
+            ),
+        ],
+        experiment_review_window={"mode": "rolling", "size": 3},
+        model_name="momentum",
+        model_config_path="configs/momentum_a.yaml",
+    )
+    eval_report = {
+        "cycle_id": 4,
+        "as_of_date": "20240104",
+        "return_pct": -1.1,
+        "total_pnl": -1100.0,
+        "total_trades": 4,
+        "win_rate": 0.25,
+        "regime": "bear",
+        "is_profit": False,
+        "selected_codes": ["sh.600519"],
+        "selection_mode": "meeting",
+        "benchmark_passed": False,
+        "metadata": {"model_name": "momentum", "config_name": "configs/momentum_a.yaml"},
+        "research_feedback": {"sample_count": 7, "recommendation": {"bias": "tighten_risk"}},
+        "causal_diagnosis": {"primary_driver": "benchmark_gap"},
+    }
+
+    review_input = build_review_input(controller, cycle_id=4, eval_report=eval_report)
+
+    assert [item["cycle_id"] for item in review_input["similar_results"]] == [1]
+    assert review_input["similarity_summary"]["matched_cycle_ids"] == [1]
+    assert review_input["similarity_summary"]["matched_primary_driver"] == "benchmark_gap"
+    assert review_input["similarity_summary"]["matched_feedback_bias"] == "tighten_risk"

@@ -485,6 +485,47 @@ def test_training_experiment_service_respects_controller_compatibility_hooks(mon
     assert controller.reloaded_config_path == 'configs/value_quality.yaml'
 
 
+def test_training_experiment_service_uses_controller_default_promotion_gate_when_unspecified():
+    service = TrainingExperimentService()
+
+    controller = SimpleNamespace(
+        experiment_spec={},
+        experiment_seed=None,
+        experiment_min_date=None,
+        experiment_max_date=None,
+        experiment_min_history_days=None,
+        experiment_simulation_days=None,
+        experiment_cutoff_policy={},
+        experiment_review_window={},
+        experiment_promotion_policy={},
+        promotion_gate_policy={'min_samples': 5, 'candidate_ab': {'min_return_lift_pct': 0.1}},
+        experiment_allowed_models=[],
+        experiment_llm={},
+        allocator_enabled=False,
+        model_routing_enabled=False,
+        model_routing_mode='rule',
+        model_routing_allowed_models=[],
+        model_switch_cooldown_cycles=2,
+        model_switch_min_confidence=0.6,
+        model_switch_hysteresis_margin=0.08,
+        model_routing_agent_override_enabled=False,
+        model_routing_agent_override_max_gap=0.18,
+        model_name='momentum',
+        model_config_path='configs/momentum.yaml',
+        current_params={},
+        _apply_experiment_llm_overrides=lambda llm_spec=None: None,
+        _refresh_model_routing_coordinator=lambda: None,
+        _reload_investment_model=lambda config_path=None: None,
+    )
+
+    service.configure_experiment(controller, {'protocol': {}, 'dataset': {}, 'model_scope': {}, 'llm': {}})
+
+    assert controller.experiment_promotion_policy == {
+        'min_samples': 5,
+        'candidate_ab': {'min_return_lift_pct': 0.1},
+    }
+
+
 def test_refresh_runtime_from_config_delegates_to_routing_service(monkeypatch, tmp_path):
     controller = _make_controller(tmp_path)
     captured = {}
@@ -1249,6 +1290,12 @@ def test_save_cycle_result_delegates_to_persistence_service(tmp_path):
     assert payload['run_context']['promotion_decision']['status'] == 'candidate_generated'
     assert payload['promotion_record']['gate_status'] == 'awaiting_gate'
     assert payload['lineage_record']['lineage_status'] == 'candidate_pending'
+    run_leaderboard = json.loads((tmp_path / 'training' / 'leaderboard.json').read_text(encoding='utf-8'))
+    aggregate_leaderboard = json.loads((tmp_path / 'leaderboard.json').read_text(encoding='utf-8'))
+    assert run_leaderboard['total_records'] == 1
+    assert run_leaderboard['entries'][0]['latest_cycle_id'] == 3
+    assert run_leaderboard['policy']['train']['freeze_gate']['avg_sharpe_gte'] == 0.8
+    assert aggregate_leaderboard['entries'][0]['latest_cycle_id'] == 3
 
 
 def test_generate_report_delegates_to_freeze_gate_service(monkeypatch, tmp_path):
@@ -1263,6 +1310,34 @@ def test_generate_report_delegates_to_freeze_gate_service(monkeypatch, tmp_path)
     payload = controller._generate_report()  # pylint: disable=protected-access
 
     assert payload == {'status': 'ok', 'owner_bound': True}
+
+
+def test_training_lifecycle_service_refreshes_leaderboards_before_final_report():
+    service = TrainingLifecycleService()
+    events = []
+
+    class DummyController:
+        stop_on_freeze = False
+        total_cycle_attempts = 0
+        skipped_cycle_count = 0
+        cycle_history = []
+        consecutive_losses = 0
+        training_persistence_service = SimpleNamespace(
+            refresh_leaderboards=lambda owner: events.append(('refresh', owner)),
+        )
+        freeze_gate_service = SimpleNamespace(
+            should_freeze=lambda owner: False,
+            generate_training_report=lambda owner: {'status': 'ok'},
+        )
+
+        @staticmethod
+        def run_training_cycle():
+            return None
+
+    report = service.run_continuous(DummyController(), max_cycles=1)
+
+    assert report == {'status': 'ok'}
+    assert events and events[0][0] == 'refresh'
 
 
 def test_training_cycle_data_service_prepares_context():
@@ -2077,3 +2152,65 @@ def test_training_policy_service_uses_selection_meeting_service_for_agent_weight
         'trend_hunter': 0.8,
         'contrarian': 1.2,
     }
+
+
+def test_training_policy_service_loads_promotion_and_quality_gate_defaults():
+    class DummyInvestmentModel:
+        @staticmethod
+        def config_section(name, default=None):
+            mapping = {
+                'params': {},
+                'execution': {},
+                'risk_policy': {},
+                'evaluation_policy': {},
+                'review_policy': {},
+                'benchmark': {},
+                'train': {
+                    'promotion_gate': {'min_samples': 4},
+                    'quality_gate_matrix': {'promotion': {'max_pending_cycles': 2}},
+                    'freeze_gate': {'governance': {'max_candidate_pending_count': 0}},
+                },
+                'agent_weights': {},
+            }
+            return mapping.get(name, default or {})
+
+        @staticmethod
+        def update_runtime_overrides(_overrides):
+            return None
+
+    controller = SimpleNamespace(
+        investment_model=DummyInvestmentModel(),
+        DEFAULT_PARAMS={},
+        current_params={},
+        execution_policy={},
+        risk_policy={},
+        evaluation_policy={},
+        review_policy={},
+        strategy_evaluator=SimpleNamespace(set_policy=lambda _policy: None),
+        review_meeting_service=SimpleNamespace(set_policy=lambda _policy: None),
+        benchmark_evaluator=None,
+        train_policy={},
+        freeze_total_cycles=10,
+        freeze_profit_required=7,
+        max_losses_before_optimize=3,
+        freeze_gate_policy={},
+        promotion_gate_policy={},
+        experiment_promotion_policy={},
+        quality_gate_matrix={},
+        auto_apply_mutation=False,
+        research_feedback_policy={},
+        research_feedback_optimization_policy={},
+        research_feedback_freeze_policy={},
+        selection_meeting_service=SimpleNamespace(set_agent_weights=lambda weights=None: None),
+    )
+
+    TrainingPolicyService().sync_runtime_policy(controller)
+
+    assert controller.freeze_gate_policy['avg_sharpe_gte'] == 0.8
+    assert controller.freeze_gate_policy['benchmark_pass_rate_gte'] == 0.60
+    assert controller.freeze_gate_policy['research_feedback']['min_sample_count'] == 8
+    assert controller.promotion_gate_policy['min_samples'] == 4
+    assert controller.experiment_promotion_policy['min_samples'] == 4
+    assert controller.quality_gate_matrix['promotion']['max_pending_cycles'] == 2
+    assert controller.freeze_gate_policy['governance']['max_candidate_pending_count'] == 0
+    assert controller.freeze_gate_policy['governance']['max_override_pending_count'] == 0

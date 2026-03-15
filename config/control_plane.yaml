@@ -13,7 +13,7 @@ llm:
       model: gpt-5.4
     minimax_fast:
       provider: minimax_provider
-      model: MiniMax-M2.5
+      model: openai/MiniMax-M2.5
   bindings:
     defaults.fast: default_fast
     defaults.deep: default_deep

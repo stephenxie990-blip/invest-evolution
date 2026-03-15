@@ -129,11 +129,63 @@ train:
   freeze_profit_required: 7
   max_losses_before_optimize: 3
   auto_apply_mutation: false
+  promotion_gate:
+    min_samples: 3
+    research_feedback:
+      min_sample_count: 5
+      blocked_biases: [tighten_risk, recalibrate_probability]
+      max_brier_like_direction_score: 0.25
+      horizons:
+        T+20:
+          min_hit_rate: 0.45
+          max_invalidation_rate: 0.30
+          min_interval_hit_rate: 0.40
+    regime_validation:
+      min_distinct_regimes: 2
+      min_samples_per_regime: 1
+      min_avg_return_pct: 0.0
+      min_win_rate: 0.40
+      min_benchmark_pass_rate: 0.40
+      max_dominant_regime_share: 0.75
+    return_objectives:
+      min_avg_return_pct: 0.0
+      min_median_return_pct: 0.0
+      min_cumulative_return_pct: 0.0
+      min_win_rate: 0.50
+      max_loss_share: 0.50
+      min_benchmark_pass_rate: 0.50
+    candidate_ab:
+      required_when_candidate_present: true
+      require_candidate_outperform_active: true
+      min_return_lift_pct: 0.0
+      min_strategy_score_lift: 0.0
+      min_benchmark_lift: 0.0
   freeze_gate:
     avg_return_gt: 0.0
     avg_sharpe_gte: 0.8
     avg_max_drawdown_lt: 15.0
     benchmark_pass_rate_gte: 0.6
+    governance:
+      max_candidate_pending_count: 0
+      max_override_pending_count: 0
+      max_active_candidate_drift_rate: 0.0
+  quality_gate_matrix:
+    review:
+      min_strategy_score: 0.45
+      min_benchmark_pass_rate: 0.05
+      max_drawdown_pct: 18.0
+    routing:
+      min_score: 0.0
+      min_avg_return_pct: 0.0
+      min_avg_strategy_score: 0.0
+      min_benchmark_pass_rate: 0.0
+      max_avg_drawdown: 15.0
+      allowed_deployment_stages: [active]
+    promotion:
+      max_pending_cycles: 3
+      max_pending_candidates: 1
+      max_override_cycles: 2
+      allowed_deployment_stages: [candidate]
 review_policy:
   confidence:
     default: 0.5

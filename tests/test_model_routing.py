@@ -1,5 +1,7 @@
 import json
 
+import invest.router.engine as routing_engine
+from invest.contracts import AllocationPlan
 from invest.router import ModelRoutingCoordinator, RegimeClassifier
 from invest.router.engine import MarketObservation
 
@@ -192,3 +194,119 @@ def test_routing_coordinator_supports_off_mode(tmp_path):
     assert decision.hold_current is True
     assert decision.selected_model == 'momentum'
     assert decision.decision_source == 'disabled'
+
+
+def test_routing_coordinator_holds_current_when_no_qualified_candidates(tmp_path, monkeypatch):
+    coordinator = ModelRoutingCoordinator(cooldown_cycles=2, hysteresis_margin=0.01, min_confidence=0.5)
+    monkeypatch.setattr(
+        coordinator.observer,
+        'observe',
+        lambda *args, **kwargs: MarketObservation(
+            as_of_date='20260310',
+            stats={'avg_change_20d': 0.4, 'above_ma20_ratio': 0.5, 'market_breadth': 0.48, 'avg_volatility': 0.018},
+        ),
+    )
+    monkeypatch.setattr(
+        coordinator.classifier,
+        'classify',
+        lambda *args, **kwargs: {'regime': 'oscillation', 'confidence': 0.78, 'reasoning': '震荡市', 'suggested_exposure': 0.45, 'source': 'rule', 'rule_result': {}, 'agent_result': {}},
+    )
+    leaderboard_path = _write_leaderboard(
+        tmp_path,
+        {
+            'generated_at': '2026-03-10T00:00:00',
+            'entries': [
+                {
+                    'model_name': 'mean_reversion',
+                    'config_name': 'mean_reversion_v1',
+                    'score': -4.0,
+                    'avg_return_pct': -1.0,
+                    'avg_sharpe_ratio': 0.3,
+                    'avg_max_drawdown': 18.0,
+                    'benchmark_pass_rate': 0.0,
+                    'avg_strategy_score': 0.2,
+                    'rank': 0,
+                    'eligible_for_routing': False,
+                    'deployment_stage': 'candidate',
+                    'ineligible_reason': 'quality_gate:block_negative_score',
+                },
+            ],
+            'regime_leaderboards': {},
+        },
+    )
+
+    decision = coordinator.route(
+        stock_data={},
+        cutoff_date='20260310',
+        current_model='momentum',
+        leaderboard_path=leaderboard_path,
+        allocator_top_n=3,
+        allowed_models=['momentum', 'mean_reversion'],
+        routing_mode='rule',
+    )
+
+    assert decision.hold_current is True
+    assert decision.hold_reason == 'no_qualified_routing_candidates'
+    assert decision.selected_model == 'momentum'
+    assert decision.evidence['allocator_quality']['qualified_candidate_count'] == 0
+    assert '没有通过质量门的正式候选' in decision.reasoning
+
+
+def test_routing_coordinator_blocks_switch_when_candidate_has_style_mismatch(tmp_path, monkeypatch):
+    coordinator = ModelRoutingCoordinator(cooldown_cycles=0, hysteresis_margin=0.01, min_confidence=0.5)
+    monkeypatch.setattr(
+        coordinator.observer,
+        'observe',
+        lambda *args, **kwargs: MarketObservation(
+            as_of_date='20260310',
+            stats={'avg_change_20d': 4.2, 'above_ma20_ratio': 0.66, 'market_breadth': 0.63, 'avg_volatility': 0.016},
+        ),
+    )
+    monkeypatch.setattr(
+        coordinator.classifier,
+        'classify',
+        lambda *args, **kwargs: {'regime': 'bull', 'confidence': 0.85, 'reasoning': '趋势增强', 'suggested_exposure': 0.8, 'source': 'rule', 'rule_result': {}, 'agent_result': {}},
+    )
+    monkeypatch.setattr(
+        routing_engine,
+        'build_allocation_plan',
+        lambda *args, **kwargs: AllocationPlan(
+            as_of_date='20260310',
+            regime='bull',
+            active_models=['defensive_low_vol'],
+            model_weights={'defensive_low_vol': 1.0},
+            selected_configs={'defensive_low_vol': 'defensive_low_vol_v1'},
+            cash_reserve=0.3,
+            confidence=0.82,
+            reasoning='错误地把防御模型排到了牛市第一。',
+            metadata={
+                'qualified_candidate_count': 1,
+                'failed_quality_entries': [],
+                'top_candidates': [
+                    {
+                        'model_name': 'defensive_low_vol',
+                        'regime_compatibility': 0.35,
+                        'regime_score': 18.0,
+                    }
+                ],
+            },
+        ),
+    )
+
+    decision = coordinator.route(
+        stock_data={},
+        cutoff_date='20260310',
+        current_model='momentum',
+        leaderboard_path=_leaderboard_path(tmp_path),
+        allocator_top_n=3,
+        allowed_models=['momentum', 'defensive_low_vol'],
+        routing_mode='rule',
+    )
+
+    assert decision.hold_current is True
+    assert decision.hold_reason == 'regime_style_mismatch'
+    assert decision.selected_model == 'momentum'
+    assert any(
+        item['name'] == 'regime_compatibility' and item['passed'] is False
+        for item in decision.guardrail_checks
+    )

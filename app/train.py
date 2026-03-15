@@ -28,11 +28,16 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
+from uuid import uuid4
 
 from config import OUTPUT_DIR, PROJECT_ROOT, RUNTIME_DIR, config
 from config.services import EvolutionConfigService, RuntimePathConfigService
 from config.control_plane import build_component_llm_caller, resolve_default_llm
 from invest.shared.tracking import AgentTracker
+from invest.shared.model_governance import (
+    evaluate_optimization_event_contract,
+    resolve_model_governance_matrix,
+)
 from market_data import DataManager, DataSourceUnavailableError, MarketDataRepository, MockDataProvider
 from invest.evolution import LLMOptimizer, StrategyEvolutionOptimizer, EvolutionEngine, YamlConfigMutator
 from invest.foundation.metrics.benchmark import BenchmarkEvaluator
@@ -219,21 +224,31 @@ class TrainingResult:
 class OptimizationEvent:
     trigger: str
     stage: str
+    cycle_id: int | None = None
     status: str = "ok"
     suggestions: List[str] = field(default_factory=list)
     decision: Dict[str, Any] = field(default_factory=dict)
     applied_change: Dict[str, Any] = field(default_factory=dict)
+    lineage: Dict[str, Any] = field(default_factory=dict)
+    evidence: Dict[str, Any] = field(default_factory=dict)
     notes: str = ""
+    event_id: str = field(default_factory=lambda: f"opt_{uuid4().hex[:12]}")
+    contract_version: str = field(default_factory=lambda: str(resolve_model_governance_matrix().get("optimization", {}).get("contract_version", "optimization_event.v2")))
     ts: str = field(default_factory=lambda: datetime.now().isoformat())
 
     def to_dict(self) -> Dict[str, Any]:
         return {
+            "event_id": self.event_id,
+            "contract_version": self.contract_version,
+            "cycle_id": self.cycle_id,
             "trigger": self.trigger,
             "stage": self.stage,
             "status": self.status,
             "suggestions": list(self.suggestions),
             "decision": dict(self.decision),
             "applied_change": dict(self.applied_change),
+            "lineage": dict(self.lineage),
+            "evidence": dict(self.evidence),
             "notes": self.notes,
             "ts": self.ts,
         }
@@ -305,6 +320,7 @@ class SelfLearningController:
         self.execution_policy: Dict[str, Any] = {}
         self.train_policy: Dict[str, Any] = {}
         self.freeze_gate_policy: Dict[str, Any] = {}
+        self.promotion_gate_policy: Dict[str, Any] = {}
         self.risk_policy: Dict[str, Any] = {}
         self.evaluation_policy: Dict[str, Any] = {}
         self.review_policy: Dict[str, Any] = {}
@@ -312,6 +328,7 @@ class SelfLearningController:
         self.requested_data_mode = getattr(self.data_manager, "requested_mode", "live")
         self.current_params: Dict[str, Any] = {}
         self.auto_apply_mutation = False
+        self.quality_gate_matrix: Dict[str, Any] = resolve_model_governance_matrix()
 
     def _initialize_llm_runtime(self) -> Callable[..., Any]:
         self._default_fast_llm = resolve_default_llm("fast")
@@ -1057,9 +1074,22 @@ class SelfLearningController:
 
     def _append_optimization_event(self, event: OptimizationEvent) -> None:
         self.optimization_events_history.append(event)
+        payload = event.to_dict()
+        contract = evaluate_optimization_event_contract(
+            payload,
+            policy=dict((self.quality_gate_matrix or {}).get("optimization") or {}),
+        )
+        payload["contract_check"] = contract
+        if not contract.get("passed", False):
+            logger.warning(
+                "Optimization event contract check failed for cycle=%s stage=%s: %s",
+                payload.get("cycle_id"),
+                payload.get("stage"),
+                [item.get("name") for item in contract.get("failed_checks", [])],
+            )
         path = self.output_dir / "optimization_events.jsonl"
         with open(path, "a", encoding="utf-8") as f:
-            f.write(json.dumps(event.to_dict(), ensure_ascii=False) + "\n")
+            f.write(json.dumps(payload, ensure_ascii=False) + "\n")
 
     def run_continuous(self, max_cycles: int = 100) -> Dict:
         """

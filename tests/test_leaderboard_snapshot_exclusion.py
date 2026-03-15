@@ -1,7 +1,7 @@
 from pathlib import Path
 import json
 
-from invest.leaderboard.engine import collect_cycle_records
+from invest.leaderboard.engine import collect_cycle_records, write_leaderboard
 
 
 def test_collect_cycle_records_excludes_config_snapshots(tmp_path: Path):
@@ -29,3 +29,39 @@ def test_collect_cycle_records_excludes_nested_config_snapshot_directory(tmp_pat
 
     assert len(records) == 1
     assert records[0]['config_name'] == 'momentum_v1'
+
+
+def test_write_leaderboard_excludes_state_snapshots_directory(tmp_path: Path):
+    snapshot_dir = tmp_path / 'state' / 'snapshots'
+    snapshot_dir.mkdir(parents=True, exist_ok=True)
+    for cycle_id in range(1, 4):
+        (snapshot_dir / f'cycle_{cycle_id:04d}.json').write_text(
+            json.dumps({'position_size_pct': 0.2, 'investment_model': 'momentum'}),
+            encoding='utf-8',
+        )
+
+    run_dir = tmp_path / 'output'
+    run_dir.mkdir(parents=True, exist_ok=True)
+    for cycle_id in range(1, 4):
+        (run_dir / f'cycle_{cycle_id}.json').write_text(
+            json.dumps(
+                {
+                    'cycle_id': cycle_id,
+                    'model_name': 'momentum',
+                    'config_name': 'momentum_v1',
+                    'params': {},
+                    'self_assessment': {'regime': 'bull', 'sharpe_ratio': 1.0, 'max_drawdown': 2.0},
+                    'return_pct': 1.0,
+                    'is_profit': True,
+                    'benchmark_passed': True,
+                }
+            ),
+            encoding='utf-8',
+        )
+
+    leaderboard = write_leaderboard(tmp_path)
+
+    assert leaderboard['total_records'] == 3
+    assert leaderboard['total_models'] == 1
+    assert leaderboard['eligible_models'] == 1
+    assert [entry['model_name'] for entry in leaderboard['entries']] == ['momentum']

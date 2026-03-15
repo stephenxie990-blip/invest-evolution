@@ -1,0 +1,321 @@
+{
+  "cycle": 16,
+  "timestamp": "2026-03-15T14:11:03.956570",
+  "type": "selection",
+  "regime": "bear",
+  "confidence": 0.698852875,
+  "hunters": [
+    {
+      "name": "trend_hunter",
+      "label": "TrendHunterAgent",
+      "result": {
+        "picks": [
+          {
+            "code": "sh.600006",
+            "score": 0.71315,
+            "reasoning": ""
+          },
+          {
+            "code": "sh.600053",
+            "score": 0.48661999999999994,
+            "reasoning": ""
+          },
+          {
+            "code": "sh.600033",
+            "score": 0.43628,
+            "reasoning": ""
+          },
+          {
+            "code": "sh.600051",
+            "score": 0.40271999999999997,
+            "reasoning": ""
+          }
+        ],
+        "confidence": 0.61,
+        "overall_view": "",
+        "contract_status": "validated"
+      },
+      "success": true,
+      "observability": {
+        "status": "completed",
+        "duration_ms": 17998.713,
+        "picks_count": 4,
+        "confidence": 0.61,
+        "cost": 1.0,
+        "role": "primary_trend",
+        "llm": {
+          "mode": "live",
+          "model": "openai/MiniMax-M2.5",
+          "call_count": 1,
+          "input_tokens": 553,
+          "output_tokens": 826,
+          "total_time_ms": 17998.495
+        }
+      }
+    },
+    {
+      "name": "quality_agent",
+      "label": "QualityAgent",
+      "result": {
+        "picks": [
+          {
+            "code": "sh.600033",
+            "score": 0.82,
+            "reasoning": "熊市环境下更偏好估值压力较小、位置偏低且技术面有改善迹象的标的。该股近5日和20日分别为-0.7%和-1.5%，回撤相对温和，RSI 46处于中性偏低区间，布林位置0.20显示股价处于区间下沿附近，MACD转为看多，具备一定防御性和修复空间；量比0.7说明交易不过热，更符合价值质量风格中的稳健特征。"
+          },
+          {
+            "code": "sh.600020",
+            "score": 0.78,
+            "reasoning": "该股20日跌幅-4.4%，短期承压但并未出现明显放量杀跌，量比0.7体现情绪较冷静。RSI 44、布林位置0.23均表明当前位置偏低，MACD看多意味着下跌动能可能减弱。在熊市中，这类低位、不过热、具备企稳修复信号的标的，更符合估值合理与稳健防守的筛选思路。"
+          },
+          {
+            "code": "sh.600051",
+            "score": 0.74,
+            "reasoning": "该股近20日-2.4%，弱于强势股但回撤仍属可控，RSI 54处于中性区，MACD看多，说明趋势有边际修复。布林位置0.20显示价格接近下沿，量比0.6表明资金博弈不激烈，适合在熊市中作为偏稳健、等待价值回归的候选。相较高位强势股，其追高风险更低。"
+          }
+        ],
+        "confidence": 0.79,
+        "overall_view": "当前为熊市，应优先选择位置偏低、不过热、回撤可控且技术面出现边际改善的标的，避免追逐已处于布林高位、RSI偏高的强势股。从候选中看，sh.600033、sh.600020、sh.600051更符合价值质量风格下的防守与修复平衡；而sh.600006虽趋势最强，但RSI 68且布林位置0.79，熊市中性价比与安全边际相对不足。"
+      },
+      "success": true,
+      "observability": {
+        "status": "completed",
+        "duration_ms": 11072.652,
+        "picks_count": 3,
+        "confidence": 0.79,
+        "cost": 0.8,
+        "role": "quality_filter",
+        "llm": {
+          "mode": "live",
+          "model": "gpt-5.4",
+          "call_count": 1,
+          "input_tokens": 419,
+          "output_tokens": 529,
+          "total_time_ms": 11072.345
+        }
+      }
+    }
+  ],
+  "selected": [
+    "sh.600033",
+    "sh.600051",
+    "sh.600020",
+    "sh.600006"
+  ],
+  "selected_meta": [
+    {
+      "code": "sh.600033",
+      "score": 0.914,
+      "source": "quality_agent",
+      "sources": [
+        "trend_hunter",
+        "quality_agent"
+      ],
+      "trailing_pct": null,
+      "reasoning": "熊市环境下更偏好估值压力较小、位置偏低且技术面有改善迹象的标的。该股近5日和20日分别为-0.7%和-1.5%，回撤相对温和，RSI 46处于中性偏低区间，布林位置0.20显示股价处于区间下沿附近，MACD转为看多，具备一定防御性和修复空间；量比0.7说明交易不过热，更符合价值质量风格中的稳健特征。"
+    },
+    {
+      "code": "sh.600051",
+      "score": 0.83,
+      "source": "quality_agent",
+      "sources": [
+        "trend_hunter",
+        "quality_agent"
+      ],
+      "trailing_pct": null,
+      "reasoning": "该股近20日-2.4%，弱于强势股但回撤仍属可控，RSI 54处于中性区，MACD看多，说明趋势有边际修复。布林位置0.20显示价格接近下沿，量比0.6表明资金博弈不激烈，适合在熊市中作为偏稳健、等待价值回归的候选。相较高位强势股，其追高风险更低。"
+    },
+    {
+      "code": "sh.600020",
+      "score": 0.616,
+      "source": "quality_agent",
+      "sources": [
+        "quality_agent"
+      ],
+      "trailing_pct": null,
+      "reasoning": "该股20日跌幅-4.4%，短期承压但并未出现明显放量杀跌，量比0.7体现情绪较冷静。RSI 44、布林位置0.23均表明当前位置偏低，MACD看多意味着下跌动能可能减弱。在熊市中，这类低位、不过热、具备企稳修复信号的标的，更符合估值合理与稳健防守的筛选思路。"
+    },
+    {
+      "code": "sh.600006",
+      "score": 0.435,
+      "source": "trend_hunter",
+      "sources": [
+        "trend_hunter"
+      ],
+      "trailing_pct": 0.1,
+      "reasoning": ""
+    }
+  ],
+  "selected_roster": [
+    {
+      "name": "trend_hunter",
+      "label": "TrendHunterAgent",
+      "cost": 1.0,
+      "role": "primary_trend"
+    },
+    {
+      "name": "quality_agent",
+      "label": "QualityAgent",
+      "cost": 0.8,
+      "role": "quality_filter"
+    }
+  ],
+  "candidate_roster": [
+    {
+      "name": "trend_hunter",
+      "label": "TrendHunterAgent",
+      "cost": 1.0,
+      "role": "primary_trend"
+    },
+    {
+      "name": "quality_agent",
+      "label": "QualityAgent",
+      "cost": 0.8,
+      "role": "quality_filter"
+    },
+    {
+      "name": "defensive_agent",
+      "label": "DefensiveAgent",
+      "cost": 0.65,
+      "role": "risk_sentinel"
+    }
+  ],
+  "budget_policy": {
+    "regime": "bear",
+    "model_name": "momentum",
+    "target_hunters": 2,
+    "selected_hunters": 2,
+    "budget_limit": 2.15,
+    "budget_used": 1.8
+  },
+  "observability": {
+    "timings_ms": {
+      "total": 44504.927,
+      "agents": 17999.291,
+      "debate": 26505.548,
+      "aggregation": 0.088
+    },
+    "budget": {
+      "regime": "bear",
+      "model_name": "momentum",
+      "target_hunters": 2,
+      "selected_hunters": 2,
+      "budget_limit": 2.15,
+      "budget_used": 1.8
+    },
+    "llm": {
+      "used": true,
+      "mode": "live",
+      "model": "gpt-5.4,openai/MiniMax-M2.5",
+      "call_count": 17,
+      "input_tokens": 6076,
+      "output_tokens": 4477,
+      "total_time_ms": 132016.556
+    },
+    "agents": [
+      {
+        "name": "trend_hunter",
+        "label": "TrendHunterAgent",
+        "status": "completed",
+        "duration_ms": 17998.713,
+        "picks_count": 4,
+        "confidence": 0.61,
+        "cost": 1.0,
+        "role": "primary_trend",
+        "llm": {
+          "mode": "live",
+          "model": "openai/MiniMax-M2.5",
+          "call_count": 1,
+          "input_tokens": 553,
+          "output_tokens": 826,
+          "total_time_ms": 17998.495
+        }
+      },
+      {
+        "name": "quality_agent",
+        "label": "QualityAgent",
+        "status": "completed",
+        "duration_ms": 11072.652,
+        "picks_count": 3,
+        "confidence": 0.79,
+        "cost": 0.8,
+        "role": "quality_filter",
+        "llm": {
+          "mode": "live",
+          "model": "gpt-5.4",
+          "call_count": 1,
+          "input_tokens": 419,
+          "output_tokens": 529,
+          "total_time_ms": 11072.345
+        }
+      }
+    ],
+    "debate": {
+      "enabled": true,
+      "count": 5,
+      "verdict_breakdown": {
+        "buy": 0,
+        "hold": 5,
+        "avoid": 0
+      },
+      "items": [
+        {
+          "code": "sh.600006",
+          "verdict": "hold",
+          "confidence": 0.63,
+          "bull_summary": "短线技术面偏强，5日上涨2.9%，MACD看多、均线多头、RSI 68未极端过热，布林位置0.79显示仍处强势区间；在熊市中逆势走强，体现相对强度。",
+          "bear_summary": "空方未提供实质性反驳；主要潜在风险是整体市场处于熊市，技术强势持续性可能受大盘拖累，追高性价比一般。",
+          "reasoning": "多方证据集中于短线技术强势，但缺少基本面与量能验证；叠加熊市环境，仅凭技术信号不足以激进做多，宜持有观察。",
+          "source": "debate_llm",
+          "duration_ms": 15949.979
+        },
+        {
+          "code": "sh.600053",
+          "verdict": "hold",
+          "confidence": 0.64,
+          "bull_summary": "MACD看多、均线交叉，RSI 51显示动能改善；布林位置0.16接近下轨，估值与位置不拥挤；近5日仅跌1%，熊市中相对抗跌。",
+          "bear_summary": "缺乏明确空方实质论据，但整体市场处于bear且置信度仅50%，建议仓位30%，说明系统性风险仍高，技术信号可靠性受限。",
+          "reasoning": "个股技术面偏修复且相对抗跌，但处于弱市环境，缺少基本面催化与空方反证验证，宜观望而非激进买入。",
+          "source": "debate_llm",
+          "duration_ms": 16494.646
+        },
+        {
+          "code": "sh.600033",
+          "verdict": "hold",
+          "confidence": 0.67,
+          "bull_summary": "MACD看多、均线交叉，RSI 46不过热，布林位置0.20接近下沿，5日仅跌0.7%显示一定抗跌性，存在低位修复与技术反弹机会。",
+          "bear_summary": "未提供实质性空方论据；但市场处于bear且建议仓位仅30%，系统性风险仍高，技术改善尚不足以抵消环境压制。",
+          "reasoning": "多方技术信号偏积极，但缺少基本面与空方验证；在熊市背景下更适合观望而非激进买入，等待趋势进一步确认。",
+          "source": "debate_llm",
+          "duration_ms": 18822.065
+        },
+        {
+          "code": "sh.600051",
+          "verdict": "hold",
+          "confidence": 0.67,
+          "bull_summary": "MACD转多、均线交叉，RSI 54略强于中性；近5日仅跌1.1%显示一定抗跌性，布林位置0.20靠近下轨，存在超跌修复与低仓位博弈机会。",
+          "bear_summary": "熊市环境削弱技术信号有效性，RSI优势不强，MACD与均线金叉易失真；靠近布林下轨也可能意味着弱势未止，下行风险仍需警惕。",
+          "reasoning": "多头有修复逻辑，但证据主要来自弱质量技术信号；在熊市且市场仅建议30%仓位下，更适合观望或轻仓持有，不宜激进买入。",
+          "source": "debate_llm",
+          "duration_ms": 25177.364
+        },
+        {
+          "code": "sh.600020",
+          "verdict": "hold",
+          "confidence": 0.63,
+          "bull_summary": "低价具博弈弹性，MACD转多、均线交叉，布林位置偏低显示下行或有限；5日仅跌0.6%、RSI 44，技术修复与短线反弹空间存在。",
+          "bear_summary": "空方未提供实质论据；但整体处于熊市且仅有技术信号，缺乏基本面与成交量验证，反弹持续性存疑。",
+          "reasoning": "多方依据集中于短线技术改善，具一定交易价值；但熊市环境胜率受限，且缺少基本面支持。综合风险收益，宜轻仓观察而非积极买入。",
+          "source": "debate_llm",
+          "duration_ms": 26502.402
+        }
+      ]
+    }
+  },
+  "source": "llm",
+  "meeting_id": 32,
+  "cutoff_date": "20201023",
+  "model_name": "momentum",
+  "config_name": "momentum_v1",
+  "agent_context_summary": "当前市场大致处于 bear 状态。 市场广度 25%，近20日平均涨跌幅 -4.92%，站上MA20比例 19%。 风险提示：市场广度偏弱，追高风险较大；强势股占比不高，注意趋势延续性"
+}

@@ -1,6 +1,17 @@
 # 训练流程说明（当前实现）
 
+> 这条链路不是单次回测脚本，而是一个带实验协议、运行上下文、晋级纪律和治理门控的训练闭环。  
+> 当前训练输出的重点，不只是收益结果，还包括 `experiment_spec`、`run_context`、`promotion_record`、`lineage_record` 和各类审计工件。
+
 本文只描述当前代码真实执行的训练流程，对应实现为 `app/train.py` 中的 `SelfLearningController`。
+
+## 0. 训练周期里的核心治理对象
+
+- `experiment_spec`：定义一轮实验的协议边界，包括数据范围、模型范围、优化策略与 guardrails。
+- `run_context`：把本轮训练的激活配置、候选配置、runtime override、review basis、promotion decision 收到统一上下文。
+- `promotion_record`：记录本轮候选是否生成、是否待 gate、是否 auto-apply、当前 gate status。
+- `lineage_record`：记录 active / candidate / override 等 deployment stage 语义，回答“当前配置到底处于什么阶段”。
+- `quality_gate_matrix`：为 routing、promotion、freeze 等阶段提供共享治理标准。
 
 ## 1. 训练入口
 
@@ -179,7 +190,17 @@ sequenceDiagram
 - `YamlConfigMutator` 生成候选 YAML 配置
 - 记录到 `optimization_events.jsonl`
 
-### 3.11 配置快照与结果落盘
+### 3.11 候选、晋级与部署阶段纪律
+
+当前训练链路已经不再把“生成了一个新配置”和“已经接管 active 配置”混为一谈。一个成功周期结束后，系统会同时沉淀：
+
+- `run_context`：本轮训练看到的治理上下文
+- `promotion_record`：候选是否生成、是否 awaiting gate、是否被拒绝或自动应用
+- `lineage_record`：本轮配置在 `active / candidate / override` 中的真实部署阶段
+
+这条纪律的意义是：系统不仅知道“本轮做了什么优化”，还知道“这些优化现在到底只是候选、临时 override，还是已经成为正式 active 配置”。
+
+### 3.12 配置快照与结果落盘
 
 成功周期会生成：
 
@@ -210,6 +231,12 @@ sequenceDiagram
 - benchmark pass rate >= `benchmark_pass_rate_gte`
 
 默认参数由模型 YAML 的 `train.freeze_gate` 决定。
+
+除了 freeze gate，当前系统还引入了 promotion / routing 相关治理约束。它们共同决定：
+
+- 某个候选是否能进入正式路由集合
+- 某个 candidate 是否能晋级为 active
+- 当前系统是否应该“继续研究”而不是“继续放权”
 
 ## 6. Training Lab 工件
 

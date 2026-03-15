@@ -37,6 +37,7 @@ def test_build_lineage_record_tracks_candidate_pending_state():
     )
 
     assert record["lineage_status"] == "candidate_pending"
+    assert record["deployment_stage"] == "candidate"
     assert record["candidate_meta_ref"].endswith(".json")
     assert record["fitness_source_cycles"] == [2, 3, 4, 5]
     assert record["mutation_trigger"] == "consecutive_losses"
@@ -70,5 +71,55 @@ def test_build_promotion_record_tracks_auto_applied_candidate():
 
     assert record["status"] == "candidate_auto_applied"
     assert record["gate_status"] == "applied_to_active"
+    assert record["deployment_stage"] == "active"
     assert record["candidate_meta_ref"].endswith(".json")
     assert record["attempted"] is True
+
+
+def test_build_lineage_and_promotion_record_distinguish_override_stage():
+    controller = SimpleNamespace(model_name="momentum")
+    run_context = {
+        "active_config_ref": "configs/active.yaml",
+        "candidate_config_ref": "",
+        "runtime_overrides": {"position_size": 0.10},
+        "promotion_decision": {
+            "status": "not_evaluated",
+            "source": "review_meeting",
+            "reason": "review override pending promotion",
+            "applied_to_active": False,
+            "policy": {"max_override_cycles": 2},
+        },
+        "deployment_stage": "override",
+        "promotion_discipline": {
+            "deployment_stage": "override",
+            "status": "override_pending",
+            "override_streak": 1,
+            "runtime_override_keys": ["position_size"],
+        },
+    }
+    optimization_events = [
+        {
+            "trigger": "review_meeting",
+            "stage": "review_decision",
+            "notes": "review override pending promotion",
+            "applied_change": {"params": {"position_size": 0.10}},
+        }
+    ]
+
+    lineage = build_lineage_record(
+        controller,
+        cycle_id=8,
+        model_output=SimpleNamespace(model_name="momentum", config_name="configs/active.yaml"),
+        run_context=run_context,
+        optimization_events=optimization_events,
+    )
+    promotion = build_promotion_record(
+        cycle_id=8,
+        run_context=run_context,
+        optimization_events=optimization_events,
+    )
+
+    assert lineage["deployment_stage"] == "override"
+    assert lineage["lineage_status"] == "override_pending"
+    assert promotion["deployment_stage"] == "override"
+    assert promotion["gate_status"] == "override_pending"

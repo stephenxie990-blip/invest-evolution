@@ -1,0 +1,3005 @@
+{
+  "research_case_id": "case_17c11f003334cbac",
+  "created_at": "2026-03-15T13:36:28.310651",
+  "snapshot": {
+    "snapshot_id": "snapshot_04145ea5811bed60",
+    "as_of_date": "20250307",
+    "scope": "single_security",
+    "security": {
+      "code": "sh.600101",
+      "name": "明星电力",
+      "list_date": "19970627",
+      "delist_date": "",
+      "industry": "电力",
+      "is_st": 0,
+      "source": "baostock"
+    },
+    "universe": {
+      "size": 77,
+      "available_codes": [
+        "sh.600000",
+        "sh.600004",
+        "sh.600006",
+        "sh.600007",
+        "sh.600008",
+        "sh.600009",
+        "sh.600010",
+        "sh.600011",
+        "sh.600012",
+        "sh.600015",
+        "sh.600016",
+        "sh.600017",
+        "sh.600018",
+        "sh.600019",
+        "sh.600020",
+        "sh.600021",
+        "sh.600022",
+        "sh.600023",
+        "sh.600026",
+        "sh.600027",
+        "sh.600028",
+        "sh.600029",
+        "sh.600030",
+        "sh.600031",
+        "sh.600033",
+        "sh.600035",
+        "sh.600036",
+        "sh.600037",
+        "sh.600038",
+        "sh.600039",
+        "sh.600048",
+        "sh.600050",
+        "sh.600051",
+        "sh.600052",
+        "sh.600053",
+        "sh.600054",
+        "sh.600055",
+        "sh.600056",
+        "sh.600057",
+        "sh.600058",
+        "sh.600059",
+        "sh.600060",
+        "sh.600061",
+        "sh.600062",
+        "sh.600063",
+        "sh.600064",
+        "sh.600066",
+        "sh.600067",
+        "sh.600070",
+        "sh.600071",
+        "sh.600072",
+        "sh.600073",
+        "sh.600075",
+        "sh.600076",
+        "sh.600078",
+        "sh.600079",
+        "sh.600080",
+        "sh.600081",
+        "sh.600082",
+        "sh.600084",
+        "sh.600085",
+        "sh.600088",
+        "sh.600089",
+        "sh.600094",
+        "sh.600095",
+        "sh.600096",
+        "sh.600097",
+        "sh.600098",
+        "sh.600099",
+        "sh.600100",
+        "sh.600101",
+        "sh.600103",
+        "sh.600104",
+        "sh.600105",
+        "sh.600106",
+        "sh.600107",
+        "sh.600108"
+      ],
+      "summary_top5": [
+        {
+          "code": "sh.600105",
+          "close": 5.9,
+          "change_5d": 0.51,
+          "change_20d": 9.58,
+          "ma_trend": "多头",
+          "rsi": 59.6,
+          "macd": "看多",
+          "bb_pos": 0.73,
+          "vol_ratio": 1.59,
+          "volatility": 0.0397,
+          "algo_score": 0.529,
+          "model_relative_score": 0.529
+        },
+        {
+          "code": "sh.600067",
+          "close": 2.42,
+          "change_5d": 2.78,
+          "change_20d": -0.38,
+          "ma_trend": "多头",
+          "rsi": 53.7,
+          "macd": "看多",
+          "bb_pos": 0.61,
+          "vol_ratio": 1.96,
+          "volatility": 0.03,
+          "algo_score": 0.489,
+          "model_relative_score": 0.489
+        },
+        {
+          "code": "sh.600101",
+          "close": 8.97,
+          "change_5d": 1.0,
+          "change_20d": 3.17,
+          "ma_trend": "多头",
+          "rsi": 46.4,
+          "macd": "看多",
+          "bb_pos": 0.66,
+          "vol_ratio": 1.24,
+          "volatility": 0.0179,
+          "algo_score": 0.489,
+          "model_relative_score": 0.489
+        },
+        {
+          "code": "sh.600076",
+          "close": 2.21,
+          "change_5d": -0.45,
+          "change_20d": 5.74,
+          "ma_trend": "多头",
+          "rsi": 54.1,
+          "macd": "看多",
+          "bb_pos": 0.62,
+          "vol_ratio": 1.62,
+          "volatility": 0.0457,
+          "algo_score": 0.486,
+          "model_relative_score": 0.486
+        },
+        {
+          "code": "sh.600011",
+          "close": 6.42,
+          "change_5d": -1.33,
+          "change_20d": 3.42,
+          "ma_trend": "多头",
+          "rsi": 58.1,
+          "macd": "看多",
+          "bb_pos": 0.65,
+          "vol_ratio": 1.02,
+          "volatility": 0.01,
+          "algo_score": 0.456,
+          "model_relative_score": 0.456
+        }
+      ]
+    },
+    "market_context": {
+      "regime": "oscillation",
+      "cash_reserve": 0.6,
+      "model_name": "momentum",
+      "config_name": "momentum_v1",
+      "market_stats": {
+        "valid_stocks": 77,
+        "advance_ratio_5d": 0.5714,
+        "market_breadth": 0.5714,
+        "avg_change_5d": 0.4646,
+        "median_change_5d": 0.33,
+        "avg_change_20d": -0.4586,
+        "median_change_20d": -1.3514,
+        "avg_volatility": 0.01693,
+        "above_ma20_ratio": 0.3896,
+        "regime_hint": "oscillation"
+      },
+      "routing_context": {
+        "as_of_date": "20250307",
+        "current_model": "momentum",
+        "selected_model": "momentum",
+        "selected_config": "/Users/zhangsan/Desktop/投资进化系统v1.0/invest/models/configs/momentum_v1.yaml",
+        "regime": "oscillation",
+        "regime_confidence": 0.58,
+        "decision_confidence": 0.58,
+        "candidate_models": [
+          "momentum"
+        ],
+        "candidate_weights": {
+          "momentum": 1.0
+        },
+        "cash_reserve_hint": 0.2,
+        "decision_source": "rule_allocator",
+        "regime_source": "rule",
+        "switch_applied": false,
+        "hold_current": true,
+        "hold_reason": "no_qualified_routing_candidates",
+        "reasoning": "检测到 regime=oscillation，但因 no_qualified_routing_candidates 继续持有 momentum。市场特征分布接近震荡区间，维持均衡模型选择。 当前 regime=oscillation，榜单中没有通过质量门的正式候选，保持当前 active，不启用 provisional 候选；首个阻断原因为 quality_gate:block_negative_score。",
+        "evidence": {
+          "market_observation": {
+            "as_of_date": "20250307",
+            "stats": {
+              "valid_stocks": 77,
+              "advance_ratio_5d": 0.5714,
+              "market_breadth": 0.5714,
+              "avg_change_5d": 0.4646,
+              "median_change_5d": 0.33,
+              "avg_change_20d": -0.4586,
+              "median_change_20d": -1.3514,
+              "avg_volatility": 0.01693,
+              "above_ma20_ratio": 0.3896,
+              "regime_hint": "oscillation",
+              "index_change_20d": 1.3181,
+              "index_above_ma20": true,
+              "index_ma20_gap_pct": 0.4257,
+              "observation_source": "market_observer"
+            },
+            "evidence": {
+              "stock_universe_size": 77,
+              "valid_stocks": 77,
+              "index_metrics": {
+                "index_change_20d": 1.3181,
+                "index_above_ma20": true,
+                "index_ma20_gap_pct": 0.4257
+              }
+            }
+          },
+          "rule_result": {
+            "regime": "oscillation",
+            "confidence": 0.58,
+            "reasoning": "市场特征分布接近震荡区间，维持均衡模型选择。",
+            "suggested_exposure": 0.55,
+            "source": "rule"
+          },
+          "agent_result": {},
+          "allocator_quality": {
+            "qualified_candidate_count": 0,
+            "failed_quality_entries": [
+              {
+                "model_name": "momentum",
+                "ineligible_reason": "quality_gate:block_negative_score",
+                "deployment_stage": "candidate"
+              }
+            ]
+          }
+        },
+        "agent_advice": {},
+        "allocation_plan": {
+          "as_of_date": "20250307",
+          "regime": "oscillation",
+          "active_models": [],
+          "model_weights": {},
+          "selected_configs": {},
+          "cash_reserve": 0.2,
+          "confidence": 0.35,
+          "reasoning": "当前 regime=oscillation，榜单中没有通过质量门的正式候选，保持当前 active，不启用 provisional 候选；首个阻断原因为 quality_gate:block_negative_score。",
+          "metadata": {
+            "top_candidates": [],
+            "leaderboard_generated_at": "2026-03-15T13:35:35.999397",
+            "used_provisional_leaderboard": false,
+            "qualified_candidate_count": 0,
+            "failed_quality_entries": [
+              {
+                "model_name": "momentum",
+                "ineligible_reason": "quality_gate:block_negative_score",
+                "deployment_stage": "candidate"
+              }
+            ]
+          }
+        },
+        "guardrail_checks": [
+          {
+            "name": "qualified_candidates_available",
+            "passed": false,
+            "actual": 0,
+            "threshold": 1
+          },
+          {
+            "name": "min_confidence",
+            "passed": false,
+            "actual": 0.58,
+            "threshold": 0.6
+          },
+          {
+            "name": "hysteresis_margin",
+            "passed": true,
+            "actual": 0.0,
+            "threshold": 0.08
+          }
+        ],
+        "metadata": {
+          "routing_mode": "rule",
+          "allowed_models": [
+            "momentum",
+            "mean_reversion",
+            "value_quality",
+            "defensive_low_vol"
+          ],
+          "observation_version": "routing_v1",
+          "previous_decision": {
+            "as_of_date": "20210716",
+            "current_model": "momentum",
+            "selected_model": "momentum",
+            "selected_config": "/Users/zhangsan/Desktop/投资进化系统v1.0/invest/models/configs/momentum_v1.yaml",
+            "regime": "oscillation",
+            "regime_confidence": 0.58,
+            "decision_confidence": 0.58,
+            "candidate_models": [
+              "momentum"
+            ],
+            "candidate_weights": {
+              "momentum": 1.0
+            },
+            "cash_reserve_hint": 0.2,
+            "decision_source": "rule_allocator",
+            "regime_source": "rule",
+            "switch_applied": false,
+            "hold_current": true,
+            "hold_reason": "no_qualified_routing_candidates",
+            "reasoning": "检测到 regime=oscillation，但因 no_qualified_routing_candidates 继续持有 momentum。市场特征分布接近震荡区间，维持均衡模型选择。 当前 regime=oscillation，榜单中没有通过质量门的正式候选，保持当前 active，不启用 provisional 候选；首个阻断原因为 quality_gate:min_avg_return_pct。",
+            "evidence": {
+              "market_observation": {
+                "as_of_date": "20210716",
+                "stats": {
+                  "valid_stocks": 77,
+                  "advance_ratio_5d": 0.4675,
+                  "market_breadth": 0.4675,
+                  "avg_change_5d": 0.9811,
+                  "median_change_5d": -0.2512,
+                  "avg_change_20d": 3.1958,
+                  "median_change_20d": -0.5976,
+                  "avg_volatility": 0.017932,
+                  "above_ma20_ratio": 0.4156,
+                  "regime_hint": "oscillation",
+                  "index_change_20d": -0.1508,
+                  "index_above_ma20": false,
+                  "index_ma20_gap_pct": -0.884,
+                  "observation_source": "market_observer"
+                },
+                "evidence": {
+                  "stock_universe_size": 77,
+                  "valid_stocks": 77,
+                  "index_metrics": {
+                    "index_change_20d": -0.1508,
+                    "index_above_ma20": false,
+                    "index_ma20_gap_pct": -0.884
+                  }
+                }
+              },
+              "rule_result": {
+                "regime": "oscillation",
+                "confidence": 0.58,
+                "reasoning": "市场特征分布接近震荡区间，维持均衡模型选择。",
+                "suggested_exposure": 0.55,
+                "source": "rule"
+              },
+              "agent_result": {},
+              "allocator_quality": {
+                "qualified_candidate_count": 0,
+                "failed_quality_entries": [
+                  {
+                    "model_name": "momentum",
+                    "ineligible_reason": "quality_gate:min_avg_return_pct",
+                    "deployment_stage": "override"
+                  }
+                ]
+              }
+            },
+            "agent_advice": {},
+            "allocation_plan": {
+              "as_of_date": "20210716",
+              "regime": "oscillation",
+              "active_models": [],
+              "model_weights": {},
+              "selected_configs": {},
+              "cash_reserve": 0.2,
+              "confidence": 0.35,
+              "reasoning": "当前 regime=oscillation，榜单中没有通过质量门的正式候选，保持当前 active，不启用 provisional 候选；首个阻断原因为 quality_gate:min_avg_return_pct。",
+              "metadata": {
+                "top_candidates": [],
+                "leaderboard_generated_at": "2026-03-15T13:31:45.784350",
+                "used_provisional_leaderboard": false,
+                "qualified_candidate_count": 0,
+                "failed_quality_entries": [
+                  {
+                    "model_name": "momentum",
+                    "ineligible_reason": "quality_gate:min_avg_return_pct",
+                    "deployment_stage": "override"
+                  }
+                ]
+              }
+            },
+            "guardrail_checks": [
+              {
+                "name": "qualified_candidates_available",
+                "passed": false,
+                "actual": 0,
+                "threshold": 1
+              },
+              {
+                "name": "min_confidence",
+                "passed": false,
+                "actual": 0.58,
+                "threshold": 0.6
+              },
+              {
+                "name": "hysteresis_margin",
+                "passed": true,
+                "actual": 0.0,
+                "threshold": 0.08
+              }
+            ],
+            "metadata": {
+              "routing_mode": "rule",
+              "allowed_models": [
+                "momentum",
+                "mean_reversion",
+                "value_quality",
+                "defensive_low_vol"
+              ],
+              "observation_version": "routing_v1",
+              "previous_decision": {
+                "as_of_date": "20210625",
+                "current_model": "momentum",
+                "selected_model": "momentum",
+                "selected_config": "/Users/zhangsan/Desktop/投资进化系统v1.0/invest/models/configs/momentum_v1.yaml",
+                "regime": "oscillation",
+                "regime_confidence": 0.58,
+                "decision_confidence": 0.58,
+                "candidate_models": [
+                  "momentum"
+                ],
+                "candidate_weights": {
+                  "momentum": 1.0
+                },
+                "cash_reserve_hint": 0.2,
+                "decision_source": "rule_allocator",
+                "regime_source": "rule",
+                "switch_applied": false,
+                "hold_current": true,
+                "hold_reason": "no_qualified_routing_candidates",
+                "reasoning": "检测到 regime=oscillation，但因 no_qualified_routing_candidates 继续持有 momentum。市场特征分布接近震荡区间，维持均衡模型选择。 当前 regime=oscillation，榜单中没有通过质量门的正式候选，保持当前 active，不启用 provisional 候选；首个阻断原因为 quality_gate:min_avg_return_pct。",
+                "evidence": {
+                  "market_observation": {
+                    "as_of_date": "20210625",
+                    "stats": {
+                      "valid_stocks": 77,
+                      "advance_ratio_5d": 0.7532,
+                      "market_breadth": 0.7532,
+                      "avg_change_5d": 1.671,
+                      "median_change_5d": 1.0169,
+                      "avg_change_20d": 1.3406,
+                      "median_change_20d": 0.0,
+                      "avg_volatility": 0.017326,
+                      "above_ma20_ratio": 0.6104,
+                      "regime_hint": "oscillation",
+                      "index_change_20d": -1.8408,
+                      "index_above_ma20": true,
+                      "index_ma20_gap_pct": 0.5062,
+                      "observation_source": "market_observer"
+                    },
+                    "evidence": {
+                      "stock_universe_size": 77,
+                      "valid_stocks": 77,
+                      "index_metrics": {
+                        "index_change_20d": -1.8408,
+                        "index_above_ma20": true,
+                        "index_ma20_gap_pct": 0.5062
+                      }
+                    }
+                  },
+                  "rule_result": {
+                    "regime": "oscillation",
+                    "confidence": 0.58,
+                    "reasoning": "市场特征分布接近震荡区间，维持均衡模型选择。",
+                    "suggested_exposure": 0.55,
+                    "source": "rule"
+                  },
+                  "agent_result": {},
+                  "allocator_quality": {
+                    "qualified_candidate_count": 0,
+                    "failed_quality_entries": [
+                      {
+                        "model_name": "momentum",
+                        "ineligible_reason": "quality_gate:min_avg_return_pct",
+                        "deployment_stage": "candidate"
+                      }
+                    ]
+                  }
+                },
+                "agent_advice": {},
+                "allocation_plan": {
+                  "as_of_date": "20210625",
+                  "regime": "oscillation",
+                  "active_models": [],
+                  "model_weights": {},
+                  "selected_configs": {},
+                  "cash_reserve": 0.2,
+                  "confidence": 0.35,
+                  "reasoning": "当前 regime=oscillation，榜单中没有通过质量门的正式候选，保持当前 active，不启用 provisional 候选；首个阻断原因为 quality_gate:min_avg_return_pct。",
+                  "metadata": {
+                    "top_candidates": [],
+                    "leaderboard_generated_at": "2026-03-15T13:29:33.704516",
+                    "used_provisional_leaderboard": false,
+                    "qualified_candidate_count": 0,
+                    "failed_quality_entries": [
+                      {
+                        "model_name": "momentum",
+                        "ineligible_reason": "quality_gate:min_avg_return_pct",
+                        "deployment_stage": "candidate"
+                      }
+                    ]
+                  }
+                },
+                "guardrail_checks": [
+                  {
+                    "name": "qualified_candidates_available",
+                    "passed": false,
+                    "actual": 0,
+                    "threshold": 1
+                  },
+                  {
+                    "name": "min_confidence",
+                    "passed": false,
+                    "actual": 0.58,
+                    "threshold": 0.6
+                  },
+                  {
+                    "name": "hysteresis_margin",
+                    "passed": true,
+                    "actual": 0.0,
+                    "threshold": 0.08
+                  }
+                ],
+                "metadata": {
+                  "routing_mode": "rule",
+                  "allowed_models": [
+                    "momentum",
+                    "mean_reversion",
+                    "value_quality",
+                    "defensive_low_vol"
+                  ],
+                  "observation_version": "routing_v1",
+                  "previous_decision": {
+                    "as_of_date": "20240613",
+                    "current_model": "momentum",
+                    "selected_model": "momentum",
+                    "selected_config": "/Users/zhangsan/Desktop/投资进化系统v1.0/invest/models/configs/momentum_v1.yaml",
+                    "regime": "bear",
+                    "regime_confidence": 0.9,
+                    "decision_confidence": 0.9,
+                    "candidate_models": [
+                      "momentum"
+                    ],
+                    "candidate_weights": {
+                      "momentum": 1.0
+                    },
+                    "cash_reserve_hint": 0.3,
+                    "decision_source": "rule_allocator",
+                    "regime_source": "rule",
+                    "switch_applied": false,
+                    "hold_current": true,
+                    "hold_reason": "no_qualified_routing_candidates",
+                    "reasoning": "检测到 regime=bear，但因 no_qualified_routing_candidates 继续持有 momentum。市场回撤、广度与均线结构偏弱，防御模型更合适。 当前 regime=bear，榜单中没有通过质量门的正式候选，保持当前 active，不启用 provisional 候选；首个阻断原因为 min_cycles。",
+                    "evidence": {
+                      "market_observation": {
+                        "as_of_date": "20240613",
+                        "stats": {
+                          "valid_stocks": 77,
+                          "advance_ratio_5d": 0.3896,
+                          "market_breadth": 0.3896,
+                          "avg_change_5d": -0.2249,
+                          "median_change_5d": -0.3683,
+                          "avg_change_20d": -5.2479,
+                          "median_change_20d": -5.0756,
+                          "avg_volatility": 0.017686,
+                          "above_ma20_ratio": 0.1299,
+                          "regime_hint": "bear",
+                          "index_change_20d": -2.7558,
+                          "index_above_ma20": false,
+                          "index_ma20_gap_pct": -2.3564,
+                          "observation_source": "market_observer"
+                        },
+                        "evidence": {
+                          "stock_universe_size": 77,
+                          "valid_stocks": 77,
+                          "index_metrics": {
+                            "index_change_20d": -2.7558,
+                            "index_above_ma20": false,
+                            "index_ma20_gap_pct": -2.3564
+                          }
+                        }
+                      },
+                      "rule_result": {
+                        "regime": "bear",
+                        "confidence": 0.9,
+                        "reasoning": "市场回撤、广度与均线结构偏弱，防御模型更合适。",
+                        "suggested_exposure": 0.25,
+                        "source": "rule"
+                      },
+                      "agent_result": {},
+                      "allocator_quality": {
+                        "qualified_candidate_count": 0,
+                        "failed_quality_entries": [
+                          {
+                            "model_name": "momentum",
+                            "ineligible_reason": "min_cycles",
+                            "deployment_stage": "override"
+                          }
+                        ]
+                      }
+                    },
+                    "agent_advice": {},
+                    "allocation_plan": {
+                      "as_of_date": "20240613",
+                      "regime": "bear",
+                      "active_models": [],
+                      "model_weights": {},
+                      "selected_configs": {},
+                      "cash_reserve": 0.3,
+                      "confidence": 0.35,
+                      "reasoning": "当前 regime=bear，榜单中没有通过质量门的正式候选，保持当前 active，不启用 provisional 候选；首个阻断原因为 min_cycles。",
+                      "metadata": {
+                        "top_candidates": [],
+                        "leaderboard_generated_at": "2026-03-15T13:25:43.190554",
+                        "used_provisional_leaderboard": false,
+                        "qualified_candidate_count": 0,
+                        "failed_quality_entries": [
+                          {
+                            "model_name": "momentum",
+                            "ineligible_reason": "min_cycles",
+                            "deployment_stage": "override"
+                          }
+                        ]
+                      }
+                    },
+                    "guardrail_checks": [
+                      {
+                        "name": "qualified_candidates_available",
+                        "passed": false,
+                        "actual": 0,
+                        "threshold": 1
+                      },
+                      {
+                        "name": "min_confidence",
+                        "passed": true,
+                        "actual": 0.9,
+                        "threshold": 0.6
+                      },
+                      {
+                        "name": "hysteresis_margin",
+                        "passed": true,
+                        "actual": 0.0,
+                        "threshold": 0.08
+                      }
+                    ],
+                    "metadata": {
+                      "routing_mode": "rule",
+                      "allowed_models": [
+                        "momentum",
+                        "mean_reversion",
+                        "value_quality",
+                        "defensive_low_vol"
+                      ],
+                      "observation_version": "routing_v1",
+                      "previous_decision": {
+                        "as_of_date": "20190814",
+                        "current_model": "momentum",
+                        "selected_model": "momentum",
+                        "selected_config": "/Users/zhangsan/Desktop/投资进化系统v1.0/invest/models/configs/momentum_v1.yaml",
+                        "regime": "bear",
+                        "regime_confidence": 0.9,
+                        "decision_confidence": 0.9,
+                        "candidate_models": [
+                          "momentum"
+                        ],
+                        "candidate_weights": {
+                          "momentum": 1.0
+                        },
+                        "cash_reserve_hint": 0.3,
+                        "decision_source": "rule_allocator",
+                        "regime_source": "rule",
+                        "switch_applied": false,
+                        "hold_current": true,
+                        "hold_reason": "no_qualified_routing_candidates",
+                        "reasoning": "检测到 regime=bear，但因 no_qualified_routing_candidates 继续持有 momentum。市场回撤、广度与均线结构偏弱，防御模型更合适。 当前 regime=bear，榜单中没有通过质量门的正式候选，保持当前 active，不启用 provisional 候选；首个阻断原因为 min_cycles。",
+                        "evidence": {
+                          "market_observation": {
+                            "as_of_date": "20190814",
+                            "stats": {
+                              "valid_stocks": 77,
+                              "advance_ratio_5d": 0.4416,
+                              "market_breadth": 0.4416,
+                              "avg_change_5d": 0.3216,
+                              "median_change_5d": -0.1845,
+                              "avg_change_20d": -5.5601,
+                              "median_change_20d": -5.1037,
+                              "avg_volatility": 0.016362,
+                              "above_ma20_ratio": 0.1558,
+                              "regime_hint": "bear",
+                              "index_change_20d": -3.2128,
+                              "index_above_ma20": false,
+                              "index_ma20_gap_pct": -1.8965,
+                              "observation_source": "market_observer"
+                            },
+                            "evidence": {
+                              "stock_universe_size": 77,
+                              "valid_stocks": 77,
+                              "index_metrics": {
+                                "index_change_20d": -3.2128,
+                                "index_above_ma20": false,
+                                "index_ma20_gap_pct": -1.8965
+                              }
+                            }
+                          },
+                          "rule_result": {
+                            "regime": "bear",
+                            "confidence": 0.9,
+                            "reasoning": "市场回撤、广度与均线结构偏弱，防御模型更合适。",
+                            "suggested_exposure": 0.25,
+                            "source": "rule"
+                          },
+                          "agent_result": {},
+                          "allocator_quality": {
+                            "qualified_candidate_count": 0,
+                            "failed_quality_entries": [
+                              {
+                                "model_name": "momentum",
+                                "ineligible_reason": "min_cycles",
+                                "deployment_stage": "override"
+                              }
+                            ]
+                          }
+                        },
+                        "agent_advice": {},
+                        "allocation_plan": {
+                          "as_of_date": "20190814",
+                          "regime": "bear",
+                          "active_models": [],
+                          "model_weights": {},
+                          "selected_configs": {},
+                          "cash_reserve": 0.3,
+                          "confidence": 0.35,
+                          "reasoning": "当前 regime=bear，榜单中没有通过质量门的正式候选，保持当前 active，不启用 provisional 候选；首个阻断原因为 min_cycles。",
+                          "metadata": {
+                            "top_candidates": [],
+                            "leaderboard_generated_at": "2026-03-15T13:23:46.678231",
+                            "used_provisional_leaderboard": false,
+                            "qualified_candidate_count": 0,
+                            "failed_quality_entries": [
+                              {
+                                "model_name": "momentum",
+                                "ineligible_reason": "min_cycles",
+                                "deployment_stage": "override"
+                              }
+                            ]
+                          }
+                        },
+                        "guardrail_checks": [
+                          {
+                            "name": "qualified_candidates_available",
+                            "passed": false,
+                            "actual": 0,
+                            "threshold": 1
+                          },
+                          {
+                            "name": "min_confidence",
+                            "passed": true,
+                            "actual": 0.9,
+                            "threshold": 0.6
+                          },
+                          {
+                            "name": "hysteresis_margin",
+                            "passed": true,
+                            "actual": 0.0,
+                            "threshold": 0.08
+                          }
+                        ],
+                        "metadata": {
+                          "routing_mode": "rule",
+                          "allowed_models": [
+                            "momentum",
+                            "mean_reversion",
+                            "value_quality",
+                            "defensive_low_vol"
+                          ],
+                          "observation_version": "routing_v1",
+                          "previous_decision": {
+                            "as_of_date": "20190415",
+                            "current_model": "momentum",
+                            "selected_model": "momentum",
+                            "selected_config": "/Users/zhangsan/Desktop/投资进化系统v1.0/invest/models/configs/momentum_v1.yaml",
+                            "regime": "bull",
+                            "regime_confidence": 0.7414,
+                            "decision_confidence": 0.7414,
+                            "candidate_models": [
+                              "momentum"
+                            ],
+                            "candidate_weights": {
+                              "momentum": 1.0
+                            },
+                            "cash_reserve_hint": 0.1,
+                            "decision_source": "rule_allocator",
+                            "regime_source": "rule",
+                            "switch_applied": false,
+                            "hold_current": true,
+                            "hold_reason": "no_qualified_routing_candidates",
+                            "reasoning": "检测到 regime=bull，但因 no_qualified_routing_candidates 继续持有 momentum。市场涨幅、广度和均线占优，趋势延续特征更明显。 当前 regime=bull，榜单中没有通过质量门的正式候选，保持当前 active，不启用 provisional 候选；首个阻断原因为 no_qualified_routing_candidates。",
+                            "evidence": {
+                              "market_observation": {
+                                "as_of_date": "20190415",
+                                "stats": {
+                                  "valid_stocks": 77,
+                                  "advance_ratio_5d": 0.1948,
+                                  "market_breadth": 0.1948,
+                                  "avg_change_5d": -1.2026,
+                                  "median_change_5d": -2.6946,
+                                  "avg_change_20d": 4.66,
+                                  "median_change_20d": 1.1811,
+                                  "avg_volatility": 0.026868,
+                                  "above_ma20_ratio": 0.5714,
+                                  "regime_hint": "bull",
+                                  "index_change_20d": 6.1554,
+                                  "index_above_ma20": true,
+                                  "index_ma20_gap_pct": 1.69,
+                                  "observation_source": "market_observer"
+                                },
+                                "evidence": {
+                                  "stock_universe_size": 77,
+                                  "valid_stocks": 77,
+                                  "index_metrics": {
+                                    "index_change_20d": 6.1554,
+                                    "index_above_ma20": true,
+                                    "index_ma20_gap_pct": 1.69
+                                  }
+                                }
+                              },
+                              "rule_result": {
+                                "regime": "bull",
+                                "confidence": 0.7414,
+                                "reasoning": "市场涨幅、广度和均线占优，趋势延续特征更明显。",
+                                "suggested_exposure": 0.85,
+                                "source": "rule"
+                              },
+                              "agent_result": {},
+                              "allocator_quality": {
+                                "qualified_candidate_count": 0,
+                                "failed_quality_entries": []
+                              }
+                            },
+                            "agent_advice": {},
+                            "allocation_plan": {
+                              "as_of_date": "20190415",
+                              "regime": "bull",
+                              "active_models": [],
+                              "model_weights": {},
+                              "selected_configs": {},
+                              "cash_reserve": 0.1,
+                              "confidence": 0.35,
+                              "reasoning": "当前 regime=bull，榜单中没有通过质量门的正式候选，保持当前 active，不启用 provisional 候选；首个阻断原因为 no_qualified_routing_candidates。",
+                              "metadata": {
+                                "top_candidates": [],
+                                "leaderboard_generated_at": "2026-03-15T13:21:33.163879",
+                                "used_provisional_leaderboard": false,
+                                "qualified_candidate_count": 0,
+                                "failed_quality_entries": []
+                              }
+                            },
+                            "guardrail_checks": [
+                              {
+                                "name": "qualified_candidates_available",
+                                "passed": false,
+                                "actual": 0,
+                                "threshold": 1
+                              },
+                              {
+                                "name": "min_confidence",
+                                "passed": true,
+                                "actual": 0.7414,
+                                "threshold": 0.6
+                              },
+                              {
+                                "name": "hysteresis_margin",
+                                "passed": true,
+                                "actual": 0.0,
+                                "threshold": 0.08
+                              }
+                            ],
+                            "metadata": {
+                              "routing_mode": "rule",
+                              "allowed_models": [
+                                "momentum",
+                                "mean_reversion",
+                                "value_quality",
+                                "defensive_low_vol"
+                              ],
+                              "observation_version": "routing_v1",
+                              "previous_decision": {},
+                              "cooldown_exception": {
+                                "applied": false,
+                                "reason": "",
+                                "details": {}
+                              }
+                            }
+                          },
+                          "cooldown_exception": {
+                            "applied": false,
+                            "reason": "",
+                            "details": {}
+                          }
+                        }
+                      },
+                      "cooldown_exception": {
+                        "applied": false,
+                        "reason": "",
+                        "details": {}
+                      }
+                    }
+                  },
+                  "cooldown_exception": {
+                    "applied": false,
+                    "reason": "",
+                    "details": {}
+                  }
+                }
+              },
+              "cooldown_exception": {
+                "applied": false,
+                "reason": "",
+                "details": {}
+              }
+            }
+          },
+          "cooldown_exception": {
+            "applied": false,
+            "reason": "",
+            "details": {}
+          }
+        }
+      }
+    },
+    "cross_section_context": {
+      "selected_by_policy": true,
+      "rank": 3,
+      "percentile": 0.974,
+      "threshold_score": 0.456,
+      "threshold_gap": 0.033,
+      "threshold_gap_is_approximate": false,
+      "selected_count": 4,
+      "universe_size": 77,
+      "top_selected_codes": [
+        "sh.600105",
+        "sh.600067",
+        "sh.600101",
+        "sh.600076"
+      ]
+    },
+    "feature_snapshot": {
+      "summary": {
+        "code": "sh.600101",
+        "close": 8.97,
+        "change_5d": 1.0,
+        "change_20d": 3.17,
+        "ma_trend": "多头",
+        "rsi": 46.4,
+        "macd": "看多",
+        "bb_pos": 0.66,
+        "vol_ratio": 1.24,
+        "volatility": 0.0179,
+        "algo_score": 0.489,
+        "model_relative_score": 0.489
+      },
+      "signal": {
+        "code": "sh.600101",
+        "score": 0.489,
+        "rank": 3,
+        "direction": "long",
+        "weight_hint": 0.2,
+        "stop_loss_pct": 0.048,
+        "take_profit_pct": 0.08,
+        "trailing_pct": 0.039599999999999996,
+        "factor_values": {
+          "change_5d": 0.9988901220865598,
+          "change_20d": 3.1746031746031633,
+          "rsi": 46.4,
+          "bb_pos": 0.664567,
+          "vol_ratio": 1.239063
+        },
+        "evidence": [
+          "algo_score=0.489",
+          "change_20d=+3.17%",
+          "MACD=看多"
+        ],
+        "metadata": {
+          "ma_trend": "多头",
+          "macd": "看多"
+        }
+      },
+      "evidence": [
+        "algo_score=0.489",
+        "change_20d=+3.17%",
+        "MACD=看多"
+      ],
+      "factor_values": {
+        "change_5d": 0.9988901220865598,
+        "change_20d": 3.1746031746031633,
+        "rsi": 46.4,
+        "bb_pos": 0.664567,
+        "vol_ratio": 1.239063
+      },
+      "metadata": {
+        "ma_trend": "多头",
+        "macd": "看多"
+      }
+    },
+    "data_lineage": {
+      "db_path": "/Users/zhangsan/Desktop/投资进化系统v1.0/data/stock_history.db",
+      "effective_as_of_date": "20250307",
+      "data_source": "training_cycle",
+      "stock_count": 77
+    },
+    "feature_version": "research.features.v1",
+    "readiness": {
+      "has_model_output": true,
+      "has_universe_summary": true,
+      "has_selected_signal": true,
+      "has_query_summary": true
+    },
+    "metadata": {
+      "query_code": "sh.600101",
+      "model_reasoning": "MomentumModel 根据 77 只候选提取动量信号，当前 regime=oscillation",
+      "agent_context_summary": "当前市场大致处于 oscillation 状态。 市场广度 57%，近20日平均涨跌幅 -0.46%，站上MA20比例 39%。 风险提示：强势股占比不高，注意趋势延续性"
+    }
+  },
+  "policy": {
+    "policy_id": "policy_2e8b8d77743cb3b7",
+    "model_name": "momentum",
+    "config_name": "momentum_v1",
+    "params": {
+      "candidate_pool_size": 100,
+      "top_n": 5,
+      "max_positions": 4,
+      "cash_reserve": 0.6,
+      "stop_loss_pct": 0.048,
+      "take_profit_pct": 0.08,
+      "trailing_pct": 0.039599999999999996,
+      "position_size": 0.15,
+      "ma_short": 5,
+      "ma_long": 26,
+      "rsi_period": 12,
+      "rsi_oversold": 27.992299676851594,
+      "rsi_overbought": 74.6007750951849,
+      "signal_threshold": 0.793,
+      "max_hold_days": 19
+    },
+    "risk_policy": {
+      "clamps": {
+        "stop_loss_pct": {
+          "min": 0.02,
+          "max": 0.15
+        },
+        "take_profit_pct": {
+          "min": 0.05,
+          "max": 0.5
+        },
+        "position_size": {
+          "min": 0.05,
+          "max": 0.3
+        }
+      },
+      "dynamic_stop": {
+        "atr_period": 14,
+        "stop_loss_atr_multiplier": 2.0,
+        "take_profit_atr_multiplier": 3.0,
+        "trailing_atr_multiplier": 1.5
+      },
+      "portfolio": {
+        "max_drawdown_to_reduce": 0.08,
+        "max_drawdown_to_close": 0.12,
+        "market_ma_period": 60,
+        "bull_threshold": 1.05,
+        "bear_threshold": 0.95,
+        "max_industry_pct": 0.3,
+        "max_correlation": 0.6
+      },
+      "emergency": {
+        "single_stock_crash_pct": -7.0,
+        "rapid_loss_pct": -5.0,
+        "rapid_loss_days": 3,
+        "crash_severity_divisor": 15.0,
+        "tighten_stop_severity_threshold": 0.6,
+        "rapid_loss_severity_divisor": 10.0,
+        "reduce_all_severity_threshold": 0.7,
+        "all_positions_red_severity": 0.5
+      }
+    },
+    "execution_policy": {
+      "initial_capital": 100000,
+      "commission_rate": 0.00025,
+      "stamp_tax_rate": 0.0005,
+      "slippage_rate": 0.002
+    },
+    "evaluation_policy": {
+      "weights": {
+        "signal_accuracy": 0.3,
+        "timing": 0.3,
+        "risk_control": 0.4
+      },
+      "defaults": {
+        "empty_signal_score": 0.5,
+        "empty_timing_score": 0.5,
+        "empty_risk_score": 0.5,
+        "risk_control_base_score": 0.3
+      },
+      "thresholds": {
+        "signal_accuracy_low": 0.4,
+        "timing_low": 0.4,
+        "risk_control_low": 0.4,
+        "win_rate_low": 0.4,
+        "win_rate_high": 0.6,
+        "high_trade_count": 20
+      }
+    },
+    "review_policy": {
+      "confidence": {
+        "default": 0.5
+      },
+      "param_clamps": {
+        "cash_reserve": {
+          "min": 0.0,
+          "max": 0.8
+        },
+        "trailing_pct": {
+          "min": 0.03,
+          "max": 0.2
+        }
+      },
+      "agent_weight": {
+        "min": 0.3,
+        "max": 2.0,
+        "default": 1.0,
+        "min_traded_count": 3,
+        "formula_base": 0.5
+      },
+      "fallback": {
+        "strategy": {
+          "win_rate_low": 0.4,
+          "avg_return_low": -3.0,
+          "confidence": 0.4
+        },
+        "evo": {
+          "win_rate_conservative": 0.35,
+          "win_rate_aggressive": 0.65,
+          "conservative_adjustments": {
+            "stop_loss_pct": 0.03,
+            "position_size": 0.15
+          },
+          "aggressive_adjustments": {
+            "position_size": 0.25
+          },
+          "confidence": 0.4
+        }
+      }
+    },
+    "agent_weights": {
+      "trend_hunter": 1.0,
+      "contrarian": 1.0
+    },
+    "routing_context": {
+      "as_of_date": "20250307",
+      "current_model": "momentum",
+      "selected_model": "momentum",
+      "selected_config": "/Users/zhangsan/Desktop/投资进化系统v1.0/invest/models/configs/momentum_v1.yaml",
+      "regime": "oscillation",
+      "regime_confidence": 0.58,
+      "decision_confidence": 0.58,
+      "candidate_models": [
+        "momentum"
+      ],
+      "candidate_weights": {
+        "momentum": 1.0
+      },
+      "cash_reserve_hint": 0.2,
+      "decision_source": "rule_allocator",
+      "regime_source": "rule",
+      "switch_applied": false,
+      "hold_current": true,
+      "hold_reason": "no_qualified_routing_candidates",
+      "reasoning": "检测到 regime=oscillation，但因 no_qualified_routing_candidates 继续持有 momentum。市场特征分布接近震荡区间，维持均衡模型选择。 当前 regime=oscillation，榜单中没有通过质量门的正式候选，保持当前 active，不启用 provisional 候选；首个阻断原因为 quality_gate:block_negative_score。",
+      "evidence": {
+        "market_observation": {
+          "as_of_date": "20250307",
+          "stats": {
+            "valid_stocks": 77,
+            "advance_ratio_5d": 0.5714,
+            "market_breadth": 0.5714,
+            "avg_change_5d": 0.4646,
+            "median_change_5d": 0.33,
+            "avg_change_20d": -0.4586,
+            "median_change_20d": -1.3514,
+            "avg_volatility": 0.01693,
+            "above_ma20_ratio": 0.3896,
+            "regime_hint": "oscillation",
+            "index_change_20d": 1.3181,
+            "index_above_ma20": true,
+            "index_ma20_gap_pct": 0.4257,
+            "observation_source": "market_observer"
+          },
+          "evidence": {
+            "stock_universe_size": 77,
+            "valid_stocks": 77,
+            "index_metrics": {
+              "index_change_20d": 1.3181,
+              "index_above_ma20": true,
+              "index_ma20_gap_pct": 0.4257
+            }
+          }
+        },
+        "rule_result": {
+          "regime": "oscillation",
+          "confidence": 0.58,
+          "reasoning": "市场特征分布接近震荡区间，维持均衡模型选择。",
+          "suggested_exposure": 0.55,
+          "source": "rule"
+        },
+        "agent_result": {},
+        "allocator_quality": {
+          "qualified_candidate_count": 0,
+          "failed_quality_entries": [
+            {
+              "model_name": "momentum",
+              "ineligible_reason": "quality_gate:block_negative_score",
+              "deployment_stage": "candidate"
+            }
+          ]
+        }
+      },
+      "agent_advice": {},
+      "allocation_plan": {
+        "as_of_date": "20250307",
+        "regime": "oscillation",
+        "active_models": [],
+        "model_weights": {},
+        "selected_configs": {},
+        "cash_reserve": 0.2,
+        "confidence": 0.35,
+        "reasoning": "当前 regime=oscillation，榜单中没有通过质量门的正式候选，保持当前 active，不启用 provisional 候选；首个阻断原因为 quality_gate:block_negative_score。",
+        "metadata": {
+          "top_candidates": [],
+          "leaderboard_generated_at": "2026-03-15T13:35:35.999397",
+          "used_provisional_leaderboard": false,
+          "qualified_candidate_count": 0,
+          "failed_quality_entries": [
+            {
+              "model_name": "momentum",
+              "ineligible_reason": "quality_gate:block_negative_score",
+              "deployment_stage": "candidate"
+            }
+          ]
+        }
+      },
+      "guardrail_checks": [
+        {
+          "name": "qualified_candidates_available",
+          "passed": false,
+          "actual": 0,
+          "threshold": 1
+        },
+        {
+          "name": "min_confidence",
+          "passed": false,
+          "actual": 0.58,
+          "threshold": 0.6
+        },
+        {
+          "name": "hysteresis_margin",
+          "passed": true,
+          "actual": 0.0,
+          "threshold": 0.08
+        }
+      ],
+      "metadata": {
+        "routing_mode": "rule",
+        "allowed_models": [
+          "momentum",
+          "mean_reversion",
+          "value_quality",
+          "defensive_low_vol"
+        ],
+        "observation_version": "routing_v1",
+        "previous_decision": {
+          "as_of_date": "20210716",
+          "current_model": "momentum",
+          "selected_model": "momentum",
+          "selected_config": "/Users/zhangsan/Desktop/投资进化系统v1.0/invest/models/configs/momentum_v1.yaml",
+          "regime": "oscillation",
+          "regime_confidence": 0.58,
+          "decision_confidence": 0.58,
+          "candidate_models": [
+            "momentum"
+          ],
+          "candidate_weights": {
+            "momentum": 1.0
+          },
+          "cash_reserve_hint": 0.2,
+          "decision_source": "rule_allocator",
+          "regime_source": "rule",
+          "switch_applied": false,
+          "hold_current": true,
+          "hold_reason": "no_qualified_routing_candidates",
+          "reasoning": "检测到 regime=oscillation，但因 no_qualified_routing_candidates 继续持有 momentum。市场特征分布接近震荡区间，维持均衡模型选择。 当前 regime=oscillation，榜单中没有通过质量门的正式候选，保持当前 active，不启用 provisional 候选；首个阻断原因为 quality_gate:min_avg_return_pct。",
+          "evidence": {
+            "market_observation": {
+              "as_of_date": "20210716",
+              "stats": {
+                "valid_stocks": 77,
+                "advance_ratio_5d": 0.4675,
+                "market_breadth": 0.4675,
+                "avg_change_5d": 0.9811,
+                "median_change_5d": -0.2512,
+                "avg_change_20d": 3.1958,
+                "median_change_20d": -0.5976,
+                "avg_volatility": 0.017932,
+                "above_ma20_ratio": 0.4156,
+                "regime_hint": "oscillation",
+                "index_change_20d": -0.1508,
+                "index_above_ma20": false,
+                "index_ma20_gap_pct": -0.884,
+                "observation_source": "market_observer"
+              },
+              "evidence": {
+                "stock_universe_size": 77,
+                "valid_stocks": 77,
+                "index_metrics": {
+                  "index_change_20d": -0.1508,
+                  "index_above_ma20": false,
+                  "index_ma20_gap_pct": -0.884
+                }
+              }
+            },
+            "rule_result": {
+              "regime": "oscillation",
+              "confidence": 0.58,
+              "reasoning": "市场特征分布接近震荡区间，维持均衡模型选择。",
+              "suggested_exposure": 0.55,
+              "source": "rule"
+            },
+            "agent_result": {},
+            "allocator_quality": {
+              "qualified_candidate_count": 0,
+              "failed_quality_entries": [
+                {
+                  "model_name": "momentum",
+                  "ineligible_reason": "quality_gate:min_avg_return_pct",
+                  "deployment_stage": "override"
+                }
+              ]
+            }
+          },
+          "agent_advice": {},
+          "allocation_plan": {
+            "as_of_date": "20210716",
+            "regime": "oscillation",
+            "active_models": [],
+            "model_weights": {},
+            "selected_configs": {},
+            "cash_reserve": 0.2,
+            "confidence": 0.35,
+            "reasoning": "当前 regime=oscillation，榜单中没有通过质量门的正式候选，保持当前 active，不启用 provisional 候选；首个阻断原因为 quality_gate:min_avg_return_pct。",
+            "metadata": {
+              "top_candidates": [],
+              "leaderboard_generated_at": "2026-03-15T13:31:45.784350",
+              "used_provisional_leaderboard": false,
+              "qualified_candidate_count": 0,
+              "failed_quality_entries": [
+                {
+                  "model_name": "momentum",
+                  "ineligible_reason": "quality_gate:min_avg_return_pct",
+                  "deployment_stage": "override"
+                }
+              ]
+            }
+          },
+          "guardrail_checks": [
+            {
+              "name": "qualified_candidates_available",
+              "passed": false,
+              "actual": 0,
+              "threshold": 1
+            },
+            {
+              "name": "min_confidence",
+              "passed": false,
+              "actual": 0.58,
+              "threshold": 0.6
+            },
+            {
+              "name": "hysteresis_margin",
+              "passed": true,
+              "actual": 0.0,
+              "threshold": 0.08
+            }
+          ],
+          "metadata": {
+            "routing_mode": "rule",
+            "allowed_models": [
+              "momentum",
+              "mean_reversion",
+              "value_quality",
+              "defensive_low_vol"
+            ],
+            "observation_version": "routing_v1",
+            "previous_decision": {
+              "as_of_date": "20210625",
+              "current_model": "momentum",
+              "selected_model": "momentum",
+              "selected_config": "/Users/zhangsan/Desktop/投资进化系统v1.0/invest/models/configs/momentum_v1.yaml",
+              "regime": "oscillation",
+              "regime_confidence": 0.58,
+              "decision_confidence": 0.58,
+              "candidate_models": [
+                "momentum"
+              ],
+              "candidate_weights": {
+                "momentum": 1.0
+              },
+              "cash_reserve_hint": 0.2,
+              "decision_source": "rule_allocator",
+              "regime_source": "rule",
+              "switch_applied": false,
+              "hold_current": true,
+              "hold_reason": "no_qualified_routing_candidates",
+              "reasoning": "检测到 regime=oscillation，但因 no_qualified_routing_candidates 继续持有 momentum。市场特征分布接近震荡区间，维持均衡模型选择。 当前 regime=oscillation，榜单中没有通过质量门的正式候选，保持当前 active，不启用 provisional 候选；首个阻断原因为 quality_gate:min_avg_return_pct。",
+              "evidence": {
+                "market_observation": {
+                  "as_of_date": "20210625",
+                  "stats": {
+                    "valid_stocks": 77,
+                    "advance_ratio_5d": 0.7532,
+                    "market_breadth": 0.7532,
+                    "avg_change_5d": 1.671,
+                    "median_change_5d": 1.0169,
+                    "avg_change_20d": 1.3406,
+                    "median_change_20d": 0.0,
+                    "avg_volatility": 0.017326,
+                    "above_ma20_ratio": 0.6104,
+                    "regime_hint": "oscillation",
+                    "index_change_20d": -1.8408,
+                    "index_above_ma20": true,
+                    "index_ma20_gap_pct": 0.5062,
+                    "observation_source": "market_observer"
+                  },
+                  "evidence": {
+                    "stock_universe_size": 77,
+                    "valid_stocks": 77,
+                    "index_metrics": {
+                      "index_change_20d": -1.8408,
+                      "index_above_ma20": true,
+                      "index_ma20_gap_pct": 0.5062
+                    }
+                  }
+                },
+                "rule_result": {
+                  "regime": "oscillation",
+                  "confidence": 0.58,
+                  "reasoning": "市场特征分布接近震荡区间，维持均衡模型选择。",
+                  "suggested_exposure": 0.55,
+                  "source": "rule"
+                },
+                "agent_result": {},
+                "allocator_quality": {
+                  "qualified_candidate_count": 0,
+                  "failed_quality_entries": [
+                    {
+                      "model_name": "momentum",
+                      "ineligible_reason": "quality_gate:min_avg_return_pct",
+                      "deployment_stage": "candidate"
+                    }
+                  ]
+                }
+              },
+              "agent_advice": {},
+              "allocation_plan": {
+                "as_of_date": "20210625",
+                "regime": "oscillation",
+                "active_models": [],
+                "model_weights": {},
+                "selected_configs": {},
+                "cash_reserve": 0.2,
+                "confidence": 0.35,
+                "reasoning": "当前 regime=oscillation，榜单中没有通过质量门的正式候选，保持当前 active，不启用 provisional 候选；首个阻断原因为 quality_gate:min_avg_return_pct。",
+                "metadata": {
+                  "top_candidates": [],
+                  "leaderboard_generated_at": "2026-03-15T13:29:33.704516",
+                  "used_provisional_leaderboard": false,
+                  "qualified_candidate_count": 0,
+                  "failed_quality_entries": [
+                    {
+                      "model_name": "momentum",
+                      "ineligible_reason": "quality_gate:min_avg_return_pct",
+                      "deployment_stage": "candidate"
+                    }
+                  ]
+                }
+              },
+              "guardrail_checks": [
+                {
+                  "name": "qualified_candidates_available",
+                  "passed": false,
+                  "actual": 0,
+                  "threshold": 1
+                },
+                {
+                  "name": "min_confidence",
+                  "passed": false,
+                  "actual": 0.58,
+                  "threshold": 0.6
+                },
+                {
+                  "name": "hysteresis_margin",
+                  "passed": true,
+                  "actual": 0.0,
+                  "threshold": 0.08
+                }
+              ],
+              "metadata": {
+                "routing_mode": "rule",
+                "allowed_models": [
+                  "momentum",
+                  "mean_reversion",
+                  "value_quality",
+                  "defensive_low_vol"
+                ],
+                "observation_version": "routing_v1",
+                "previous_decision": {
+                  "as_of_date": "20240613",
+                  "current_model": "momentum",
+                  "selected_model": "momentum",
+                  "selected_config": "/Users/zhangsan/Desktop/投资进化系统v1.0/invest/models/configs/momentum_v1.yaml",
+                  "regime": "bear",
+                  "regime_confidence": 0.9,
+                  "decision_confidence": 0.9,
+                  "candidate_models": [
+                    "momentum"
+                  ],
+                  "candidate_weights": {
+                    "momentum": 1.0
+                  },
+                  "cash_reserve_hint": 0.3,
+                  "decision_source": "rule_allocator",
+                  "regime_source": "rule",
+                  "switch_applied": false,
+                  "hold_current": true,
+                  "hold_reason": "no_qualified_routing_candidates",
+                  "reasoning": "检测到 regime=bear，但因 no_qualified_routing_candidates 继续持有 momentum。市场回撤、广度与均线结构偏弱，防御模型更合适。 当前 regime=bear，榜单中没有通过质量门的正式候选，保持当前 active，不启用 provisional 候选；首个阻断原因为 min_cycles。",
+                  "evidence": {
+                    "market_observation": {
+                      "as_of_date": "20240613",
+                      "stats": {
+                        "valid_stocks": 77,
+                        "advance_ratio_5d": 0.3896,
+                        "market_breadth": 0.3896,
+                        "avg_change_5d": -0.2249,
+                        "median_change_5d": -0.3683,
+                        "avg_change_20d": -5.2479,
+                        "median_change_20d": -5.0756,
+                        "avg_volatility": 0.017686,
+                        "above_ma20_ratio": 0.1299,
+                        "regime_hint": "bear",
+                        "index_change_20d": -2.7558,
+                        "index_above_ma20": false,
+                        "index_ma20_gap_pct": -2.3564,
+                        "observation_source": "market_observer"
+                      },
+                      "evidence": {
+                        "stock_universe_size": 77,
+                        "valid_stocks": 77,
+                        "index_metrics": {
+                          "index_change_20d": -2.7558,
+                          "index_above_ma20": false,
+                          "index_ma20_gap_pct": -2.3564
+                        }
+                      }
+                    },
+                    "rule_result": {
+                      "regime": "bear",
+                      "confidence": 0.9,
+                      "reasoning": "市场回撤、广度与均线结构偏弱，防御模型更合适。",
+                      "suggested_exposure": 0.25,
+                      "source": "rule"
+                    },
+                    "agent_result": {},
+                    "allocator_quality": {
+                      "qualified_candidate_count": 0,
+                      "failed_quality_entries": [
+                        {
+                          "model_name": "momentum",
+                          "ineligible_reason": "min_cycles",
+                          "deployment_stage": "override"
+                        }
+                      ]
+                    }
+                  },
+                  "agent_advice": {},
+                  "allocation_plan": {
+                    "as_of_date": "20240613",
+                    "regime": "bear",
+                    "active_models": [],
+                    "model_weights": {},
+                    "selected_configs": {},
+                    "cash_reserve": 0.3,
+                    "confidence": 0.35,
+                    "reasoning": "当前 regime=bear，榜单中没有通过质量门的正式候选，保持当前 active，不启用 provisional 候选；首个阻断原因为 min_cycles。",
+                    "metadata": {
+                      "top_candidates": [],
+                      "leaderboard_generated_at": "2026-03-15T13:25:43.190554",
+                      "used_provisional_leaderboard": false,
+                      "qualified_candidate_count": 0,
+                      "failed_quality_entries": [
+                        {
+                          "model_name": "momentum",
+                          "ineligible_reason": "min_cycles",
+                          "deployment_stage": "override"
+                        }
+                      ]
+                    }
+                  },
+                  "guardrail_checks": [
+                    {
+                      "name": "qualified_candidates_available",
+                      "passed": false,
+                      "actual": 0,
+                      "threshold": 1
+                    },
+                    {
+                      "name": "min_confidence",
+                      "passed": true,
+                      "actual": 0.9,
+                      "threshold": 0.6
+                    },
+                    {
+                      "name": "hysteresis_margin",
+                      "passed": true,
+                      "actual": 0.0,
+                      "threshold": 0.08
+                    }
+                  ],
+                  "metadata": {
+                    "routing_mode": "rule",
+                    "allowed_models": [
+                      "momentum",
+                      "mean_reversion",
+                      "value_quality",
+                      "defensive_low_vol"
+                    ],
+                    "observation_version": "routing_v1",
+                    "previous_decision": {
+                      "as_of_date": "20190814",
+                      "current_model": "momentum",
+                      "selected_model": "momentum",
+                      "selected_config": "/Users/zhangsan/Desktop/投资进化系统v1.0/invest/models/configs/momentum_v1.yaml",
+                      "regime": "bear",
+                      "regime_confidence": 0.9,
+                      "decision_confidence": 0.9,
+                      "candidate_models": [
+                        "momentum"
+                      ],
+                      "candidate_weights": {
+                        "momentum": 1.0
+                      },
+                      "cash_reserve_hint": 0.3,
+                      "decision_source": "rule_allocator",
+                      "regime_source": "rule",
+                      "switch_applied": false,
+                      "hold_current": true,
+                      "hold_reason": "no_qualified_routing_candidates",
+                      "reasoning": "检测到 regime=bear，但因 no_qualified_routing_candidates 继续持有 momentum。市场回撤、广度与均线结构偏弱，防御模型更合适。 当前 regime=bear，榜单中没有通过质量门的正式候选，保持当前 active，不启用 provisional 候选；首个阻断原因为 min_cycles。",
+                      "evidence": {
+                        "market_observation": {
+                          "as_of_date": "20190814",
+                          "stats": {
+                            "valid_stocks": 77,
+                            "advance_ratio_5d": 0.4416,
+                            "market_breadth": 0.4416,
+                            "avg_change_5d": 0.3216,
+                            "median_change_5d": -0.1845,
+                            "avg_change_20d": -5.5601,
+                            "median_change_20d": -5.1037,
+                            "avg_volatility": 0.016362,
+                            "above_ma20_ratio": 0.1558,
+                            "regime_hint": "bear",
+                            "index_change_20d": -3.2128,
+                            "index_above_ma20": false,
+                            "index_ma20_gap_pct": -1.8965,
+                            "observation_source": "market_observer"
+                          },
+                          "evidence": {
+                            "stock_universe_size": 77,
+                            "valid_stocks": 77,
+                            "index_metrics": {
+                              "index_change_20d": -3.2128,
+                              "index_above_ma20": false,
+                              "index_ma20_gap_pct": -1.8965
+                            }
+                          }
+                        },
+                        "rule_result": {
+                          "regime": "bear",
+                          "confidence": 0.9,
+                          "reasoning": "市场回撤、广度与均线结构偏弱，防御模型更合适。",
+                          "suggested_exposure": 0.25,
+                          "source": "rule"
+                        },
+                        "agent_result": {},
+                        "allocator_quality": {
+                          "qualified_candidate_count": 0,
+                          "failed_quality_entries": [
+                            {
+                              "model_name": "momentum",
+                              "ineligible_reason": "min_cycles",
+                              "deployment_stage": "override"
+                            }
+                          ]
+                        }
+                      },
+                      "agent_advice": {},
+                      "allocation_plan": {
+                        "as_of_date": "20190814",
+                        "regime": "bear",
+                        "active_models": [],
+                        "model_weights": {},
+                        "selected_configs": {},
+                        "cash_reserve": 0.3,
+                        "confidence": 0.35,
+                        "reasoning": "当前 regime=bear，榜单中没有通过质量门的正式候选，保持当前 active，不启用 provisional 候选；首个阻断原因为 min_cycles。",
+                        "metadata": {
+                          "top_candidates": [],
+                          "leaderboard_generated_at": "2026-03-15T13:23:46.678231",
+                          "used_provisional_leaderboard": false,
+                          "qualified_candidate_count": 0,
+                          "failed_quality_entries": [
+                            {
+                              "model_name": "momentum",
+                              "ineligible_reason": "min_cycles",
+                              "deployment_stage": "override"
+                            }
+                          ]
+                        }
+                      },
+                      "guardrail_checks": [
+                        {
+                          "name": "qualified_candidates_available",
+                          "passed": false,
+                          "actual": 0,
+                          "threshold": 1
+                        },
+                        {
+                          "name": "min_confidence",
+                          "passed": true,
+                          "actual": 0.9,
+                          "threshold": 0.6
+                        },
+                        {
+                          "name": "hysteresis_margin",
+                          "passed": true,
+                          "actual": 0.0,
+                          "threshold": 0.08
+                        }
+                      ],
+                      "metadata": {
+                        "routing_mode": "rule",
+                        "allowed_models": [
+                          "momentum",
+                          "mean_reversion",
+                          "value_quality",
+                          "defensive_low_vol"
+                        ],
+                        "observation_version": "routing_v1",
+                        "previous_decision": {
+                          "as_of_date": "20190415",
+                          "current_model": "momentum",
+                          "selected_model": "momentum",
+                          "selected_config": "/Users/zhangsan/Desktop/投资进化系统v1.0/invest/models/configs/momentum_v1.yaml",
+                          "regime": "bull",
+                          "regime_confidence": 0.7414,
+                          "decision_confidence": 0.7414,
+                          "candidate_models": [
+                            "momentum"
+                          ],
+                          "candidate_weights": {
+                            "momentum": 1.0
+                          },
+                          "cash_reserve_hint": 0.1,
+                          "decision_source": "rule_allocator",
+                          "regime_source": "rule",
+                          "switch_applied": false,
+                          "hold_current": true,
+                          "hold_reason": "no_qualified_routing_candidates",
+                          "reasoning": "检测到 regime=bull，但因 no_qualified_routing_candidates 继续持有 momentum。市场涨幅、广度和均线占优，趋势延续特征更明显。 当前 regime=bull，榜单中没有通过质量门的正式候选，保持当前 active，不启用 provisional 候选；首个阻断原因为 no_qualified_routing_candidates。",
+                          "evidence": {
+                            "market_observation": {
+                              "as_of_date": "20190415",
+                              "stats": {
+                                "valid_stocks": 77,
+                                "advance_ratio_5d": 0.1948,
+                                "market_breadth": 0.1948,
+                                "avg_change_5d": -1.2026,
+                                "median_change_5d": -2.6946,
+                                "avg_change_20d": 4.66,
+                                "median_change_20d": 1.1811,
+                                "avg_volatility": 0.026868,
+                                "above_ma20_ratio": 0.5714,
+                                "regime_hint": "bull",
+                                "index_change_20d": 6.1554,
+                                "index_above_ma20": true,
+                                "index_ma20_gap_pct": 1.69,
+                                "observation_source": "market_observer"
+                              },
+                              "evidence": {
+                                "stock_universe_size": 77,
+                                "valid_stocks": 77,
+                                "index_metrics": {
+                                  "index_change_20d": 6.1554,
+                                  "index_above_ma20": true,
+                                  "index_ma20_gap_pct": 1.69
+                                }
+                              }
+                            },
+                            "rule_result": {
+                              "regime": "bull",
+                              "confidence": 0.7414,
+                              "reasoning": "市场涨幅、广度和均线占优，趋势延续特征更明显。",
+                              "suggested_exposure": 0.85,
+                              "source": "rule"
+                            },
+                            "agent_result": {},
+                            "allocator_quality": {
+                              "qualified_candidate_count": 0,
+                              "failed_quality_entries": []
+                            }
+                          },
+                          "agent_advice": {},
+                          "allocation_plan": {
+                            "as_of_date": "20190415",
+                            "regime": "bull",
+                            "active_models": [],
+                            "model_weights": {},
+                            "selected_configs": {},
+                            "cash_reserve": 0.1,
+                            "confidence": 0.35,
+                            "reasoning": "当前 regime=bull，榜单中没有通过质量门的正式候选，保持当前 active，不启用 provisional 候选；首个阻断原因为 no_qualified_routing_candidates。",
+                            "metadata": {
+                              "top_candidates": [],
+                              "leaderboard_generated_at": "2026-03-15T13:21:33.163879",
+                              "used_provisional_leaderboard": false,
+                              "qualified_candidate_count": 0,
+                              "failed_quality_entries": []
+                            }
+                          },
+                          "guardrail_checks": [
+                            {
+                              "name": "qualified_candidates_available",
+                              "passed": false,
+                              "actual": 0,
+                              "threshold": 1
+                            },
+                            {
+                              "name": "min_confidence",
+                              "passed": true,
+                              "actual": 0.7414,
+                              "threshold": 0.6
+                            },
+                            {
+                              "name": "hysteresis_margin",
+                              "passed": true,
+                              "actual": 0.0,
+                              "threshold": 0.08
+                            }
+                          ],
+                          "metadata": {
+                            "routing_mode": "rule",
+                            "allowed_models": [
+                              "momentum",
+                              "mean_reversion",
+                              "value_quality",
+                              "defensive_low_vol"
+                            ],
+                            "observation_version": "routing_v1",
+                            "previous_decision": {},
+                            "cooldown_exception": {
+                              "applied": false,
+                              "reason": "",
+                              "details": {}
+                            }
+                          }
+                        },
+                        "cooldown_exception": {
+                          "applied": false,
+                          "reason": "",
+                          "details": {}
+                        }
+                      }
+                    },
+                    "cooldown_exception": {
+                      "applied": false,
+                      "reason": "",
+                      "details": {}
+                    }
+                  }
+                },
+                "cooldown_exception": {
+                  "applied": false,
+                  "reason": "",
+                  "details": {}
+                }
+              }
+            },
+            "cooldown_exception": {
+              "applied": false,
+              "reason": "",
+              "details": {}
+            }
+          }
+        },
+        "cooldown_exception": {
+          "applied": false,
+          "reason": "",
+          "details": {}
+        }
+      }
+    },
+    "feature_version": "research.features.v1",
+    "data_window": {
+      "lookback_days": 150,
+      "simulation_days": 30,
+      "universe_definition": "stock_count=77|selection_mode=meeting",
+      "as_of_date": "20250307",
+      "stock_universe_size": 77
+    },
+    "code_contract_version": "research.contracts.v1",
+    "version_hash": "2e8b8d77743cb3b79d78b66994eaab0758e67a2f8703954f5a787e2758f19a05",
+    "signature": {
+      "model_name": "momentum",
+      "config_name": "momentum_v1",
+      "params": {
+        "candidate_pool_size": 100,
+        "top_n": 5,
+        "max_positions": 4,
+        "cash_reserve": 0.6,
+        "stop_loss_pct": 0.048,
+        "take_profit_pct": 0.08,
+        "trailing_pct": 0.039599999999999996,
+        "position_size": 0.15,
+        "ma_short": 5,
+        "ma_long": 26,
+        "rsi_period": 12,
+        "rsi_oversold": 27.992299676851594,
+        "rsi_overbought": 74.6007750951849,
+        "signal_threshold": 0.793,
+        "max_hold_days": 19
+      },
+      "risk_policy": {
+        "clamps": {
+          "stop_loss_pct": {
+            "min": 0.02,
+            "max": 0.15
+          },
+          "take_profit_pct": {
+            "min": 0.05,
+            "max": 0.5
+          },
+          "position_size": {
+            "min": 0.05,
+            "max": 0.3
+          }
+        },
+        "dynamic_stop": {
+          "atr_period": 14,
+          "stop_loss_atr_multiplier": 2.0,
+          "take_profit_atr_multiplier": 3.0,
+          "trailing_atr_multiplier": 1.5
+        },
+        "portfolio": {
+          "max_drawdown_to_reduce": 0.08,
+          "max_drawdown_to_close": 0.12,
+          "market_ma_period": 60,
+          "bull_threshold": 1.05,
+          "bear_threshold": 0.95,
+          "max_industry_pct": 0.3,
+          "max_correlation": 0.6
+        },
+        "emergency": {
+          "single_stock_crash_pct": -7.0,
+          "rapid_loss_pct": -5.0,
+          "rapid_loss_days": 3,
+          "crash_severity_divisor": 15.0,
+          "tighten_stop_severity_threshold": 0.6,
+          "rapid_loss_severity_divisor": 10.0,
+          "reduce_all_severity_threshold": 0.7,
+          "all_positions_red_severity": 0.5
+        }
+      },
+      "execution_policy": {
+        "initial_capital": 100000,
+        "commission_rate": 0.00025,
+        "stamp_tax_rate": 0.0005,
+        "slippage_rate": 0.002
+      },
+      "evaluation_policy": {
+        "weights": {
+          "signal_accuracy": 0.3,
+          "timing": 0.3,
+          "risk_control": 0.4
+        },
+        "defaults": {
+          "empty_signal_score": 0.5,
+          "empty_timing_score": 0.5,
+          "empty_risk_score": 0.5,
+          "risk_control_base_score": 0.3
+        },
+        "thresholds": {
+          "signal_accuracy_low": 0.4,
+          "timing_low": 0.4,
+          "risk_control_low": 0.4,
+          "win_rate_low": 0.4,
+          "win_rate_high": 0.6,
+          "high_trade_count": 20
+        }
+      },
+      "review_policy": {
+        "confidence": {
+          "default": 0.5
+        },
+        "param_clamps": {
+          "cash_reserve": {
+            "min": 0.0,
+            "max": 0.8
+          },
+          "trailing_pct": {
+            "min": 0.03,
+            "max": 0.2
+          }
+        },
+        "agent_weight": {
+          "min": 0.3,
+          "max": 2.0,
+          "default": 1.0,
+          "min_traded_count": 3,
+          "formula_base": 0.5
+        },
+        "fallback": {
+          "strategy": {
+            "win_rate_low": 0.4,
+            "avg_return_low": -3.0,
+            "confidence": 0.4
+          },
+          "evo": {
+            "win_rate_conservative": 0.35,
+            "win_rate_aggressive": 0.65,
+            "conservative_adjustments": {
+              "stop_loss_pct": 0.03,
+              "position_size": 0.15
+            },
+            "aggressive_adjustments": {
+              "position_size": 0.25
+            },
+            "confidence": 0.4
+          }
+        }
+      },
+      "agent_weights": {
+        "trend_hunter": 1.0,
+        "contrarian": 1.0
+      },
+      "routing_context": {
+        "as_of_date": "20250307",
+        "current_model": "momentum",
+        "selected_model": "momentum",
+        "selected_config": "/Users/zhangsan/Desktop/投资进化系统v1.0/invest/models/configs/momentum_v1.yaml",
+        "regime": "oscillation",
+        "regime_confidence": 0.58,
+        "decision_confidence": 0.58,
+        "candidate_models": [
+          "momentum"
+        ],
+        "candidate_weights": {
+          "momentum": 1.0
+        },
+        "cash_reserve_hint": 0.2,
+        "decision_source": "rule_allocator",
+        "regime_source": "rule",
+        "switch_applied": false,
+        "hold_current": true,
+        "hold_reason": "no_qualified_routing_candidates",
+        "reasoning": "检测到 regime=oscillation，但因 no_qualified_routing_candidates 继续持有 momentum。市场特征分布接近震荡区间，维持均衡模型选择。 当前 regime=oscillation，榜单中没有通过质量门的正式候选，保持当前 active，不启用 provisional 候选；首个阻断原因为 quality_gate:block_negative_score。",
+        "evidence": {
+          "market_observation": {
+            "as_of_date": "20250307",
+            "stats": {
+              "valid_stocks": 77,
+              "advance_ratio_5d": 0.5714,
+              "market_breadth": 0.5714,
+              "avg_change_5d": 0.4646,
+              "median_change_5d": 0.33,
+              "avg_change_20d": -0.4586,
+              "median_change_20d": -1.3514,
+              "avg_volatility": 0.01693,
+              "above_ma20_ratio": 0.3896,
+              "regime_hint": "oscillation",
+              "index_change_20d": 1.3181,
+              "index_above_ma20": true,
+              "index_ma20_gap_pct": 0.4257,
+              "observation_source": "market_observer"
+            },
+            "evidence": {
+              "stock_universe_size": 77,
+              "valid_stocks": 77,
+              "index_metrics": {
+                "index_change_20d": 1.3181,
+                "index_above_ma20": true,
+                "index_ma20_gap_pct": 0.4257
+              }
+            }
+          },
+          "rule_result": {
+            "regime": "oscillation",
+            "confidence": 0.58,
+            "reasoning": "市场特征分布接近震荡区间，维持均衡模型选择。",
+            "suggested_exposure": 0.55,
+            "source": "rule"
+          },
+          "agent_result": {},
+          "allocator_quality": {
+            "qualified_candidate_count": 0,
+            "failed_quality_entries": [
+              {
+                "model_name": "momentum",
+                "ineligible_reason": "quality_gate:block_negative_score",
+                "deployment_stage": "candidate"
+              }
+            ]
+          }
+        },
+        "agent_advice": {},
+        "allocation_plan": {
+          "as_of_date": "20250307",
+          "regime": "oscillation",
+          "active_models": [],
+          "model_weights": {},
+          "selected_configs": {},
+          "cash_reserve": 0.2,
+          "confidence": 0.35,
+          "reasoning": "当前 regime=oscillation，榜单中没有通过质量门的正式候选，保持当前 active，不启用 provisional 候选；首个阻断原因为 quality_gate:block_negative_score。",
+          "metadata": {
+            "top_candidates": [],
+            "leaderboard_generated_at": "2026-03-15T13:35:35.999397",
+            "used_provisional_leaderboard": false,
+            "qualified_candidate_count": 0,
+            "failed_quality_entries": [
+              {
+                "model_name": "momentum",
+                "ineligible_reason": "quality_gate:block_negative_score",
+                "deployment_stage": "candidate"
+              }
+            ]
+          }
+        },
+        "guardrail_checks": [
+          {
+            "name": "qualified_candidates_available",
+            "passed": false,
+            "actual": 0,
+            "threshold": 1
+          },
+          {
+            "name": "min_confidence",
+            "passed": false,
+            "actual": 0.58,
+            "threshold": 0.6
+          },
+          {
+            "name": "hysteresis_margin",
+            "passed": true,
+            "actual": 0.0,
+            "threshold": 0.08
+          }
+        ],
+        "metadata": {
+          "routing_mode": "rule",
+          "allowed_models": [
+            "momentum",
+            "mean_reversion",
+            "value_quality",
+            "defensive_low_vol"
+          ],
+          "observation_version": "routing_v1",
+          "previous_decision": {
+            "as_of_date": "20210716",
+            "current_model": "momentum",
+            "selected_model": "momentum",
+            "selected_config": "/Users/zhangsan/Desktop/投资进化系统v1.0/invest/models/configs/momentum_v1.yaml",
+            "regime": "oscillation",
+            "regime_confidence": 0.58,
+            "decision_confidence": 0.58,
+            "candidate_models": [
+              "momentum"
+            ],
+            "candidate_weights": {
+              "momentum": 1.0
+            },
+            "cash_reserve_hint": 0.2,
+            "decision_source": "rule_allocator",
+            "regime_source": "rule",
+            "switch_applied": false,
+            "hold_current": true,
+            "hold_reason": "no_qualified_routing_candidates",
+            "reasoning": "检测到 regime=oscillation，但因 no_qualified_routing_candidates 继续持有 momentum。市场特征分布接近震荡区间，维持均衡模型选择。 当前 regime=oscillation，榜单中没有通过质量门的正式候选，保持当前 active，不启用 provisional 候选；首个阻断原因为 quality_gate:min_avg_return_pct。",
+            "evidence": {
+              "market_observation": {
+                "as_of_date": "20210716",
+                "stats": {
+                  "valid_stocks": 77,
+                  "advance_ratio_5d": 0.4675,
+                  "market_breadth": 0.4675,
+                  "avg_change_5d": 0.9811,
+                  "median_change_5d": -0.2512,
+                  "avg_change_20d": 3.1958,
+                  "median_change_20d": -0.5976,
+                  "avg_volatility": 0.017932,
+                  "above_ma20_ratio": 0.4156,
+                  "regime_hint": "oscillation",
+                  "index_change_20d": -0.1508,
+                  "index_above_ma20": false,
+                  "index_ma20_gap_pct": -0.884,
+                  "observation_source": "market_observer"
+                },
+                "evidence": {
+                  "stock_universe_size": 77,
+                  "valid_stocks": 77,
+                  "index_metrics": {
+                    "index_change_20d": -0.1508,
+                    "index_above_ma20": false,
+                    "index_ma20_gap_pct": -0.884
+                  }
+                }
+              },
+              "rule_result": {
+                "regime": "oscillation",
+                "confidence": 0.58,
+                "reasoning": "市场特征分布接近震荡区间，维持均衡模型选择。",
+                "suggested_exposure": 0.55,
+                "source": "rule"
+              },
+              "agent_result": {},
+              "allocator_quality": {
+                "qualified_candidate_count": 0,
+                "failed_quality_entries": [
+                  {
+                    "model_name": "momentum",
+                    "ineligible_reason": "quality_gate:min_avg_return_pct",
+                    "deployment_stage": "override"
+                  }
+                ]
+              }
+            },
+            "agent_advice": {},
+            "allocation_plan": {
+              "as_of_date": "20210716",
+              "regime": "oscillation",
+              "active_models": [],
+              "model_weights": {},
+              "selected_configs": {},
+              "cash_reserve": 0.2,
+              "confidence": 0.35,
+              "reasoning": "当前 regime=oscillation，榜单中没有通过质量门的正式候选，保持当前 active，不启用 provisional 候选；首个阻断原因为 quality_gate:min_avg_return_pct。",
+              "metadata": {
+                "top_candidates": [],
+                "leaderboard_generated_at": "2026-03-15T13:31:45.784350",
+                "used_provisional_leaderboard": false,
+                "qualified_candidate_count": 0,
+                "failed_quality_entries": [
+                  {
+                    "model_name": "momentum",
+                    "ineligible_reason": "quality_gate:min_avg_return_pct",
+                    "deployment_stage": "override"
+                  }
+                ]
+              }
+            },
+            "guardrail_checks": [
+              {
+                "name": "qualified_candidates_available",
+                "passed": false,
+                "actual": 0,
+                "threshold": 1
+              },
+              {
+                "name": "min_confidence",
+                "passed": false,
+                "actual": 0.58,
+                "threshold": 0.6
+              },
+              {
+                "name": "hysteresis_margin",
+                "passed": true,
+                "actual": 0.0,
+                "threshold": 0.08
+              }
+            ],
+            "metadata": {
+              "routing_mode": "rule",
+              "allowed_models": [
+                "momentum",
+                "mean_reversion",
+                "value_quality",
+                "defensive_low_vol"
+              ],
+              "observation_version": "routing_v1",
+              "previous_decision": {
+                "as_of_date": "20210625",
+                "current_model": "momentum",
+                "selected_model": "momentum",
+                "selected_config": "/Users/zhangsan/Desktop/投资进化系统v1.0/invest/models/configs/momentum_v1.yaml",
+                "regime": "oscillation",
+                "regime_confidence": 0.58,
+                "decision_confidence": 0.58,
+                "candidate_models": [
+                  "momentum"
+                ],
+                "candidate_weights": {
+                  "momentum": 1.0
+                },
+                "cash_reserve_hint": 0.2,
+                "decision_source": "rule_allocator",
+                "regime_source": "rule",
+                "switch_applied": false,
+                "hold_current": true,
+                "hold_reason": "no_qualified_routing_candidates",
+                "reasoning": "检测到 regime=oscillation，但因 no_qualified_routing_candidates 继续持有 momentum。市场特征分布接近震荡区间，维持均衡模型选择。 当前 regime=oscillation，榜单中没有通过质量门的正式候选，保持当前 active，不启用 provisional 候选；首个阻断原因为 quality_gate:min_avg_return_pct。",
+                "evidence": {
+                  "market_observation": {
+                    "as_of_date": "20210625",
+                    "stats": {
+                      "valid_stocks": 77,
+                      "advance_ratio_5d": 0.7532,
+                      "market_breadth": 0.7532,
+                      "avg_change_5d": 1.671,
+                      "median_change_5d": 1.0169,
+                      "avg_change_20d": 1.3406,
+                      "median_change_20d": 0.0,
+                      "avg_volatility": 0.017326,
+                      "above_ma20_ratio": 0.6104,
+                      "regime_hint": "oscillation",
+                      "index_change_20d": -1.8408,
+                      "index_above_ma20": true,
+                      "index_ma20_gap_pct": 0.5062,
+                      "observation_source": "market_observer"
+                    },
+                    "evidence": {
+                      "stock_universe_size": 77,
+                      "valid_stocks": 77,
+                      "index_metrics": {
+                        "index_change_20d": -1.8408,
+                        "index_above_ma20": true,
+                        "index_ma20_gap_pct": 0.5062
+                      }
+                    }
+                  },
+                  "rule_result": {
+                    "regime": "oscillation",
+                    "confidence": 0.58,
+                    "reasoning": "市场特征分布接近震荡区间，维持均衡模型选择。",
+                    "suggested_exposure": 0.55,
+                    "source": "rule"
+                  },
+                  "agent_result": {},
+                  "allocator_quality": {
+                    "qualified_candidate_count": 0,
+                    "failed_quality_entries": [
+                      {
+                        "model_name": "momentum",
+                        "ineligible_reason": "quality_gate:min_avg_return_pct",
+                        "deployment_stage": "candidate"
+                      }
+                    ]
+                  }
+                },
+                "agent_advice": {},
+                "allocation_plan": {
+                  "as_of_date": "20210625",
+                  "regime": "oscillation",
+                  "active_models": [],
+                  "model_weights": {},
+                  "selected_configs": {},
+                  "cash_reserve": 0.2,
+                  "confidence": 0.35,
+                  "reasoning": "当前 regime=oscillation，榜单中没有通过质量门的正式候选，保持当前 active，不启用 provisional 候选；首个阻断原因为 quality_gate:min_avg_return_pct。",
+                  "metadata": {
+                    "top_candidates": [],
+                    "leaderboard_generated_at": "2026-03-15T13:29:33.704516",
+                    "used_provisional_leaderboard": false,
+                    "qualified_candidate_count": 0,
+                    "failed_quality_entries": [
+                      {
+                        "model_name": "momentum",
+                        "ineligible_reason": "quality_gate:min_avg_return_pct",
+                        "deployment_stage": "candidate"
+                      }
+                    ]
+                  }
+                },
+                "guardrail_checks": [
+                  {
+                    "name": "qualified_candidates_available",
+                    "passed": false,
+                    "actual": 0,
+                    "threshold": 1
+                  },
+                  {
+                    "name": "min_confidence",
+                    "passed": false,
+                    "actual": 0.58,
+                    "threshold": 0.6
+                  },
+                  {
+                    "name": "hysteresis_margin",
+                    "passed": true,
+                    "actual": 0.0,
+                    "threshold": 0.08
+                  }
+                ],
+                "metadata": {
+                  "routing_mode": "rule",
+                  "allowed_models": [
+                    "momentum",
+                    "mean_reversion",
+                    "value_quality",
+                    "defensive_low_vol"
+                  ],
+                  "observation_version": "routing_v1",
+                  "previous_decision": {
+                    "as_of_date": "20240613",
+                    "current_model": "momentum",
+                    "selected_model": "momentum",
+                    "selected_config": "/Users/zhangsan/Desktop/投资进化系统v1.0/invest/models/configs/momentum_v1.yaml",
+                    "regime": "bear",
+                    "regime_confidence": 0.9,
+                    "decision_confidence": 0.9,
+                    "candidate_models": [
+                      "momentum"
+                    ],
+                    "candidate_weights": {
+                      "momentum": 1.0
+                    },
+                    "cash_reserve_hint": 0.3,
+                    "decision_source": "rule_allocator",
+                    "regime_source": "rule",
+                    "switch_applied": false,
+                    "hold_current": true,
+                    "hold_reason": "no_qualified_routing_candidates",
+                    "reasoning": "检测到 regime=bear，但因 no_qualified_routing_candidates 继续持有 momentum。市场回撤、广度与均线结构偏弱，防御模型更合适。 当前 regime=bear，榜单中没有通过质量门的正式候选，保持当前 active，不启用 provisional 候选；首个阻断原因为 min_cycles。",
+                    "evidence": {
+                      "market_observation": {
+                        "as_of_date": "20240613",
+                        "stats": {
+                          "valid_stocks": 77,
+                          "advance_ratio_5d": 0.3896,
+                          "market_breadth": 0.3896,
+                          "avg_change_5d": -0.2249,
+                          "median_change_5d": -0.3683,
+                          "avg_change_20d": -5.2479,
+                          "median_change_20d": -5.0756,
+                          "avg_volatility": 0.017686,
+                          "above_ma20_ratio": 0.1299,
+                          "regime_hint": "bear",
+                          "index_change_20d": -2.7558,
+                          "index_above_ma20": false,
+                          "index_ma20_gap_pct": -2.3564,
+                          "observation_source": "market_observer"
+                        },
+                        "evidence": {
+                          "stock_universe_size": 77,
+                          "valid_stocks": 77,
+                          "index_metrics": {
+                            "index_change_20d": -2.7558,
+                            "index_above_ma20": false,
+                            "index_ma20_gap_pct": -2.3564
+                          }
+                        }
+                      },
+                      "rule_result": {
+                        "regime": "bear",
+                        "confidence": 0.9,
+                        "reasoning": "市场回撤、广度与均线结构偏弱，防御模型更合适。",
+                        "suggested_exposure": 0.25,
+                        "source": "rule"
+                      },
+                      "agent_result": {},
+                      "allocator_quality": {
+                        "qualified_candidate_count": 0,
+                        "failed_quality_entries": [
+                          {
+                            "model_name": "momentum",
+                            "ineligible_reason": "min_cycles",
+                            "deployment_stage": "override"
+                          }
+                        ]
+                      }
+                    },
+                    "agent_advice": {},
+                    "allocation_plan": {
+                      "as_of_date": "20240613",
+                      "regime": "bear",
+                      "active_models": [],
+                      "model_weights": {},
+                      "selected_configs": {},
+                      "cash_reserve": 0.3,
+                      "confidence": 0.35,
+                      "reasoning": "当前 regime=bear，榜单中没有通过质量门的正式候选，保持当前 active，不启用 provisional 候选；首个阻断原因为 min_cycles。",
+                      "metadata": {
+                        "top_candidates": [],
+                        "leaderboard_generated_at": "2026-03-15T13:25:43.190554",
+                        "used_provisional_leaderboard": false,
+                        "qualified_candidate_count": 0,
+                        "failed_quality_entries": [
+                          {
+                            "model_name": "momentum",
+                            "ineligible_reason": "min_cycles",
+                            "deployment_stage": "override"
+                          }
+                        ]
+                      }
+                    },
+                    "guardrail_checks": [
+                      {
+                        "name": "qualified_candidates_available",
+                        "passed": false,
+                        "actual": 0,
+                        "threshold": 1
+                      },
+                      {
+                        "name": "min_confidence",
+                        "passed": true,
+                        "actual": 0.9,
+                        "threshold": 0.6
+                      },
+                      {
+                        "name": "hysteresis_margin",
+                        "passed": true,
+                        "actual": 0.0,
+                        "threshold": 0.08
+                      }
+                    ],
+                    "metadata": {
+                      "routing_mode": "rule",
+                      "allowed_models": [
+                        "momentum",
+                        "mean_reversion",
+                        "value_quality",
+                        "defensive_low_vol"
+                      ],
+                      "observation_version": "routing_v1",
+                      "previous_decision": {
+                        "as_of_date": "20190814",
+                        "current_model": "momentum",
+                        "selected_model": "momentum",
+                        "selected_config": "/Users/zhangsan/Desktop/投资进化系统v1.0/invest/models/configs/momentum_v1.yaml",
+                        "regime": "bear",
+                        "regime_confidence": 0.9,
+                        "decision_confidence": 0.9,
+                        "candidate_models": [
+                          "momentum"
+                        ],
+                        "candidate_weights": {
+                          "momentum": 1.0
+                        },
+                        "cash_reserve_hint": 0.3,
+                        "decision_source": "rule_allocator",
+                        "regime_source": "rule",
+                        "switch_applied": false,
+                        "hold_current": true,
+                        "hold_reason": "no_qualified_routing_candidates",
+                        "reasoning": "检测到 regime=bear，但因 no_qualified_routing_candidates 继续持有 momentum。市场回撤、广度与均线结构偏弱，防御模型更合适。 当前 regime=bear，榜单中没有通过质量门的正式候选，保持当前 active，不启用 provisional 候选；首个阻断原因为 min_cycles。",
+                        "evidence": {
+                          "market_observation": {
+                            "as_of_date": "20190814",
+                            "stats": {
+                              "valid_stocks": 77,
+                              "advance_ratio_5d": 0.4416,
+                              "market_breadth": 0.4416,
+                              "avg_change_5d": 0.3216,
+                              "median_change_5d": -0.1845,
+                              "avg_change_20d": -5.5601,
+                              "median_change_20d": -5.1037,
+                              "avg_volatility": 0.016362,
+                              "above_ma20_ratio": 0.1558,
+                              "regime_hint": "bear",
+                              "index_change_20d": -3.2128,
+                              "index_above_ma20": false,
+                              "index_ma20_gap_pct": -1.8965,
+                              "observation_source": "market_observer"
+                            },
+                            "evidence": {
+                              "stock_universe_size": 77,
+                              "valid_stocks": 77,
+                              "index_metrics": {
+                                "index_change_20d": -3.2128,
+                                "index_above_ma20": false,
+                                "index_ma20_gap_pct": -1.8965
+                              }
+                            }
+                          },
+                          "rule_result": {
+                            "regime": "bear",
+                            "confidence": 0.9,
+                            "reasoning": "市场回撤、广度与均线结构偏弱，防御模型更合适。",
+                            "suggested_exposure": 0.25,
+                            "source": "rule"
+                          },
+                          "agent_result": {},
+                          "allocator_quality": {
+                            "qualified_candidate_count": 0,
+                            "failed_quality_entries": [
+                              {
+                                "model_name": "momentum",
+                                "ineligible_reason": "min_cycles",
+                                "deployment_stage": "override"
+                              }
+                            ]
+                          }
+                        },
+                        "agent_advice": {},
+                        "allocation_plan": {
+                          "as_of_date": "20190814",
+                          "regime": "bear",
+                          "active_models": [],
+                          "model_weights": {},
+                          "selected_configs": {},
+                          "cash_reserve": 0.3,
+                          "confidence": 0.35,
+                          "reasoning": "当前 regime=bear，榜单中没有通过质量门的正式候选，保持当前 active，不启用 provisional 候选；首个阻断原因为 min_cycles。",
+                          "metadata": {
+                            "top_candidates": [],
+                            "leaderboard_generated_at": "2026-03-15T13:23:46.678231",
+                            "used_provisional_leaderboard": false,
+                            "qualified_candidate_count": 0,
+                            "failed_quality_entries": [
+                              {
+                                "model_name": "momentum",
+                                "ineligible_reason": "min_cycles",
+                                "deployment_stage": "override"
+                              }
+                            ]
+                          }
+                        },
+                        "guardrail_checks": [
+                          {
+                            "name": "qualified_candidates_available",
+                            "passed": false,
+                            "actual": 0,
+                            "threshold": 1
+                          },
+                          {
+                            "name": "min_confidence",
+                            "passed": true,
+                            "actual": 0.9,
+                            "threshold": 0.6
+                          },
+                          {
+                            "name": "hysteresis_margin",
+                            "passed": true,
+                            "actual": 0.0,
+                            "threshold": 0.08
+                          }
+                        ],
+                        "metadata": {
+                          "routing_mode": "rule",
+                          "allowed_models": [
+                            "momentum",
+                            "mean_reversion",
+                            "value_quality",
+                            "defensive_low_vol"
+                          ],
+                          "observation_version": "routing_v1",
+                          "previous_decision": {
+                            "as_of_date": "20190415",
+                            "current_model": "momentum",
+                            "selected_model": "momentum",
+                            "selected_config": "/Users/zhangsan/Desktop/投资进化系统v1.0/invest/models/configs/momentum_v1.yaml",
+                            "regime": "bull",
+                            "regime_confidence": 0.7414,
+                            "decision_confidence": 0.7414,
+                            "candidate_models": [
+                              "momentum"
+                            ],
+                            "candidate_weights": {
+                              "momentum": 1.0
+                            },
+                            "cash_reserve_hint": 0.1,
+                            "decision_source": "rule_allocator",
+                            "regime_source": "rule",
+                            "switch_applied": false,
+                            "hold_current": true,
+                            "hold_reason": "no_qualified_routing_candidates",
+                            "reasoning": "检测到 regime=bull，但因 no_qualified_routing_candidates 继续持有 momentum。市场涨幅、广度和均线占优，趋势延续特征更明显。 当前 regime=bull，榜单中没有通过质量门的正式候选，保持当前 active，不启用 provisional 候选；首个阻断原因为 no_qualified_routing_candidates。",
+                            "evidence": {
+                              "market_observation": {
+                                "as_of_date": "20190415",
+                                "stats": {
+                                  "valid_stocks": 77,
+                                  "advance_ratio_5d": 0.1948,
+                                  "market_breadth": 0.1948,
+                                  "avg_change_5d": -1.2026,
+                                  "median_change_5d": -2.6946,
+                                  "avg_change_20d": 4.66,
+                                  "median_change_20d": 1.1811,
+                                  "avg_volatility": 0.026868,
+                                  "above_ma20_ratio": 0.5714,
+                                  "regime_hint": "bull",
+                                  "index_change_20d": 6.1554,
+                                  "index_above_ma20": true,
+                                  "index_ma20_gap_pct": 1.69,
+                                  "observation_source": "market_observer"
+                                },
+                                "evidence": {
+                                  "stock_universe_size": 77,
+                                  "valid_stocks": 77,
+                                  "index_metrics": {
+                                    "index_change_20d": 6.1554,
+                                    "index_above_ma20": true,
+                                    "index_ma20_gap_pct": 1.69
+                                  }
+                                }
+                              },
+                              "rule_result": {
+                                "regime": "bull",
+                                "confidence": 0.7414,
+                                "reasoning": "市场涨幅、广度和均线占优，趋势延续特征更明显。",
+                                "suggested_exposure": 0.85,
+                                "source": "rule"
+                              },
+                              "agent_result": {},
+                              "allocator_quality": {
+                                "qualified_candidate_count": 0,
+                                "failed_quality_entries": []
+                              }
+                            },
+                            "agent_advice": {},
+                            "allocation_plan": {
+                              "as_of_date": "20190415",
+                              "regime": "bull",
+                              "active_models": [],
+                              "model_weights": {},
+                              "selected_configs": {},
+                              "cash_reserve": 0.1,
+                              "confidence": 0.35,
+                              "reasoning": "当前 regime=bull，榜单中没有通过质量门的正式候选，保持当前 active，不启用 provisional 候选；首个阻断原因为 no_qualified_routing_candidates。",
+                              "metadata": {
+                                "top_candidates": [],
+                                "leaderboard_generated_at": "2026-03-15T13:21:33.163879",
+                                "used_provisional_leaderboard": false,
+                                "qualified_candidate_count": 0,
+                                "failed_quality_entries": []
+                              }
+                            },
+                            "guardrail_checks": [
+                              {
+                                "name": "qualified_candidates_available",
+                                "passed": false,
+                                "actual": 0,
+                                "threshold": 1
+                              },
+                              {
+                                "name": "min_confidence",
+                                "passed": true,
+                                "actual": 0.7414,
+                                "threshold": 0.6
+                              },
+                              {
+                                "name": "hysteresis_margin",
+                                "passed": true,
+                                "actual": 0.0,
+                                "threshold": 0.08
+                              }
+                            ],
+                            "metadata": {
+                              "routing_mode": "rule",
+                              "allowed_models": [
+                                "momentum",
+                                "mean_reversion",
+                                "value_quality",
+                                "defensive_low_vol"
+                              ],
+                              "observation_version": "routing_v1",
+                              "previous_decision": {},
+                              "cooldown_exception": {
+                                "applied": false,
+                                "reason": "",
+                                "details": {}
+                              }
+                            }
+                          },
+                          "cooldown_exception": {
+                            "applied": false,
+                            "reason": "",
+                            "details": {}
+                          }
+                        }
+                      },
+                      "cooldown_exception": {
+                        "applied": false,
+                        "reason": "",
+                        "details": {}
+                      }
+                    }
+                  },
+                  "cooldown_exception": {
+                    "applied": false,
+                    "reason": "",
+                    "details": {}
+                  }
+                }
+              },
+              "cooldown_exception": {
+                "applied": false,
+                "reason": "",
+                "details": {}
+              }
+            }
+          },
+          "cooldown_exception": {
+            "applied": false,
+            "reason": "",
+            "details": {}
+          }
+        }
+      },
+      "data_window": {
+        "lookback_days": 150,
+        "simulation_days": 30,
+        "universe_definition": "stock_count=77|selection_mode=meeting",
+        "as_of_date": "20250307",
+        "stock_universe_size": 77
+      },
+      "feature_version": "research.features.v1",
+      "code_contract_version": "research.contracts.v1"
+    },
+    "metadata": {
+      "source": "training_cycle",
+      "cycle_id": 6,
+      "cutoff_date": "20250307",
+      "selection_mode": "meeting"
+    }
+  },
+  "hypothesis": {
+    "hypothesis_id": "hypothesis_3b1a8c082fcc9b1f",
+    "snapshot_id": "snapshot_04145ea5811bed60",
+    "policy_id": "policy_2e8b8d77743cb3b7",
+    "stance": "候选买入",
+    "score": 97.0,
+    "rank": 3,
+    "percentile": 0.974,
+    "selected_by_policy": true,
+    "entry_rule": {
+      "kind": "limit_pullback",
+      "price": 8.88,
+      "source": "Training Cycle"
+    },
+    "invalidation_rule": {
+      "kind": "stop_loss",
+      "price": 8.54,
+      "source": "momentum"
+    },
+    "de_risk_rule": {
+      "kind": "take_profit",
+      "price": 9.69,
+      "source": "momentum"
+    },
+    "supporting_factors": [
+      "algo_score=0.489",
+      "change_20d=+3.17%",
+      "MACD=看多"
+    ],
+    "contradicting_factors": [],
+    "scenario_distribution": {
+      "engine": "case_similarity_v1",
+      "sample_count": 10,
+      "matched_case_ids": [
+        "case_0e04364a3b41622b",
+        "case_10d2f2ab520a237d",
+        "case_11c9697e635c06ae",
+        "case_1e19c379c357732b",
+        "case_386042c55cd5a9bb",
+        "case_6ee54acdb03981c7",
+        "case_7c92df3f3765e2b1",
+        "case_8e996c0ddedd55a9",
+        "case_f7721e3bfa71b16e",
+        "case_ffdc2801bc4bd8e4"
+      ],
+      "horizons": {
+        "T+5": {
+          "sample_count": 10,
+          "positive_return_probability": 0.5,
+          "interval": {
+            "p25": -7.0596,
+            "p50": -2.6001,
+            "p75": 2.7351
+          },
+          "mean_return": -0.2326,
+          "invalidation_probability": 0.7
+        },
+        "T+10": {
+          "sample_count": 10,
+          "positive_return_probability": 0.6,
+          "interval": {
+            "p25": -5.1941,
+            "p50": 0.3373,
+            "p75": 2.7397
+          },
+          "mean_return": -0.1121,
+          "invalidation_probability": 0.8
+        },
+        "T+20": {
+          "sample_count": 10,
+          "positive_return_probability": 0.5,
+          "interval": {
+            "p25": -2.3366,
+            "p50": -1.1563,
+            "p75": 4.8208
+          },
+          "mean_return": 2.3178,
+          "invalidation_probability": 0.9
+        },
+        "T+60": {
+          "sample_count": 10,
+          "positive_return_probability": 0.8,
+          "interval": {
+            "p25": 2.1187,
+            "p50": 10.3115,
+            "p75": 11.3141
+          },
+          "mean_return": 11.8602,
+          "invalidation_probability": 0.9
+        }
+      },
+      "bull_case": {
+        "description": "相似样本上沿情景",
+        "return_pct": 4.8208
+      },
+      "base_case": {
+        "description": "相似样本中位情景",
+        "return_pct": -1.1563
+      },
+      "bear_case": {
+        "description": "相似样本下沿情景",
+        "return_pct": -2.3366
+      }
+    },
+    "expected_return_interval": {
+      "p25": -2.3366,
+      "p50": -1.1563,
+      "p75": 4.8208
+    },
+    "confidence": 0.73,
+    "evaluation_protocol": {
+      "clock": [
+        "T+5",
+        "T+10",
+        "T+20",
+        "T+60"
+      ],
+      "label_set": [
+        "hit",
+        "miss",
+        "invalidated",
+        "timeout",
+        "not_triggered"
+      ],
+      "benchmark_code": "sh.000300",
+      "strategy_lens": "training_cycle"
+    },
+    "metadata": {
+      "strategy_name": "training_cycle",
+      "strategy_display_name": "Training Cycle",
+      "latest_close": 8.97
+    }
+  },
+  "metadata": {
+    "source": "training_cycle",
+    "cycle_id": 6,
+    "cutoff_date": "20250307",
+    "selection_mode": "meeting",
+    "code": "sh.600101"
+  }
+}

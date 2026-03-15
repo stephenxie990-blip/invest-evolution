@@ -165,6 +165,8 @@ def test_review_meeting_compiles_similar_cases_and_causal_diagnosis_into_facts()
     assert facts["similarity_summary"]["dominant_regime"] == "bear"
     assert facts["causal_diagnosis"]["primary_driver"] == "regime_repeat_loss"
     assert facts["causal_diagnosis"]["drivers"][0]["score"] == 0.55
+    assert facts["evidence_gate"]["passed"] is True
+    assert facts["evidence_gate"]["support_cycle_ids"] == [5, 3]
 
 
 def test_review_meeting_run_with_eval_report_preserves_similarity_and_causal_metadata():
@@ -201,3 +203,31 @@ def test_review_meeting_run_with_eval_report_preserves_similarity_and_causal_met
     assert result["causal_diagnosis"]["primary_driver"] == "regime_repeat_loss"
     assert result["strategy_advice"]["metadata"]["similarity_summary"]["dominant_regime"] == "bear"
     assert result["strategy_advice"]["metadata"]["causal_diagnosis"]["primary_driver"] == "regime_repeat_loss"
+    assert result["strategy_advice"]["metadata"]["evidence_gate"]["passed"] is True
+
+
+def test_review_meeting_validate_decision_blocks_adjustments_when_evidence_gate_fails():
+    meeting = ReviewMeeting(llm_caller=None)
+
+    result = meeting._validate_decision(  # pylint: disable=protected-access
+        {
+            "strategy_suggestions": ["继续调大仓位"],
+            "param_adjustments": {"position_size": 0.25},
+            "agent_weight_adjustments": {"trend_hunter": 1.4},
+            "reasoning": "建议更积极一点。",
+        },
+        facts={
+            "agent_accuracy": {"trend_hunter": {"accuracy": 0.4, "traded_count": 5, "total_picks": 5, "profitable_count": 2}},
+            "evidence_gate": {
+                "passed": False,
+                "summary": "相似失败样本和结构化证据不足，暂不支持本轮直接调参。",
+                "support_cycle_ids": [],
+            },
+            "causal_diagnosis": {"primary_driver": "insufficient_history"},
+        },
+    )
+
+    assert result["param_adjustments"] == {}
+    assert result["agent_weight_adjustments"] == {}
+    assert result["evidence_gate"]["passed"] is False
+    assert "证据不足" in result["reasoning"]

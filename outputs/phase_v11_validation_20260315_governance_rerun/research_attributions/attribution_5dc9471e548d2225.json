@@ -1,0 +1,103 @@
+{
+  "attribution_id": "attribution_5dc9471e548d2225",
+  "created_at": "2026-03-15T14:23:42.308881",
+  "attribution": {
+    "attribution_id": "attribution_5dc9471e548d2225",
+    "hypothesis_id": "hypothesis_49dbd2d7829fe89e",
+    "thesis_result": "invalidated",
+    "horizon_results": {
+      "T+5": {
+        "label": "invalidated",
+        "return_pct": -1.8588,
+        "excess_return_pct": -1.8588,
+        "max_favorable_excursion": 2.2862,
+        "max_adverse_excursion": -2.2414,
+        "entry_triggered": true,
+        "invalidation_triggered": true,
+        "de_risk_triggered": false,
+        "end_trade_date": "20250902"
+      },
+      "T+10": {
+        "label": "invalidated",
+        "return_pct": -5.8763,
+        "excess_return_pct": -5.8763,
+        "max_favorable_excursion": 2.2862,
+        "max_adverse_excursion": -6.8966,
+        "entry_triggered": true,
+        "invalidation_triggered": true,
+        "de_risk_triggered": false,
+        "end_trade_date": "20250909"
+      },
+      "T+20": {
+        "label": "invalidated",
+        "return_pct": -9.1285,
+        "excess_return_pct": -9.1285,
+        "max_favorable_excursion": 2.2862,
+        "max_adverse_excursion": -10.2764,
+        "entry_triggered": true,
+        "invalidation_triggered": true,
+        "de_risk_triggered": false,
+        "end_trade_date": "20250923"
+      },
+      "T+60": {
+        "label": "invalidated",
+        "return_pct": -11.9981,
+        "excess_return_pct": -11.9981,
+        "max_favorable_excursion": 2.2862,
+        "max_adverse_excursion": -13.0822,
+        "entry_triggered": true,
+        "invalidation_triggered": true,
+        "de_risk_triggered": false,
+        "end_trade_date": "20251126"
+      }
+    },
+    "factor_attribution": {
+      "supporting_factors": [
+        "algo_score=0.348",
+        "change_20d=+7.89%",
+        "MACD=看多"
+      ],
+      "contradicting_factors": []
+    },
+    "timing_attribution": {
+      "entry_rule_kind": "limit_pullback",
+      "entry_price": 31.04
+    },
+    "risk_attribution": {
+      "invalidation_rule_kind": "stop_loss",
+      "invalidation_price": 30.57,
+      "de_risk_rule_kind": "take_profit",
+      "de_risk_price": 32.92
+    },
+    "execution_attribution": {
+      "clock": [
+        "T+5",
+        "T+10",
+        "T+20",
+        "T+60"
+      ]
+    },
+    "calibration_metrics": {
+      "positive_return_brier": 0.0625,
+      "predicted_positive_return_probability": 0.25,
+      "actual_positive_return": 0.0
+    },
+    "policy_update_candidates": {
+      "review_needed": true,
+      "selected_by_policy": true
+    },
+    "metadata": {
+      "code": "sh.600030",
+      "as_of_date": "20250826"
+    }
+  },
+  "metadata": {
+    "source": "training_cycle",
+    "cycle_id": 20,
+    "cutoff_date": "20250826",
+    "policy_id": "policy_974bb8de62684e7e",
+    "research_case_id": "case_a00ca9eb24b05dcb",
+    "code": "sh.600030",
+    "regime": "bull"
+  }
+}

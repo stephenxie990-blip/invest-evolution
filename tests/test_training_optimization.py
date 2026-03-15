@@ -7,22 +7,28 @@ from app.training.optimization import trigger_loss_optimization
 
 class Event:
     def __init__(self, **kwargs):
+        self.cycle_id = kwargs.get('cycle_id')
         self.trigger = kwargs['trigger']
         self.stage = kwargs['stage']
         self.status = kwargs.get('status', 'ok')
         self.suggestions = list(kwargs.get('suggestions', []))
         self.decision = dict(kwargs.get('decision', {}))
         self.applied_change = dict(kwargs.get('applied_change', {}))
+        self.lineage = dict(kwargs.get('lineage', {}))
+        self.evidence = dict(kwargs.get('evidence', {}))
         self.notes = kwargs.get('notes', '')
 
     def to_dict(self):
         return {
+            'cycle_id': self.cycle_id,
             'trigger': self.trigger,
             'stage': self.stage,
             'status': self.status,
             'suggestions': list(self.suggestions),
             'decision': dict(self.decision),
             'applied_change': dict(self.applied_change),
+            'lineage': dict(self.lineage),
+            'evidence': dict(self.evidence),
             'notes': self.notes,
         }
 
@@ -144,3 +150,79 @@ def test_trigger_loss_optimization_uses_benchmark_oriented_fitness_scores():
     assert len(fitness_scores) == 3
     assert fitness_scores[1] > fitness_scores[0]
     assert evo_event['decision']['fitness_scores'] == fitness_scores[-5:]
+
+
+def test_trigger_loss_optimization_emits_cycle_id_and_lineage_contract_fields():
+    controller = SimpleNamespace(
+        consecutive_losses=3,
+        llm_optimizer=FakeLLMOptimizer(),
+        evolution_engine=FakeEvolutionEngine(),
+        model_mutator=FakeMutator(),
+        model_name='momentum',
+        model_config_path='invest/models/configs/momentum_v1.yaml',
+        auto_apply_mutation=False,
+        current_params={'position_size': 0.2, 'take_profit_pct': 0.15},
+        investment_model=FakeModel(),
+        cycle_history=[FakeCycle(-2.0), FakeCycle(-1.0), FakeCycle(0.5)],
+        on_optimize=lambda params: None,
+        _emit_agent_status=lambda *args, **kwargs: None,
+        _emit_module_log=lambda *args, **kwargs: None,
+        _emit_meeting_speech=lambda *args, **kwargs: None,
+        _append_optimization_event=lambda event: None,
+        _reload_investment_model=lambda path: None,
+    )
+
+    events = trigger_loss_optimization(controller, {'cycle_id': 11}, [], event_factory=Event)
+
+    assert all(event['cycle_id'] == 11 for event in events)
+    assert all('lineage' in event for event in events)
+    assert all(event['lineage']['active_config_ref'] for event in events)
+    mutation_event = next(item for item in events if item['stage'] == 'yaml_mutation')
+    assert mutation_event['lineage']['deployment_stage'] == 'candidate'
+    assert mutation_event['lineage']['candidate_config_ref'].endswith('candidate.yaml')
+    assert mutation_event['evidence']['auto_applied'] is False
+
+
+def test_trigger_loss_optimization_skips_new_candidate_when_pending_candidate_is_unresolved():
+    appended = []
+    controller = SimpleNamespace(
+        consecutive_losses=3,
+        llm_optimizer=FakeLLMOptimizer(),
+        evolution_engine=FakeEvolutionEngine(),
+        model_mutator=FakeMutator(),
+        model_name='momentum',
+        model_config_path='invest/models/configs/momentum_v1.yaml',
+        auto_apply_mutation=False,
+        current_params={'position_size': 0.2, 'take_profit_pct': 0.15},
+        investment_model=FakeModel(),
+        cycle_history=[
+            SimpleNamespace(
+                cycle_id=6,
+                lineage_record={
+                    'deployment_stage': 'candidate',
+                    'lineage_status': 'candidate_pending',
+                    'candidate_config_ref': '/tmp/pending_candidate.yaml',
+                    'active_config_ref': 'invest/models/configs/momentum_v1.yaml',
+                },
+                return_pct=-1.0,
+                benchmark_passed=False,
+                strategy_scores={},
+            ),
+            FakeCycle(-2.0),
+            FakeCycle(-1.0),
+        ],
+        on_optimize=lambda params: None,
+        _emit_agent_status=lambda *args, **kwargs: None,
+        _emit_module_log=lambda *args, **kwargs: None,
+        _emit_meeting_speech=lambda *args, **kwargs: None,
+        _append_optimization_event=lambda event: appended.append(event.to_dict()),
+        _reload_investment_model=lambda path: None,
+    )
+
+    events = trigger_loss_optimization(controller, {'cycle_id': 12}, [], event_factory=Event)
+
+    assert [event['stage'] for event in events] == ['llm_analysis', 'evolution_engine', 'yaml_mutation_skipped']
+    skipped_event = events[-1]
+    assert skipped_event['decision']['pending_candidate_ref'].endswith('pending_candidate.yaml')
+    assert skipped_event['lineage']['deployment_stage'] == 'candidate'
+    assert appended[-1]['stage'] == 'yaml_mutation_skipped'

@@ -150,3 +150,85 @@ def test_allocator_ignores_ineligible_entries_when_eligible_candidates_exist():
 
     assert plan.active_models[0] != "momentum"
     assert plan.metadata["used_provisional_leaderboard"] is False
+
+
+def test_allocator_refuses_to_use_unqualified_entries_as_provisional_candidates():
+    leaderboard = {
+        "generated_at": "2026-03-09T00:00:00",
+        "entries": [
+            {
+                "model_name": "mean_reversion",
+                "config_name": "mean_reversion_v1",
+                "score": -9.0,
+                "avg_return_pct": -1.4,
+                "avg_sharpe_ratio": 0.4,
+                "avg_max_drawdown": 18.0,
+                "benchmark_pass_rate": 0.0,
+                "avg_strategy_score": 0.2,
+                "rank": 0,
+                "eligible_for_routing": False,
+                "deployment_stage": "candidate",
+                "ineligible_reason": "quality_gate:block_negative_score",
+            }
+        ],
+        "regime_leaderboards": {},
+    }
+
+    plan = ModelAllocator().allocate("oscillation", leaderboard)
+
+    assert plan.active_models == []
+    assert plan.model_weights == {}
+    assert plan.metadata["qualified_candidate_count"] == 0
+    assert "没有通过质量门的正式候选" in plan.reasoning
+
+
+def test_allocator_penalizes_regime_style_mismatch_when_bear_uses_fallback_ranking():
+    leaderboard = {
+        "generated_at": "2026-03-09T00:00:00",
+        "entries": [
+            {
+                "model_name": "momentum",
+                "config_name": "momentum_v1",
+                "score": 92.0,
+                "avg_return_pct": 6.0,
+                "avg_sharpe_ratio": 1.9,
+                "avg_max_drawdown": 9.0,
+                "benchmark_pass_rate": 0.82,
+                "avg_strategy_score": 0.88,
+                "rank": 1,
+                "eligible_for_routing": True,
+            },
+            {
+                "model_name": "defensive_low_vol",
+                "config_name": "defensive_low_vol_v1",
+                "score": 54.0,
+                "avg_return_pct": 1.4,
+                "avg_sharpe_ratio": 1.2,
+                "avg_max_drawdown": 2.8,
+                "benchmark_pass_rate": 0.9,
+                "avg_strategy_score": 0.73,
+                "rank": 2,
+                "eligible_for_routing": True,
+            },
+            {
+                "model_name": "value_quality",
+                "config_name": "value_quality_v1",
+                "score": 48.0,
+                "avg_return_pct": 1.2,
+                "avg_sharpe_ratio": 1.0,
+                "avg_max_drawdown": 4.0,
+                "benchmark_pass_rate": 0.78,
+                "avg_strategy_score": 0.7,
+                "rank": 3,
+                "eligible_for_routing": True,
+            },
+        ],
+        "regime_leaderboards": {},
+    }
+
+    plan = ModelAllocator().allocate("bear", leaderboard)
+
+    assert plan.active_models[0] == "defensive_low_vol"
+    top_candidate = plan.metadata["top_candidates"][0]
+    assert top_candidate["model_name"] == "defensive_low_vol"
+    assert top_candidate["regime_compatibility"] > 0.9

@@ -3,10 +3,12 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from invest.shared.model_governance import infer_deployment_stage
+
 
 def _latest_yaml_mutation_event(optimization_events: list[dict[str, Any]] | None = None) -> dict[str, Any]:
     for event in reversed(list(optimization_events or [])):
-        if str(event.get("stage") or "") == "yaml_mutation":
+        if str(event.get("stage") or "") in {"yaml_mutation", "yaml_mutation_skipped"}:
             return dict(event)
     return {}
 
@@ -29,9 +31,26 @@ def build_promotion_record(
     candidate_config_ref = str(payload.get("candidate_config_ref") or "")
     mutation_event = _latest_yaml_mutation_event(optimization_events)
     applied_to_active = bool(decision.get("applied_to_active", False))
-    status = str(decision.get("status") or "not_evaluated")
+    discipline = dict(payload.get("promotion_discipline") or {})
+    stage_info = infer_deployment_stage(
+        run_context=payload,
+        optimization_events=optimization_events,
+    )
+    deployment_stage = str(
+        payload.get("deployment_stage")
+        or discipline.get("deployment_stage")
+        or stage_info.get("deployment_stage")
+        or "active"
+    )
+    status = str(discipline.get("status") or decision.get("status") or "not_evaluated")
 
-    if not candidate_config_ref:
+    if status == "candidate_expired" or status == "candidate_pruned":
+        gate_status = "rejected"
+    elif status == "override_expired":
+        gate_status = "override_rejected"
+    elif deployment_stage == "override":
+        gate_status = "override_pending"
+    elif not candidate_config_ref:
         gate_status = "not_applicable"
     elif applied_to_active:
         gate_status = "applied_to_active"
@@ -45,8 +64,10 @@ def build_promotion_record(
         "source": str(decision.get("source") or ""),
         "reason": str(decision.get("reason") or ""),
         "applied_to_active": applied_to_active,
-        "attempted": bool(candidate_config_ref),
+        "attempted": bool(candidate_config_ref or deployment_stage == "override"),
         "gate_status": gate_status,
+        "deployment_stage": deployment_stage,
+        "discipline": discipline,
         "active_config_ref": str(payload.get("active_config_ref") or ""),
         "candidate_config_ref": candidate_config_ref,
         "candidate_meta_ref": _candidate_meta_ref(candidate_config_ref),

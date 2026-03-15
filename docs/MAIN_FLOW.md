@@ -1,5 +1,8 @@
 # 主链路说明（以当前实现为准）
 
+> 定位：这是一个以 Agent 为第一用户、以治理与可控性为核心约束的投资训练 / 研究 / 运行底座。  
+> 人类主要通过 CLI、Web 与控制面观察、授权、纠偏，而不是手工串起每一层执行逻辑。
+
 本文描述当前仓库真正生效的主链路，基于以下实现：
 
 - `app/commander.py`
@@ -8,6 +11,16 @@
 - `market_data/`
 - `invest/`
 - `brain/`
+
+## 0. 系统性质
+
+从当前实现看，这条主链路更接近“受控协作运行时”，而不只是“一个能跑训练的投资脚本”：
+
+- `CommanderRuntime` 与 `BrainRuntime` 负责统一调度、工具调用、事件流与操作面。
+- `InvestmentBodyService` 与 `SelfLearningController` 负责训练执行与结果聚合。
+- `market_data/` 是事实数据底座，训练与运行都围绕同一 canonical SQLite 展开。
+- `runtime/`、Training Lab、meeting logs、outputs 共同构成审计与复盘平面。
+- `invest/shared/model_governance.py` 把 routing、promotion、deployment stage、quality gate 收到统一治理语义里。
 
 ## 1. 三个正式入口
 
