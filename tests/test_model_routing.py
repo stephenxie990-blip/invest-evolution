@@ -25,6 +25,12 @@ def _leaderboard_path(tmp_path):
     return path
 
 
+def _write_leaderboard(tmp_path, payload):
+    path = tmp_path / 'leaderboard.json'
+    path.write_text(json.dumps(payload, ensure_ascii=False), encoding='utf-8')
+    return path
+
+
 def test_regime_classifier_marks_bull_when_breadth_and_trend_are_strong():
     classifier = RegimeClassifier()
     observation = MarketObservation(
@@ -72,6 +78,104 @@ def test_routing_coordinator_holds_current_model_when_cooldown_is_active(tmp_pat
     assert decision.hold_current is True
     assert decision.hold_reason == 'routing_cooldown_active'
     assert decision.selected_model == 'momentum'
+
+
+def test_routing_coordinator_breaks_cooldown_for_strong_candidate_exception(tmp_path, monkeypatch):
+    coordinator = ModelRoutingCoordinator(
+        cooldown_cycles=2,
+        hysteresis_margin=0.01,
+        min_confidence=0.5,
+    )
+    monkeypatch.setattr(
+        coordinator.observer,
+        'observe',
+        lambda *args, **kwargs: MarketObservation(
+            as_of_date='20260310',
+            stats={
+                'avg_change_20d': 0.3,
+                'above_ma20_ratio': 0.49,
+                'market_breadth': 0.5,
+                'avg_volatility': 0.018,
+            },
+        ),
+    )
+    monkeypatch.setattr(
+        coordinator.classifier,
+        'classify',
+        lambda *args, **kwargs: {
+            'regime': 'oscillation',
+            'confidence': 0.84,
+            'reasoning': '震荡切换增强',
+            'suggested_exposure': 0.45,
+            'source': 'rule',
+            'rule_result': {},
+            'agent_result': {},
+        },
+    )
+    leaderboard_path = _write_leaderboard(
+        tmp_path,
+        {
+            'generated_at': '2026-03-10T00:00:00',
+            'entries': [
+                {
+                    'model_name': 'momentum',
+                    'config_name': 'momentum_v1',
+                    'score': 9.0,
+                    'avg_return_pct': -0.4,
+                    'avg_sharpe_ratio': 0.6,
+                    'avg_max_drawdown': 7.0,
+                    'benchmark_pass_rate': 0.2,
+                    'avg_strategy_score': 0.38,
+                    'rank': 2,
+                    'eligible_for_routing': True,
+                },
+                {
+                    'model_name': 'mean_reversion',
+                    'config_name': 'mean_reversion_v1',
+                    'score': 14.0,
+                    'avg_return_pct': 1.9,
+                    'avg_sharpe_ratio': 1.3,
+                    'avg_max_drawdown': 3.8,
+                    'benchmark_pass_rate': 0.82,
+                    'avg_strategy_score': 0.76,
+                    'rank': 1,
+                    'eligible_for_routing': True,
+                },
+            ],
+            'regime_leaderboards': {
+                'oscillation': [
+                    {
+                        'model_name': 'mean_reversion',
+                        'rank': 1,
+                        'eligible_for_routing': True,
+                    },
+                    {
+                        'model_name': 'momentum',
+                        'rank': 2,
+                        'eligible_for_routing': True,
+                    },
+                ],
+            },
+        },
+    )
+
+    decision = coordinator.route(
+        stock_data={},
+        cutoff_date='20260310',
+        current_model='momentum',
+        leaderboard_path=leaderboard_path,
+        allocator_top_n=3,
+        allowed_models=['momentum', 'mean_reversion'],
+        routing_mode='rule',
+        current_cycle_id=5,
+        last_switch_cycle_id=4,
+    )
+
+    assert decision.hold_current is False
+    assert decision.switch_applied is True
+    assert decision.selected_model == 'mean_reversion'
+    assert decision.metadata['cooldown_exception']['applied'] is True
+    assert decision.metadata['cooldown_exception']['reason'] == 'candidate_outperforms_weak_current'
 
 
 def test_routing_coordinator_supports_off_mode(tmp_path):

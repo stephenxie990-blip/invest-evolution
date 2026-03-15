@@ -34,6 +34,10 @@ class TrainingPolicyService:
         clamp_policy = dict(self.policy_lookup(controller.review_policy, "param_clamps", {}) or {})
         cash_bounds = dict(clamp_policy.get("cash_reserve") or {"min": 0.0, "max": 0.80})
         trailing_bounds = dict(clamp_policy.get("trailing_pct") or {"min": 0.03, "max": 0.20})
+        max_hold_bounds = dict(clamp_policy.get("max_hold_days") or {"min": 5, "max": 60})
+        signal_threshold_bounds = dict(
+            clamp_policy.get("signal_threshold") or {"min": 0.30, "max": 0.95}
+        )
         if normalized.get("cash_reserve") is not None:
             clean["cash_reserve"] = max(
                 float(cash_bounds.get("min", 0.0)),
@@ -43,6 +47,24 @@ class TrainingPolicyService:
             clean["trailing_pct"] = max(
                 float(trailing_bounds.get("min", 0.03)),
                 min(float(trailing_bounds.get("max", 0.20)), float(normalized["trailing_pct"])),
+            )
+        if normalized.get("max_hold_days") is not None:
+            clean["max_hold_days"] = int(
+                max(
+                    int(max_hold_bounds.get("min", 5)),
+                    min(int(max_hold_bounds.get("max", 60)), int(round(float(normalized["max_hold_days"])))),
+                )
+            )
+        if normalized.get("signal_threshold") is not None:
+            clean["signal_threshold"] = round(
+                max(
+                    float(signal_threshold_bounds.get("min", 0.30)),
+                    min(
+                        float(signal_threshold_bounds.get("max", 0.95)),
+                        float(normalized["signal_threshold"]),
+                    ),
+                ),
+                4,
             )
         return clean
 

@@ -243,6 +243,42 @@ def test_review_recorder_markdown_uses_aggregated_facts_and_applied_summary(tmp_
     assert "**最终执行摘要**: 最终执行参数：position_size=30%" in markdown
 
 
+def test_selection_recorder_persists_observability_payload(tmp_path):
+    recorder = MeetingRecorder(base_dir=str(tmp_path))
+
+    recorder.save_selection(
+        {
+            "meeting_id": 7,
+            "cutoff_date": "20240101",
+            "regime": "oscillation",
+            "confidence": 0.74,
+            "selected": ["AAA", "BBB"],
+            "source": "llm",
+            "selected_roster": [
+                {"name": "trend_hunter", "cost": 1.0},
+                {"name": "quality_agent", "cost": 0.8},
+            ],
+            "observability": {
+                "budget": {
+                    "selected_hunters": 2,
+                    "budget_limit": 2.2,
+                    "budget_used": 1.8,
+                },
+                "timings_ms": {"total": 184.0, "agents": 121.0},
+                "llm": {"used": True, "mode": "live", "call_count": 2},
+            },
+        },
+        cycle=7,
+    )
+
+    payload = __import__("json").loads(
+        (tmp_path / "selection" / "meeting_0007.json").read_text(encoding="utf-8")
+    )
+
+    assert payload["observability"]["budget"]["selected_hunters"] == 2
+    assert payload["observability"]["llm"]["mode"] == "live"
+
+
 def test_review_meeting_validation_normalizes_list_weight_adjustments():
     review = ReviewMeeting(llm_caller=None)
 

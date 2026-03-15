@@ -54,11 +54,8 @@ def test_selection_meeting_uses_quality_agent_for_value_quality():
     meeting = SelectionMeeting(llm_caller=None, trend_hunter=trend, contrarian=reversion, quality_agent=quality, defensive_agent=defensive)
     out = meeting.run_with_model_output(_build_output("value_quality", code="AAA"))
     assert quality.calls == 1
-    assert trend.calls == 0
-    assert reversion.calls == 0
-    assert defensive.calls == 0
     assert out["strategy_advice"]["selected_codes"] == ["AAA"]
-    assert out["meeting_log"]["hunters"][0]["name"] == "quality_agent"
+    assert out["meeting_log"]["selected_roster"][0]["name"] == "quality_agent"
 
 
 def test_selection_meeting_uses_defensive_agent_for_defensive_model():
@@ -69,8 +66,30 @@ def test_selection_meeting_uses_defensive_agent_for_defensive_model():
     meeting = SelectionMeeting(llm_caller=None, trend_hunter=trend, contrarian=reversion, quality_agent=quality, defensive_agent=defensive)
     out = meeting.run_with_model_output(_build_output("defensive_low_vol", code="DDD"))
     assert defensive.calls == 1
-    assert trend.calls == 0
-    assert reversion.calls == 0
-    assert quality.calls == 0
     assert out["strategy_advice"]["selected_codes"] == ["DDD"]
-    assert out["meeting_log"]["hunters"][0]["name"] == "defensive_agent"
+    assert out["meeting_log"]["selected_roster"][0]["name"] == "defensive_agent"
+
+
+def test_selection_meeting_expands_to_budgeted_multi_hunter_roster():
+    trend = _StubAgent("TREND", "trend")
+    reversion = _StubAgent("REV", "reversion")
+    quality = _StubAgent("QUAL", "quality")
+    defensive = _StubAgent("DEF", "defensive")
+    meeting = SelectionMeeting(
+        llm_caller=None,
+        trend_hunter=trend,
+        contrarian=reversion,
+        quality_agent=quality,
+        defensive_agent=defensive,
+        max_hunters=3,
+    )
+
+    out = meeting.run_with_model_output(_build_output("momentum", code="TREND"))
+
+    selected_roster = out["meeting_log"]["selected_roster"]
+
+    assert 2 <= len(selected_roster) <= 3
+    assert trend.calls == 1
+    assert quality.calls == 1
+    assert out["meeting_log"]["observability"]["budget"]["selected_hunters"] == len(selected_roster)
+    assert out["meeting_log"]["observability"]["timings_ms"]["total"] >= 0

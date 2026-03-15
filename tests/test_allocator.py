@@ -95,3 +95,58 @@ def test_allocator_prefers_higher_strategy_score_when_scores_close(tmp_path):
     }, ensure_ascii=False), encoding='utf-8')
     plan = build_allocation_plan('unknown', leaderboard_path, top_n=2)
     assert plan.active_models[0] == 'value_quality'
+
+
+def test_allocator_ignores_ineligible_entries_when_eligible_candidates_exist():
+    leaderboard = {
+        "generated_at": "2026-03-09T00:00:00",
+        "entries": [
+            {
+                "model_name": "momentum",
+                "config_name": "momentum_v1",
+                "score": 80.0,
+                "avg_return_pct": 5.0,
+                "avg_sharpe_ratio": 1.8,
+                "avg_max_drawdown": 9.0,
+                "benchmark_pass_rate": 0.2,
+                "avg_strategy_score": 0.4,
+                "rank": 0,
+                "eligible_for_routing": False,
+            },
+            {
+                "model_name": "value_quality",
+                "config_name": "value_quality_v1",
+                "score": 52.0,
+                "avg_return_pct": 1.4,
+                "avg_sharpe_ratio": 1.2,
+                "avg_max_drawdown": 4.0,
+                "benchmark_pass_rate": 0.8,
+                "avg_strategy_score": 0.82,
+                "rank": 1,
+                "eligible_for_routing": True,
+            },
+            {
+                "model_name": "defensive_low_vol",
+                "config_name": "defensive_low_vol_v1",
+                "score": 48.0,
+                "avg_return_pct": 1.0,
+                "avg_sharpe_ratio": 1.3,
+                "avg_max_drawdown": 2.5,
+                "benchmark_pass_rate": 0.86,
+                "avg_strategy_score": 0.75,
+                "rank": 2,
+                "eligible_for_routing": True,
+            },
+        ],
+        "regime_leaderboards": {
+            "bull": [
+                {"model_name": "momentum", "rank": 0, "eligible_for_routing": False},
+                {"model_name": "value_quality", "rank": 1, "eligible_for_routing": True},
+            ],
+        },
+    }
+
+    plan = ModelAllocator().allocate("bull", leaderboard)
+
+    assert plan.active_models[0] != "momentum"
+    assert plan.metadata["used_provisional_leaderboard"] is False

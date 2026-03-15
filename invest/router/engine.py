@@ -6,7 +6,7 @@ from typing import Any, Dict, List, Optional, cast
 
 import pandas as pd
 
-from invest.allocator import build_allocation_plan
+from invest.allocator import build_allocation_plan, load_leaderboard
 from invest.contracts import ModelRoutingDecision
 from invest.foundation.compute.features import compute_market_stats
 from invest.models import list_models, resolve_model_config_path
@@ -22,6 +22,12 @@ DEFAULT_ROUTING_POLICY: Dict[str, Any] = {
     "index_bull_change_20d": 2.0,
     "index_bear_change_20d": -2.0,
     "default_regime": "oscillation",
+    "cooldown_exception_min_candidate_weight_gap": 0.10,
+    "cooldown_exception_min_confidence": 0.72,
+    "cooldown_exception_min_benchmark_gap": 0.15,
+    "cooldown_exception_min_return_gap": 0.75,
+    "cooldown_exception_current_benchmark_pass_rate_max": 0.45,
+    "cooldown_exception_current_avg_return_pct_max": 0.0,
 }
 
 DEFAULT_ROUTING_ALLOWED_MODELS = list_models()
@@ -185,6 +191,99 @@ class ModelRoutingCoordinator:
         self.hysteresis_margin = float(hysteresis_margin)
         self.agent_override_max_gap = float(agent_override_max_gap)
 
+    @staticmethod
+    def _lookup_leaderboard_entry(
+        leaderboard: Dict[str, Any],
+        model_name: str,
+    ) -> Dict[str, Any]:
+        for entry in list(leaderboard.get("entries") or []):
+            if str(entry.get("model_name") or "") == model_name:
+                return dict(entry)
+        return {}
+
+    def _evaluate_cooldown_exception(
+        self,
+        *,
+        leaderboard_path: str | Path,
+        current_model: str,
+        candidate_model: str,
+        current_weight: float,
+        candidate_weight: float,
+        decision_confidence: float,
+    ) -> Dict[str, Any]:
+        if candidate_model == current_model:
+            return {"applied": False, "reason": "", "details": {}}
+        try:
+            leaderboard = load_leaderboard(leaderboard_path)
+        except Exception:
+            return {"applied": False, "reason": "", "details": {}}
+        current_entry = self._lookup_leaderboard_entry(leaderboard, current_model)
+        candidate_entry = self._lookup_leaderboard_entry(leaderboard, candidate_model)
+        if not current_entry or not candidate_entry:
+            return {"applied": False, "reason": "", "details": {}}
+
+        weight_gap = round(candidate_weight - current_weight, 4)
+        benchmark_gap = round(
+            float(candidate_entry.get("benchmark_pass_rate", 0.0) or 0.0)
+            - float(current_entry.get("benchmark_pass_rate", 0.0) or 0.0),
+            4,
+        )
+        return_gap = round(
+            float(candidate_entry.get("avg_return_pct", 0.0) or 0.0)
+            - float(current_entry.get("avg_return_pct", 0.0) or 0.0),
+            4,
+        )
+        current_benchmark = float(current_entry.get("benchmark_pass_rate", 0.0) or 0.0)
+        current_return = float(current_entry.get("avg_return_pct", 0.0) or 0.0)
+
+        current_is_weak = (
+            current_benchmark
+            <= float(self.routing_policy["cooldown_exception_current_benchmark_pass_rate_max"])
+            or current_return
+            <= float(self.routing_policy["cooldown_exception_current_avg_return_pct_max"])
+        )
+        candidate_is_strong = (
+            decision_confidence
+            >= float(self.routing_policy["cooldown_exception_min_confidence"])
+            and weight_gap
+            >= float(self.routing_policy["cooldown_exception_min_candidate_weight_gap"])
+            and (
+                benchmark_gap
+                >= float(self.routing_policy["cooldown_exception_min_benchmark_gap"])
+                or return_gap
+                >= float(self.routing_policy["cooldown_exception_min_return_gap"])
+            )
+        )
+        if not (current_is_weak and candidate_is_strong):
+            return {
+                "applied": False,
+                "reason": "",
+                "details": {
+                    "current_benchmark_pass_rate": current_benchmark,
+                    "candidate_benchmark_pass_rate": float(candidate_entry.get("benchmark_pass_rate", 0.0) or 0.0),
+                    "benchmark_gap": benchmark_gap,
+                    "current_avg_return_pct": current_return,
+                    "candidate_avg_return_pct": float(candidate_entry.get("avg_return_pct", 0.0) or 0.0),
+                    "return_gap": return_gap,
+                    "weight_gap": weight_gap,
+                    "decision_confidence": decision_confidence,
+                },
+            }
+        return {
+            "applied": True,
+            "reason": "candidate_outperforms_weak_current",
+            "details": {
+                "current_benchmark_pass_rate": current_benchmark,
+                "candidate_benchmark_pass_rate": float(candidate_entry.get("benchmark_pass_rate", 0.0) or 0.0),
+                "benchmark_gap": benchmark_gap,
+                "current_avg_return_pct": current_return,
+                "candidate_avg_return_pct": float(candidate_entry.get("avg_return_pct", 0.0) or 0.0),
+                "return_gap": return_gap,
+                "weight_gap": weight_gap,
+                "decision_confidence": decision_confidence,
+            },
+        }
+
     def route(
         self,
         *,
@@ -272,6 +371,7 @@ class ModelRoutingCoordinator:
         guardrail_checks: List[Dict[str, Any]] = []
         regime_confidence = float(regime_payload.get("confidence", 0.0) or 0.0)
         decision_confidence = round(max(regime_confidence, float(allocation.confidence or 0.0)), 4)
+        cooldown_exception = {"applied": False, "reason": "", "details": {}}
         if candidate_model != current_model:
             if decision_confidence < self.min_confidence:
                 hold_current = True
@@ -280,13 +380,24 @@ class ModelRoutingCoordinator:
                 hold_current = True
                 hold_reason = "routing_hysteresis_hold"
             elif current_cycle_id is not None and last_switch_cycle_id is not None and (current_cycle_id - last_switch_cycle_id) <= self.cooldown_cycles:
-                hold_current = True
-                hold_reason = "routing_cooldown_active"
+                cooldown_exception = self._evaluate_cooldown_exception(
+                    leaderboard_path=leaderboard_path,
+                    current_model=current_model,
+                    candidate_model=candidate_model,
+                    current_weight=current_weight,
+                    candidate_weight=candidate_weight,
+                    decision_confidence=decision_confidence,
+                )
+                if cooldown_exception.get("applied"):
+                    hold_current = False
+                else:
+                    hold_current = True
+                    hold_reason = "routing_cooldown_active"
         guardrail_checks.append({"name": "min_confidence", "passed": decision_confidence >= self.min_confidence, "actual": decision_confidence, "threshold": self.min_confidence})
         guardrail_checks.append({"name": "hysteresis_margin", "passed": (candidate_weight - current_weight) >= self.hysteresis_margin or candidate_model == current_model, "actual": round(candidate_weight - current_weight, 4), "threshold": self.hysteresis_margin})
         if current_cycle_id is not None and last_switch_cycle_id is not None:
             cycles_since_switch = current_cycle_id - last_switch_cycle_id
-            guardrail_checks.append({"name": "cooldown_cycles", "passed": cycles_since_switch > self.cooldown_cycles or candidate_model == current_model, "actual": cycles_since_switch, "threshold": self.cooldown_cycles})
+            guardrail_checks.append({"name": "cooldown_cycles", "passed": cycles_since_switch > self.cooldown_cycles or candidate_model == current_model or bool(cooldown_exception.get("applied")), "actual": cycles_since_switch, "threshold": self.cooldown_cycles, "exception_applied": bool(cooldown_exception.get("applied"))})
         selected_model = current_model if hold_current else candidate_model
         selected_config = str(resolve_model_config_path(selected_model))
         reasoning = self._build_reasoning(
@@ -297,11 +408,14 @@ class ModelRoutingCoordinator:
             agent_advice=agent_advice,
             hold_reason=hold_reason,
         )
+        if cooldown_exception.get("applied"):
+            reasoning = f"{reasoning} 满足 cooldown 切换例外，允许提前切换到 {selected_model}。".strip()
         metadata = {
             "routing_mode": routing_mode,
             "allowed_models": allowed,
             "observation_version": "routing_v1",
             "previous_decision": dict(previous_decision or {}),
+            "cooldown_exception": cooldown_exception,
         }
         return ModelRoutingDecision(
             as_of_date=cutoff_date,

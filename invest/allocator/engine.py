@@ -85,11 +85,13 @@ class ModelAllocator:
         top_n: int = 3,
     ) -> AllocationPlan:
         normalized_regime = regime if regime in self.priors else "unknown"
-        candidates = self._rank_candidates(normalized_regime, leaderboard)
+        candidates, used_provisional = self._rank_candidates(normalized_regime, leaderboard)
         weights = self._blend_weights(normalized_regime, candidates, top_n=top_n)
         selected_configs = {item.model_name: item.config_name for item in candidates if item.model_name in weights}
         active_models = [name for name, weight in sorted(weights.items(), key=lambda pair: pair[1], reverse=True) if weight > 0]
         confidence = self._confidence(candidates)
+        if used_provisional:
+            confidence = min(confidence, 0.55)
         reasoning = self._build_reasoning(normalized_regime, active_models, weights, candidates)
         return AllocationPlan(
             as_of_date=as_of_date or datetime.now().strftime("%Y%m%d"),
@@ -103,17 +105,33 @@ class ModelAllocator:
             metadata={
                 "top_candidates": [item.__dict__ for item in candidates[:top_n]],
                 "leaderboard_generated_at": leaderboard.get("generated_at"),
+                "used_provisional_leaderboard": used_provisional,
             },
         )
 
-    def _rank_candidates(self, regime: str, leaderboard: Dict[str, Any]) -> List[ModelScore]:
+    @staticmethod
+    def _eligible_entries(entries: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        eligible = [
+            entry
+            for entry in entries
+            if bool(entry.get("eligible_for_routing", True))
+        ]
+        return eligible or entries
+
+    def _rank_candidates(self, regime: str, leaderboard: Dict[str, Any]) -> tuple[List[ModelScore], bool]:
         regime_board = list((leaderboard.get("regime_leaderboards") or {}).get(regime, []))
         entries = list(leaderboard.get("entries") or [])
+        filtered_entries = self._eligible_entries(entries)
+        used_provisional = filtered_entries is entries
         if regime_board:
-            regime_map = {item["model_name"]: item for item in regime_board}
+            regime_map = {
+                item["model_name"]: item
+                for item in regime_board
+                if bool(item.get("eligible_for_routing", True)) or used_provisional
+            }
             chosen = []
-            for entry in entries:
-                model_name = entry.get("model_name")
+            for entry in filtered_entries:
+                model_name = str(entry.get("model_name", "unknown") or "unknown")
                 if model_name not in regime_map:
                     continue
                 chosen.append(ModelScore(
@@ -128,7 +146,7 @@ class ModelAllocator:
                     rank=int(regime_map[model_name].get("rank", 0) or 0),
                 ))
             if chosen:
-                return self._dedupe_by_model(chosen)
+                return self._dedupe_by_model(chosen), used_provisional
         fallback = [
             ModelScore(
                 model_name=str(entry.get("model_name", "unknown")),
@@ -141,9 +159,9 @@ class ModelAllocator:
                 avg_strategy_score=float(entry.get("avg_strategy_score", 0.0) or 0.0),
                 rank=int(entry.get("rank", 0) or 0),
             )
-            for entry in entries
+            for entry in filtered_entries
         ]
-        return self._dedupe_by_model(fallback)
+        return self._dedupe_by_model(fallback), used_provisional
 
     def _dedupe_by_model(self, items: List[ModelScore]) -> List[ModelScore]:
         best: Dict[str, ModelScore] = {}

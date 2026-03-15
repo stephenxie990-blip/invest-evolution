@@ -1,4 +1,5 @@
 from app.train import SelfLearningController, TrainingResult
+from app.training.runtime_hooks import SelfAssessmentSnapshot
 
 
 def _make_feedback(*, bias: str, sample_count: int = 8, t20_hit: float = 0.3, t20_invalid: float = 0.4, t20_interval: float = 0.3, t60_hit: float = 0.42, t60_invalid: float = 0.36, t60_interval: float = 0.35, brier: float = 0.31):
@@ -70,6 +71,46 @@ def test_feedback_optimization_plan_uses_multi_horizon_failures(tmp_path):
     assert plan["param_adjustments"]["position_size"] < base_position
     assert plan["param_adjustments"]["cash_reserve"] > base_cash
     assert "T+20.hit_rate" in plan["failed_check_names"]
+
+
+def test_feedback_optimization_plan_tightens_faster_when_benchmark_is_weak(tmp_path):
+    controller = SelfLearningController(
+        output_dir=str(tmp_path / "training"),
+        meeting_log_dir=str(tmp_path / "meetings"),
+        config_audit_log_path=str(tmp_path / "audit" / "changes.jsonl"),
+        config_snapshot_dir=str(tmp_path / "snapshots"),
+    )
+    controller.assessment_history = [
+        SelfAssessmentSnapshot(
+            cycle_id=index,
+            cutoff_date=f"202401{index:02d}",
+            regime="bull",
+            plan_source="meeting",
+            return_pct=-0.5 if index % 2 else 0.2,
+            is_profit=index % 2 == 0,
+            sharpe_ratio=0.4,
+            max_drawdown=12.0,
+            excess_return=-0.6,
+            benchmark_passed=index == 5,
+        )
+        for index in range(1, 6)
+    ]
+    base_position = controller.current_params["position_size"]
+    base_cash = controller.current_params["cash_reserve"]
+    base_hold_days = controller.current_params["max_hold_days"]
+    base_signal_threshold = controller.current_params["signal_threshold"]
+
+    plan = controller._build_feedback_optimization_plan(
+        _make_feedback(bias="tighten_risk", brier=0.37),
+        cycle_id=6,
+    )
+
+    assert plan["benchmark_context"]["current_pass_rate"] < plan["benchmark_context"]["required_pass_rate"]
+    assert plan["severity"] > 1.8
+    assert plan["param_adjustments"]["position_size"] < base_position
+    assert plan["param_adjustments"]["cash_reserve"] > base_cash + 0.04
+    assert plan["param_adjustments"]["max_hold_days"] < base_hold_days
+    assert plan["param_adjustments"]["signal_threshold"] > base_signal_threshold
 
 
 def test_feedback_optimization_plan_respects_cooldown(tmp_path):

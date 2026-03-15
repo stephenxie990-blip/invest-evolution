@@ -68,8 +68,10 @@ class FakeModel:
 
 
 class FakeCycle:
-    def __init__(self, return_pct):
+    def __init__(self, return_pct, *, benchmark_passed=False, strategy_scores=None):
         self.return_pct = return_pct
+        self.benchmark_passed = benchmark_passed
+        self.strategy_scores = dict(strategy_scores or {})
 
 
 def test_trigger_loss_optimization_generates_candidate_without_auto_apply():
@@ -108,3 +110,37 @@ def test_trigger_loss_optimization_generates_candidate_without_auto_apply():
     assert optimized and optimized[-1]['take_profit_pct'] == 0.18
     assert appended[-1]['stage'] == 'yaml_mutation'
     assert any(kwargs.get('kind') == 'yaml_mutation' for _, kwargs in logs)
+
+
+def test_trigger_loss_optimization_uses_benchmark_oriented_fitness_scores():
+    controller = SimpleNamespace(
+        consecutive_losses=3,
+        llm_optimizer=FakeLLMOptimizer(),
+        evolution_engine=FakeEvolutionEngine(),
+        model_mutator=FakeMutator(),
+        model_name='momentum',
+        model_config_path='invest/models/configs/momentum_v1.yaml',
+        auto_apply_mutation=False,
+        current_params={'position_size': 0.2, 'take_profit_pct': 0.15},
+        investment_model=FakeModel(),
+        cycle_history=[
+            FakeCycle(1.4, benchmark_passed=False, strategy_scores={'overall_score': 0.15}),
+            FakeCycle(0.9, benchmark_passed=True, strategy_scores={'overall_score': 0.82}),
+            FakeCycle(0.6, benchmark_passed=True, strategy_scores={'overall_score': 0.75}),
+        ],
+        on_optimize=lambda params: None,
+        _emit_agent_status=lambda *args, **kwargs: None,
+        _emit_module_log=lambda *args, **kwargs: None,
+        _emit_meeting_speech=lambda *args, **kwargs: None,
+        _append_optimization_event=lambda event: None,
+        _reload_investment_model=lambda path: None,
+    )
+
+    events = trigger_loss_optimization(controller, {'cycle_id': 9}, [], event_factory=Event)
+
+    evo_event = next(item for item in events if item['stage'] == 'evolution_engine')
+    fitness_scores = controller.evolution_engine.last_fitness
+
+    assert len(fitness_scores) == 3
+    assert fitness_scores[1] > fitness_scores[0]
+    assert evo_event['decision']['fitness_scores'] == fitness_scores[-5:]

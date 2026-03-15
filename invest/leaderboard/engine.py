@@ -8,6 +8,11 @@ from typing import Any, Dict, Iterable, List
 
 logger = logging.getLogger(__name__)
 
+DEFAULT_LEADERBOARD_POLICY: Dict[str, int] = {
+    "min_cycles": 3,
+    "min_cycles_per_regime": 2,
+}
+
 
 def _infer_model_name(payload: Dict[str, Any], path: Path) -> str:
     candidates = [
@@ -110,7 +115,44 @@ def _extract_scoring_change_summary(item: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def build_leaderboard(records: List[Dict[str, Any]]) -> Dict[str, Any]:
+def _eligibility_for_entry(
+    *,
+    cycle_count: int,
+    dominant_regime: str,
+    regimes: Dict[str, int],
+    policy: Dict[str, Any],
+) -> tuple[bool, str, Dict[str, Any]]:
+    min_cycles = max(1, int(policy.get("min_cycles", 1) or 1))
+    min_cycles_per_regime = max(1, int(policy.get("min_cycles_per_regime", 1) or 1))
+    dominant_regime_cycles = int(regimes.get(dominant_regime, 0) or 0)
+    if cycle_count < min_cycles:
+        return False, "min_cycles", {
+            "min_cycles": min_cycles,
+            "observed_cycles": cycle_count,
+            "min_cycles_per_regime": min_cycles_per_regime,
+            "dominant_regime": dominant_regime,
+            "dominant_regime_cycles": dominant_regime_cycles,
+        }
+    if dominant_regime_cycles < min_cycles_per_regime:
+        return False, "min_regime_cycles", {
+            "min_cycles": min_cycles,
+            "observed_cycles": cycle_count,
+            "min_cycles_per_regime": min_cycles_per_regime,
+            "dominant_regime": dominant_regime,
+            "dominant_regime_cycles": dominant_regime_cycles,
+        }
+    return True, "", {
+        "min_cycles": min_cycles,
+        "observed_cycles": cycle_count,
+        "min_cycles_per_regime": min_cycles_per_regime,
+        "dominant_regime": dominant_regime,
+        "dominant_regime_cycles": dominant_regime_cycles,
+    }
+
+
+def build_leaderboard(records: List[Dict[str, Any]], policy: Dict[str, Any] | None = None) -> Dict[str, Any]:
+    resolved_policy = dict(DEFAULT_LEADERBOARD_POLICY)
+    resolved_policy.update(dict(policy or {}))
     grouped: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
     for record in records:
         grouped[_entry_key(record)].append(record)
@@ -130,6 +172,12 @@ def build_leaderboard(records: List[Dict[str, Any]]) -> Dict[str, Any]:
         for item in items:
             regimes[str(item.get("regime", "unknown"))] += 1
         dominant_regime = max(regimes.items(), key=lambda pair: pair[1])[0] if regimes else "unknown"
+        eligible_for_routing, ineligible_reason, sample_gate = _eligibility_for_entry(
+            cycle_count=len(items),
+            dominant_regime=dominant_regime,
+            regimes=regimes,
+            policy=resolved_policy,
+        )
         composite_score = (
             _safe_avg(returns) * 0.30
             + _safe_avg(sharpes) * 10.0
@@ -147,27 +195,45 @@ def build_leaderboard(records: List[Dict[str, Any]]) -> Dict[str, Any]:
             "cycles": len(items),
             "profit_cycles": wins,
             "profit_rate": wins / len(items) if items else 0.0,
-            "avg_return_pct": _safe_avg(returns),
-            "avg_sharpe_ratio": _safe_avg(sharpes),
-            "avg_max_drawdown": _safe_avg(drawdowns),
-            "avg_excess_return": _safe_avg(excess_returns),
-            "avg_strategy_score": _safe_avg(strategy_scores),
-            "benchmark_pass_rate": benchmark_passes / len(items) if items else 0.0,
+            "avg_return_pct": round(_safe_avg(returns), 6),
+            "avg_sharpe_ratio": round(_safe_avg(sharpes), 6),
+            "avg_max_drawdown": round(_safe_avg(drawdowns), 6),
+            "avg_excess_return": round(_safe_avg(excess_returns), 6),
+            "avg_strategy_score": round(_safe_avg(strategy_scores), 6),
+            "benchmark_pass_rate": round(benchmark_passes / len(items), 6) if items else 0.0,
             "dominant_regime": dominant_regime,
             "regime_breakdown": dict(sorted(regimes.items())),
             "latest_cycle_id": int(items[-1].get("cycle_id", 0) or 0),
             "latest_cutoff_date": str(items[-1].get("cutoff_date", "")),
             "latest_return_pct": float(items[-1].get("return_pct", 0.0) or 0.0),
             "score": round(composite_score, 6),
+            "eligible_for_routing": eligible_for_routing,
+            "ineligible_reason": ineligible_reason,
+            "sample_gate": sample_gate,
             "scoring_mutation_count": sum(item.get("scoring_mutation_count", 0) for item in scoring_summaries),
             "scoring_changed_keys": sorted({key for item in scoring_summaries for key in item.get("scoring_changed_keys", [])}),
         }
         entries.append(entry)
-        regime_groups[dominant_regime].append(entry)
+        if eligible_for_routing:
+            regime_groups[dominant_regime].append(entry)
 
-    entries.sort(key=lambda item: (item["score"], item["avg_return_pct"], item["avg_sharpe_ratio"]), reverse=True)
+    entries.sort(
+        key=lambda item: (
+            bool(item.get("eligible_for_routing")),
+            item["score"],
+            item["avg_return_pct"],
+            item["avg_sharpe_ratio"],
+        ),
+        reverse=True,
+    )
+    eligible_rank = 1
     for idx, entry in enumerate(entries, start=1):
-        entry["rank"] = idx
+        entry["provisional_rank"] = idx
+        if entry.get("eligible_for_routing"):
+            entry["rank"] = eligible_rank
+            eligible_rank += 1
+        else:
+            entry["rank"] = 0
 
     regime_leaderboards: Dict[str, List[Dict[str, Any]]] = {}
     for regime, items in regime_groups.items():
@@ -181,17 +247,24 @@ def build_leaderboard(records: List[Dict[str, Any]]) -> Dict[str, Any]:
                 "avg_return_pct": item["avg_return_pct"],
                 "avg_sharpe_ratio": item["avg_sharpe_ratio"],
                 "benchmark_pass_rate": item["benchmark_pass_rate"],
+                "eligible_for_routing": True,
                 "scoring_mutation_count": item["scoring_mutation_count"],
             }
             for idx, item in enumerate(ranked, start=1)
         ]
 
+    best_model = next((entry for entry in entries if entry.get("eligible_for_routing")), None)
+    if best_model is None:
+        best_model = entries[0] if entries else None
+
     return {
         "generated_at": __import__("datetime").datetime.now().isoformat(),
         "total_records": len(records),
         "total_models": len(entries),
+        "eligible_models": sum(1 for entry in entries if entry.get("eligible_for_routing")),
+        "policy": dict(resolved_policy),
         "entries": entries,
-        "best_model": entries[0] if entries else None,
+        "best_model": best_model,
         "regime_leaderboards": regime_leaderboards,
     }
 

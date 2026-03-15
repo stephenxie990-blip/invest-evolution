@@ -86,12 +86,21 @@ class SelectionMeeting:
         self.agent_weights = agent_weights or {
             "trend_hunter": 1.0,
             "contrarian": 1.0,
+            "quality_agent": 1.0,
+            "defensive_agent": 1.0,
         }
         self.trend_hunter = trend_hunter or TrendHunterAgent()
         self.contrarian = contrarian or ContrarianAgent()
         self.quality_agent = quality_agent or QualityAgent()
         self.defensive_agent = defensive_agent or DefensiveAgent()
-        self.max_hunters = max_hunters
+        self.max_hunters = max(1, int(max_hunters or 3))
+        self.min_hunters = min(2, self.max_hunters)
+        self.hunter_budget_by_regime = {
+            "bull": 1.9,
+            "oscillation": 2.35,
+            "bear": 2.15,
+            "unknown": 2.1,
+        }
         self.meeting_count = 0
         self.progress_callback = progress_callback
 
@@ -208,6 +217,10 @@ class SelectionMeeting:
             "hunters": meeting_result.get("hunters", []),
             "selected": strategy_advice.selected_codes,
             "selected_meta": strategy_advice.selected_meta,
+            "selected_roster": meeting_result.get("selected_roster", []),
+            "candidate_roster": meeting_result.get("candidate_roster", []),
+            "budget_policy": meeting_result.get("budget_policy", {}),
+            "observability": meeting_result.get("observability", {}),
             "source": strategy_advice.source,
             "meeting_id": self.meeting_count,
             "cutoff_date": signal_packet.as_of_date,
@@ -235,53 +248,97 @@ class SelectionMeeting:
     # Internal: model roster
     # ==================================================================
 
-    def _get_model_roster(self, model_name: str) -> List[Dict[str, Any]]:
-        model_name = str(model_name or "").strip()
-        specialist_map = {
-            "momentum": [
-                {
-                    "key": "trend_hunter",
-                    "label": "TrendHunterAgent",
-                    "agent": self.trend_hunter,
-                },
-            ],
-            "mean_reversion": [
-                {
-                    "key": "contrarian",
-                    "label": "ContrarianAgent",
-                    "agent": self.contrarian,
-                },
-            ],
-            "value_quality": [
-                {
-                    "key": "quality_agent",
-                    "label": "QualityAgent",
-                    "agent": self.quality_agent,
-                },
-            ],
-            "defensive_low_vol": [
-                {
-                    "key": "defensive_agent",
-                    "label": "DefensiveAgent",
-                    "agent": self.defensive_agent,
-                },
-            ],
+    def _agent_catalog(self) -> Dict[str, Dict[str, Any]]:
+        return {
+            "trend_hunter": {
+                "key": "trend_hunter",
+                "label": "TrendHunterAgent",
+                "agent": self.trend_hunter,
+                "cost": 1.0,
+                "role": "primary_trend",
+            },
+            "contrarian": {
+                "key": "contrarian",
+                "label": "ContrarianAgent",
+                "agent": self.contrarian,
+                "cost": 1.0,
+                "role": "primary_reversion",
+            },
+            "quality_agent": {
+                "key": "quality_agent",
+                "label": "QualityAgent",
+                "agent": self.quality_agent,
+                "cost": 0.8,
+                "role": "quality_filter",
+            },
+            "defensive_agent": {
+                "key": "defensive_agent",
+                "label": "DefensiveAgent",
+                "agent": self.defensive_agent,
+                "cost": 0.65,
+                "role": "risk_sentinel",
+            },
         }
-        return specialist_map.get(
-            model_name,
-            [
-                {
-                    "key": "trend_hunter",
-                    "label": "TrendHunterAgent",
-                    "agent": self.trend_hunter,
-                },
-                {
-                    "key": "contrarian",
-                    "label": "ContrarianAgent",
-                    "agent": self.contrarian,
-                },
-            ],
+
+    def _serialize_roster(self, roster: Sequence[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        return [
+            {
+                "name": str(spec.get("key") or ""),
+                "label": str(spec.get("label") or ""),
+                "cost": round(float(spec.get("cost", 1.0) or 1.0), 3),
+                "role": str(spec.get("role") or ""),
+            }
+            for spec in roster
+        ]
+
+    def _get_model_roster(self, model_name: str, regime_name: str = "unknown") -> List[Dict[str, Any]]:
+        catalog = self._agent_catalog()
+        model_name = str(model_name or "").strip()
+        regime_name = str(regime_name or "unknown").strip() or "unknown"
+        roster_order = {
+            "momentum": ["trend_hunter", "quality_agent", "defensive_agent"],
+            "mean_reversion": ["contrarian", "defensive_agent", "quality_agent"],
+            "value_quality": ["quality_agent", "defensive_agent", "trend_hunter"],
+            "defensive_low_vol": ["defensive_agent", "quality_agent", "contrarian"],
+            "bull": ["trend_hunter", "quality_agent", "defensive_agent"],
+            "oscillation": ["contrarian", "quality_agent", "defensive_agent"],
+            "bear": ["defensive_agent", "quality_agent", "contrarian"],
+            "unknown": ["trend_hunter", "contrarian", "quality_agent"],
+        }
+        order = roster_order.get(model_name) or roster_order.get(regime_name) or roster_order["unknown"]
+        return [dict(catalog[key]) for key in order if key in catalog]
+
+    def _select_budgeted_roster(
+        self,
+        *,
+        model_name: str,
+        regime_name: str,
+    ) -> tuple[List[Dict[str, Any]], Dict[str, Any], List[Dict[str, Any]]]:
+        candidate_roster = self._get_model_roster(model_name, regime_name)
+        target_hunters = min(
+            self.max_hunters,
+            3 if regime_name in {"oscillation", "unknown"} else 2,
         )
+        budget_limit = float(
+            self.hunter_budget_by_regime.get(regime_name, self.hunter_budget_by_regime["unknown"])
+        )
+        selected: List[Dict[str, Any]] = []
+        spent = 0.0
+        for spec in candidate_roster:
+            if len(selected) >= target_hunters:
+                break
+            cost = float(spec.get("cost", 1.0) or 1.0)
+            if spent + cost <= budget_limit or len(selected) < self.min_hunters:
+                selected.append(dict(spec))
+                spent += cost
+        return selected, {
+            "regime": regime_name,
+            "model_name": model_name,
+            "target_hunters": target_hunters,
+            "selected_hunters": len(selected),
+            "budget_limit": round(budget_limit, 3),
+            "budget_used": round(spent, 3),
+        }, candidate_roster
 
     # ==================================================================
     # Internal: thread-safe progress notification
@@ -301,6 +358,42 @@ class SelectionMeeting:
                     exc_info=exc,
                 )
 
+    @staticmethod
+    def _llm_snapshot(llm: Any) -> Dict[str, Any]:
+        if llm is None:
+            return {
+                "call_count": 0,
+                "input_tokens": 0,
+                "output_tokens": 0,
+                "total_time": 0.0,
+                "mode": "disabled",
+                "model": "",
+            }
+        return {
+            "call_count": int(getattr(llm, "call_count", 0) or 0),
+            "input_tokens": int(getattr(llm, "total_input_tokens", 0) or 0),
+            "output_tokens": int(getattr(llm, "total_output_tokens", 0) or 0),
+            "total_time": float(getattr(llm, "total_time", 0.0) or 0.0),
+            "mode": "dry_run" if bool(getattr(llm, "dry_run", False)) else "live",
+            "model": str(getattr(llm, "model", "") or ""),
+        }
+
+    @classmethod
+    def _llm_delta(cls, llm: Any, before: Dict[str, Any]) -> Dict[str, Any]:
+        after = cls._llm_snapshot(llm)
+        return {
+            "mode": str(after.get("mode") or "disabled"),
+            "model": str(after.get("model") or ""),
+            "call_count": max(0, int(after.get("call_count", 0) or 0) - int(before.get("call_count", 0) or 0)),
+            "input_tokens": max(0, int(after.get("input_tokens", 0) or 0) - int(before.get("input_tokens", 0) or 0)),
+            "output_tokens": max(0, int(after.get("output_tokens", 0) or 0) - int(before.get("output_tokens", 0) or 0)),
+            "total_time_ms": round(
+                max(0.0, float(after.get("total_time", 0.0) or 0.0) - float(before.get("total_time", 0.0) or 0.0))
+                * 1000.0,
+                3,
+            ),
+        }
+
     # ==================================================================
     # Internal: single-agent execution unit (thread target)
     #
@@ -316,15 +409,16 @@ class SelectionMeeting:
         regime: Dict[str, Any],
         agent_context: Optional[AgentContext],
         progress_base: int,
-    ) -> Optional[Dict[str, Any]]:
+    ) -> Dict[str, Any]:
         """
         在独立线程中运行单个 Agent 的完整认知循环。
 
-        返回 {"name": agent_key, "result": {...}} 或 None（失败时）。
+        返回统一结构，包含成功态和 observability。
         """
         agent_key = spec["key"]
         agent_label = spec["label"]
         agent = spec["agent"]
+        llm_before = self._llm_snapshot(getattr(agent, "llm", None))
 
         t0 = time.perf_counter()
         self._notify_progress(
@@ -346,11 +440,13 @@ class SelectionMeeting:
                 result = agent.act(reasoning)
 
             elapsed = time.perf_counter() - t0
+            elapsed_ms = round(elapsed * 1000.0, 3)
+            success = bool(result and not result.get("_parse_error"))
+            picks_count = len(
+                (result or {}).get("picks", []) or (result or {}).get("selected", [])
+            )
 
-            if result and not result.get("_parse_error"):
-                picks_count = len(
-                    result.get("picks", []) or result.get("selected", [])
-                )
+            if success:
                 self._notify_progress(
                     {
                         "agent": agent_label,
@@ -376,15 +472,30 @@ class SelectionMeeting:
                     elapsed,
                     picks_count,
                 )
-                return {"name": agent_key, "result": result}
+            else:
+                logger.warning(
+                    "⚠️ %s returned empty/error result in %.1fs", agent_label, elapsed
+                )
 
-            logger.warning(
-                "⚠️ %s returned empty/error result in %.1fs", agent_label, elapsed
-            )
-            return None
+            return {
+                "name": agent_key,
+                "label": agent_label,
+                "result": result or {},
+                "success": success,
+                "observability": {
+                    "status": "completed" if success else "empty",
+                    "duration_ms": elapsed_ms,
+                    "picks_count": picks_count,
+                    "confidence": _normalized_confidence((result or {}).get("confidence"), default=0.0),
+                    "cost": round(float(spec.get("cost", 1.0) or 1.0), 3),
+                    "role": str(spec.get("role") or ""),
+                    "llm": self._llm_delta(getattr(agent, "llm", None), llm_before),
+                },
+            }
 
         except Exception as e:
             elapsed = time.perf_counter() - t0
+            elapsed_ms = round(elapsed * 1000.0, 3)
             self._notify_progress(
                 {
                     "agent": agent_label,
@@ -395,7 +506,22 @@ class SelectionMeeting:
             logger.warning(
                 "%s 认知环路执行失败 (%.1fs): %s", agent_label, elapsed, e
             )
-            return None
+            return {
+                "name": agent_key,
+                "label": agent_label,
+                "result": {},
+                "success": False,
+                "observability": {
+                    "status": "error",
+                    "duration_ms": elapsed_ms,
+                    "picks_count": 0,
+                    "confidence": 0.0,
+                    "cost": round(float(spec.get("cost", 1.0) or 1.0), 3),
+                    "role": str(spec.get("role") or ""),
+                    "error": str(e),
+                    "llm": self._llm_delta(getattr(agent, "llm", None), llm_before),
+                },
+            }
 
     # ==================================================================
     # Internal: single-debate execution unit (thread target)
@@ -408,14 +534,16 @@ class SelectionMeeting:
         regime: Dict[str, Any],
     ) -> tuple[str, dict]:
         """在独立线程中对单只股票执行多空辩论。"""
+        start = time.perf_counter()
         if self._debate is None:
-            return code, {"verdict": "hold", "confidence": 0.5, "error": "debate_disabled"}
+            return code, {"verdict": "hold", "confidence": 0.5, "error": "debate_disabled", "duration_ms": 0.0}
         try:
-            result = self._debate.debate(stock_info, regime)
+            result = dict(self._debate.debate(stock_info, regime) or {})
+            result["duration_ms"] = round((time.perf_counter() - start) * 1000.0, 3)
             return code, result
         except Exception as e:
             logger.warning("Debate failed for %s: %s", code, e)
-            return code, {"verdict": "hold", "confidence": 0.5, "error": str(e)}
+            return code, {"verdict": "hold", "confidence": 0.5, "error": str(e), "duration_ms": round((time.perf_counter() - start) * 1000.0, 3)}
 
     # ==================================================================
     # Internal: parallel LLM orchestration
@@ -435,29 +563,19 @@ class SelectionMeeting:
         model_name: str = "",
     ) -> Dict:
         t_meeting_start = time.perf_counter()
-
-        roster = (
-            self._get_model_roster(model_name)
-            if agent_context is not None
-            else [
-                {
-                    "key": "trend_hunter",
-                    "label": "TrendHunter",
-                    "agent": self.trend_hunter,
-                },
-                {
-                    "key": "contrarian",
-                    "label": "Contrarian",
-                    "agent": self.contrarian,
-                },
-            ]
+        regime_name = str(regime.get("regime", "unknown") or "unknown")
+        selected_roster, budget_policy, candidate_roster = self._select_budgeted_roster(
+            model_name=model_name if agent_context is not None else "",
+            regime_name=regime_name,
         )
+        meeting_llm_before = self._llm_snapshot(self.llm)
 
         # =============================================================
         # Phase 1: Parallel Agent Execution  (Tensor Parallelism)
         # =============================================================
+        agent_runs: List[Dict[str, Any]] = []
         hunter_outputs: List[Dict[str, Any]] = []
-        n_agents = len(roster)
+        n_agents = len(selected_roster)
         n_workers = min(n_agents, self._MAX_AGENT_WORKERS)
 
         logger.info(
@@ -467,12 +585,11 @@ class SelectionMeeting:
         )
 
         if n_agents == 1:
-            # 只有 1 个 Agent，无需线程池开销
-            result = self._execute_single_agent(
-                roster[0], stock_summaries, regime, agent_context, 30
+            agent_runs.append(
+                self._execute_single_agent(
+                    selected_roster[0], stock_summaries, regime, agent_context, 30
+                )
             )
-            if result:
-                hunter_outputs.append(result)
         else:
             with ThreadPoolExecutor(
                 max_workers=n_workers,
@@ -487,21 +604,31 @@ class SelectionMeeting:
                         agent_context,
                         30 + idx * 8,
                     ): spec
-                    for idx, spec in enumerate(roster)
+                    for idx, spec in enumerate(selected_roster)
                 }
 
+                agent_runs_by_key: Dict[str, Dict[str, Any]] = {}
                 for future in as_completed(future_to_spec):
                     spec = future_to_spec[future]
                     try:
                         result = future.result(timeout=120)
                         if result:
-                            hunter_outputs.append(result)
+                            agent_runs_by_key[str(result.get("name") or spec["key"])] = result
                     except Exception as e:
                         logger.warning(
                             "Agent %s future failed: %s",
                             spec["label"],
                             e,
                         )
+                agent_runs = [
+                    agent_runs_by_key[spec["key"]]
+                    for spec in selected_roster
+                    if spec["key"] in agent_runs_by_key
+                ]
+        if n_agents == 1 and agent_runs:
+            agent_runs = [agent_runs[0]]
+
+        hunter_outputs = [run for run in agent_runs if bool(run.get("success"))]
 
         t_agents_done = time.perf_counter()
         logger.info(
@@ -518,8 +645,8 @@ class SelectionMeeting:
             for p in r.get("picks", []):
                 p["score"] = p.get("score", 0.5) * weight
 
-        if not hunter_outputs:
-            return self._run_algorithm(stock_summaries, top_n)
+        debate_results: Dict[str, dict] = {}
+        debate_duration_ms = 0.0
 
         # =============================================================
         # Phase 2: Parallel Debate  (Continuous Batching)
@@ -599,6 +726,7 @@ class SelectionMeeting:
                         p["score"] = p.get("score", 0.5) * (1.0 + d_conf * 0.3)
 
             t_debate_done = time.perf_counter()
+            debate_duration_ms = round((t_debate_done - t_agents_done) * 1000.0, 3)
             logger.info(
                 "✅ Phase 2 complete: %d debates in %.1fs",
                 len(debate_results),
@@ -622,9 +750,78 @@ class SelectionMeeting:
         # =============================================================
         # Phase 3: Aggregation (fast, purely in-memory)
         # =============================================================
-        result = self._aggregate(hunter_outputs, regime, top_n)
+        if hunter_outputs:
+            result = self._aggregate(hunter_outputs, regime, top_n)
+        else:
+            result = self._run_algorithm(stock_summaries, top_n)
 
         t_total = time.perf_counter() - t_meeting_start
+        llm_delta = self._llm_delta(self.llm, meeting_llm_before)
+        agent_llm_calls = sum(
+            int(dict(run.get("observability") or {}).get("llm", {}).get("call_count", 0) or 0)
+            for run in agent_runs
+        )
+        agent_llm_input = sum(
+            int(dict(run.get("observability") or {}).get("llm", {}).get("input_tokens", 0) or 0)
+            for run in agent_runs
+        )
+        agent_llm_output = sum(
+            int(dict(run.get("observability") or {}).get("llm", {}).get("output_tokens", 0) or 0)
+            for run in agent_runs
+        )
+        agent_llm_time_ms = sum(
+            float(dict(run.get("observability") or {}).get("llm", {}).get("total_time_ms", 0.0) or 0.0)
+            for run in agent_runs
+        )
+        result["selected_roster"] = self._serialize_roster(selected_roster)
+        result["candidate_roster"] = self._serialize_roster(candidate_roster)
+        result["budget_policy"] = dict(budget_policy)
+        result["observability"] = {
+            "timings_ms": {
+                "total": round(t_total * 1000.0, 3),
+                "agents": round((t_agents_done - t_meeting_start) * 1000.0, 3),
+                "debate": debate_duration_ms,
+                "aggregation": round(
+                    max(
+                        0.0,
+                        t_total * 1000.0
+                        - (t_agents_done - t_meeting_start) * 1000.0
+                        - debate_duration_ms,
+                    ),
+                    3,
+                ),
+            },
+            "budget": dict(budget_policy),
+            "llm": {
+                "used": bool(llm_delta.get("call_count") or agent_llm_calls),
+                "mode": str(llm_delta.get("mode") or "disabled"),
+                "model": str(llm_delta.get("model") or ""),
+                "call_count": int(llm_delta.get("call_count", 0) or 0) + agent_llm_calls,
+                "input_tokens": int(llm_delta.get("input_tokens", 0) or 0) + agent_llm_input,
+                "output_tokens": int(llm_delta.get("output_tokens", 0) or 0) + agent_llm_output,
+                "total_time_ms": round(float(llm_delta.get("total_time_ms", 0.0) or 0.0) + agent_llm_time_ms, 3),
+            },
+            "agents": [
+                {
+                    "name": str(run.get("name") or ""),
+                    "label": str(run.get("label") or ""),
+                    **dict(run.get("observability") or {}),
+                }
+                for run in agent_runs
+            ],
+            "debate": {
+                "enabled": self._debate is not None,
+                "count": len(debate_results),
+                "verdict_breakdown": {
+                    verdict: sum(1 for item in debate_results.values() if item.get("verdict") == verdict)
+                    for verdict in ("buy", "hold", "avoid")
+                },
+                "items": [
+                    {"code": code, **payload}
+                    for code, payload in list(debate_results.items())[:20]
+                ],
+            },
+        }
         logger.info(
             "🏁 SelectionMeeting total: %.1fs (agents=%.1fs, debate+agg=%.1fs)",
             t_total,

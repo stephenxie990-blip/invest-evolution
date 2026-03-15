@@ -40,9 +40,13 @@ class LLMCaller:
         unavailable_message: str | None = None,
     ):
         default_fast = resolve_default_llm("fast")
-        self.model = model or default_fast.model
-        self.api_key = api_key or default_fast.api_key
-        self.api_base = api_base or default_fast.api_base
+        resolved_model = default_fast.model if model is None else model
+        resolved_api_key = default_fast.api_key if api_key is None else api_key
+        resolved_api_base = default_fast.api_base if api_base is None else api_base
+
+        self.model = str(resolved_model or "")
+        self.api_key = str(resolved_api_key or "")
+        self.api_base = str(resolved_api_base or "")
         self.timeout = timeout or config.llm_timeout
         self.max_retries = max_retries or config.llm_max_retries
         self.dry_run = dry_run
@@ -58,7 +62,7 @@ class LLMCaller:
             max_retries=self.max_retries,
             unavailable_message=(
                 str(unavailable_message or "").strip()
-                or (str(default_fast.issue or "").strip() if not self.api_key else "")
+                or (str(default_fast.issue or "").strip() if api_key is None and not self.api_key else "")
             ),
         )
 

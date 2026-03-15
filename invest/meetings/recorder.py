@@ -125,6 +125,31 @@ class MeetingRecorder:
         for code in log.get("selected", []):
             lines.append(f"- {code}")
         lines.append(f"\n**来源**: {log.get('source', '')}")
+        selected_roster = list(log.get("selected_roster", []) or [])
+        observability = dict(log.get("observability", {}) or {})
+        if selected_roster:
+            lines.append("\n## 主猎手编排")
+            for item in selected_roster:
+                lines.append(
+                    f"- {item.get('name', 'unknown')} ({item.get('role', '')}) 成本 {float(item.get('cost', 0.0) or 0.0):.2f}"
+                )
+        budget = dict(observability.get("budget", {}) or {})
+        llm = dict(observability.get("llm", {}) or {})
+        timings = dict(observability.get("timings_ms", {}) or {})
+        if budget or llm or timings:
+            lines.append("\n## 可观测性")
+            if budget:
+                lines.append(
+                    f"- 猎手预算: {budget.get('selected_hunters', 0)}/{budget.get('target_hunters', 0)}，已用 {budget.get('budget_used', 0)} / {budget.get('budget_limit', 0)}"
+                )
+            if llm:
+                lines.append(
+                    f"- LLM: mode={llm.get('mode', 'unknown')}，calls={llm.get('call_count', 0)}，tokens(in/out)={llm.get('input_tokens', 0)}/{llm.get('output_tokens', 0)}"
+                )
+            if timings:
+                lines.append(
+                    f"- 耗时(ms): total={timings.get('total', 0)}，agents={timings.get('agents', 0)}，debate={timings.get('debate', 0)}"
+                )
         for hunter in log.get("hunters", []):
             picks = hunter.get("result", {}).get("picks", [])
             lines.append(f"\n### {hunter.get('name', 'unknown')}")

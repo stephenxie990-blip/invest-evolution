@@ -267,28 +267,62 @@ class TrainingFeedbackService:
         failed_checks = list(evaluation.get("failed_checks") or [])
         failed_horizons = sorted({str(item.get("horizon") or "").strip() for item in failed_checks if str(item.get("horizon") or "").strip()})
         fail_count = max(1, len(failed_checks))
-        severity = min(3.0, 1.0 + 0.30 * max(0, fail_count - 1) + (0.35 if bias == "tighten_risk" else 0.20))
+        benchmark_window = min(10, max(3, int(getattr(controller, "freeze_total_cycles", 10) or 10)))
+        rolling = controller.freeze_gate_service.rolling_self_assessment(
+            controller,
+            window=benchmark_window,
+        )
+        benchmark_required = float(
+            controller.research_feedback_optimization_policy.get(
+                "benchmark_pass_rate_gte",
+                controller.freeze_gate_policy.get("benchmark_pass_rate_gte", 0.60),
+            )
+            or controller.freeze_gate_policy.get("benchmark_pass_rate_gte", 0.60)
+            or 0.60
+        )
+        benchmark_pass_rate = float(rolling.get("benchmark_pass_rate", benchmark_required) or benchmark_required)
+        benchmark_gap = max(0.0, benchmark_required - benchmark_pass_rate)
+        severity = min(
+            3.4,
+            1.0
+            + 0.30 * max(0, fail_count - 1)
+            + (0.40 if bias == "tighten_risk" else 0.20)
+            + min(0.90, benchmark_gap * 2.5),
+        )
 
         current_position = float(controller.current_params.get("position_size", COMMON_PARAM_DEFAULTS["position_size"]) or COMMON_PARAM_DEFAULTS["position_size"])
         current_stop = float(controller.current_params.get("stop_loss_pct", COMMON_PARAM_DEFAULTS["stop_loss_pct"]) or COMMON_PARAM_DEFAULTS["stop_loss_pct"])
         current_take_profit = float(controller.current_params.get("take_profit_pct", COMMON_PARAM_DEFAULTS["take_profit_pct"]) or COMMON_PARAM_DEFAULTS["take_profit_pct"])
         current_cash = float(controller.current_params.get("cash_reserve", COMMON_PARAM_DEFAULTS["cash_reserve"]) or COMMON_PARAM_DEFAULTS["cash_reserve"])
         current_trailing = float(controller.current_params.get("trailing_pct", COMMON_PARAM_DEFAULTS["trailing_pct"]) or COMMON_PARAM_DEFAULTS["trailing_pct"])
+        current_hold_days = int(
+            controller.current_params.get("max_hold_days", COMMON_PARAM_DEFAULTS["max_hold_days"])
+            or COMMON_PARAM_DEFAULTS["max_hold_days"]
+        )
+        current_signal_threshold = controller.current_params.get("signal_threshold")
 
         raw_adjustments: Dict[str, Any] = {
-            "position_size": current_position * max(0.60, 1.0 - 0.10 * severity),
-            "cash_reserve": current_cash + 0.04 + 0.02 * min(severity, 2.0),
+            "position_size": current_position * max(0.45, 1.0 - 0.16 * severity),
+            "cash_reserve": current_cash + 0.05 + 0.03 * min(severity, 3.0),
+            "max_hold_days": current_hold_days - max(4, int(round(3 * severity + benchmark_gap * 12))),
         }
         suggestions = [
             f"ask校准在 {', '.join(failed_horizons) if failed_horizons else '多周期'} 上显示风险偏高，先自动收紧风险暴露",
         ]
+        if benchmark_gap > 0:
+            suggestions.append(
+                f"近窗 benchmark 通过率 {benchmark_pass_rate:.0%} 低于目标 {benchmark_required:.0%}，提高信号门槛并缩短持有周期"
+            )
         if bias == "tighten_risk":
-            raw_adjustments["stop_loss_pct"] = current_stop * max(0.72, 1.0 - 0.08 * severity)
-            raw_adjustments["trailing_pct"] = current_trailing * max(0.78, 1.0 - 0.05 * severity)
+            raw_adjustments["stop_loss_pct"] = current_stop * max(0.55, 1.0 - 0.12 * severity)
+            raw_adjustments["trailing_pct"] = current_trailing * max(0.60, 1.0 - 0.10 * severity)
+            raw_adjustments["take_profit_pct"] = current_take_profit * max(0.82, 1.0 - 0.06 * severity)
             suggestions.append("优先收紧止损、跟踪止盈与仓位")
         elif bias == "recalibrate_probability":
-            raw_adjustments["take_profit_pct"] = current_take_profit * 0.95
+            raw_adjustments["take_profit_pct"] = current_take_profit * max(0.85, 1.0 - 0.05 * severity)
             suggestions.append("优先下调仓位并收紧概率兑现预期")
+        if current_signal_threshold is not None:
+            raw_adjustments["signal_threshold"] = float(current_signal_threshold) + 0.015 + 0.02 * severity + 0.10 * benchmark_gap
 
         param_adjustments = controller._sanitize_runtime_param_adjustments(raw_adjustments)
         if not param_adjustments:
@@ -302,6 +336,13 @@ class TrainingFeedbackService:
             "summary": summary,
             "sample_count": int(payload.get("sample_count") or 0),
             "recommendation": recommendation,
+            "severity": round(severity, 4),
+            "benchmark_context": {
+                "window": benchmark_window,
+                "current_pass_rate": round(benchmark_pass_rate, 4),
+                "required_pass_rate": round(benchmark_required, 4),
+                "gap": round(benchmark_gap, 4),
+            },
             "failed_horizons": failed_horizons,
             "failed_check_names": [str(item.get("name") or "") for item in failed_checks if str(item.get("name") or "")],
             "cooldown_cycles": cooldown_cycles,

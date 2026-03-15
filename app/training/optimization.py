@@ -45,6 +45,14 @@ def _reload_investment_model(controller: Any, config_path: str) -> None:
     controller._reload_investment_model(config_path)
 
 
+def _benchmark_oriented_fitness(result: Any) -> float:
+    base_return = max(min(float(getattr(result, "return_pct", 0.0) or 0.0), 50.0), -50.0)
+    strategy_scores = dict(getattr(result, "strategy_scores", {}) or {})
+    overall_score = max(0.0, min(1.0, float(strategy_scores.get("overall_score", 0.0) or 0.0)))
+    benchmark_bonus = 2.5 if bool(getattr(result, "benchmark_passed", False)) else -2.5
+    return round(base_return + overall_score * 3.0 + benchmark_bonus, 4)
+
+
 def trigger_loss_optimization(
     controller: Any,
     cycle_dict: dict[str, Any],
@@ -167,7 +175,10 @@ def trigger_loss_optimization(
             )
 
             if len(controller.cycle_history) >= 3:
-                fitness_scores = [max(result.return_pct, -50) for result in controller.cycle_history[-10:]]
+                fitness_scores = [
+                    _benchmark_oriented_fitness(result)
+                    for result in controller.cycle_history[-10:]
+                ]
                 evolution_service = _resolve_evolution_service(controller)
                 if evolution_service is None:
                     raise RuntimeError("evolution runtime is unavailable")
@@ -184,7 +195,10 @@ def trigger_loss_optimization(
                 evo_event = event_factory(
                     trigger='consecutive_losses',
                     stage='evolution_engine',
-                    decision={'fitness_scores': fitness_scores[-5:]},
+                    decision={
+                        'fitness_scores': fitness_scores[-5:],
+                        'fitness_policy': 'benchmark_oriented_v1',
+                    },
                     applied_change=dict(best_params or {}),
                     notes='population evolved',
                 )
@@ -201,7 +215,7 @@ def trigger_loss_optimization(
                     cycle_id=cycle_id,
                     kind='evolution_engine',
                     details=best_params or {},
-                    metrics={'fitness_samples': fitness_scores[-5:]},
+                    metrics={'fitness_samples': fitness_scores[-5:], 'fitness_policy': 'benchmark_oriented_v1'},
                 )
 
         if config_adjustments:
