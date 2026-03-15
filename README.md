@@ -250,7 +250,7 @@ strategies/          可插拔策略基因（md/json/py）
 runtime/             运行态输出、锁文件、记忆、会话、日志、训练实验室工件
 agent_settings/      Agent prompt / model 配置与插件模板
 tests/               当前实现对应的回归测试
-docs/archive/        历史文档归档区（非当前主入口）
+docs/                面向开源协作的公开文档与说明
 ```
 
 ## 运行时产物
@@ -331,31 +331,27 @@ pytest -q
 ## 相关文档
 
 - `docs/README.md`：文档索引与分层导航
-- `docs/audits/PROJECT_INTERPRETATION_REPORT_20260315.md`：本轮升级后的解读与评审主报告
-- `docs/audits/MODEL_GOVERNANCE_RERUN_COMPARISON_20260315.md`：治理复跑对比结论
 - `docs/MAIN_FLOW.md`：系统主链路
 - `docs/TRAINING_FLOW.md`：训练周期细节
 - `docs/AGENT_INTERACTION.md`：Agent 与会议协作
-- `docs/blueprints/ARCHITECTURE_DIAGRAM.md`：当前架构图
 - `docs/DATA_ACCESS_ARCHITECTURE.md`：数据层架构
 - `docs/CONFIG_GOVERNANCE.md`：配置治理与审计
 - `docs/RUNTIME_STATE_DESIGN.md`：运行态文件设计
-- `docs/archive/README.md`：历史计划、旧评审与会话文档归档索引
+- `docs/COMPATIBILITY_SURFACE.md`：兼容入口与正式实现边界
 - `CONTRIBUTING.md`：贡献方式与协作约定
 - `SECURITY.md`：安全边界与漏洞反馈方式
 
 ## 现阶段建议的阅读顺序
 
 1. 先读 `README.md`
-2. 再看 `docs/audits/PROJECT_INTERPRETATION_REPORT_20260315.md`
-3. 然后看 `docs/MAIN_FLOW.md`
+2. 再看 `docs/MAIN_FLOW.md`
+3. 需要理解 Agent 角色与协作时看 `docs/AGENT_INTERACTION.md`
 4. 需要训练细节时看 `docs/TRAINING_FLOW.md`
-5. 需要 Agent 协作逻辑时看 `docs/AGENT_INTERACTION.md`
-6. 需要数据层时看 `docs/DATA_ACCESS_ARCHITECTURE.md`
-7. 需要运行时/配置排障时看 `docs/RUNTIME_STATE_DESIGN.md` 与 `docs/CONFIG_GOVERNANCE.md`
+5. 需要数据层时看 `docs/DATA_ACCESS_ARCHITECTURE.md`
+6. 需要运行时/配置排障时看 `docs/RUNTIME_STATE_DESIGN.md` 与 `docs/CONFIG_GOVERNANCE.md`
 
 
-## 发布与安全手册
+## 社区与安全
 
-- 安全与发布前清理：`docs/runbooks/security-release-preflight.md`
-- 模型路由灰度 / 回滚：`docs/runbooks/router-rollout.md`
+- 贡献方式与协作约定：`CONTRIBUTING.md`
+- 安全边界与漏洞反馈方式：`SECURITY.md`

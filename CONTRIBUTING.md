@@ -44,8 +44,8 @@
 1. 先阅读：
    - `README.md`
    - `docs/README.md`
-   - `docs/audits/PROJECT_INTERPRETATION_REPORT_20260315.md`
    - `docs/MAIN_FLOW.md`
+   - `docs/AGENT_INTERACTION.md`
 2. 明确本次改动影响的是：
    - 训练协议
    - 治理逻辑
