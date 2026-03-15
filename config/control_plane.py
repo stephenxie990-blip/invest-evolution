@@ -33,6 +33,7 @@ class ResolvedLLMConfig:
     profile_name: str = ""
     provider_name: str = ""
     source: str = "fallback"
+    issue: str = ""
 
 
 def _project_root(project_root: str | Path | None = None) -> Path:
@@ -219,6 +220,14 @@ class ControlPlaneResolver:
                     profile_name=binding_name,
                     provider_name=provider_name,
                     source="control_plane",
+                    issue=_build_llm_resolution_issue(
+                        component_key=component_key,
+                        model=model,
+                        api_key=api_key,
+                        binding_name=binding_name,
+                        provider_name=provider_name,
+                        source="control_plane",
+                    ),
                 )
         return ResolvedLLMConfig(
             component_key=component_key,
@@ -226,6 +235,14 @@ class ControlPlaneResolver:
             api_key=str(fallback_api_key or ""),
             api_base=str(fallback_api_base or ""),
             source="fallback",
+            issue=_build_llm_resolution_issue(
+                component_key=component_key,
+                model=str(fallback_model or ""),
+                api_key=str(fallback_api_key or ""),
+                binding_name="",
+                provider_name="",
+                source="fallback",
+            ),
         )
 
 
@@ -273,6 +290,7 @@ def build_component_llm_caller(
         timeout=int(timeout or 60),
         max_retries=int(max_retries or 2),
         dry_run=dry_run,
+        unavailable_message=str(resolved.issue or ""),
     )
 
 
@@ -315,7 +333,66 @@ def build_default_llm_caller(
         timeout=int(timeout or 60),
         max_retries=int(max_retries or 2),
         dry_run=dry_run,
+        unavailable_message=str(resolved.issue or ""),
     )
+
+
+def _build_llm_resolution_issue(
+    *,
+    component_key: str,
+    model: str,
+    api_key: str,
+    binding_name: str,
+    provider_name: str,
+    source: str,
+) -> str:
+    if str(api_key or "").strip():
+        return ""
+
+    component_label = str(component_key or "").strip() or "defaults.fast"
+    model_label = str(model or "").strip()
+    binding_label = str(binding_name or "").strip() or component_label
+    provider_label = str(provider_name or "").strip()
+
+    if source == "control_plane" and provider_label:
+        return (
+            f"control_plane binding {binding_label} resolved model {model_label or '<empty-model>'} "
+            f"via provider {provider_label}, but llm.providers.{provider_label}.api_key is empty; "
+            "set it in config/control_plane.local.yaml or POST /api/control_plane"
+        )
+    if model_label:
+        return (
+            f"LLM binding {binding_label} resolved model {model_label}, but provider api_key is empty; "
+            "configure the system provider api_key in config/control_plane.local.yaml or POST /api/control_plane"
+        )
+    return (
+        f"LLM binding {binding_label} is not fully configured; "
+        "configure the model binding and provider api_key in config/control_plane.yaml and config/control_plane.local.yaml"
+    )
+
+
+def llm_resolution_status(resolved: ResolvedLLMConfig) -> dict[str, Any]:
+    return {
+        "component_key": str(resolved.component_key or ""),
+        "binding_name": str(resolved.binding_name or ""),
+        "profile_name": str(resolved.profile_name or ""),
+        "provider_name": str(resolved.provider_name or ""),
+        "source": str(resolved.source or ""),
+        "model": str(resolved.model or ""),
+        "api_base": str(resolved.api_base or ""),
+        "api_key_configured": bool(str(resolved.api_key or "").strip()),
+        "issue": str(resolved.issue or ""),
+    }
+
+
+def get_default_llm_status(kind: str = "fast", *, project_root: str | Path | None = None) -> dict[str, Any]:
+    normalized = str(kind or "fast").strip().lower()
+    if normalized not in {"fast", "deep"}:
+        raise ValueError("kind must be fast or deep")
+    resolved = resolve_default_llm(normalized, project_root=project_root)
+    payload = llm_resolution_status(resolved)
+    payload["kind"] = normalized
+    return payload
 
 
 def _mask_secrets(value: Any) -> Any:

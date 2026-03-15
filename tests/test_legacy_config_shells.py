@@ -99,5 +99,9 @@ def test_control_plane_api_exposes_metadata_paths(monkeypatch, tmp_path):
     payload = res.get_json()
     assert payload['config_path'].endswith('config/control_plane.yaml')
     assert payload['local_override_path'].endswith('config/control_plane.local.yaml')
+    assert payload['local_override_exists'] is False
     assert payload['audit_log_path'].endswith('runtime/state/control_plane_changes.jsonl')
+    assert payload['audit_log_exists'] is False
     assert payload['snapshot_dir'].endswith('runtime/state/control_plane_snapshots')
+    assert payload['llm_resolution']['fast']['kind'] == 'fast'
+    assert payload['llm_resolution']['deep']['kind'] == 'deep'

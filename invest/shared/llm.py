@@ -37,6 +37,7 @@ class LLMCaller:
         timeout: int | None = None,
         max_retries: int | None = None,
         dry_run: bool = False,
+        unavailable_message: str | None = None,
     ):
         default_fast = resolve_default_llm("fast")
         self.model = model or default_fast.model
@@ -55,6 +56,10 @@ class LLMCaller:
             api_base=self.api_base,
             timeout=self.timeout,
             max_retries=self.max_retries,
+            unavailable_message=(
+                str(unavailable_message or "").strip()
+                or (str(default_fast.issue or "").strip() if not self.api_key else "")
+            ),
         )
 
         self.call_count = 0

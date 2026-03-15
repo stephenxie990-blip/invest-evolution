@@ -1,7 +1,11 @@
 
+import pytest
+
 from config.control_plane import (
     ControlPlaneConfigService,
+    build_default_llm_caller,
     clear_control_plane_cache,
+    get_default_llm_status,
     resolve_component_llm,
 )
 
@@ -116,3 +120,62 @@ def test_default_llm_caller_uses_control_plane_defaults(monkeypatch, tmp_path):
     assert caller.model == 'cp-fast-model'
     assert caller.api_base == 'https://provider-a.example/v1'
     assert caller.api_key == 'local-key'
+
+
+def test_default_llm_status_reports_missing_provider_secret(tmp_path):
+    cfg_dir = tmp_path / 'config'
+    cfg_dir.mkdir(parents=True)
+    (cfg_dir / 'control_plane.yaml').write_text(
+        '\n'.join([
+            'llm:',
+            '  providers:',
+            '    default_provider:',
+            '      api_base: https://provider-a.example/v1',
+            '  models:',
+            '    default_fast:',
+            '      provider: default_provider',
+            '      model: cp-fast-model',
+            '  bindings:',
+            '    defaults.fast: default_fast',
+        ]),
+        encoding='utf-8',
+    )
+
+    clear_control_plane_cache()
+    status = get_default_llm_status('fast', project_root=tmp_path)
+
+    assert status['source'] == 'control_plane'
+    assert status['provider_name'] == 'default_provider'
+    assert status['api_key_configured'] is False
+    assert 'config/control_plane.local.yaml' in status['issue']
+    assert 'default_provider' in status['issue']
+
+
+def test_default_llm_caller_surfaces_control_plane_missing_key_message(monkeypatch, tmp_path):
+    cfg_dir = tmp_path / 'config'
+    cfg_dir.mkdir(parents=True)
+    (cfg_dir / 'control_plane.yaml').write_text(
+        '\n'.join([
+            'llm:',
+            '  providers:',
+            '    default_provider:',
+            '      api_base: https://provider-a.example/v1',
+            '  models:',
+            '    default_fast:',
+            '      provider: default_provider',
+            '      model: cp-fast-model',
+            '  bindings:',
+            '    defaults.fast: default_fast',
+        ]),
+        encoding='utf-8',
+    )
+
+    import app.llm_gateway as gateway_module
+
+    monkeypatch.setattr(gateway_module, 'litellm', object())
+    clear_control_plane_cache()
+
+    caller = build_default_llm_caller('fast', project_root=tmp_path)
+
+    with pytest.raises(gateway_module.LLMUnavailableError, match='default_provider'):
+        caller.gateway.assert_available()

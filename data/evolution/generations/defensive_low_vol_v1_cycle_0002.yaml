@@ -4,11 +4,11 @@ params:
   candidate_pool_size: 100
   top_n: 5
   max_positions: 4
-  cash_reserve: 0.42999999999999994
-  stop_loss_pct: 0.05
-  take_profit_pct: 0.11399999999999999
-  trailing_pct: 0.07
-  position_size: 0.126
+  cash_reserve: 0.48
+  stop_loss_pct: 0.0342
+  take_profit_pct: 0.12
+  trailing_pct: 0.059500000000000004
+  position_size: 0.091
   max_volatility: 0.035
   preferred_rsi_low: 42
   preferred_rsi_high: 62
@@ -16,9 +16,9 @@ params:
   max_change_20d: 12.0
   min_defensive_score: 0.15
 risk:
-  stop_loss_pct: 0.05
-  take_profit_pct: 0.11399999999999999
-  trailing_pct: 0.07
+  stop_loss_pct: 0.0342
+  take_profit_pct: 0.12
+  trailing_pct: 0.059500000000000004
 execution:
   initial_capital: 100000
   commission_rate: 0.00025

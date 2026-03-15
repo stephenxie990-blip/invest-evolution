@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from config import PROJECT_ROOT, AgentConfigRegistry, agent_config_registry, config
-from config.control_plane import ControlPlaneConfigService
+from config.control_plane import ControlPlaneConfigService, get_default_llm_status
 from config.services import EvolutionConfigService, RuntimePathConfigService
 from invest.allocator import build_allocation_plan
 from invest.leaderboard import write_leaderboard
@@ -181,8 +181,14 @@ def get_control_plane_payload(*, project_root: Path | None = None) -> dict[str, 
         "restart_required": False,
         "config_path": str(service.config_path),
         "local_override_path": str(service.local_override_path),
+        "local_override_exists": service.local_override_path.exists(),
         "audit_log_path": str(service.audit_log_path),
+        "audit_log_exists": service.audit_log_path.exists(),
         "snapshot_dir": str(service.snapshot_dir),
+        "llm_resolution": {
+            "fast": get_default_llm_status("fast", project_root=project_root or PROJECT_ROOT),
+            "deep": get_default_llm_status("deep", project_root=project_root or PROJECT_ROOT),
+        },
     }
 
 

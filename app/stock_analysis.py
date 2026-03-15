@@ -1070,6 +1070,7 @@ class StockAnalysisService:
             api_base=api_base or resolved.api_base or "",
             timeout=60,
             max_retries=2,
+            unavailable_message=str(resolved.issue or ""),
         )
 
     def _resolve_strategy_name(self, *, question: str, strategy: str) -> tuple[str, str]:

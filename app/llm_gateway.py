@@ -68,6 +68,7 @@ class LLMGateway:
     api_base: str = ""
     timeout: int = 60
     max_retries: int = 2
+    unavailable_message: str = ""
 
     def __post_init__(self):
         masked_key = f"{self.api_key[:4]}...{self.api_key[-4:]}" if self.api_key and len(self.api_key) > 8 else "***"
@@ -88,7 +89,10 @@ class LLMGateway:
         if litellm is None:
             raise LLMUnavailableError("litellm is not installed")
         if not self.api_key:
-            raise LLMUnavailableError("LLM API key is empty")
+            raise LLMUnavailableError(
+                self.unavailable_message
+                or "LLM provider api_key is empty; configure the system provider api_key."
+            )
 
     def _normalized_temperature(self, temperature: float) -> float:
         model_name = (self.model or "").lower()
