@@ -623,6 +623,162 @@ def test_training_plan_create_guardrail_blocks_invalid_cutoff_policy_mode(tmp_pa
     assert payload["guardrails"]["reason_codes"] == ["invalid_cutoff_policy_mode"]
 
 
+def test_explicit_mutating_tool_guardrail_blocks_blank_runtime_path(tmp_path: Path):
+    import json
+
+    runtime = BrainRuntime(
+        workspace=tmp_path,
+        model="test-model",
+        api_key="",
+    )
+    tool = InvestMutationTool()
+    runtime.tools.register(tool)
+
+    result = asyncio.run(
+        runtime.process_direct('/tool invest_runtime_paths_update {"patch":{"training_output_dir":"   "}}')
+    )
+    payload = json.loads(result)
+
+    assert payload["status"] == "guardrail_blocked"
+    assert payload["guardrails"]["reason_codes"] == ["blank_runtime_path"]
+    assert tool.calls == 0
+
+
+def test_explicit_mutating_tool_guardrail_blocks_relative_runtime_path(tmp_path: Path):
+    import json
+
+    runtime = BrainRuntime(
+        workspace=tmp_path,
+        model="test-model",
+        api_key="",
+    )
+    tool = InvestMutationTool()
+    runtime.tools.register(tool)
+
+    result = asyncio.run(
+        runtime.process_direct('/tool invest_runtime_paths_update {"patch":{"training_output_dir":"relative/output"}}')
+    )
+    payload = json.loads(result)
+
+    assert payload["status"] == "guardrail_blocked"
+    assert payload["guardrails"]["reason_codes"] == ["relative_runtime_path"]
+    assert tool.calls == 0
+
+
+def test_training_plan_create_guardrail_blocks_fixed_cutoff_without_date(tmp_path: Path):
+    import json
+
+    runtime = BrainRuntime(
+        workspace=tmp_path,
+        model="test-model",
+        api_key="",
+    )
+
+    result = asyncio.run(
+        runtime.process_direct(
+            '/tool invest_training_plan_create {"rounds":2,"protocol":{"cutoff_policy":{"mode":"fixed"}}}'
+        )
+    )
+    payload = json.loads(result)
+
+    assert payload["status"] == "guardrail_blocked"
+    assert payload["guardrails"]["reason_codes"] == ["fixed_cutoff_missing_date"]
+
+
+def test_training_plan_create_guardrail_blocks_sequence_cutoff_without_dates(tmp_path: Path):
+    import json
+
+    runtime = BrainRuntime(
+        workspace=tmp_path,
+        model="test-model",
+        api_key="",
+    )
+
+    result = asyncio.run(
+        runtime.process_direct(
+            '/tool invest_training_plan_create {"rounds":2,"protocol":{"cutoff_policy":{"mode":"sequence"}}}'
+        )
+    )
+    payload = json.loads(result)
+
+    assert payload["status"] == "guardrail_blocked"
+    assert payload["guardrails"]["reason_codes"] == ["sequence_cutoff_missing_dates"]
+
+
+def test_training_plan_create_guardrail_blocks_regime_balanced_cutoff_without_targets(tmp_path: Path):
+    import json
+
+    runtime = BrainRuntime(
+        workspace=tmp_path,
+        model="test-model",
+        api_key="",
+    )
+
+    result = asyncio.run(
+        runtime.process_direct(
+            '/tool invest_training_plan_create {"rounds":2,"protocol":{"cutoff_policy":{"mode":"regime_balanced"}}}'
+        )
+    )
+    payload = json.loads(result)
+
+    assert payload["status"] == "guardrail_blocked"
+    assert payload["guardrails"]["reason_codes"] == ["regime_balanced_missing_targets"]
+
+
+def test_training_plan_create_guardrail_blocks_invalid_llm_mode(tmp_path: Path):
+    import json
+
+    runtime = BrainRuntime(
+        workspace=tmp_path,
+        model="test-model",
+        api_key="",
+    )
+
+    result = asyncio.run(
+        runtime.process_direct('/tool invest_training_plan_create {"rounds":2,"llm":{"mode":"turbo"}}')
+    )
+    payload = json.loads(result)
+
+    assert payload["status"] == "guardrail_blocked"
+    assert payload["guardrails"]["reason_codes"] == ["invalid_llm_mode"]
+
+
+def test_agent_prompt_update_guardrail_blocks_missing_agent_name(tmp_path: Path):
+    import json
+
+    runtime = BrainRuntime(
+        workspace=tmp_path,
+        model="test-model",
+        api_key="",
+    )
+
+    result = asyncio.run(
+        runtime.process_direct('/tool invest_agent_prompts_update {"system_prompt":"focus on evidence"}')
+    )
+    payload = json.loads(result)
+
+    assert payload["status"] == "guardrail_blocked"
+    assert payload["guardrails"]["reason_codes"] == ["missing_agent_name"]
+
+
+def test_agent_prompt_update_guardrail_blocks_empty_system_prompt(tmp_path: Path):
+    import json
+
+    runtime = BrainRuntime(
+        workspace=tmp_path,
+        model="test-model",
+        api_key="",
+    )
+
+    result = asyncio.run(
+        runtime.process_direct('/tool invest_agent_prompts_update {"name":"researcher","system_prompt":"   "}')
+    )
+    payload = json.loads(result)
+
+    assert payload["status"] == "guardrail_blocked"
+    assert payload["guardrails"]["reason_codes"] == ["empty_system_prompt"]
+
+
 def test_wrap_tool_response_attaches_runtime_governance_metrics(tmp_path: Path):
     import json
 

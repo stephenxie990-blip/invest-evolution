@@ -1,0 +1,4358 @@
+{
+  "cycle_id": 3,
+  "cutoff_date": "20190709",
+  "selected_stocks": [
+    "sh.600086",
+    "sh.600069",
+    "sh.600058",
+    "sh.600052"
+  ],
+  "initial_capital": 100000.0,
+  "final_value": 99417.3151677849,
+  "return_pct": -0.5826848322151054,
+  "is_profit": false,
+  "params": {
+    "candidate_pool_size": 100,
+    "top_n": 5,
+    "max_positions": 4,
+    "cash_reserve": 0.35,
+    "stop_loss_pct": 0.03,
+    "take_profit_pct": 0.1,
+    "trailing_pct": 0.06,
+    "position_size": 0.15,
+    "max_hold_days": 30,
+    "oversold_rsi": 35,
+    "rebound_rsi_cap": 60,
+    "max_5d_drop": -2.0,
+    "max_20d_drop": -5.0,
+    "min_reversion_score": 0.05
+  },
+  "trade_count": 8,
+  "trades": [
+    {
+      "date": "20190710",
+      "action": "买入",
+      "ts_code": "sh.600086",
+      "price": 3.88776,
+      "shares": 5100,
+      "pnl": 0.0,
+      "pnl_pct": 0.0,
+      "reason": "RSI4/BB0.01/-9.2%",
+      "source": "contrarian",
+      "entry_reason": "RSI4/BB0.01/-9.2%",
+      "exit_reason": "",
+      "exit_trigger": "",
+      "entry_date": "20190710",
+      "entry_price": 3.88776,
+      "holding_days": 0,
+      "stop_loss_price": 3.7711272,
+      "take_profit_price": 4.276536,
+      "trailing_pct": null,
+      "capital_before": 100000.0,
+      "capital_after": 80167.467106,
+      "open_price": 3.85,
+      "high_price": 3.94,
+      "low_price": 3.84,
+      "volume": 18907903.0,
+      "amount": 73394244.0,
+      "pct_chg": 0.258404
+    },
+    {
+      "date": "20190710",
+      "action": "买入",
+      "ts_code": "sh.600058",
+      "price": 7.9659,
+      "shares": 2500,
+      "pnl": 0.0,
+      "pnl_pct": 0.0,
+      "reason": "RSI28/BB0.08/-4.0%",
+      "source": "contrarian",
+      "entry_reason": "RSI28/BB0.08/-4.0%",
+      "exit_reason": "",
+      "exit_trigger": "",
+      "entry_date": "20190710",
+      "entry_price": 7.9659,
+      "holding_days": 0,
+      "stop_loss_price": 7.726923,
+      "take_profit_price": 8.762490000000001,
+      "trailing_pct": null,
+      "capital_before": 80167.467106,
+      "capital_after": 60247.7384185,
+      "open_price": 8.06,
+      "high_price": 8.06,
+      "low_price": 7.93,
+      "volume": 2106154.0,
+      "amount": 16801788.0,
+      "pct_chg": -0.872826
+    },
+    {
+      "date": "20190710",
+      "action": "买入",
+      "ts_code": "sh.600052",
+      "price": 2.82929293128,
+      "shares": 7000,
+      "pnl": 0.0,
+      "pnl_pct": 0.0,
+      "reason": "RSI39/BB0.05/-4.4%",
+      "source": "contrarian",
+      "entry_reason": "RSI39/BB0.05/-4.4%",
+      "exit_reason": "",
+      "exit_trigger": "",
+      "entry_date": "20190710",
+      "entry_price": 2.82929293128,
+      "holding_days": 0,
+      "stop_loss_price": 2.7444141433416,
+      "take_profit_price": 3.1122222244080002,
+      "trailing_pct": null,
+      "capital_before": 60247.7384185,
+      "capital_after": 40437.73663691025,
+      "open_price": 2.8516951,
+      "high_price": 2.86104492,
+      "low_price": 2.804946,
+      "volume": 1782885.0,
+      "amount": 5398646.0,
+      "pct_chg": -0.657894
+    },
+    {
+      "date": "20190722",
+      "action": "卖出",
+      "ts_code": "sh.600086",
+      "price": 3.5728400000000002,
+      "shares": 5100,
+      "pnl": -1624.7150069999998,
+      "pnl_pct": -8.194219036154493,
+      "reason": "止损",
+      "source": "contrarian",
+      "entry_reason": "RSI4/BB0.01/-9.2%",
+      "exit_reason": "止损",
+      "exit_trigger": "stop_loss",
+      "entry_date": "20190710",
+      "entry_price": 3.88776,
+      "holding_days": 7,
+      "stop_loss_price": 3.7711272,
+      "take_profit_price": 4.276536,
+      "trailing_pct": null,
+      "capital_before": 40437.73663691025,
+      "capital_after": 58645.55452391025,
+      "open_price": 3.43,
+      "high_price": 3.67,
+      "low_price": 3.43,
+      "volume": 43934801.0,
+      "amount": 155515293.0,
+      "pct_chg": -6.036746
+    },
+    {
+      "date": "20190722",
+      "action": "卖出",
+      "ts_code": "sh.600058",
+      "price": 7.69458,
+      "shares": 2500,
+      "pnl": -697.7060249999968,
+      "pnl_pct": -3.5034636387601994,
+      "reason": "止损",
+      "source": "contrarian",
+      "entry_reason": "RSI28/BB0.08/-4.0%",
+      "exit_reason": "止损",
+      "exit_trigger": "stop_loss",
+      "entry_date": "20190710",
+      "entry_price": 7.9659,
+      "holding_days": 7,
+      "stop_loss_price": 7.726923,
+      "take_profit_price": 8.762490000000001,
+      "trailing_pct": null,
+      "capital_before": 58645.55452391025,
+      "capital_after": 77867.57718641026,
+      "open_price": 8.07,
+      "high_price": 8.08,
+      "low_price": 7.68,
+      "volume": 5112784.0,
+      "amount": 40053221.0,
+      "pct_chg": -4.460962
+    },
+    {
+      "date": "20190722",
+      "action": "买入",
+      "ts_code": "sh.600069",
+      "price": 2.0541,
+      "shares": 9700,
+      "pnl": 0.0,
+      "pnl_pct": 0.0,
+      "reason": "RSI21/BB0.16/-3.5%",
+      "source": "contrarian",
+      "entry_reason": "RSI21/BB0.16/-3.5%",
+      "exit_reason": "",
+      "exit_trigger": "",
+      "entry_date": "20190722",
+      "entry_price": 2.0541,
+      "holding_days": 0,
+      "stop_loss_price": 1.992477,
+      "take_profit_price": 2.25951,
+      "trailing_pct": null,
+      "capital_before": 77867.57718641026,
+      "capital_after": 57937.82599391026,
+      "open_price": 2.16,
+      "high_price": 2.18,
+      "low_price": 2.02,
+      "volume": 11804266.0,
+      "amount": 24483956.0,
+      "pct_chg": -5.092598
+    },
+    {
+      "date": "20190724",
+      "action": "卖出",
+      "ts_code": "sh.600069",
+      "price": 2.3153599999999996,
+      "shares": 9700,
+      "pnl": 2512.3965634999945,
+      "pnl_pct": 12.609413124969546,
+      "reason": "止盈",
+      "source": "contrarian",
+      "entry_reason": "RSI21/BB0.16/-3.5%",
+      "exit_reason": "止盈",
+      "exit_trigger": "take_profit",
+      "entry_date": "20190722",
+      "entry_price": 2.0541,
+      "holding_days": 1,
+      "stop_loss_price": 1.992477,
+      "take_profit_price": 2.25951,
+      "trailing_pct": null,
+      "capital_before": 57937.82599391026,
+      "capital_after": 80379.97374991025,
+      "open_price": 2.12,
+      "high_price": 2.32,
+      "low_price": 2.11,
+      "volume": 28974106.0,
+      "amount": 65747969.0,
+      "pct_chg": 9.952609
+    },
+    {
+      "date": "20190729",
+      "action": "卖出",
+      "ts_code": "sh.600052",
+      "price": 2.72166144864,
+      "shares": 7000,
+      "pnl": -772.6603637151019,
+      "pnl_pct": -3.901329930844709,
+      "reason": "止损",
+      "source": "contrarian",
+      "entry_reason": "RSI39/BB0.05/-4.4%",
+      "exit_reason": "止损",
+      "exit_trigger": "stop_loss",
+      "entry_date": "20190710",
+      "entry_price": 2.82929293128,
+      "holding_days": 12,
+      "stop_loss_price": 2.7444141433416,
+      "take_profit_price": 3.1122222244080002,
+      "trailing_pct": null,
+      "capital_before": 80379.97374991025,
+      "capital_after": 99417.3151677849,
+      "open_price": 2.7367182,
+      "high_price": 2.74632072,
+      "low_price": 2.70791064,
+      "volume": 1894471.0,
+      "amount": 5370567.0,
+      "pct_chg": -0.6993
+    }
+  ],
+  "analysis": "复盘综合: 方向=conservative",
+  "data_mode": "offline",
+  "requested_data_mode": "live",
+  "effective_data_mode": "offline",
+  "llm_mode": "live",
+  "degraded": false,
+  "degrade_reason": "",
+  "selection_mode": "meeting",
+  "agent_used": true,
+  "llm_used": false,
+  "benchmark_passed": false,
+  "strategy_scores": {
+    "signal_accuracy": 0.125,
+    "timing_score": 0.959906407127307,
+    "risk_control_score": 0.85,
+    "overall_score": 0.6962266017818268,
+    "suggestions": [
+      "信号准确率低，建议优化选股策略参数",
+      "胜率低，建议降低交易频率或调整止损幅度",
+      "当前周期亏损，建议降低仓位或暂停交易"
+    ]
+  },
+  "review_applied": true,
+  "config_snapshot_path": "outputs/phase_v11_validation_20260315/config_snapshots/cycle_0003.json",
+  "optimization_events": [
+    {
+      "trigger": "review_meeting",
+      "stage": "review_decision",
+      "status": "ok",
+      "suggestions": [],
+      "decision": {
+        "strategy_suggestions": [
+          "收紧选股标准",
+          "先收紧入场条件与风险暴露",
+          "缩小暴露并优先修复基准落后来源",
+          "问股校准显示近期命中偏弱，先收紧止损与仓位",
+          "基于 ask 侧归因样本给训练侧的建议：tighten_risk"
+        ],
+        "param_adjustments": {
+          "stop_loss_pct": 0.03,
+          "position_size": 0.15
+        },
+        "agent_weight_adjustments": {
+          "trend_hunter": 0.5,
+          "contrarian": 1.0
+        }
+      },
+      "applied_change": {
+        "params": {
+          "stop_loss_pct": 0.03,
+          "position_size": 0.15
+        },
+        "agent_weights": {
+          "trend_hunter": 0.5,
+          "contrarian": 1.0
+        }
+      },
+      "notes": "复盘综合: 方向=conservative",
+      "ts": "2026-03-15T01:23:03.275837"
+    }
+  ],
+  "audit_tags": {
+    "data_mode": "offline",
+    "requested_data_mode": "live",
+    "effective_data_mode": "offline",
+    "llm_mode": "live",
+    "degraded": false,
+    "degrade_reason": "",
+    "selection_mode": "meeting",
+    "meeting_fallback": false,
+    "agent_used": true,
+    "llm_used": false,
+    "mock_data_used": false,
+    "benchmark_passed": false,
+    "review_applied": true,
+    "routing_enabled": true,
+    "routing_mode": "rule",
+    "routing_model": "mean_reversion",
+    "routing_regime": "oscillation"
+  },
+  "model_name": "mean_reversion",
+  "config_name": "/Users/zhangsan/Desktop/投资进化系统v1.0/invest/models/configs/mean_reversion_v1.yaml",
+  "routing_decision": {
+    "as_of_date": "20190709",
+    "current_model": "mean_reversion",
+    "selected_model": "mean_reversion",
+    "selected_config": "/Users/zhangsan/Desktop/投资进化系统v1.0/invest/models/configs/mean_reversion_v1.yaml",
+    "regime": "oscillation",
+    "regime_confidence": 0.58,
+    "decision_confidence": 0.6464,
+    "candidate_models": [
+      "mean_reversion",
+      "value_quality",
+      "defensive_low_vol",
+      "momentum"
+    ],
+    "candidate_weights": {
+      "mean_reversion": 0.4832,
+      "value_quality": 0.2153,
+      "defensive_low_vol": 0.2153,
+      "momentum": 0.0861
+    },
+    "cash_reserve_hint": 0.2,
+    "decision_source": "rule_allocator",
+    "regime_source": "rule",
+    "switch_applied": false,
+    "hold_current": false,
+    "hold_reason": "",
+    "reasoning": "检测到 regime=oscillation，维持当前模型 mean_reversion。市场特征分布接近震荡区间，维持均衡模型选择。 当前 regime=oscillation，优先分配给 mean_reversion（权重 48%），因为其历史综合得分 24.09、策略评分 0.58、平均收益 +1.40% 、Sharpe 1.67 相对更优；其余模型按先验与榜单表现做补充分配。",
+    "evidence": {
+      "market_observation": {
+        "as_of_date": "20190709",
+        "stats": {
+          "valid_stocks": 77,
+          "advance_ratio_5d": 0.1429,
+          "market_breadth": 0.1429,
+          "avg_change_5d": -1.5935,
+          "median_change_5d": -2.379,
+          "avg_change_20d": 1.4537,
+          "median_change_20d": -0.1132,
+          "avg_volatility": 0.017821,
+          "above_ma20_ratio": 0.3117,
+          "regime_hint": "oscillation",
+          "index_change_20d": 1.9857,
+          "index_above_ma20": false,
+          "index_ma20_gap_pct": -0.1259,
+          "observation_source": "market_observer"
+        },
+        "evidence": {
+          "stock_universe_size": 77,
+          "valid_stocks": 77,
+          "index_metrics": {
+            "index_change_20d": 1.9857,
+            "index_above_ma20": false,
+            "index_ma20_gap_pct": -0.1259
+          }
+        }
+      },
+      "rule_result": {
+        "regime": "oscillation",
+        "confidence": 0.58,
+        "reasoning": "市场特征分布接近震荡区间，维持均衡模型选择。",
+        "suggested_exposure": 0.55,
+        "source": "rule"
+      },
+      "agent_result": {}
+    },
+    "agent_advice": {},
+    "allocation_plan": {
+      "as_of_date": "20190709",
+      "regime": "oscillation",
+      "active_models": [
+        "mean_reversion",
+        "value_quality",
+        "defensive_low_vol",
+        "momentum"
+      ],
+      "model_weights": {
+        "mean_reversion": 0.4832,
+        "value_quality": 0.2153,
+        "defensive_low_vol": 0.2153,
+        "momentum": 0.0861
+      },
+      "selected_configs": {
+        "mean_reversion": "mean_reversion_v1"
+      },
+      "cash_reserve": 0.2,
+      "confidence": 0.6464,
+      "reasoning": "当前 regime=oscillation，优先分配给 mean_reversion（权重 48%），因为其历史综合得分 24.09、策略评分 0.58、平均收益 +1.40% 、Sharpe 1.67 相对更优；其余模型按先验与榜单表现做补充分配。",
+      "metadata": {
+        "top_candidates": [
+          {
+            "model_name": "mean_reversion",
+            "config_name": "mean_reversion_v1",
+            "score": 24.094581,
+            "avg_return_pct": 1.4029643424601672,
+            "avg_sharpe_ratio": 1.6683805672392198,
+            "avg_max_drawdown": 2.0719676016955972,
+            "benchmark_pass_rate": 0.0,
+            "avg_strategy_score": 0.5760700809957611,
+            "rank": 1
+          }
+        ],
+        "leaderboard_generated_at": "2026-03-15T01:23:01.269171"
+      }
+    },
+    "guardrail_checks": [
+      {
+        "name": "min_confidence",
+        "passed": true,
+        "actual": 0.6464,
+        "threshold": 0.6
+      },
+      {
+        "name": "hysteresis_margin",
+        "passed": true,
+        "actual": 0.0,
+        "threshold": 0.08
+      },
+      {
+        "name": "cooldown_cycles",
+        "passed": true,
+        "actual": 1,
+        "threshold": 2
+      }
+    ],
+    "metadata": {
+      "routing_mode": "rule",
+      "allowed_models": [
+        "momentum",
+        "mean_reversion",
+        "value_quality",
+        "defensive_low_vol"
+      ],
+      "observation_version": "routing_v1",
+      "previous_decision": {
+        "as_of_date": "20250614",
+        "current_model": "momentum",
+        "selected_model": "mean_reversion",
+        "selected_config": "/Users/zhangsan/Desktop/投资进化系统v1.0/invest/models/configs/mean_reversion_v1.yaml",
+        "regime": "oscillation",
+        "regime_confidence": 0.58,
+        "decision_confidence": 0.9,
+        "candidate_models": [
+          "mean_reversion",
+          "value_quality",
+          "defensive_low_vol",
+          "momentum"
+        ],
+        "candidate_weights": {
+          "mean_reversion": 0.3854,
+          "value_quality": 0.2409,
+          "defensive_low_vol": 0.2409,
+          "momentum": 0.1328
+        },
+        "cash_reserve_hint": 0.2,
+        "decision_source": "rule_allocator",
+        "regime_source": "rule",
+        "switch_applied": true,
+        "hold_current": false,
+        "hold_reason": "",
+        "reasoning": "检测到 regime=oscillation，从 momentum 切换至 mean_reversion。市场特征分布接近震荡区间，维持均衡模型选择。 当前 regime=oscillation，按先验规则优先启用 mean_reversion。",
+        "evidence": {
+          "market_observation": {
+            "as_of_date": "20250614",
+            "stats": {
+              "valid_stocks": 77,
+              "advance_ratio_5d": 0.2208,
+              "market_breadth": 0.2208,
+              "avg_change_5d": -0.9716,
+              "median_change_5d": -0.9541,
+              "avg_change_20d": -0.66,
+              "median_change_20d": -0.5137,
+              "avg_volatility": 0.008759,
+              "above_ma20_ratio": 0.3636,
+              "regime_hint": "oscillation",
+              "index_change_20d": -1.101,
+              "index_above_ma20": false,
+              "index_ma20_gap_pct": -0.2606,
+              "observation_source": "market_observer"
+            },
+            "evidence": {
+              "stock_universe_size": 77,
+              "valid_stocks": 77,
+              "index_metrics": {
+                "index_change_20d": -1.101,
+                "index_above_ma20": false,
+                "index_ma20_gap_pct": -0.2606
+              }
+            }
+          },
+          "rule_result": {
+            "regime": "oscillation",
+            "confidence": 0.58,
+            "reasoning": "市场特征分布接近震荡区间，维持均衡模型选择。",
+            "suggested_exposure": 0.55,
+            "source": "rule"
+          },
+          "agent_result": {}
+        },
+        "agent_advice": {},
+        "allocation_plan": {
+          "as_of_date": "20250614",
+          "regime": "oscillation",
+          "active_models": [
+            "mean_reversion",
+            "value_quality",
+            "defensive_low_vol",
+            "momentum"
+          ],
+          "model_weights": {
+            "mean_reversion": 0.3854,
+            "value_quality": 0.2409,
+            "defensive_low_vol": 0.2409,
+            "momentum": 0.1328
+          },
+          "selected_configs": {
+            "momentum": "momentum_v1"
+          },
+          "cash_reserve": 0.2,
+          "confidence": 0.9,
+          "reasoning": "当前 regime=oscillation，按先验规则优先启用 mean_reversion。",
+          "metadata": {
+            "top_candidates": [
+              {
+                "model_name": "unknown",
+                "config_name": "config_snapshots",
+                "score": 0.0,
+                "avg_return_pct": 0.0,
+                "avg_sharpe_ratio": 0.0,
+                "avg_max_drawdown": 0.0,
+                "benchmark_pass_rate": 0.0,
+                "avg_strategy_score": 0.0,
+                "rank": 1
+              },
+              {
+                "model_name": "momentum",
+                "config_name": "momentum_v1",
+                "score": -58.984483,
+                "avg_return_pct": -5.1110372394005825,
+                "avg_sharpe_ratio": -6.357548844619413,
+                "avg_max_drawdown": 4.943754731164246,
+                "benchmark_pass_rate": 0.0,
+                "avg_strategy_score": 0.6051687358065073,
+                "rank": 2
+              }
+            ],
+            "leaderboard_generated_at": "2026-03-15T01:22:54.386879"
+          }
+        },
+        "guardrail_checks": [
+          {
+            "name": "min_confidence",
+            "passed": true,
+            "actual": 0.9,
+            "threshold": 0.6
+          },
+          {
+            "name": "hysteresis_margin",
+            "passed": true,
+            "actual": 0.2526,
+            "threshold": 0.08
+          }
+        ],
+        "metadata": {
+          "routing_mode": "rule",
+          "allowed_models": [
+            "momentum",
+            "mean_reversion",
+            "value_quality",
+            "defensive_low_vol"
+          ],
+          "observation_version": "routing_v1",
+          "previous_decision": {
+            "as_of_date": "20190712",
+            "current_model": "momentum",
+            "selected_model": "momentum",
+            "selected_config": "/Users/zhangsan/Desktop/投资进化系统v1.0/invest/models/configs/momentum_v1.yaml",
+            "regime": "bull",
+            "regime_confidence": 0.72,
+            "decision_confidence": 0.72,
+            "candidate_models": [
+              "momentum",
+              "value_quality",
+              "defensive_low_vol",
+              "mean_reversion"
+            ],
+            "candidate_weights": {
+              "momentum": 0.45,
+              "value_quality": 0.25,
+              "defensive_low_vol": 0.15,
+              "mean_reversion": 0.15
+            },
+            "cash_reserve_hint": 0.1,
+            "decision_source": "rule_allocator",
+            "regime_source": "rule",
+            "switch_applied": false,
+            "hold_current": false,
+            "hold_reason": "",
+            "reasoning": "检测到 regime=bull，维持当前模型 momentum。市场涨幅、广度和均线占优，趋势延续特征更明显。 当前 regime=bull，按先验规则优先启用 momentum。",
+            "evidence": {
+              "market_observation": {
+                "as_of_date": "20190712",
+                "stats": {
+                  "valid_stocks": 77,
+                  "advance_ratio_5d": 0.4935,
+                  "market_breadth": 0.4935,
+                  "avg_change_5d": 0.7997,
+                  "median_change_5d": 0.0,
+                  "avg_change_20d": 2.4986,
+                  "median_change_20d": 0.7941,
+                  "avg_volatility": 0.01816,
+                  "above_ma20_ratio": 0.3506,
+                  "regime_hint": "oscillation",
+                  "index_change_20d": 4.2095,
+                  "index_above_ma20": false,
+                  "index_ma20_gap_pct": -0.1742,
+                  "observation_source": "market_observer"
+                },
+                "evidence": {
+                  "stock_universe_size": 77,
+                  "valid_stocks": 77,
+                  "index_metrics": {
+                    "index_change_20d": 4.2095,
+                    "index_above_ma20": false,
+                    "index_ma20_gap_pct": -0.1742
+                  }
+                }
+              },
+              "rule_result": {
+                "regime": "bull",
+                "confidence": 0.72,
+                "reasoning": "市场涨幅、广度和均线占优，趋势延续特征更明显。",
+                "suggested_exposure": 0.85,
+                "source": "rule"
+              },
+              "agent_result": {}
+            },
+            "agent_advice": {},
+            "allocation_plan": {
+              "as_of_date": "20190712",
+              "regime": "bull",
+              "active_models": [
+                "momentum",
+                "value_quality",
+                "defensive_low_vol",
+                "mean_reversion"
+              ],
+              "model_weights": {
+                "momentum": 0.45,
+                "value_quality": 0.25,
+                "defensive_low_vol": 0.15,
+                "mean_reversion": 0.15
+              },
+              "selected_configs": {},
+              "cash_reserve": 0.1,
+              "confidence": 0.35,
+              "reasoning": "当前 regime=bull，按先验规则优先启用 momentum。",
+              "metadata": {
+                "top_candidates": [],
+                "leaderboard_generated_at": "2026-03-15T01:22:48.911004"
+              }
+            },
+            "guardrail_checks": [
+              {
+                "name": "min_confidence",
+                "passed": true,
+                "actual": 0.72,
+                "threshold": 0.6
+              },
+              {
+                "name": "hysteresis_margin",
+                "passed": true,
+                "actual": 0.0,
+                "threshold": 0.08
+              }
+            ],
+            "metadata": {
+              "routing_mode": "rule",
+              "allowed_models": [
+                "momentum",
+                "mean_reversion",
+                "value_quality",
+                "defensive_low_vol"
+              ],
+              "observation_version": "routing_v1",
+              "previous_decision": {}
+            }
+          }
+        }
+      }
+    }
+  },
+  "allocation_plan": {
+    "as_of_date": "20190709",
+    "regime": "oscillation",
+    "active_models": [
+      "mean_reversion",
+      "value_quality",
+      "defensive_low_vol",
+      "momentum"
+    ],
+    "model_weights": {
+      "mean_reversion": 0.4832,
+      "value_quality": 0.2153,
+      "defensive_low_vol": 0.2153,
+      "momentum": 0.0861
+    },
+    "selected_configs": {
+      "mean_reversion": "mean_reversion_v1"
+    },
+    "cash_reserve": 0.2,
+    "confidence": 0.6464,
+    "reasoning": "当前 regime=oscillation，优先分配给 mean_reversion（权重 48%），因为其历史综合得分 24.09、策略评分 0.58、平均收益 +1.40% 、Sharpe 1.67 相对更优；其余模型按先验与榜单表现做补充分配。",
+    "metadata": {
+      "top_candidates": [
+        {
+          "model_name": "mean_reversion",
+          "config_name": "mean_reversion_v1",
+          "score": 24.094581,
+          "avg_return_pct": 1.4029643424601672,
+          "avg_sharpe_ratio": 1.6683805672392198,
+          "avg_max_drawdown": 2.0719676016955972,
+          "benchmark_pass_rate": 0.0,
+          "avg_strategy_score": 0.5760700809957611,
+          "rank": 1
+        }
+      ],
+      "leaderboard_generated_at": "2026-03-15T01:23:01.269171"
+    }
+  },
+  "research_feedback": {
+    "schema_version": "research.training_feedback.v1",
+    "generated_at": "2026-03-15T01:23:03.272867",
+    "subject": {
+      "model_name": "mean_reversion",
+      "config_name": "mean_reversion_v1",
+      "as_of_date": "20190709",
+      "regime": "oscillation"
+    },
+    "matched_case_count": 4,
+    "sample_count": 4,
+    "brier_like_direction_score": 0.428397,
+    "invalidation_timeliness": {
+      "sample_count": 4,
+      "avg_first_invalidation_horizon": 11.25
+    },
+    "scenario_hit_distribution": {
+      "bear": 3,
+      "bull": 1
+    },
+    "horizons": {
+      "T+5": {
+        "count": 4,
+        "label_counts": {
+          "miss": 1,
+          "hit": 2,
+          "invalidated": 1
+        },
+        "hit_rate": 0.5,
+        "invalidation_rate": 0.25,
+        "timeout_rate": 0.0,
+        "interval_hit_rate": 0.25
+      },
+      "T+10": {
+        "count": 4,
+        "label_counts": {
+          "invalidated": 3,
+          "miss": 1
+        },
+        "hit_rate": 0.0,
+        "invalidation_rate": 0.75,
+        "timeout_rate": 0.0,
+        "interval_hit_rate": 0.75
+      },
+      "T+20": {
+        "count": 4,
+        "label_counts": {
+          "invalidated": 4
+        },
+        "hit_rate": 0.0,
+        "invalidation_rate": 1.0,
+        "timeout_rate": 0.0,
+        "interval_hit_rate": 0.0
+      },
+      "T+60": {
+        "count": 4,
+        "label_counts": {
+          "invalidated": 4
+        },
+        "hit_rate": 0.0,
+        "invalidation_rate": 1.0,
+        "timeout_rate": 0.0,
+        "interval_hit_rate": 0.0
+      }
+    },
+    "recommendation": {
+      "bias": "tighten_risk",
+      "reason_codes": [
+        "t20_hit_rate_low",
+        "t20_invalidation_high"
+      ],
+      "summary": "基于 ask 侧归因样本给训练侧的建议：tighten_risk"
+    },
+    "notes": [
+      "样本数=4",
+      "T+20 hit_rate=0.0",
+      "T+20 invalidation_rate=1.0",
+      "T+20 interval_hit_rate=0.0",
+      "direction_brier=0.428397"
+    ],
+    "scope": {
+      "requested_regime": "oscillation",
+      "effective_scope": "regime",
+      "overall_sample_count": 4,
+      "regime_sample_count": 4,
+      "covered_regimes": [
+        "oscillation"
+      ]
+    },
+    "overall_feedback": {
+      "generated_at": "2026-03-15T01:23:03.272834",
+      "subject": {
+        "model_name": "mean_reversion",
+        "config_name": "mean_reversion_v1",
+        "as_of_date": "20190709"
+      },
+      "matched_case_count": 4,
+      "sample_count": 4,
+      "brier_like_direction_score": 0.428397,
+      "invalidation_timeliness": {
+        "sample_count": 4,
+        "avg_first_invalidation_horizon": 11.25
+      },
+      "scenario_hit_distribution": {
+        "bear": 3,
+        "bull": 1
+      },
+      "horizons": {
+        "T+5": {
+          "count": 4,
+          "label_counts": {
+            "miss": 1,
+            "hit": 2,
+            "invalidated": 1
+          },
+          "hit_rate": 0.5,
+          "invalidation_rate": 0.25,
+          "timeout_rate": 0.0,
+          "interval_hit_rate": 0.25
+        },
+        "T+10": {
+          "count": 4,
+          "label_counts": {
+            "invalidated": 3,
+            "miss": 1
+          },
+          "hit_rate": 0.0,
+          "invalidation_rate": 0.75,
+          "timeout_rate": 0.0,
+          "interval_hit_rate": 0.75
+        },
+        "T+20": {
+          "count": 4,
+          "label_counts": {
+            "invalidated": 4
+          },
+          "hit_rate": 0.0,
+          "invalidation_rate": 1.0,
+          "timeout_rate": 0.0,
+          "interval_hit_rate": 0.0
+        },
+        "T+60": {
+          "count": 4,
+          "label_counts": {
+            "invalidated": 4
+          },
+          "hit_rate": 0.0,
+          "invalidation_rate": 1.0,
+          "timeout_rate": 0.0,
+          "interval_hit_rate": 0.0
+        }
+      },
+      "recommendation": {
+        "bias": "tighten_risk",
+        "reason_codes": [
+          "t20_hit_rate_low",
+          "t20_invalidation_high"
+        ],
+        "summary": "基于 ask 侧归因样本给训练侧的建议：tighten_risk"
+      },
+      "notes": [
+        "样本数=4",
+        "T+20 hit_rate=0.0",
+        "T+20 invalidation_rate=1.0",
+        "T+20 interval_hit_rate=0.0",
+        "direction_brier=0.428397"
+      ]
+    },
+    "requested_regime_feedback": {
+      "generated_at": "2026-03-15T01:23:03.272867",
+      "subject": {
+        "model_name": "mean_reversion",
+        "config_name": "mean_reversion_v1",
+        "as_of_date": "20190709",
+        "regime": "oscillation"
+      },
+      "matched_case_count": 4,
+      "sample_count": 4,
+      "brier_like_direction_score": 0.428397,
+      "invalidation_timeliness": {
+        "sample_count": 4,
+        "avg_first_invalidation_horizon": 11.25
+      },
+      "scenario_hit_distribution": {
+        "bear": 3,
+        "bull": 1
+      },
+      "horizons": {
+        "T+5": {
+          "count": 4,
+          "label_counts": {
+            "miss": 1,
+            "hit": 2,
+            "invalidated": 1
+          },
+          "hit_rate": 0.5,
+          "invalidation_rate": 0.25,
+          "timeout_rate": 0.0,
+          "interval_hit_rate": 0.25
+        },
+        "T+10": {
+          "count": 4,
+          "label_counts": {
+            "invalidated": 3,
+            "miss": 1
+          },
+          "hit_rate": 0.0,
+          "invalidation_rate": 0.75,
+          "timeout_rate": 0.0,
+          "interval_hit_rate": 0.75
+        },
+        "T+20": {
+          "count": 4,
+          "label_counts": {
+            "invalidated": 4
+          },
+          "hit_rate": 0.0,
+          "invalidation_rate": 1.0,
+          "timeout_rate": 0.0,
+          "interval_hit_rate": 0.0
+        },
+        "T+60": {
+          "count": 4,
+          "label_counts": {
+            "invalidated": 4
+          },
+          "hit_rate": 0.0,
+          "invalidation_rate": 1.0,
+          "timeout_rate": 0.0,
+          "interval_hit_rate": 0.0
+        }
+      },
+      "recommendation": {
+        "bias": "tighten_risk",
+        "reason_codes": [
+          "t20_hit_rate_low",
+          "t20_invalidation_high"
+        ],
+        "summary": "基于 ask 侧归因样本给训练侧的建议：tighten_risk"
+      },
+      "notes": [
+        "样本数=4",
+        "T+20 hit_rate=0.0",
+        "T+20 invalidation_rate=1.0",
+        "T+20 interval_hit_rate=0.0",
+        "direction_brier=0.428397"
+      ]
+    },
+    "regime_breakdown": {
+      "oscillation": {
+        "generated_at": "2026-03-15T01:23:03.272867",
+        "subject": {
+          "model_name": "mean_reversion",
+          "config_name": "mean_reversion_v1",
+          "as_of_date": "20190709",
+          "regime": "oscillation"
+        },
+        "matched_case_count": 4,
+        "sample_count": 4,
+        "brier_like_direction_score": 0.428397,
+        "invalidation_timeliness": {
+          "sample_count": 4,
+          "avg_first_invalidation_horizon": 11.25
+        },
+        "scenario_hit_distribution": {
+          "bear": 3,
+          "bull": 1
+        },
+        "horizons": {
+          "T+5": {
+            "count": 4,
+            "label_counts": {
+              "miss": 1,
+              "hit": 2,
+              "invalidated": 1
+            },
+            "hit_rate": 0.5,
+            "invalidation_rate": 0.25,
+            "timeout_rate": 0.0,
+            "interval_hit_rate": 0.25
+          },
+          "T+10": {
+            "count": 4,
+            "label_counts": {
+              "invalidated": 3,
+              "miss": 1
+            },
+            "hit_rate": 0.0,
+            "invalidation_rate": 0.75,
+            "timeout_rate": 0.0,
+            "interval_hit_rate": 0.75
+          },
+          "T+20": {
+            "count": 4,
+            "label_counts": {
+              "invalidated": 4
+            },
+            "hit_rate": 0.0,
+            "invalidation_rate": 1.0,
+            "timeout_rate": 0.0,
+            "interval_hit_rate": 0.0
+          },
+          "T+60": {
+            "count": 4,
+            "label_counts": {
+              "invalidated": 4
+            },
+            "hit_rate": 0.0,
+            "invalidation_rate": 1.0,
+            "timeout_rate": 0.0,
+            "interval_hit_rate": 0.0
+          }
+        },
+        "recommendation": {
+          "bias": "tighten_risk",
+          "reason_codes": [
+            "t20_hit_rate_low",
+            "t20_invalidation_high"
+          ],
+          "summary": "基于 ask 侧归因样本给训练侧的建议：tighten_risk"
+        },
+        "notes": [
+          "样本数=4",
+          "T+20 hit_rate=0.0",
+          "T+20 invalidation_rate=1.0",
+          "T+20 interval_hit_rate=0.0",
+          "direction_brier=0.428397"
+        ]
+      }
+    }
+  },
+  "research_artifacts": {
+    "policy_id": "policy_7c5a36525571be05",
+    "saved_case_count": 4,
+    "saved_attribution_count": 4,
+    "case_ids": [
+      "case_cfb942ab4f18757b",
+      "case_49ecec76301db310",
+      "case_932927e128ffdc84",
+      "case_9b2497d1a41b55c8"
+    ],
+    "attribution_ids": [
+      "attribution_a3341e0745489ae7",
+      "attribution_14dd64ba611892e2",
+      "attribution_e24bb7e1b7eebc28",
+      "attribution_830112ae3fb66861"
+    ],
+    "attributed_codes": [
+      "sh.600086",
+      "sh.600069",
+      "sh.600058",
+      "sh.600052"
+    ],
+    "selected_count": 4,
+    "requested_regime": "oscillation",
+    "calibration_report_path": "/Users/zhangsan/Desktop/投资进化系统v1.0/outputs/phase_v11_validation_20260315/research_calibration/policy_policy_7c5a36525571be05.json"
+  },
+  "ab_comparison": {},
+  "experiment_spec": {},
+  "execution_snapshot": {
+    "basis_stage": "pre_optimization",
+    "cycle_id": 3,
+    "model_name": "mean_reversion",
+    "active_config_ref": "/Users/zhangsan/Desktop/投资进化系统v1.0/invest/models/configs/mean_reversion_v1.yaml",
+    "runtime_overrides": {
+      "candidate_pool_size": 100,
+      "top_n": 5,
+      "max_positions": 4,
+      "cash_reserve": 0.35,
+      "stop_loss_pct": 0.03,
+      "take_profit_pct": 0.1,
+      "trailing_pct": 0.06,
+      "position_size": 0.15,
+      "max_hold_days": 30,
+      "oversold_rsi": 35,
+      "rebound_rsi_cap": 60,
+      "max_5d_drop": -2.0,
+      "max_20d_drop": -5.0,
+      "min_reversion_score": 0.05
+    },
+    "routing_decision": {
+      "as_of_date": "20190709",
+      "current_model": "mean_reversion",
+      "selected_model": "mean_reversion",
+      "selected_config": "/Users/zhangsan/Desktop/投资进化系统v1.0/invest/models/configs/mean_reversion_v1.yaml",
+      "regime": "oscillation",
+      "regime_confidence": 0.58,
+      "decision_confidence": 0.6464,
+      "candidate_models": [
+        "mean_reversion",
+        "value_quality",
+        "defensive_low_vol",
+        "momentum"
+      ],
+      "candidate_weights": {
+        "mean_reversion": 0.4832,
+        "value_quality": 0.2153,
+        "defensive_low_vol": 0.2153,
+        "momentum": 0.0861
+      },
+      "cash_reserve_hint": 0.2,
+      "decision_source": "rule_allocator",
+      "regime_source": "rule",
+      "switch_applied": false,
+      "hold_current": false,
+      "hold_reason": "",
+      "reasoning": "检测到 regime=oscillation，维持当前模型 mean_reversion。市场特征分布接近震荡区间，维持均衡模型选择。 当前 regime=oscillation，优先分配给 mean_reversion（权重 48%），因为其历史综合得分 24.09、策略评分 0.58、平均收益 +1.40% 、Sharpe 1.67 相对更优；其余模型按先验与榜单表现做补充分配。",
+      "evidence": {
+        "market_observation": {
+          "as_of_date": "20190709",
+          "stats": {
+            "valid_stocks": 77,
+            "advance_ratio_5d": 0.1429,
+            "market_breadth": 0.1429,
+            "avg_change_5d": -1.5935,
+            "median_change_5d": -2.379,
+            "avg_change_20d": 1.4537,
+            "median_change_20d": -0.1132,
+            "avg_volatility": 0.017821,
+            "above_ma20_ratio": 0.3117,
+            "regime_hint": "oscillation",
+            "index_change_20d": 1.9857,
+            "index_above_ma20": false,
+            "index_ma20_gap_pct": -0.1259,
+            "observation_source": "market_observer"
+          },
+          "evidence": {
+            "stock_universe_size": 77,
+            "valid_stocks": 77,
+            "index_metrics": {
+              "index_change_20d": 1.9857,
+              "index_above_ma20": false,
+              "index_ma20_gap_pct": -0.1259
+            }
+          }
+        },
+        "rule_result": {
+          "regime": "oscillation",
+          "confidence": 0.58,
+          "reasoning": "市场特征分布接近震荡区间，维持均衡模型选择。",
+          "suggested_exposure": 0.55,
+          "source": "rule"
+        },
+        "agent_result": {}
+      },
+      "agent_advice": {},
+      "allocation_plan": {
+        "as_of_date": "20190709",
+        "regime": "oscillation",
+        "active_models": [
+          "mean_reversion",
+          "value_quality",
+          "defensive_low_vol",
+          "momentum"
+        ],
+        "model_weights": {
+          "mean_reversion": 0.4832,
+          "value_quality": 0.2153,
+          "defensive_low_vol": 0.2153,
+          "momentum": 0.0861
+        },
+        "selected_configs": {
+          "mean_reversion": "mean_reversion_v1"
+        },
+        "cash_reserve": 0.2,
+        "confidence": 0.6464,
+        "reasoning": "当前 regime=oscillation，优先分配给 mean_reversion（权重 48%），因为其历史综合得分 24.09、策略评分 0.58、平均收益 +1.40% 、Sharpe 1.67 相对更优；其余模型按先验与榜单表现做补充分配。",
+        "metadata": {
+          "top_candidates": [
+            {
+              "model_name": "mean_reversion",
+              "config_name": "mean_reversion_v1",
+              "score": 24.094581,
+              "avg_return_pct": 1.4029643424601672,
+              "avg_sharpe_ratio": 1.6683805672392198,
+              "avg_max_drawdown": 2.0719676016955972,
+              "benchmark_pass_rate": 0.0,
+              "avg_strategy_score": 0.5760700809957611,
+              "rank": 1
+            }
+          ],
+          "leaderboard_generated_at": "2026-03-15T01:23:01.269171"
+        }
+      },
+      "guardrail_checks": [
+        {
+          "name": "min_confidence",
+          "passed": true,
+          "actual": 0.6464,
+          "threshold": 0.6
+        },
+        {
+          "name": "hysteresis_margin",
+          "passed": true,
+          "actual": 0.0,
+          "threshold": 0.08
+        },
+        {
+          "name": "cooldown_cycles",
+          "passed": true,
+          "actual": 1,
+          "threshold": 2
+        }
+      ],
+      "metadata": {
+        "routing_mode": "rule",
+        "allowed_models": [
+          "momentum",
+          "mean_reversion",
+          "value_quality",
+          "defensive_low_vol"
+        ],
+        "observation_version": "routing_v1",
+        "previous_decision": {
+          "as_of_date": "20250614",
+          "current_model": "momentum",
+          "selected_model": "mean_reversion",
+          "selected_config": "/Users/zhangsan/Desktop/投资进化系统v1.0/invest/models/configs/mean_reversion_v1.yaml",
+          "regime": "oscillation",
+          "regime_confidence": 0.58,
+          "decision_confidence": 0.9,
+          "candidate_models": [
+            "mean_reversion",
+            "value_quality",
+            "defensive_low_vol",
+            "momentum"
+          ],
+          "candidate_weights": {
+            "mean_reversion": 0.3854,
+            "value_quality": 0.2409,
+            "defensive_low_vol": 0.2409,
+            "momentum": 0.1328
+          },
+          "cash_reserve_hint": 0.2,
+          "decision_source": "rule_allocator",
+          "regime_source": "rule",
+          "switch_applied": true,
+          "hold_current": false,
+          "hold_reason": "",
+          "reasoning": "检测到 regime=oscillation，从 momentum 切换至 mean_reversion。市场特征分布接近震荡区间，维持均衡模型选择。 当前 regime=oscillation，按先验规则优先启用 mean_reversion。",
+          "evidence": {
+            "market_observation": {
+              "as_of_date": "20250614",
+              "stats": {
+                "valid_stocks": 77,
+                "advance_ratio_5d": 0.2208,
+                "market_breadth": 0.2208,
+                "avg_change_5d": -0.9716,
+                "median_change_5d": -0.9541,
+                "avg_change_20d": -0.66,
+                "median_change_20d": -0.5137,
+                "avg_volatility": 0.008759,
+                "above_ma20_ratio": 0.3636,
+                "regime_hint": "oscillation",
+                "index_change_20d": -1.101,
+                "index_above_ma20": false,
+                "index_ma20_gap_pct": -0.2606,
+                "observation_source": "market_observer"
+              },
+              "evidence": {
+                "stock_universe_size": 77,
+                "valid_stocks": 77,
+                "index_metrics": {
+                  "index_change_20d": -1.101,
+                  "index_above_ma20": false,
+                  "index_ma20_gap_pct": -0.2606
+                }
+              }
+            },
+            "rule_result": {
+              "regime": "oscillation",
+              "confidence": 0.58,
+              "reasoning": "市场特征分布接近震荡区间，维持均衡模型选择。",
+              "suggested_exposure": 0.55,
+              "source": "rule"
+            },
+            "agent_result": {}
+          },
+          "agent_advice": {},
+          "allocation_plan": {
+            "as_of_date": "20250614",
+            "regime": "oscillation",
+            "active_models": [
+              "mean_reversion",
+              "value_quality",
+              "defensive_low_vol",
+              "momentum"
+            ],
+            "model_weights": {
+              "mean_reversion": 0.3854,
+              "value_quality": 0.2409,
+              "defensive_low_vol": 0.2409,
+              "momentum": 0.1328
+            },
+            "selected_configs": {
+              "momentum": "momentum_v1"
+            },
+            "cash_reserve": 0.2,
+            "confidence": 0.9,
+            "reasoning": "当前 regime=oscillation，按先验规则优先启用 mean_reversion。",
+            "metadata": {
+              "top_candidates": [
+                {
+                  "model_name": "unknown",
+                  "config_name": "config_snapshots",
+                  "score": 0.0,
+                  "avg_return_pct": 0.0,
+                  "avg_sharpe_ratio": 0.0,
+                  "avg_max_drawdown": 0.0,
+                  "benchmark_pass_rate": 0.0,
+                  "avg_strategy_score": 0.0,
+                  "rank": 1
+                },
+                {
+                  "model_name": "momentum",
+                  "config_name": "momentum_v1",
+                  "score": -58.984483,
+                  "avg_return_pct": -5.1110372394005825,
+                  "avg_sharpe_ratio": -6.357548844619413,
+                  "avg_max_drawdown": 4.943754731164246,
+                  "benchmark_pass_rate": 0.0,
+                  "avg_strategy_score": 0.6051687358065073,
+                  "rank": 2
+                }
+              ],
+              "leaderboard_generated_at": "2026-03-15T01:22:54.386879"
+            }
+          },
+          "guardrail_checks": [
+            {
+              "name": "min_confidence",
+              "passed": true,
+              "actual": 0.9,
+              "threshold": 0.6
+            },
+            {
+              "name": "hysteresis_margin",
+              "passed": true,
+              "actual": 0.2526,
+              "threshold": 0.08
+            }
+          ],
+          "metadata": {
+            "routing_mode": "rule",
+            "allowed_models": [
+              "momentum",
+              "mean_reversion",
+              "value_quality",
+              "defensive_low_vol"
+            ],
+            "observation_version": "routing_v1",
+            "previous_decision": {
+              "as_of_date": "20190712",
+              "current_model": "momentum",
+              "selected_model": "momentum",
+              "selected_config": "/Users/zhangsan/Desktop/投资进化系统v1.0/invest/models/configs/momentum_v1.yaml",
+              "regime": "bull",
+              "regime_confidence": 0.72,
+              "decision_confidence": 0.72,
+              "candidate_models": [
+                "momentum",
+                "value_quality",
+                "defensive_low_vol",
+                "mean_reversion"
+              ],
+              "candidate_weights": {
+                "momentum": 0.45,
+                "value_quality": 0.25,
+                "defensive_low_vol": 0.15,
+                "mean_reversion": 0.15
+              },
+              "cash_reserve_hint": 0.1,
+              "decision_source": "rule_allocator",
+              "regime_source": "rule",
+              "switch_applied": false,
+              "hold_current": false,
+              "hold_reason": "",
+              "reasoning": "检测到 regime=bull，维持当前模型 momentum。市场涨幅、广度和均线占优，趋势延续特征更明显。 当前 regime=bull，按先验规则优先启用 momentum。",
+              "evidence": {
+                "market_observation": {
+                  "as_of_date": "20190712",
+                  "stats": {
+                    "valid_stocks": 77,
+                    "advance_ratio_5d": 0.4935,
+                    "market_breadth": 0.4935,
+                    "avg_change_5d": 0.7997,
+                    "median_change_5d": 0.0,
+                    "avg_change_20d": 2.4986,
+                    "median_change_20d": 0.7941,
+                    "avg_volatility": 0.01816,
+                    "above_ma20_ratio": 0.3506,
+                    "regime_hint": "oscillation",
+                    "index_change_20d": 4.2095,
+                    "index_above_ma20": false,
+                    "index_ma20_gap_pct": -0.1742,
+                    "observation_source": "market_observer"
+                  },
+                  "evidence": {
+                    "stock_universe_size": 77,
+                    "valid_stocks": 77,
+                    "index_metrics": {
+                      "index_change_20d": 4.2095,
+                      "index_above_ma20": false,
+                      "index_ma20_gap_pct": -0.1742
+                    }
+                  }
+                },
+                "rule_result": {
+                  "regime": "bull",
+                  "confidence": 0.72,
+                  "reasoning": "市场涨幅、广度和均线占优，趋势延续特征更明显。",
+                  "suggested_exposure": 0.85,
+                  "source": "rule"
+                },
+                "agent_result": {}
+              },
+              "agent_advice": {},
+              "allocation_plan": {
+                "as_of_date": "20190712",
+                "regime": "bull",
+                "active_models": [
+                  "momentum",
+                  "value_quality",
+                  "defensive_low_vol",
+                  "mean_reversion"
+                ],
+                "model_weights": {
+                  "momentum": 0.45,
+                  "value_quality": 0.25,
+                  "defensive_low_vol": 0.15,
+                  "mean_reversion": 0.15
+                },
+                "selected_configs": {},
+                "cash_reserve": 0.1,
+                "confidence": 0.35,
+                "reasoning": "当前 regime=bull，按先验规则优先启用 momentum。",
+                "metadata": {
+                  "top_candidates": [],
+                  "leaderboard_generated_at": "2026-03-15T01:22:48.911004"
+                }
+              },
+              "guardrail_checks": [
+                {
+                  "name": "min_confidence",
+                  "passed": true,
+                  "actual": 0.72,
+                  "threshold": 0.6
+                },
+                {
+                  "name": "hysteresis_margin",
+                  "passed": true,
+                  "actual": 0.0,
+                  "threshold": 0.08
+                }
+              ],
+              "metadata": {
+                "routing_mode": "rule",
+                "allowed_models": [
+                  "momentum",
+                  "mean_reversion",
+                  "value_quality",
+                  "defensive_low_vol"
+                ],
+                "observation_version": "routing_v1",
+                "previous_decision": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "selection_mode": "meeting",
+    "benchmark_passed": false,
+    "cutoff_policy_context": {
+      "mode": "random"
+    }
+  },
+  "run_context": {
+    "basis_stage": "pre_optimization",
+    "active_config_ref": "/Users/zhangsan/Desktop/投资进化系统v1.0/invest/models/configs/mean_reversion_v1.yaml",
+    "candidate_config_ref": "",
+    "runtime_overrides": {
+      "candidate_pool_size": 100,
+      "top_n": 5,
+      "max_positions": 4,
+      "cash_reserve": 0.35,
+      "stop_loss_pct": 0.03,
+      "take_profit_pct": 0.1,
+      "trailing_pct": 0.06,
+      "position_size": 0.15,
+      "max_hold_days": 30,
+      "oversold_rsi": 35,
+      "rebound_rsi_cap": 60,
+      "max_5d_drop": -2.0,
+      "max_20d_drop": -5.0,
+      "min_reversion_score": 0.05
+    },
+    "review_basis_window": {
+      "mode": "single_cycle",
+      "size": 1,
+      "cycle_ids": [
+        3
+      ],
+      "current_cycle_id": 3
+    },
+    "fitness_source_cycles": [],
+    "promotion_decision": {
+      "status": "not_evaluated",
+      "source": "controller_cycle",
+      "reason": "no_candidate_config_generated",
+      "applied_to_active": false,
+      "active_config_ref": "/Users/zhangsan/Desktop/投资进化系统v1.0/invest/models/configs/mean_reversion_v1.yaml",
+      "candidate_config_ref": "",
+      "policy": {}
+    }
+  },
+  "promotion_record": {
+    "cycle_id": 3,
+    "basis_stage": "pre_optimization",
+    "status": "not_evaluated",
+    "source": "controller_cycle",
+    "reason": "no_candidate_config_generated",
+    "applied_to_active": false,
+    "attempted": false,
+    "gate_status": "not_applicable",
+    "active_config_ref": "/Users/zhangsan/Desktop/投资进化系统v1.0/invest/models/configs/mean_reversion_v1.yaml",
+    "candidate_config_ref": "",
+    "candidate_meta_ref": "",
+    "policy": {},
+    "mutation_trigger": "",
+    "mutation_stage": "",
+    "mutation_notes": ""
+  },
+  "lineage_record": {
+    "cycle_id": 3,
+    "basis_stage": "pre_optimization",
+    "model_name": "mean_reversion",
+    "active_config_ref": "/Users/zhangsan/Desktop/投资进化系统v1.0/invest/models/configs/mean_reversion_v1.yaml",
+    "candidate_config_ref": "",
+    "candidate_meta_ref": "",
+    "lineage_status": "active_only",
+    "runtime_overrides": {
+      "candidate_pool_size": 100,
+      "top_n": 5,
+      "max_positions": 4,
+      "cash_reserve": 0.35,
+      "stop_loss_pct": 0.03,
+      "take_profit_pct": 0.1,
+      "trailing_pct": 0.06,
+      "position_size": 0.15,
+      "max_hold_days": 30,
+      "oversold_rsi": 35,
+      "rebound_rsi_cap": 60,
+      "max_5d_drop": -2.0,
+      "max_20d_drop": -5.0,
+      "min_reversion_score": 0.05
+    },
+    "fitness_source_cycles": [],
+    "review_basis_window": {
+      "mode": "single_cycle",
+      "size": 1,
+      "cycle_ids": [
+        3
+      ],
+      "current_cycle_id": 3
+    },
+    "mutation_trigger": "",
+    "mutation_stage": "",
+    "mutation_notes": "",
+    "promotion_status": "not_evaluated"
+  },
+  "review_decision": {
+    "strategy_suggestions": [
+      "收紧选股标准",
+      "先收紧入场条件与风险暴露",
+      "缩小暴露并优先修复基准落后来源",
+      "问股校准显示近期命中偏弱，先收紧止损与仓位",
+      "基于 ask 侧归因样本给训练侧的建议：tighten_risk"
+    ],
+    "param_adjustments": {
+      "stop_loss_pct": 0.03,
+      "position_size": 0.15
+    },
+    "agent_weight_adjustments": {
+      "trend_hunter": 0.5,
+      "contrarian": 1.0
+    },
+    "reasoning": "复盘综合: 方向=conservative",
+    "applied_summary": "最终执行参数：stop_loss_pct=3%，position_size=15%；最终执行权重：trend_hunter=0.50，contrarian=1.00",
+    "review_basis_window": {
+      "mode": "single_cycle",
+      "size": 1,
+      "cycle_ids": [
+        3
+      ],
+      "current_cycle_id": 3
+    },
+    "similar_results": [
+      {
+        "cycle_id": 2,
+        "as_of_date": "20250614",
+        "return_pct": 1.4029643424601672,
+        "is_profit": true,
+        "selection_mode": "meeting",
+        "plan_source": "meeting",
+        "benchmark_passed": false,
+        "review_applied": true,
+        "regime": "oscillation",
+        "metadata": {
+          "model_name": "mean_reversion",
+          "config_name": "/Users/zhangsan/Desktop/投资进化系统v1.0/invest/models/configs/mean_reversion_v1.yaml",
+          "research_feedback": {
+            "schema_version": "research.training_feedback.v1",
+            "generated_at": "2026-03-15T01:22:58.342173",
+            "subject": {
+              "model_name": "mean_reversion",
+              "config_name": "mean_reversion_v1",
+              "as_of_date": "20250614",
+              "regime": "oscillation"
+            },
+            "matched_case_count": 4,
+            "sample_count": 4,
+            "brier_like_direction_score": 0.097368,
+            "invalidation_timeliness": {
+              "sample_count": 1,
+              "avg_first_invalidation_horizon": 5.0
+            },
+            "scenario_hit_distribution": {
+              "bear": 1,
+              "bull": 3
+            },
+            "horizons": {
+              "T+5": {
+                "count": 4,
+                "label_counts": {
+                  "invalidated": 1,
+                  "miss": 2,
+                  "hit": 1
+                },
+                "hit_rate": 0.25,
+                "invalidation_rate": 0.25,
+                "timeout_rate": 0.0,
+                "interval_hit_rate": 0.5
+              },
+              "T+10": {
+                "count": 4,
+                "label_counts": {
+                  "invalidated": 1,
+                  "miss": 1,
+                  "hit": 2
+                },
+                "hit_rate": 0.5,
+                "invalidation_rate": 0.25,
+                "timeout_rate": 0.0,
+                "interval_hit_rate": 0.0
+              },
+              "T+20": {
+                "count": 4,
+                "label_counts": {
+                  "invalidated": 1,
+                  "hit": 3
+                },
+                "hit_rate": 0.75,
+                "invalidation_rate": 0.25,
+                "timeout_rate": 0.0,
+                "interval_hit_rate": 0.0
+              },
+              "T+60": {
+                "count": 4,
+                "label_counts": {
+                  "invalidated": 1,
+                  "miss": 1,
+                  "hit": 2
+                },
+                "hit_rate": 0.5,
+                "invalidation_rate": 0.25,
+                "timeout_rate": 0.0,
+                "interval_hit_rate": 0.0
+              }
+            },
+            "recommendation": {
+              "bias": "recalibrate_probability",
+              "reason_codes": [
+                "interval_hit_rate_low"
+              ],
+              "summary": "基于 ask 侧归因样本给训练侧的建议：recalibrate_probability"
+            },
+            "notes": [
+              "样本数=4",
+              "T+20 hit_rate=0.75",
+              "T+20 invalidation_rate=0.25",
+              "T+20 interval_hit_rate=0.0",
+              "direction_brier=0.097368"
+            ],
+            "scope": {
+              "requested_regime": "oscillation",
+              "effective_scope": "regime",
+              "overall_sample_count": 4,
+              "regime_sample_count": 4,
+              "covered_regimes": [
+                "oscillation"
+              ]
+            },
+            "overall_feedback": {
+              "generated_at": "2026-03-15T01:22:58.342145",
+              "subject": {
+                "model_name": "mean_reversion",
+                "config_name": "mean_reversion_v1",
+                "as_of_date": "20250614"
+              },
+              "matched_case_count": 4,
+              "sample_count": 4,
+              "brier_like_direction_score": 0.097368,
+              "invalidation_timeliness": {
+                "sample_count": 1,
+                "avg_first_invalidation_horizon": 5.0
+              },
+              "scenario_hit_distribution": {
+                "bear": 1,
+                "bull": 3
+              },
+              "horizons": {
+                "T+5": {
+                  "count": 4,
+                  "label_counts": {
+                    "invalidated": 1,
+                    "miss": 2,
+                    "hit": 1
+                  },
+                  "hit_rate": 0.25,
+                  "invalidation_rate": 0.25,
+                  "timeout_rate": 0.0,
+                  "interval_hit_rate": 0.5
+                },
+                "T+10": {
+                  "count": 4,
+                  "label_counts": {
+                    "invalidated": 1,
+                    "miss": 1,
+                    "hit": 2
+                  },
+                  "hit_rate": 0.5,
+                  "invalidation_rate": 0.25,
+                  "timeout_rate": 0.0,
+                  "interval_hit_rate": 0.0
+                },
+                "T+20": {
+                  "count": 4,
+                  "label_counts": {
+                    "invalidated": 1,
+                    "hit": 3
+                  },
+                  "hit_rate": 0.75,
+                  "invalidation_rate": 0.25,
+                  "timeout_rate": 0.0,
+                  "interval_hit_rate": 0.0
+                },
+                "T+60": {
+                  "count": 4,
+                  "label_counts": {
+                    "invalidated": 1,
+                    "miss": 1,
+                    "hit": 2
+                  },
+                  "hit_rate": 0.5,
+                  "invalidation_rate": 0.25,
+                  "timeout_rate": 0.0,
+                  "interval_hit_rate": 0.0
+                }
+              },
+              "recommendation": {
+                "bias": "recalibrate_probability",
+                "reason_codes": [
+                  "interval_hit_rate_low"
+                ],
+                "summary": "基于 ask 侧归因样本给训练侧的建议：recalibrate_probability"
+              },
+              "notes": [
+                "样本数=4",
+                "T+20 hit_rate=0.75",
+                "T+20 invalidation_rate=0.25",
+                "T+20 interval_hit_rate=0.0",
+                "direction_brier=0.097368"
+              ]
+            },
+            "requested_regime_feedback": {
+              "generated_at": "2026-03-15T01:22:58.342173",
+              "subject": {
+                "model_name": "mean_reversion",
+                "config_name": "mean_reversion_v1",
+                "as_of_date": "20250614",
+                "regime": "oscillation"
+              },
+              "matched_case_count": 4,
+              "sample_count": 4,
+              "brier_like_direction_score": 0.097368,
+              "invalidation_timeliness": {
+                "sample_count": 1,
+                "avg_first_invalidation_horizon": 5.0
+              },
+              "scenario_hit_distribution": {
+                "bear": 1,
+                "bull": 3
+              },
+              "horizons": {
+                "T+5": {
+                  "count": 4,
+                  "label_counts": {
+                    "invalidated": 1,
+                    "miss": 2,
+                    "hit": 1
+                  },
+                  "hit_rate": 0.25,
+                  "invalidation_rate": 0.25,
+                  "timeout_rate": 0.0,
+                  "interval_hit_rate": 0.5
+                },
+                "T+10": {
+                  "count": 4,
+                  "label_counts": {
+                    "invalidated": 1,
+                    "miss": 1,
+                    "hit": 2
+                  },
+                  "hit_rate": 0.5,
+                  "invalidation_rate": 0.25,
+                  "timeout_rate": 0.0,
+                  "interval_hit_rate": 0.0
+                },
+                "T+20": {
+                  "count": 4,
+                  "label_counts": {
+                    "invalidated": 1,
+                    "hit": 3
+                  },
+                  "hit_rate": 0.75,
+                  "invalidation_rate": 0.25,
+                  "timeout_rate": 0.0,
+                  "interval_hit_rate": 0.0
+                },
+                "T+60": {
+                  "count": 4,
+                  "label_counts": {
+                    "invalidated": 1,
+                    "miss": 1,
+                    "hit": 2
+                  },
+                  "hit_rate": 0.5,
+                  "invalidation_rate": 0.25,
+                  "timeout_rate": 0.0,
+                  "interval_hit_rate": 0.0
+                }
+              },
+              "recommendation": {
+                "bias": "recalibrate_probability",
+                "reason_codes": [
+                  "interval_hit_rate_low"
+                ],
+                "summary": "基于 ask 侧归因样本给训练侧的建议：recalibrate_probability"
+              },
+              "notes": [
+                "样本数=4",
+                "T+20 hit_rate=0.75",
+                "T+20 invalidation_rate=0.25",
+                "T+20 interval_hit_rate=0.0",
+                "direction_brier=0.097368"
+              ]
+            },
+            "regime_breakdown": {
+              "oscillation": {
+                "generated_at": "2026-03-15T01:22:58.342173",
+                "subject": {
+                  "model_name": "mean_reversion",
+                  "config_name": "mean_reversion_v1",
+                  "as_of_date": "20250614",
+                  "regime": "oscillation"
+                },
+                "matched_case_count": 4,
+                "sample_count": 4,
+                "brier_like_direction_score": 0.097368,
+                "invalidation_timeliness": {
+                  "sample_count": 1,
+                  "avg_first_invalidation_horizon": 5.0
+                },
+                "scenario_hit_distribution": {
+                  "bear": 1,
+                  "bull": 3
+                },
+                "horizons": {
+                  "T+5": {
+                    "count": 4,
+                    "label_counts": {
+                      "invalidated": 1,
+                      "miss": 2,
+                      "hit": 1
+                    },
+                    "hit_rate": 0.25,
+                    "invalidation_rate": 0.25,
+                    "timeout_rate": 0.0,
+                    "interval_hit_rate": 0.5
+                  },
+                  "T+10": {
+                    "count": 4,
+                    "label_counts": {
+                      "invalidated": 1,
+                      "miss": 1,
+                      "hit": 2
+                    },
+                    "hit_rate": 0.5,
+                    "invalidation_rate": 0.25,
+                    "timeout_rate": 0.0,
+                    "interval_hit_rate": 0.0
+                  },
+                  "T+20": {
+                    "count": 4,
+                    "label_counts": {
+                      "invalidated": 1,
+                      "hit": 3
+                    },
+                    "hit_rate": 0.75,
+                    "invalidation_rate": 0.25,
+                    "timeout_rate": 0.0,
+                    "interval_hit_rate": 0.0
+                  },
+                  "T+60": {
+                    "count": 4,
+                    "label_counts": {
+                      "invalidated": 1,
+                      "miss": 1,
+                      "hit": 2
+                    },
+                    "hit_rate": 0.5,
+                    "invalidation_rate": 0.25,
+                    "timeout_rate": 0.0,
+                    "interval_hit_rate": 0.0
+                  }
+                },
+                "recommendation": {
+                  "bias": "recalibrate_probability",
+                  "reason_codes": [
+                    "interval_hit_rate_low"
+                  ],
+                  "summary": "基于 ask 侧归因样本给训练侧的建议：recalibrate_probability"
+                },
+                "notes": [
+                  "样本数=4",
+                  "T+20 hit_rate=0.75",
+                  "T+20 invalidation_rate=0.25",
+                  "T+20 interval_hit_rate=0.0",
+                  "direction_brier=0.097368"
+                ]
+              }
+            }
+          }
+        },
+        "research_feedback": {
+          "schema_version": "research.training_feedback.v1",
+          "generated_at": "2026-03-15T01:22:58.342173",
+          "subject": {
+            "model_name": "mean_reversion",
+            "config_name": "mean_reversion_v1",
+            "as_of_date": "20250614",
+            "regime": "oscillation"
+          },
+          "matched_case_count": 4,
+          "sample_count": 4,
+          "brier_like_direction_score": 0.097368,
+          "invalidation_timeliness": {
+            "sample_count": 1,
+            "avg_first_invalidation_horizon": 5.0
+          },
+          "scenario_hit_distribution": {
+            "bear": 1,
+            "bull": 3
+          },
+          "horizons": {
+            "T+5": {
+              "count": 4,
+              "label_counts": {
+                "invalidated": 1,
+                "miss": 2,
+                "hit": 1
+              },
+              "hit_rate": 0.25,
+              "invalidation_rate": 0.25,
+              "timeout_rate": 0.0,
+              "interval_hit_rate": 0.5
+            },
+            "T+10": {
+              "count": 4,
+              "label_counts": {
+                "invalidated": 1,
+                "miss": 1,
+                "hit": 2
+              },
+              "hit_rate": 0.5,
+              "invalidation_rate": 0.25,
+              "timeout_rate": 0.0,
+              "interval_hit_rate": 0.0
+            },
+            "T+20": {
+              "count": 4,
+              "label_counts": {
+                "invalidated": 1,
+                "hit": 3
+              },
+              "hit_rate": 0.75,
+              "invalidation_rate": 0.25,
+              "timeout_rate": 0.0,
+              "interval_hit_rate": 0.0
+            },
+            "T+60": {
+              "count": 4,
+              "label_counts": {
+                "invalidated": 1,
+                "miss": 1,
+                "hit": 2
+              },
+              "hit_rate": 0.5,
+              "invalidation_rate": 0.25,
+              "timeout_rate": 0.0,
+              "interval_hit_rate": 0.0
+            }
+          },
+          "recommendation": {
+            "bias": "recalibrate_probability",
+            "reason_codes": [
+              "interval_hit_rate_low"
+            ],
+            "summary": "基于 ask 侧归因样本给训练侧的建议：recalibrate_probability"
+          },
+          "notes": [
+            "样本数=4",
+            "T+20 hit_rate=0.75",
+            "T+20 invalidation_rate=0.25",
+            "T+20 interval_hit_rate=0.0",
+            "direction_brier=0.097368"
+          ],
+          "scope": {
+            "requested_regime": "oscillation",
+            "effective_scope": "regime",
+            "overall_sample_count": 4,
+            "regime_sample_count": 4,
+            "covered_regimes": [
+              "oscillation"
+            ]
+          },
+          "overall_feedback": {
+            "generated_at": "2026-03-15T01:22:58.342145",
+            "subject": {
+              "model_name": "mean_reversion",
+              "config_name": "mean_reversion_v1",
+              "as_of_date": "20250614"
+            },
+            "matched_case_count": 4,
+            "sample_count": 4,
+            "brier_like_direction_score": 0.097368,
+            "invalidation_timeliness": {
+              "sample_count": 1,
+              "avg_first_invalidation_horizon": 5.0
+            },
+            "scenario_hit_distribution": {
+              "bear": 1,
+              "bull": 3
+            },
+            "horizons": {
+              "T+5": {
+                "count": 4,
+                "label_counts": {
+                  "invalidated": 1,
+                  "miss": 2,
+                  "hit": 1
+                },
+                "hit_rate": 0.25,
+                "invalidation_rate": 0.25,
+                "timeout_rate": 0.0,
+                "interval_hit_rate": 0.5
+              },
+              "T+10": {
+                "count": 4,
+                "label_counts": {
+                  "invalidated": 1,
+                  "miss": 1,
+                  "hit": 2
+                },
+                "hit_rate": 0.5,
+                "invalidation_rate": 0.25,
+                "timeout_rate": 0.0,
+                "interval_hit_rate": 0.0
+              },
+              "T+20": {
+                "count": 4,
+                "label_counts": {
+                  "invalidated": 1,
+                  "hit": 3
+                },
+                "hit_rate": 0.75,
+                "invalidation_rate": 0.25,
+                "timeout_rate": 0.0,
+                "interval_hit_rate": 0.0
+              },
+              "T+60": {
+                "count": 4,
+                "label_counts": {
+                  "invalidated": 1,
+                  "miss": 1,
+                  "hit": 2
+                },
+                "hit_rate": 0.5,
+                "invalidation_rate": 0.25,
+                "timeout_rate": 0.0,
+                "interval_hit_rate": 0.0
+              }
+            },
+            "recommendation": {
+              "bias": "recalibrate_probability",
+              "reason_codes": [
+                "interval_hit_rate_low"
+              ],
+              "summary": "基于 ask 侧归因样本给训练侧的建议：recalibrate_probability"
+            },
+            "notes": [
+              "样本数=4",
+              "T+20 hit_rate=0.75",
+              "T+20 invalidation_rate=0.25",
+              "T+20 interval_hit_rate=0.0",
+              "direction_brier=0.097368"
+            ]
+          },
+          "requested_regime_feedback": {
+            "generated_at": "2026-03-15T01:22:58.342173",
+            "subject": {
+              "model_name": "mean_reversion",
+              "config_name": "mean_reversion_v1",
+              "as_of_date": "20250614",
+              "regime": "oscillation"
+            },
+            "matched_case_count": 4,
+            "sample_count": 4,
+            "brier_like_direction_score": 0.097368,
+            "invalidation_timeliness": {
+              "sample_count": 1,
+              "avg_first_invalidation_horizon": 5.0
+            },
+            "scenario_hit_distribution": {
+              "bear": 1,
+              "bull": 3
+            },
+            "horizons": {
+              "T+5": {
+                "count": 4,
+                "label_counts": {
+                  "invalidated": 1,
+                  "miss": 2,
+                  "hit": 1
+                },
+                "hit_rate": 0.25,
+                "invalidation_rate": 0.25,
+                "timeout_rate": 0.0,
+                "interval_hit_rate": 0.5
+              },
+              "T+10": {
+                "count": 4,
+                "label_counts": {
+                  "invalidated": 1,
+                  "miss": 1,
+                  "hit": 2
+                },
+                "hit_rate": 0.5,
+                "invalidation_rate": 0.25,
+                "timeout_rate": 0.0,
+                "interval_hit_rate": 0.0
+              },
+              "T+20": {
+                "count": 4,
+                "label_counts": {
+                  "invalidated": 1,
+                  "hit": 3
+                },
+                "hit_rate": 0.75,
+                "invalidation_rate": 0.25,
+                "timeout_rate": 0.0,
+                "interval_hit_rate": 0.0
+              },
+              "T+60": {
+                "count": 4,
+                "label_counts": {
+                  "invalidated": 1,
+                  "miss": 1,
+                  "hit": 2
+                },
+                "hit_rate": 0.5,
+                "invalidation_rate": 0.25,
+                "timeout_rate": 0.0,
+                "interval_hit_rate": 0.0
+              }
+            },
+            "recommendation": {
+              "bias": "recalibrate_probability",
+              "reason_codes": [
+                "interval_hit_rate_low"
+              ],
+              "summary": "基于 ask 侧归因样本给训练侧的建议：recalibrate_probability"
+            },
+            "notes": [
+              "样本数=4",
+              "T+20 hit_rate=0.75",
+              "T+20 invalidation_rate=0.25",
+              "T+20 interval_hit_rate=0.0",
+              "direction_brier=0.097368"
+            ]
+          },
+          "regime_breakdown": {
+            "oscillation": {
+              "generated_at": "2026-03-15T01:22:58.342173",
+              "subject": {
+                "model_name": "mean_reversion",
+                "config_name": "mean_reversion_v1",
+                "as_of_date": "20250614",
+                "regime": "oscillation"
+              },
+              "matched_case_count": 4,
+              "sample_count": 4,
+              "brier_like_direction_score": 0.097368,
+              "invalidation_timeliness": {
+                "sample_count": 1,
+                "avg_first_invalidation_horizon": 5.0
+              },
+              "scenario_hit_distribution": {
+                "bear": 1,
+                "bull": 3
+              },
+              "horizons": {
+                "T+5": {
+                  "count": 4,
+                  "label_counts": {
+                    "invalidated": 1,
+                    "miss": 2,
+                    "hit": 1
+                  },
+                  "hit_rate": 0.25,
+                  "invalidation_rate": 0.25,
+                  "timeout_rate": 0.0,
+                  "interval_hit_rate": 0.5
+                },
+                "T+10": {
+                  "count": 4,
+                  "label_counts": {
+                    "invalidated": 1,
+                    "miss": 1,
+                    "hit": 2
+                  },
+                  "hit_rate": 0.5,
+                  "invalidation_rate": 0.25,
+                  "timeout_rate": 0.0,
+                  "interval_hit_rate": 0.0
+                },
+                "T+20": {
+                  "count": 4,
+                  "label_counts": {
+                    "invalidated": 1,
+                    "hit": 3
+                  },
+                  "hit_rate": 0.75,
+                  "invalidation_rate": 0.25,
+                  "timeout_rate": 0.0,
+                  "interval_hit_rate": 0.0
+                },
+                "T+60": {
+                  "count": 4,
+                  "label_counts": {
+                    "invalidated": 1,
+                    "miss": 1,
+                    "hit": 2
+                  },
+                  "hit_rate": 0.5,
+                  "invalidation_rate": 0.25,
+                  "timeout_rate": 0.0,
+                  "interval_hit_rate": 0.0
+                }
+              },
+              "recommendation": {
+                "bias": "recalibrate_probability",
+                "reason_codes": [
+                  "interval_hit_rate_low"
+                ],
+                "summary": "基于 ask 侧归因样本给训练侧的建议：recalibrate_probability"
+              },
+              "notes": [
+                "样本数=4",
+                "T+20 hit_rate=0.75",
+                "T+20 invalidation_rate=0.25",
+                "T+20 interval_hit_rate=0.0",
+                "direction_brier=0.097368"
+              ]
+            }
+          }
+        },
+        "llm_used": false,
+        "similarity_score": 13,
+        "matched_features": [
+          "regime",
+          "selection_mode",
+          "benchmark_passed",
+          "plan_source",
+          "model_name"
+        ]
+      },
+      {
+        "cycle_id": 1,
+        "as_of_date": "20190712",
+        "return_pct": -5.1110372394005825,
+        "is_profit": false,
+        "selection_mode": "meeting",
+        "plan_source": "meeting",
+        "benchmark_passed": false,
+        "review_applied": true,
+        "regime": "bull",
+        "metadata": {
+          "model_name": "momentum",
+          "config_name": "/Users/zhangsan/Desktop/投资进化系统v1.0/invest/models/configs/momentum_v1.yaml",
+          "research_feedback": {
+            "schema_version": "research.training_feedback.v1",
+            "generated_at": "2026-03-15T01:22:50.875169",
+            "subject": {
+              "model_name": "momentum",
+              "config_name": "momentum_v1",
+              "as_of_date": "20190712",
+              "regime": "bull"
+            },
+            "matched_case_count": 4,
+            "sample_count": 4,
+            "brier_like_direction_score": 0.368125,
+            "invalidation_timeliness": {
+              "sample_count": 4,
+              "avg_first_invalidation_horizon": 11.25
+            },
+            "scenario_hit_distribution": {
+              "bear": 2,
+              "bull": 2
+            },
+            "horizons": {
+              "T+5": {
+                "count": 4,
+                "label_counts": {
+                  "invalidated": 1,
+                  "miss": 1,
+                  "hit": 2
+                },
+                "hit_rate": 0.5,
+                "invalidation_rate": 0.25,
+                "timeout_rate": 0.0,
+                "interval_hit_rate": 0.0
+              },
+              "T+10": {
+                "count": 4,
+                "label_counts": {
+                  "invalidated": 3,
+                  "miss": 1
+                },
+                "hit_rate": 0.0,
+                "invalidation_rate": 0.75,
+                "timeout_rate": 0.0,
+                "interval_hit_rate": 0.0
+              },
+              "T+20": {
+                "count": 4,
+                "label_counts": {
+                  "invalidated": 4
+                },
+                "hit_rate": 0.0,
+                "invalidation_rate": 1.0,
+                "timeout_rate": 0.0,
+                "interval_hit_rate": 0.0
+              },
+              "T+60": {
+                "count": 4,
+                "label_counts": {
+                  "invalidated": 4
+                },
+                "hit_rate": 0.0,
+                "invalidation_rate": 1.0,
+                "timeout_rate": 0.0,
+                "interval_hit_rate": 0.0
+              }
+            },
+            "recommendation": {
+              "bias": "tighten_risk",
+              "reason_codes": [
+                "t20_hit_rate_low",
+                "t20_invalidation_high"
+              ],
+              "summary": "基于 ask 侧归因样本给训练侧的建议：tighten_risk"
+            },
+            "notes": [
+              "样本数=4",
+              "T+20 hit_rate=0.0",
+              "T+20 invalidation_rate=1.0",
+              "T+20 interval_hit_rate=0.0",
+              "direction_brier=0.368125"
+            ],
+            "scope": {
+              "requested_regime": "bull",
+              "effective_scope": "overall_fallback",
+              "overall_sample_count": 4,
+              "regime_sample_count": 0,
+              "covered_regimes": [
+                "oscillation"
+              ]
+            },
+            "overall_feedback": {
+              "generated_at": "2026-03-15T01:22:50.875169",
+              "subject": {
+                "model_name": "momentum",
+                "config_name": "momentum_v1",
+                "as_of_date": "20190712"
+              },
+              "matched_case_count": 4,
+              "sample_count": 4,
+              "brier_like_direction_score": 0.368125,
+              "invalidation_timeliness": {
+                "sample_count": 4,
+                "avg_first_invalidation_horizon": 11.25
+              },
+              "scenario_hit_distribution": {
+                "bear": 2,
+                "bull": 2
+              },
+              "horizons": {
+                "T+5": {
+                  "count": 4,
+                  "label_counts": {
+                    "invalidated": 1,
+                    "miss": 1,
+                    "hit": 2
+                  },
+                  "hit_rate": 0.5,
+                  "invalidation_rate": 0.25,
+                  "timeout_rate": 0.0,
+                  "interval_hit_rate": 0.0
+                },
+                "T+10": {
+                  "count": 4,
+                  "label_counts": {
+                    "invalidated": 3,
+                    "miss": 1
+                  },
+                  "hit_rate": 0.0,
+                  "invalidation_rate": 0.75,
+                  "timeout_rate": 0.0,
+                  "interval_hit_rate": 0.0
+                },
+                "T+20": {
+                  "count": 4,
+                  "label_counts": {
+                    "invalidated": 4
+                  },
+                  "hit_rate": 0.0,
+                  "invalidation_rate": 1.0,
+                  "timeout_rate": 0.0,
+                  "interval_hit_rate": 0.0
+                },
+                "T+60": {
+                  "count": 4,
+                  "label_counts": {
+                    "invalidated": 4
+                  },
+                  "hit_rate": 0.0,
+                  "invalidation_rate": 1.0,
+                  "timeout_rate": 0.0,
+                  "interval_hit_rate": 0.0
+                }
+              },
+              "recommendation": {
+                "bias": "tighten_risk",
+                "reason_codes": [
+                  "t20_hit_rate_low",
+                  "t20_invalidation_high"
+                ],
+                "summary": "基于 ask 侧归因样本给训练侧的建议：tighten_risk"
+              },
+              "notes": [
+                "样本数=4",
+                "T+20 hit_rate=0.0",
+                "T+20 invalidation_rate=1.0",
+                "T+20 interval_hit_rate=0.0",
+                "direction_brier=0.368125"
+              ]
+            },
+            "requested_regime_feedback": {},
+            "regime_breakdown": {
+              "oscillation": {
+                "generated_at": "2026-03-15T01:22:50.875201",
+                "subject": {
+                  "model_name": "momentum",
+                  "config_name": "momentum_v1",
+                  "as_of_date": "20190712",
+                  "regime": "oscillation"
+                },
+                "matched_case_count": 4,
+                "sample_count": 4,
+                "brier_like_direction_score": 0.368125,
+                "invalidation_timeliness": {
+                  "sample_count": 4,
+                  "avg_first_invalidation_horizon": 11.25
+                },
+                "scenario_hit_distribution": {
+                  "bear": 2,
+                  "bull": 2
+                },
+                "horizons": {
+                  "T+5": {
+                    "count": 4,
+                    "label_counts": {
+                      "invalidated": 1,
+                      "miss": 1,
+                      "hit": 2
+                    },
+                    "hit_rate": 0.5,
+                    "invalidation_rate": 0.25,
+                    "timeout_rate": 0.0,
+                    "interval_hit_rate": 0.0
+                  },
+                  "T+10": {
+                    "count": 4,
+                    "label_counts": {
+                      "invalidated": 3,
+                      "miss": 1
+                    },
+                    "hit_rate": 0.0,
+                    "invalidation_rate": 0.75,
+                    "timeout_rate": 0.0,
+                    "interval_hit_rate": 0.0
+                  },
+                  "T+20": {
+                    "count": 4,
+                    "label_counts": {
+                      "invalidated": 4
+                    },
+                    "hit_rate": 0.0,
+                    "invalidation_rate": 1.0,
+                    "timeout_rate": 0.0,
+                    "interval_hit_rate": 0.0
+                  },
+                  "T+60": {
+                    "count": 4,
+                    "label_counts": {
+                      "invalidated": 4
+                    },
+                    "hit_rate": 0.0,
+                    "invalidation_rate": 1.0,
+                    "timeout_rate": 0.0,
+                    "interval_hit_rate": 0.0
+                  }
+                },
+                "recommendation": {
+                  "bias": "tighten_risk",
+                  "reason_codes": [
+                    "t20_hit_rate_low",
+                    "t20_invalidation_high"
+                  ],
+                  "summary": "基于 ask 侧归因样本给训练侧的建议：tighten_risk"
+                },
+                "notes": [
+                  "样本数=4",
+                  "T+20 hit_rate=0.0",
+                  "T+20 invalidation_rate=1.0",
+                  "T+20 interval_hit_rate=0.0",
+                  "direction_brier=0.368125"
+                ]
+              }
+            }
+          }
+        },
+        "research_feedback": {
+          "schema_version": "research.training_feedback.v1",
+          "generated_at": "2026-03-15T01:22:50.875169",
+          "subject": {
+            "model_name": "momentum",
+            "config_name": "momentum_v1",
+            "as_of_date": "20190712",
+            "regime": "bull"
+          },
+          "matched_case_count": 4,
+          "sample_count": 4,
+          "brier_like_direction_score": 0.368125,
+          "invalidation_timeliness": {
+            "sample_count": 4,
+            "avg_first_invalidation_horizon": 11.25
+          },
+          "scenario_hit_distribution": {
+            "bear": 2,
+            "bull": 2
+          },
+          "horizons": {
+            "T+5": {
+              "count": 4,
+              "label_counts": {
+                "invalidated": 1,
+                "miss": 1,
+                "hit": 2
+              },
+              "hit_rate": 0.5,
+              "invalidation_rate": 0.25,
+              "timeout_rate": 0.0,
+              "interval_hit_rate": 0.0
+            },
+            "T+10": {
+              "count": 4,
+              "label_counts": {
+                "invalidated": 3,
+                "miss": 1
+              },
+              "hit_rate": 0.0,
+              "invalidation_rate": 0.75,
+              "timeout_rate": 0.0,
+              "interval_hit_rate": 0.0
+            },
+            "T+20": {
+              "count": 4,
+              "label_counts": {
+                "invalidated": 4
+              },
+              "hit_rate": 0.0,
+              "invalidation_rate": 1.0,
+              "timeout_rate": 0.0,
+              "interval_hit_rate": 0.0
+            },
+            "T+60": {
+              "count": 4,
+              "label_counts": {
+                "invalidated": 4
+              },
+              "hit_rate": 0.0,
+              "invalidation_rate": 1.0,
+              "timeout_rate": 0.0,
+              "interval_hit_rate": 0.0
+            }
+          },
+          "recommendation": {
+            "bias": "tighten_risk",
+            "reason_codes": [
+              "t20_hit_rate_low",
+              "t20_invalidation_high"
+            ],
+            "summary": "基于 ask 侧归因样本给训练侧的建议：tighten_risk"
+          },
+          "notes": [
+            "样本数=4",
+            "T+20 hit_rate=0.0",
+            "T+20 invalidation_rate=1.0",
+            "T+20 interval_hit_rate=0.0",
+            "direction_brier=0.368125"
+          ],
+          "scope": {
+            "requested_regime": "bull",
+            "effective_scope": "overall_fallback",
+            "overall_sample_count": 4,
+            "regime_sample_count": 0,
+            "covered_regimes": [
+              "oscillation"
+            ]
+          },
+          "overall_feedback": {
+            "generated_at": "2026-03-15T01:22:50.875169",
+            "subject": {
+              "model_name": "momentum",
+              "config_name": "momentum_v1",
+              "as_of_date": "20190712"
+            },
+            "matched_case_count": 4,
+            "sample_count": 4,
+            "brier_like_direction_score": 0.368125,
+            "invalidation_timeliness": {
+              "sample_count": 4,
+              "avg_first_invalidation_horizon": 11.25
+            },
+            "scenario_hit_distribution": {
+              "bear": 2,
+              "bull": 2
+            },
+            "horizons": {
+              "T+5": {
+                "count": 4,
+                "label_counts": {
+                  "invalidated": 1,
+                  "miss": 1,
+                  "hit": 2
+                },
+                "hit_rate": 0.5,
+                "invalidation_rate": 0.25,
+                "timeout_rate": 0.0,
+                "interval_hit_rate": 0.0
+              },
+              "T+10": {
+                "count": 4,
+                "label_counts": {
+                  "invalidated": 3,
+                  "miss": 1
+                },
+                "hit_rate": 0.0,
+                "invalidation_rate": 0.75,
+                "timeout_rate": 0.0,
+                "interval_hit_rate": 0.0
+              },
+              "T+20": {
+                "count": 4,
+                "label_counts": {
+                  "invalidated": 4
+                },
+                "hit_rate": 0.0,
+                "invalidation_rate": 1.0,
+                "timeout_rate": 0.0,
+                "interval_hit_rate": 0.0
+              },
+              "T+60": {
+                "count": 4,
+                "label_counts": {
+                  "invalidated": 4
+                },
+                "hit_rate": 0.0,
+                "invalidation_rate": 1.0,
+                "timeout_rate": 0.0,
+                "interval_hit_rate": 0.0
+              }
+            },
+            "recommendation": {
+              "bias": "tighten_risk",
+              "reason_codes": [
+                "t20_hit_rate_low",
+                "t20_invalidation_high"
+              ],
+              "summary": "基于 ask 侧归因样本给训练侧的建议：tighten_risk"
+            },
+            "notes": [
+              "样本数=4",
+              "T+20 hit_rate=0.0",
+              "T+20 invalidation_rate=1.0",
+              "T+20 interval_hit_rate=0.0",
+              "direction_brier=0.368125"
+            ]
+          },
+          "requested_regime_feedback": {},
+          "regime_breakdown": {
+            "oscillation": {
+              "generated_at": "2026-03-15T01:22:50.875201",
+              "subject": {
+                "model_name": "momentum",
+                "config_name": "momentum_v1",
+                "as_of_date": "20190712",
+                "regime": "oscillation"
+              },
+              "matched_case_count": 4,
+              "sample_count": 4,
+              "brier_like_direction_score": 0.368125,
+              "invalidation_timeliness": {
+                "sample_count": 4,
+                "avg_first_invalidation_horizon": 11.25
+              },
+              "scenario_hit_distribution": {
+                "bear": 2,
+                "bull": 2
+              },
+              "horizons": {
+                "T+5": {
+                  "count": 4,
+                  "label_counts": {
+                    "invalidated": 1,
+                    "miss": 1,
+                    "hit": 2
+                  },
+                  "hit_rate": 0.5,
+                  "invalidation_rate": 0.25,
+                  "timeout_rate": 0.0,
+                  "interval_hit_rate": 0.0
+                },
+                "T+10": {
+                  "count": 4,
+                  "label_counts": {
+                    "invalidated": 3,
+                    "miss": 1
+                  },
+                  "hit_rate": 0.0,
+                  "invalidation_rate": 0.75,
+                  "timeout_rate": 0.0,
+                  "interval_hit_rate": 0.0
+                },
+                "T+20": {
+                  "count": 4,
+                  "label_counts": {
+                    "invalidated": 4
+                  },
+                  "hit_rate": 0.0,
+                  "invalidation_rate": 1.0,
+                  "timeout_rate": 0.0,
+                  "interval_hit_rate": 0.0
+                },
+                "T+60": {
+                  "count": 4,
+                  "label_counts": {
+                    "invalidated": 4
+                  },
+                  "hit_rate": 0.0,
+                  "invalidation_rate": 1.0,
+                  "timeout_rate": 0.0,
+                  "interval_hit_rate": 0.0
+                }
+              },
+              "recommendation": {
+                "bias": "tighten_risk",
+                "reason_codes": [
+                  "t20_hit_rate_low",
+                  "t20_invalidation_high"
+                ],
+                "summary": "基于 ask 侧归因样本给训练侧的建议：tighten_risk"
+              },
+              "notes": [
+                "样本数=4",
+                "T+20 hit_rate=0.0",
+                "T+20 invalidation_rate=1.0",
+                "T+20 interval_hit_rate=0.0",
+                "direction_brier=0.368125"
+              ]
+            }
+          }
+        },
+        "llm_used": false,
+        "similarity_score": 8,
+        "matched_features": [
+          "selection_mode",
+          "benchmark_passed",
+          "plan_source",
+          "return_direction"
+        ]
+      }
+    ],
+    "similarity_summary": {
+      "target_cycle_id": 3,
+      "matched_cycle_ids": [
+        2,
+        1
+      ],
+      "match_features": [
+        "regime",
+        "selection_mode",
+        "benchmark_passed",
+        "plan_source",
+        "model_name",
+        "return_direction"
+      ],
+      "dominant_regime": "oscillation",
+      "compared_history_size": 2
+    },
+    "causal_diagnosis": {
+      "primary_driver": "benchmark_gap",
+      "summary": "相似样本普遍未跑赢基准，其次是相似样本集中在同一决策模式，建议先围绕首要驱动逐步收敛参数。",
+      "drivers": [
+        {
+          "code": "benchmark_gap",
+          "label": "相似样本普遍未跑赢基准",
+          "score": 0.36,
+          "evidence_cycle_ids": [
+            2,
+            1
+          ]
+        },
+        {
+          "code": "selection_mode_cluster",
+          "label": "相似样本集中在同一决策模式",
+          "score": 0.26,
+          "evidence_cycle_ids": [
+            2,
+            1
+          ]
+        }
+      ],
+      "evidence": {
+        "matched_cycle_ids": [
+          2,
+          1
+        ],
+        "current_cycle_id": 3
+      }
+    },
+    "strategy_advice": {
+      "source": "review_meeting",
+      "selected_codes": [
+        "sh.600086",
+        "sh.600069",
+        "sh.600058",
+        "sh.600052"
+      ],
+      "selected_meta": [],
+      "confidence": 1.0,
+      "reasoning": "复盘综合: 方向=conservative",
+      "strategy_suggestions": [
+        "收紧选股标准",
+        "先收紧入场条件与风险暴露",
+        "缩小暴露并优先修复基准落后来源",
+        "问股校准显示近期命中偏弱，先收紧止损与仓位",
+        "基于 ask 侧归因样本给训练侧的建议：tighten_risk"
+      ],
+      "param_adjustments": {
+        "stop_loss_pct": 0.03,
+        "position_size": 0.15
+      },
+      "agent_weight_adjustments": {
+        "trend_hunter": 0.5,
+        "contrarian": 1.0
+      },
+      "metadata": {
+        "cycle_id": 3,
+        "benchmark_passed": false,
+        "review_basis_window": {
+          "mode": "single_cycle",
+          "size": 1,
+          "cycle_ids": [
+            3
+          ],
+          "current_cycle_id": 3
+        },
+        "review_window_size": 1,
+        "similarity_summary": {
+          "target_cycle_id": 3,
+          "matched_cycle_ids": [
+            2,
+            1
+          ],
+          "match_features": [
+            "regime",
+            "selection_mode",
+            "benchmark_passed",
+            "plan_source",
+            "model_name",
+            "return_direction"
+          ],
+          "dominant_regime": "oscillation",
+          "compared_history_size": 2
+        },
+        "causal_diagnosis": {
+          "primary_driver": "benchmark_gap",
+          "summary": "相似样本普遍未跑赢基准，其次是相似样本集中在同一决策模式，建议先围绕首要驱动逐步收敛参数。",
+          "drivers": [
+            {
+              "code": "benchmark_gap",
+              "label": "相似样本普遍未跑赢基准",
+              "score": 0.36,
+              "evidence_cycle_ids": [
+                2,
+                1
+              ]
+            },
+            {
+              "code": "selection_mode_cluster",
+              "label": "相似样本集中在同一决策模式",
+              "score": 0.26,
+              "evidence_cycle_ids": [
+                2,
+                1
+              ]
+            }
+          ],
+          "evidence": {
+            "matched_cycle_ids": [
+              2,
+              1
+            ],
+            "current_cycle_id": 3
+          }
+        }
+      }
+    }
+  },
+  "causal_diagnosis": {
+    "primary_driver": "benchmark_gap",
+    "summary": "相似样本普遍未跑赢基准，其次是相似样本集中在同一决策模式，建议先围绕首要驱动逐步收敛参数。",
+    "drivers": [
+      {
+        "code": "benchmark_gap",
+        "label": "相似样本普遍未跑赢基准",
+        "score": 0.36,
+        "evidence_cycle_ids": [
+          2,
+          1
+        ]
+      },
+      {
+        "code": "selection_mode_cluster",
+        "label": "相似样本集中在同一决策模式",
+        "score": 0.26,
+        "evidence_cycle_ids": [
+          2,
+          1
+        ]
+      }
+    ],
+    "evidence": {
+      "matched_cycle_ids": [
+        2,
+        1
+      ],
+      "current_cycle_id": 3
+    }
+  },
+  "similarity_summary": {
+    "target_cycle_id": 3,
+    "matched_cycle_ids": [
+      2,
+      1
+    ],
+    "match_features": [
+      "regime",
+      "selection_mode",
+      "benchmark_passed",
+      "plan_source",
+      "model_name",
+      "return_direction"
+    ],
+    "dominant_regime": "oscillation",
+    "compared_history_size": 2
+  },
+  "similar_results": [
+    {
+      "cycle_id": 2,
+      "as_of_date": "20250614",
+      "return_pct": 1.4029643424601672,
+      "is_profit": true,
+      "selection_mode": "meeting",
+      "plan_source": "meeting",
+      "benchmark_passed": false,
+      "review_applied": true,
+      "regime": "oscillation",
+      "metadata": {
+        "model_name": "mean_reversion",
+        "config_name": "/Users/zhangsan/Desktop/投资进化系统v1.0/invest/models/configs/mean_reversion_v1.yaml",
+        "research_feedback": {
+          "schema_version": "research.training_feedback.v1",
+          "generated_at": "2026-03-15T01:22:58.342173",
+          "subject": {
+            "model_name": "mean_reversion",
+            "config_name": "mean_reversion_v1",
+            "as_of_date": "20250614",
+            "regime": "oscillation"
+          },
+          "matched_case_count": 4,
+          "sample_count": 4,
+          "brier_like_direction_score": 0.097368,
+          "invalidation_timeliness": {
+            "sample_count": 1,
+            "avg_first_invalidation_horizon": 5.0
+          },
+          "scenario_hit_distribution": {
+            "bear": 1,
+            "bull": 3
+          },
+          "horizons": {
+            "T+5": {
+              "count": 4,
+              "label_counts": {
+                "invalidated": 1,
+                "miss": 2,
+                "hit": 1
+              },
+              "hit_rate": 0.25,
+              "invalidation_rate": 0.25,
+              "timeout_rate": 0.0,
+              "interval_hit_rate": 0.5
+            },
+            "T+10": {
+              "count": 4,
+              "label_counts": {
+                "invalidated": 1,
+                "miss": 1,
+                "hit": 2
+              },
+              "hit_rate": 0.5,
+              "invalidation_rate": 0.25,
+              "timeout_rate": 0.0,
+              "interval_hit_rate": 0.0
+            },
+            "T+20": {
+              "count": 4,
+              "label_counts": {
+                "invalidated": 1,
+                "hit": 3
+              },
+              "hit_rate": 0.75,
+              "invalidation_rate": 0.25,
+              "timeout_rate": 0.0,
+              "interval_hit_rate": 0.0
+            },
+            "T+60": {
+              "count": 4,
+              "label_counts": {
+                "invalidated": 1,
+                "miss": 1,
+                "hit": 2
+              },
+              "hit_rate": 0.5,
+              "invalidation_rate": 0.25,
+              "timeout_rate": 0.0,
+              "interval_hit_rate": 0.0
+            }
+          },
+          "recommendation": {
+            "bias": "recalibrate_probability",
+            "reason_codes": [
+              "interval_hit_rate_low"
+            ],
+            "summary": "基于 ask 侧归因样本给训练侧的建议：recalibrate_probability"
+          },
+          "notes": [
+            "样本数=4",
+            "T+20 hit_rate=0.75",
+            "T+20 invalidation_rate=0.25",
+            "T+20 interval_hit_rate=0.0",
+            "direction_brier=0.097368"
+          ],
+          "scope": {
+            "requested_regime": "oscillation",
+            "effective_scope": "regime",
+            "overall_sample_count": 4,
+            "regime_sample_count": 4,
+            "covered_regimes": [
+              "oscillation"
+            ]
+          },
+          "overall_feedback": {
+            "generated_at": "2026-03-15T01:22:58.342145",
+            "subject": {
+              "model_name": "mean_reversion",
+              "config_name": "mean_reversion_v1",
+              "as_of_date": "20250614"
+            },
+            "matched_case_count": 4,
+            "sample_count": 4,
+            "brier_like_direction_score": 0.097368,
+            "invalidation_timeliness": {
+              "sample_count": 1,
+              "avg_first_invalidation_horizon": 5.0
+            },
+            "scenario_hit_distribution": {
+              "bear": 1,
+              "bull": 3
+            },
+            "horizons": {
+              "T+5": {
+                "count": 4,
+                "label_counts": {
+                  "invalidated": 1,
+                  "miss": 2,
+                  "hit": 1
+                },
+                "hit_rate": 0.25,
+                "invalidation_rate": 0.25,
+                "timeout_rate": 0.0,
+                "interval_hit_rate": 0.5
+              },
+              "T+10": {
+                "count": 4,
+                "label_counts": {
+                  "invalidated": 1,
+                  "miss": 1,
+                  "hit": 2
+                },
+                "hit_rate": 0.5,
+                "invalidation_rate": 0.25,
+                "timeout_rate": 0.0,
+                "interval_hit_rate": 0.0
+              },
+              "T+20": {
+                "count": 4,
+                "label_counts": {
+                  "invalidated": 1,
+                  "hit": 3
+                },
+                "hit_rate": 0.75,
+                "invalidation_rate": 0.25,
+                "timeout_rate": 0.0,
+                "interval_hit_rate": 0.0
+              },
+              "T+60": {
+                "count": 4,
+                "label_counts": {
+                  "invalidated": 1,
+                  "miss": 1,
+                  "hit": 2
+                },
+                "hit_rate": 0.5,
+                "invalidation_rate": 0.25,
+                "timeout_rate": 0.0,
+                "interval_hit_rate": 0.0
+              }
+            },
+            "recommendation": {
+              "bias": "recalibrate_probability",
+              "reason_codes": [
+                "interval_hit_rate_low"
+              ],
+              "summary": "基于 ask 侧归因样本给训练侧的建议：recalibrate_probability"
+            },
+            "notes": [
+              "样本数=4",
+              "T+20 hit_rate=0.75",
+              "T+20 invalidation_rate=0.25",
+              "T+20 interval_hit_rate=0.0",
+              "direction_brier=0.097368"
+            ]
+          },
+          "requested_regime_feedback": {
+            "generated_at": "2026-03-15T01:22:58.342173",
+            "subject": {
+              "model_name": "mean_reversion",
+              "config_name": "mean_reversion_v1",
+              "as_of_date": "20250614",
+              "regime": "oscillation"
+            },
+            "matched_case_count": 4,
+            "sample_count": 4,
+            "brier_like_direction_score": 0.097368,
+            "invalidation_timeliness": {
+              "sample_count": 1,
+              "avg_first_invalidation_horizon": 5.0
+            },
+            "scenario_hit_distribution": {
+              "bear": 1,
+              "bull": 3
+            },
+            "horizons": {
+              "T+5": {
+                "count": 4,
+                "label_counts": {
+                  "invalidated": 1,
+                  "miss": 2,
+                  "hit": 1
+                },
+                "hit_rate": 0.25,
+                "invalidation_rate": 0.25,
+                "timeout_rate": 0.0,
+                "interval_hit_rate": 0.5
+              },
+              "T+10": {
+                "count": 4,
+                "label_counts": {
+                  "invalidated": 1,
+                  "miss": 1,
+                  "hit": 2
+                },
+                "hit_rate": 0.5,
+                "invalidation_rate": 0.25,
+                "timeout_rate": 0.0,
+                "interval_hit_rate": 0.0
+              },
+              "T+20": {
+                "count": 4,
+                "label_counts": {
+                  "invalidated": 1,
+                  "hit": 3
+                },
+                "hit_rate": 0.75,
+                "invalidation_rate": 0.25,
+                "timeout_rate": 0.0,
+                "interval_hit_rate": 0.0
+              },
+              "T+60": {
+                "count": 4,
+                "label_counts": {
+                  "invalidated": 1,
+                  "miss": 1,
+                  "hit": 2
+                },
+                "hit_rate": 0.5,
+                "invalidation_rate": 0.25,
+                "timeout_rate": 0.0,
+                "interval_hit_rate": 0.0
+              }
+            },
+            "recommendation": {
+              "bias": "recalibrate_probability",
+              "reason_codes": [
+                "interval_hit_rate_low"
+              ],
+              "summary": "基于 ask 侧归因样本给训练侧的建议：recalibrate_probability"
+            },
+            "notes": [
+              "样本数=4",
+              "T+20 hit_rate=0.75",
+              "T+20 invalidation_rate=0.25",
+              "T+20 interval_hit_rate=0.0",
+              "direction_brier=0.097368"
+            ]
+          },
+          "regime_breakdown": {
+            "oscillation": {
+              "generated_at": "2026-03-15T01:22:58.342173",
+              "subject": {
+                "model_name": "mean_reversion",
+                "config_name": "mean_reversion_v1",
+                "as_of_date": "20250614",
+                "regime": "oscillation"
+              },
+              "matched_case_count": 4,
+              "sample_count": 4,
+              "brier_like_direction_score": 0.097368,
+              "invalidation_timeliness": {
+                "sample_count": 1,
+                "avg_first_invalidation_horizon": 5.0
+              },
+              "scenario_hit_distribution": {
+                "bear": 1,
+                "bull": 3
+              },
+              "horizons": {
+                "T+5": {
+                  "count": 4,
+                  "label_counts": {
+                    "invalidated": 1,
+                    "miss": 2,
+                    "hit": 1
+                  },
+                  "hit_rate": 0.25,
+                  "invalidation_rate": 0.25,
+                  "timeout_rate": 0.0,
+                  "interval_hit_rate": 0.5
+                },
+                "T+10": {
+                  "count": 4,
+                  "label_counts": {
+                    "invalidated": 1,
+                    "miss": 1,
+                    "hit": 2
+                  },
+                  "hit_rate": 0.5,
+                  "invalidation_rate": 0.25,
+                  "timeout_rate": 0.0,
+                  "interval_hit_rate": 0.0
+                },
+                "T+20": {
+                  "count": 4,
+                  "label_counts": {
+                    "invalidated": 1,
+                    "hit": 3
+                  },
+                  "hit_rate": 0.75,
+                  "invalidation_rate": 0.25,
+                  "timeout_rate": 0.0,
+                  "interval_hit_rate": 0.0
+                },
+                "T+60": {
+                  "count": 4,
+                  "label_counts": {
+                    "invalidated": 1,
+                    "miss": 1,
+                    "hit": 2
+                  },
+                  "hit_rate": 0.5,
+                  "invalidation_rate": 0.25,
+                  "timeout_rate": 0.0,
+                  "interval_hit_rate": 0.0
+                }
+              },
+              "recommendation": {
+                "bias": "recalibrate_probability",
+                "reason_codes": [
+                  "interval_hit_rate_low"
+                ],
+                "summary": "基于 ask 侧归因样本给训练侧的建议：recalibrate_probability"
+              },
+              "notes": [
+                "样本数=4",
+                "T+20 hit_rate=0.75",
+                "T+20 invalidation_rate=0.25",
+                "T+20 interval_hit_rate=0.0",
+                "direction_brier=0.097368"
+              ]
+            }
+          }
+        }
+      },
+      "research_feedback": {
+        "schema_version": "research.training_feedback.v1",
+        "generated_at": "2026-03-15T01:22:58.342173",
+        "subject": {
+          "model_name": "mean_reversion",
+          "config_name": "mean_reversion_v1",
+          "as_of_date": "20250614",
+          "regime": "oscillation"
+        },
+        "matched_case_count": 4,
+        "sample_count": 4,
+        "brier_like_direction_score": 0.097368,
+        "invalidation_timeliness": {
+          "sample_count": 1,
+          "avg_first_invalidation_horizon": 5.0
+        },
+        "scenario_hit_distribution": {
+          "bear": 1,
+          "bull": 3
+        },
+        "horizons": {
+          "T+5": {
+            "count": 4,
+            "label_counts": {
+              "invalidated": 1,
+              "miss": 2,
+              "hit": 1
+            },
+            "hit_rate": 0.25,
+            "invalidation_rate": 0.25,
+            "timeout_rate": 0.0,
+            "interval_hit_rate": 0.5
+          },
+          "T+10": {
+            "count": 4,
+            "label_counts": {
+              "invalidated": 1,
+              "miss": 1,
+              "hit": 2
+            },
+            "hit_rate": 0.5,
+            "invalidation_rate": 0.25,
+            "timeout_rate": 0.0,
+            "interval_hit_rate": 0.0
+          },
+          "T+20": {
+            "count": 4,
+            "label_counts": {
+              "invalidated": 1,
+              "hit": 3
+            },
+            "hit_rate": 0.75,
+            "invalidation_rate": 0.25,
+            "timeout_rate": 0.0,
+            "interval_hit_rate": 0.0
+          },
+          "T+60": {
+            "count": 4,
+            "label_counts": {
+              "invalidated": 1,
+              "miss": 1,
+              "hit": 2
+            },
+            "hit_rate": 0.5,
+            "invalidation_rate": 0.25,
+            "timeout_rate": 0.0,
+            "interval_hit_rate": 0.0
+          }
+        },
+        "recommendation": {
+          "bias": "recalibrate_probability",
+          "reason_codes": [
+            "interval_hit_rate_low"
+          ],
+          "summary": "基于 ask 侧归因样本给训练侧的建议：recalibrate_probability"
+        },
+        "notes": [
+          "样本数=4",
+          "T+20 hit_rate=0.75",
+          "T+20 invalidation_rate=0.25",
+          "T+20 interval_hit_rate=0.0",
+          "direction_brier=0.097368"
+        ],
+        "scope": {
+          "requested_regime": "oscillation",
+          "effective_scope": "regime",
+          "overall_sample_count": 4,
+          "regime_sample_count": 4,
+          "covered_regimes": [
+            "oscillation"
+          ]
+        },
+        "overall_feedback": {
+          "generated_at": "2026-03-15T01:22:58.342145",
+          "subject": {
+            "model_name": "mean_reversion",
+            "config_name": "mean_reversion_v1",
+            "as_of_date": "20250614"
+          },
+          "matched_case_count": 4,
+          "sample_count": 4,
+          "brier_like_direction_score": 0.097368,
+          "invalidation_timeliness": {
+            "sample_count": 1,
+            "avg_first_invalidation_horizon": 5.0
+          },
+          "scenario_hit_distribution": {
+            "bear": 1,
+            "bull": 3
+          },
+          "horizons": {
+            "T+5": {
+              "count": 4,
+              "label_counts": {
+                "invalidated": 1,
+                "miss": 2,
+                "hit": 1
+              },
+              "hit_rate": 0.25,
+              "invalidation_rate": 0.25,
+              "timeout_rate": 0.0,
+              "interval_hit_rate": 0.5
+            },
+            "T+10": {
+              "count": 4,
+              "label_counts": {
+                "invalidated": 1,
+                "miss": 1,
+                "hit": 2
+              },
+              "hit_rate": 0.5,
+              "invalidation_rate": 0.25,
+              "timeout_rate": 0.0,
+              "interval_hit_rate": 0.0
+            },
+            "T+20": {
+              "count": 4,
+              "label_counts": {
+                "invalidated": 1,
+                "hit": 3
+              },
+              "hit_rate": 0.75,
+              "invalidation_rate": 0.25,
+              "timeout_rate": 0.0,
+              "interval_hit_rate": 0.0
+            },
+            "T+60": {
+              "count": 4,
+              "label_counts": {
+                "invalidated": 1,
+                "miss": 1,
+                "hit": 2
+              },
+              "hit_rate": 0.5,
+              "invalidation_rate": 0.25,
+              "timeout_rate": 0.0,
+              "interval_hit_rate": 0.0
+            }
+          },
+          "recommendation": {
+            "bias": "recalibrate_probability",
+            "reason_codes": [
+              "interval_hit_rate_low"
+            ],
+            "summary": "基于 ask 侧归因样本给训练侧的建议：recalibrate_probability"
+          },
+          "notes": [
+            "样本数=4",
+            "T+20 hit_rate=0.75",
+            "T+20 invalidation_rate=0.25",
+            "T+20 interval_hit_rate=0.0",
+            "direction_brier=0.097368"
+          ]
+        },
+        "requested_regime_feedback": {
+          "generated_at": "2026-03-15T01:22:58.342173",
+          "subject": {
+            "model_name": "mean_reversion",
+            "config_name": "mean_reversion_v1",
+            "as_of_date": "20250614",
+            "regime": "oscillation"
+          },
+          "matched_case_count": 4,
+          "sample_count": 4,
+          "brier_like_direction_score": 0.097368,
+          "invalidation_timeliness": {
+            "sample_count": 1,
+            "avg_first_invalidation_horizon": 5.0
+          },
+          "scenario_hit_distribution": {
+            "bear": 1,
+            "bull": 3
+          },
+          "horizons": {
+            "T+5": {
+              "count": 4,
+              "label_counts": {
+                "invalidated": 1,
+                "miss": 2,
+                "hit": 1
+              },
+              "hit_rate": 0.25,
+              "invalidation_rate": 0.25,
+              "timeout_rate": 0.0,
+              "interval_hit_rate": 0.5
+            },
+            "T+10": {
+              "count": 4,
+              "label_counts": {
+                "invalidated": 1,
+                "miss": 1,
+                "hit": 2
+              },
+              "hit_rate": 0.5,
+              "invalidation_rate": 0.25,
+              "timeout_rate": 0.0,
+              "interval_hit_rate": 0.0
+            },
+            "T+20": {
+              "count": 4,
+              "label_counts": {
+                "invalidated": 1,
+                "hit": 3
+              },
+              "hit_rate": 0.75,
+              "invalidation_rate": 0.25,
+              "timeout_rate": 0.0,
+              "interval_hit_rate": 0.0
+            },
+            "T+60": {
+              "count": 4,
+              "label_counts": {
+                "invalidated": 1,
+                "miss": 1,
+                "hit": 2
+              },
+              "hit_rate": 0.5,
+              "invalidation_rate": 0.25,
+              "timeout_rate": 0.0,
+              "interval_hit_rate": 0.0
+            }
+          },
+          "recommendation": {
+            "bias": "recalibrate_probability",
+            "reason_codes": [
+              "interval_hit_rate_low"
+            ],
+            "summary": "基于 ask 侧归因样本给训练侧的建议：recalibrate_probability"
+          },
+          "notes": [
+            "样本数=4",
+            "T+20 hit_rate=0.75",
+            "T+20 invalidation_rate=0.25",
+            "T+20 interval_hit_rate=0.0",
+            "direction_brier=0.097368"
+          ]
+        },
+        "regime_breakdown": {
+          "oscillation": {
+            "generated_at": "2026-03-15T01:22:58.342173",
+            "subject": {
+              "model_name": "mean_reversion",
+              "config_name": "mean_reversion_v1",
+              "as_of_date": "20250614",
+              "regime": "oscillation"
+            },
+            "matched_case_count": 4,
+            "sample_count": 4,
+            "brier_like_direction_score": 0.097368,
+            "invalidation_timeliness": {
+              "sample_count": 1,
+              "avg_first_invalidation_horizon": 5.0
+            },
+            "scenario_hit_distribution": {
+              "bear": 1,
+              "bull": 3
+            },
+            "horizons": {
+              "T+5": {
+                "count": 4,
+                "label_counts": {
+                  "invalidated": 1,
+                  "miss": 2,
+                  "hit": 1
+                },
+                "hit_rate": 0.25,
+                "invalidation_rate": 0.25,
+                "timeout_rate": 0.0,
+                "interval_hit_rate": 0.5
+              },
+              "T+10": {
+                "count": 4,
+                "label_counts": {
+                  "invalidated": 1,
+                  "miss": 1,
+                  "hit": 2
+                },
+                "hit_rate": 0.5,
+                "invalidation_rate": 0.25,
+                "timeout_rate": 0.0,
+                "interval_hit_rate": 0.0
+              },
+              "T+20": {
+                "count": 4,
+                "label_counts": {
+                  "invalidated": 1,
+                  "hit": 3
+                },
+                "hit_rate": 0.75,
+                "invalidation_rate": 0.25,
+                "timeout_rate": 0.0,
+                "interval_hit_rate": 0.0
+              },
+              "T+60": {
+                "count": 4,
+                "label_counts": {
+                  "invalidated": 1,
+                  "miss": 1,
+                  "hit": 2
+                },
+                "hit_rate": 0.5,
+                "invalidation_rate": 0.25,
+                "timeout_rate": 0.0,
+                "interval_hit_rate": 0.0
+              }
+            },
+            "recommendation": {
+              "bias": "recalibrate_probability",
+              "reason_codes": [
+                "interval_hit_rate_low"
+              ],
+              "summary": "基于 ask 侧归因样本给训练侧的建议：recalibrate_probability"
+            },
+            "notes": [
+              "样本数=4",
+              "T+20 hit_rate=0.75",
+              "T+20 invalidation_rate=0.25",
+              "T+20 interval_hit_rate=0.0",
+              "direction_brier=0.097368"
+            ]
+          }
+        }
+      },
+      "llm_used": false,
+      "similarity_score": 13,
+      "matched_features": [
+        "regime",
+        "selection_mode",
+        "benchmark_passed",
+        "plan_source",
+        "model_name"
+      ]
+    },
+    {
+      "cycle_id": 1,
+      "as_of_date": "20190712",
+      "return_pct": -5.1110372394005825,
+      "is_profit": false,
+      "selection_mode": "meeting",
+      "plan_source": "meeting",
+      "benchmark_passed": false,
+      "review_applied": true,
+      "regime": "bull",
+      "metadata": {
+        "model_name": "momentum",
+        "config_name": "/Users/zhangsan/Desktop/投资进化系统v1.0/invest/models/configs/momentum_v1.yaml",
+        "research_feedback": {
+          "schema_version": "research.training_feedback.v1",
+          "generated_at": "2026-03-15T01:22:50.875169",
+          "subject": {
+            "model_name": "momentum",
+            "config_name": "momentum_v1",
+            "as_of_date": "20190712",
+            "regime": "bull"
+          },
+          "matched_case_count": 4,
+          "sample_count": 4,
+          "brier_like_direction_score": 0.368125,
+          "invalidation_timeliness": {
+            "sample_count": 4,
+            "avg_first_invalidation_horizon": 11.25
+          },
+          "scenario_hit_distribution": {
+            "bear": 2,
+            "bull": 2
+          },
+          "horizons": {
+            "T+5": {
+              "count": 4,
+              "label_counts": {
+                "invalidated": 1,
+                "miss": 1,
+                "hit": 2
+              },
+              "hit_rate": 0.5,
+              "invalidation_rate": 0.25,
+              "timeout_rate": 0.0,
+              "interval_hit_rate": 0.0
+            },
+            "T+10": {
+              "count": 4,
+              "label_counts": {
+                "invalidated": 3,
+                "miss": 1
+              },
+              "hit_rate": 0.0,
+              "invalidation_rate": 0.75,
+              "timeout_rate": 0.0,
+              "interval_hit_rate": 0.0
+            },
+            "T+20": {
+              "count": 4,
+              "label_counts": {
+                "invalidated": 4
+              },
+              "hit_rate": 0.0,
+              "invalidation_rate": 1.0,
+              "timeout_rate": 0.0,
+              "interval_hit_rate": 0.0
+            },
+            "T+60": {
+              "count": 4,
+              "label_counts": {
+                "invalidated": 4
+              },
+              "hit_rate": 0.0,
+              "invalidation_rate": 1.0,
+              "timeout_rate": 0.0,
+              "interval_hit_rate": 0.0
+            }
+          },
+          "recommendation": {
+            "bias": "tighten_risk",
+            "reason_codes": [
+              "t20_hit_rate_low",
+              "t20_invalidation_high"
+            ],
+            "summary": "基于 ask 侧归因样本给训练侧的建议：tighten_risk"
+          },
+          "notes": [
+            "样本数=4",
+            "T+20 hit_rate=0.0",
+            "T+20 invalidation_rate=1.0",
+            "T+20 interval_hit_rate=0.0",
+            "direction_brier=0.368125"
+          ],
+          "scope": {
+            "requested_regime": "bull",
+            "effective_scope": "overall_fallback",
+            "overall_sample_count": 4,
+            "regime_sample_count": 0,
+            "covered_regimes": [
+              "oscillation"
+            ]
+          },
+          "overall_feedback": {
+            "generated_at": "2026-03-15T01:22:50.875169",
+            "subject": {
+              "model_name": "momentum",
+              "config_name": "momentum_v1",
+              "as_of_date": "20190712"
+            },
+            "matched_case_count": 4,
+            "sample_count": 4,
+            "brier_like_direction_score": 0.368125,
+            "invalidation_timeliness": {
+              "sample_count": 4,
+              "avg_first_invalidation_horizon": 11.25
+            },
+            "scenario_hit_distribution": {
+              "bear": 2,
+              "bull": 2
+            },
+            "horizons": {
+              "T+5": {
+                "count": 4,
+                "label_counts": {
+                  "invalidated": 1,
+                  "miss": 1,
+                  "hit": 2
+                },
+                "hit_rate": 0.5,
+                "invalidation_rate": 0.25,
+                "timeout_rate": 0.0,
+                "interval_hit_rate": 0.0
+              },
+              "T+10": {
+                "count": 4,
+                "label_counts": {
+                  "invalidated": 3,
+                  "miss": 1
+                },
+                "hit_rate": 0.0,
+                "invalidation_rate": 0.75,
+                "timeout_rate": 0.0,
+                "interval_hit_rate": 0.0
+              },
+              "T+20": {
+                "count": 4,
+                "label_counts": {
+                  "invalidated": 4
+                },
+                "hit_rate": 0.0,
+                "invalidation_rate": 1.0,
+                "timeout_rate": 0.0,
+                "interval_hit_rate": 0.0
+              },
+              "T+60": {
+                "count": 4,
+                "label_counts": {
+                  "invalidated": 4
+                },
+                "hit_rate": 0.0,
+                "invalidation_rate": 1.0,
+                "timeout_rate": 0.0,
+                "interval_hit_rate": 0.0
+              }
+            },
+            "recommendation": {
+              "bias": "tighten_risk",
+              "reason_codes": [
+                "t20_hit_rate_low",
+                "t20_invalidation_high"
+              ],
+              "summary": "基于 ask 侧归因样本给训练侧的建议：tighten_risk"
+            },
+            "notes": [
+              "样本数=4",
+              "T+20 hit_rate=0.0",
+              "T+20 invalidation_rate=1.0",
+              "T+20 interval_hit_rate=0.0",
+              "direction_brier=0.368125"
+            ]
+          },
+          "requested_regime_feedback": {},
+          "regime_breakdown": {
+            "oscillation": {
+              "generated_at": "2026-03-15T01:22:50.875201",
+              "subject": {
+                "model_name": "momentum",
+                "config_name": "momentum_v1",
+                "as_of_date": "20190712",
+                "regime": "oscillation"
+              },
+              "matched_case_count": 4,
+              "sample_count": 4,
+              "brier_like_direction_score": 0.368125,
+              "invalidation_timeliness": {
+                "sample_count": 4,
+                "avg_first_invalidation_horizon": 11.25
+              },
+              "scenario_hit_distribution": {
+                "bear": 2,
+                "bull": 2
+              },
+              "horizons": {
+                "T+5": {
+                  "count": 4,
+                  "label_counts": {
+                    "invalidated": 1,
+                    "miss": 1,
+                    "hit": 2
+                  },
+                  "hit_rate": 0.5,
+                  "invalidation_rate": 0.25,
+                  "timeout_rate": 0.0,
+                  "interval_hit_rate": 0.0
+                },
+                "T+10": {
+                  "count": 4,
+                  "label_counts": {
+                    "invalidated": 3,
+                    "miss": 1
+                  },
+                  "hit_rate": 0.0,
+                  "invalidation_rate": 0.75,
+                  "timeout_rate": 0.0,
+                  "interval_hit_rate": 0.0
+                },
+                "T+20": {
+                  "count": 4,
+                  "label_counts": {
+                    "invalidated": 4
+                  },
+                  "hit_rate": 0.0,
+                  "invalidation_rate": 1.0,
+                  "timeout_rate": 0.0,
+                  "interval_hit_rate": 0.0
+                },
+                "T+60": {
+                  "count": 4,
+                  "label_counts": {
+                    "invalidated": 4
+                  },
+                  "hit_rate": 0.0,
+                  "invalidation_rate": 1.0,
+                  "timeout_rate": 0.0,
+                  "interval_hit_rate": 0.0
+                }
+              },
+              "recommendation": {
+                "bias": "tighten_risk",
+                "reason_codes": [
+                  "t20_hit_rate_low",
+                  "t20_invalidation_high"
+                ],
+                "summary": "基于 ask 侧归因样本给训练侧的建议：tighten_risk"
+              },
+              "notes": [
+                "样本数=4",
+                "T+20 hit_rate=0.0",
+                "T+20 invalidation_rate=1.0",
+                "T+20 interval_hit_rate=0.0",
+                "direction_brier=0.368125"
+              ]
+            }
+          }
+        }
+      },
+      "research_feedback": {
+        "schema_version": "research.training_feedback.v1",
+        "generated_at": "2026-03-15T01:22:50.875169",
+        "subject": {
+          "model_name": "momentum",
+          "config_name": "momentum_v1",
+          "as_of_date": "20190712",
+          "regime": "bull"
+        },
+        "matched_case_count": 4,
+        "sample_count": 4,
+        "brier_like_direction_score": 0.368125,
+        "invalidation_timeliness": {
+          "sample_count": 4,
+          "avg_first_invalidation_horizon": 11.25
+        },
+        "scenario_hit_distribution": {
+          "bear": 2,
+          "bull": 2
+        },
+        "horizons": {
+          "T+5": {
+            "count": 4,
+            "label_counts": {
+              "invalidated": 1,
+              "miss": 1,
+              "hit": 2
+            },
+            "hit_rate": 0.5,
+            "invalidation_rate": 0.25,
+            "timeout_rate": 0.0,
+            "interval_hit_rate": 0.0
+          },
+          "T+10": {
+            "count": 4,
+            "label_counts": {
+              "invalidated": 3,
+              "miss": 1
+            },
+            "hit_rate": 0.0,
+            "invalidation_rate": 0.75,
+            "timeout_rate": 0.0,
+            "interval_hit_rate": 0.0
+          },
+          "T+20": {
+            "count": 4,
+            "label_counts": {
+              "invalidated": 4
+            },
+            "hit_rate": 0.0,
+            "invalidation_rate": 1.0,
+            "timeout_rate": 0.0,
+            "interval_hit_rate": 0.0
+          },
+          "T+60": {
+            "count": 4,
+            "label_counts": {
+              "invalidated": 4
+            },
+            "hit_rate": 0.0,
+            "invalidation_rate": 1.0,
+            "timeout_rate": 0.0,
+            "interval_hit_rate": 0.0
+          }
+        },
+        "recommendation": {
+          "bias": "tighten_risk",
+          "reason_codes": [
+            "t20_hit_rate_low",
+            "t20_invalidation_high"
+          ],
+          "summary": "基于 ask 侧归因样本给训练侧的建议：tighten_risk"
+        },
+        "notes": [
+          "样本数=4",
+          "T+20 hit_rate=0.0",
+          "T+20 invalidation_rate=1.0",
+          "T+20 interval_hit_rate=0.0",
+          "direction_brier=0.368125"
+        ],
+        "scope": {
+          "requested_regime": "bull",
+          "effective_scope": "overall_fallback",
+          "overall_sample_count": 4,
+          "regime_sample_count": 0,
+          "covered_regimes": [
+            "oscillation"
+          ]
+        },
+        "overall_feedback": {
+          "generated_at": "2026-03-15T01:22:50.875169",
+          "subject": {
+            "model_name": "momentum",
+            "config_name": "momentum_v1",
+            "as_of_date": "20190712"
+          },
+          "matched_case_count": 4,
+          "sample_count": 4,
+          "brier_like_direction_score": 0.368125,
+          "invalidation_timeliness": {
+            "sample_count": 4,
+            "avg_first_invalidation_horizon": 11.25
+          },
+          "scenario_hit_distribution": {
+            "bear": 2,
+            "bull": 2
+          },
+          "horizons": {
+            "T+5": {
+              "count": 4,
+              "label_counts": {
+                "invalidated": 1,
+                "miss": 1,
+                "hit": 2
+              },
+              "hit_rate": 0.5,
+              "invalidation_rate": 0.25,
+              "timeout_rate": 0.0,
+              "interval_hit_rate": 0.0
+            },
+            "T+10": {
+              "count": 4,
+              "label_counts": {
+                "invalidated": 3,
+                "miss": 1
+              },
+              "hit_rate": 0.0,
+              "invalidation_rate": 0.75,
+              "timeout_rate": 0.0,
+              "interval_hit_rate": 0.0
+            },
+            "T+20": {
+              "count": 4,
+              "label_counts": {
+                "invalidated": 4
+              },
+              "hit_rate": 0.0,
+              "invalidation_rate": 1.0,
+              "timeout_rate": 0.0,
+              "interval_hit_rate": 0.0
+            },
+            "T+60": {
+              "count": 4,
+              "label_counts": {
+                "invalidated": 4
+              },
+              "hit_rate": 0.0,
+              "invalidation_rate": 1.0,
+              "timeout_rate": 0.0,
+              "interval_hit_rate": 0.0
+            }
+          },
+          "recommendation": {
+            "bias": "tighten_risk",
+            "reason_codes": [
+              "t20_hit_rate_low",
+              "t20_invalidation_high"
+            ],
+            "summary": "基于 ask 侧归因样本给训练侧的建议：tighten_risk"
+          },
+          "notes": [
+            "样本数=4",
+            "T+20 hit_rate=0.0",
+            "T+20 invalidation_rate=1.0",
+            "T+20 interval_hit_rate=0.0",
+            "direction_brier=0.368125"
+          ]
+        },
+        "requested_regime_feedback": {},
+        "regime_breakdown": {
+          "oscillation": {
+            "generated_at": "2026-03-15T01:22:50.875201",
+            "subject": {
+              "model_name": "momentum",
+              "config_name": "momentum_v1",
+              "as_of_date": "20190712",
+              "regime": "oscillation"
+            },
+            "matched_case_count": 4,
+            "sample_count": 4,
+            "brier_like_direction_score": 0.368125,
+            "invalidation_timeliness": {
+              "sample_count": 4,
+              "avg_first_invalidation_horizon": 11.25
+            },
+            "scenario_hit_distribution": {
+              "bear": 2,
+              "bull": 2
+            },
+            "horizons": {
+              "T+5": {
+                "count": 4,
+                "label_counts": {
+                  "invalidated": 1,
+                  "miss": 1,
+                  "hit": 2
+                },
+                "hit_rate": 0.5,
+                "invalidation_rate": 0.25,
+                "timeout_rate": 0.0,
+                "interval_hit_rate": 0.0
+              },
+              "T+10": {
+                "count": 4,
+                "label_counts": {
+                  "invalidated": 3,
+                  "miss": 1
+                },
+                "hit_rate": 0.0,
+                "invalidation_rate": 0.75,
+                "timeout_rate": 0.0,
+                "interval_hit_rate": 0.0
+              },
+              "T+20": {
+                "count": 4,
+                "label_counts": {
+                  "invalidated": 4
+                },
+                "hit_rate": 0.0,
+                "invalidation_rate": 1.0,
+                "timeout_rate": 0.0,
+                "interval_hit_rate": 0.0
+              },
+              "T+60": {
+                "count": 4,
+                "label_counts": {
+                  "invalidated": 4
+                },
+                "hit_rate": 0.0,
+                "invalidation_rate": 1.0,
+                "timeout_rate": 0.0,
+                "interval_hit_rate": 0.0
+              }
+            },
+            "recommendation": {
+              "bias": "tighten_risk",
+              "reason_codes": [
+                "t20_hit_rate_low",
+                "t20_invalidation_high"
+              ],
+              "summary": "基于 ask 侧归因样本给训练侧的建议：tighten_risk"
+            },
+            "notes": [
+              "样本数=4",
+              "T+20 hit_rate=0.0",
+              "T+20 invalidation_rate=1.0",
+              "T+20 interval_hit_rate=0.0",
+              "direction_brier=0.368125"
+            ]
+          }
+        }
+      },
+      "llm_used": false,
+      "similarity_score": 8,
+      "matched_features": [
+        "selection_mode",
+        "benchmark_passed",
+        "plan_source",
+        "return_direction"
+      ]
+    }
+  ],
+  "realism_metrics": {
+    "trade_record_count": 8,
+    "selection_mode": "meeting",
+    "optimization_event_count": 1,
+    "avg_trade_amount": 48345710.5,
+    "avg_turnover_rate": 0.0,
+    "high_turnover_trade_count": 0,
+    "avg_holding_days": 6.75,
+    "source_mix": {
+      "contrarian": 1.0
+    },
+    "exit_trigger_mix": {
+      "stop_loss": 0.375,
+      "take_profit": 0.125
+    }
+  },
+  "scoring_mutation_count": 0,
+  "scoring_changed_keys": [],
+  "self_assessment": {
+    "regime": "oscillation",
+    "plan_source": "llm",
+    "sharpe_ratio": -0.5295783917622633,
+    "max_drawdown": 4.009359287269299,
+    "excess_return": -0.4757652749316307,
+    "benchmark_passed": false,
+    "signal_accuracy": 0.125,
+    "timing_score": 0.959906407127307,
+    "risk_control_score": 0.85,
+    "overall_score": 0.6962266017818268
+  }
+}

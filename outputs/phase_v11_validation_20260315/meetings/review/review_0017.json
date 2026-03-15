@@ -1,0 +1,5406 @@
+{
+  "cycle": 17,
+  "timestamp": "2026-03-15T01:24:32.070611",
+  "type": "review",
+  "facts": {
+    "empty": false,
+    "total_cycles": 1,
+    "wins": 1,
+    "losses": 0,
+    "win_rate": 1.0,
+    "avg_return": 1.97,
+    "returns": [
+      1.9672356149999977
+    ],
+    "meeting_stats": {
+      "count": 1,
+      "wins": 1,
+      "win_rate": 1.0
+    },
+    "algo_stats": {
+      "count": 0,
+      "wins": 0,
+      "win_rate": 0
+    },
+    "regime_stats": {
+      "bull": {
+        "total": 1,
+        "wins": 1,
+        "win_rate": 1.0,
+        "avg_return": 1.97
+      }
+    },
+    "agent_accuracy": {
+      "trend_hunter": {
+        "total_picks": 30,
+        "selected_count": 24,
+        "traded_count": 24,
+        "profitable_count": 4,
+        "accuracy": 0.16666666666666666,
+        "avg_score": 0.485
+      },
+      "contrarian": {
+        "total_picks": 13,
+        "selected_count": 11,
+        "traded_count": 11,
+        "profitable_count": 4,
+        "accuracy": 0.36363636363636365,
+        "avg_score": 0.38
+      },
+      "defensive_agent": {
+        "total_picks": 32,
+        "selected_count": 32,
+        "traded_count": 32,
+        "profitable_count": 13,
+        "accuracy": 0.40625,
+        "avg_score": 1.022
+      }
+    },
+    "research_feedback": {
+      "schema_version": "research.training_feedback.v1",
+      "generated_at": "2026-03-15T01:24:32.062147",
+      "subject": {
+        "model_name": "momentum",
+        "config_name": "momentum_v1",
+        "as_of_date": "20250830",
+        "regime": "bull"
+      },
+      "matched_case_count": 8,
+      "sample_count": 8,
+      "brier_like_direction_score": 0.221562,
+      "invalidation_timeliness": {
+        "sample_count": 8,
+        "avg_first_invalidation_horizon": 13.125
+      },
+      "scenario_hit_distribution": {
+        "bear": 4,
+        "bull": 4
+      },
+      "horizons": {
+        "T+5": {
+          "count": 8,
+          "label_counts": {
+            "hit": 4,
+            "invalidated": 3,
+            "miss": 1
+          },
+          "hit_rate": 0.5,
+          "invalidation_rate": 0.375,
+          "timeout_rate": 0.0,
+          "interval_hit_rate": 0.0
+        },
+        "T+10": {
+          "count": 8,
+          "label_counts": {
+            "hit": 2,
+            "invalidated": 4,
+            "miss": 2
+          },
+          "hit_rate": 0.25,
+          "invalidation_rate": 0.5,
+          "timeout_rate": 0.0,
+          "interval_hit_rate": 0.5
+        },
+        "T+20": {
+          "count": 8,
+          "label_counts": {
+            "invalidated": 8
+          },
+          "hit_rate": 0.0,
+          "invalidation_rate": 1.0,
+          "timeout_rate": 0.0,
+          "interval_hit_rate": 0.0
+        },
+        "T+60": {
+          "count": 8,
+          "label_counts": {
+            "invalidated": 8
+          },
+          "hit_rate": 0.0,
+          "invalidation_rate": 1.0,
+          "timeout_rate": 0.0,
+          "interval_hit_rate": 0.125
+        }
+      },
+      "recommendation": {
+        "bias": "tighten_risk",
+        "reason_codes": [
+          "t20_hit_rate_low",
+          "t20_invalidation_high"
+        ],
+        "summary": "基于 ask 侧归因样本给训练侧的建议：tighten_risk"
+      },
+      "notes": [
+        "样本数=8",
+        "T+20 hit_rate=0.0",
+        "T+20 invalidation_rate=1.0",
+        "T+20 interval_hit_rate=0.0",
+        "direction_brier=0.221562"
+      ],
+      "scope": {
+        "requested_regime": "bull",
+        "effective_scope": "regime",
+        "overall_sample_count": 24,
+        "regime_sample_count": 8,
+        "covered_regimes": [
+          "bull",
+          "oscillation"
+        ]
+      },
+      "overall_feedback": {
+        "generated_at": "2026-03-15T01:24:32.062087",
+        "subject": {
+          "model_name": "momentum",
+          "config_name": "momentum_v1",
+          "as_of_date": "20250830"
+        },
+        "matched_case_count": 24,
+        "sample_count": 24,
+        "brier_like_direction_score": 0.280554,
+        "invalidation_timeliness": {
+          "sample_count": 21,
+          "avg_first_invalidation_horizon": 15.4762
+        },
+        "scenario_hit_distribution": {
+          "base": 5,
+          "bear": 7,
+          "bull": 12
+        },
+        "horizons": {
+          "T+5": {
+            "count": 24,
+            "label_counts": {
+              "hit": 10,
+              "miss": 3,
+              "invalidated": 9,
+              "not_triggered": 2
+            },
+            "hit_rate": 0.4167,
+            "invalidation_rate": 0.375,
+            "timeout_rate": 0.0,
+            "interval_hit_rate": 0.1667
+          },
+          "T+10": {
+            "count": 24,
+            "label_counts": {
+              "hit": 6,
+              "invalidated": 13,
+              "miss": 4,
+              "not_triggered": 1
+            },
+            "hit_rate": 0.25,
+            "invalidation_rate": 0.5417,
+            "timeout_rate": 0.0,
+            "interval_hit_rate": 0.2917
+          },
+          "T+20": {
+            "count": 24,
+            "label_counts": {
+              "invalidated": 19,
+              "hit": 5
+            },
+            "hit_rate": 0.2083,
+            "invalidation_rate": 0.7917,
+            "timeout_rate": 0.0,
+            "interval_hit_rate": 0.2083
+          },
+          "T+60": {
+            "count": 24,
+            "label_counts": {
+              "invalidated": 21,
+              "hit": 3
+            },
+            "hit_rate": 0.125,
+            "invalidation_rate": 0.875,
+            "timeout_rate": 0.0,
+            "interval_hit_rate": 0.25
+          }
+        },
+        "recommendation": {
+          "bias": "tighten_risk",
+          "reason_codes": [
+            "t20_hit_rate_low",
+            "t20_invalidation_high"
+          ],
+          "summary": "基于 ask 侧归因样本给训练侧的建议：tighten_risk"
+        },
+        "notes": [
+          "样本数=24",
+          "T+20 hit_rate=0.2083",
+          "T+20 invalidation_rate=0.7917",
+          "T+20 interval_hit_rate=0.2083",
+          "direction_brier=0.280554"
+        ]
+      },
+      "requested_regime_feedback": {
+        "generated_at": "2026-03-15T01:24:32.062147",
+        "subject": {
+          "model_name": "momentum",
+          "config_name": "momentum_v1",
+          "as_of_date": "20250830",
+          "regime": "bull"
+        },
+        "matched_case_count": 8,
+        "sample_count": 8,
+        "brier_like_direction_score": 0.221562,
+        "invalidation_timeliness": {
+          "sample_count": 8,
+          "avg_first_invalidation_horizon": 13.125
+        },
+        "scenario_hit_distribution": {
+          "bear": 4,
+          "bull": 4
+        },
+        "horizons": {
+          "T+5": {
+            "count": 8,
+            "label_counts": {
+              "hit": 4,
+              "invalidated": 3,
+              "miss": 1
+            },
+            "hit_rate": 0.5,
+            "invalidation_rate": 0.375,
+            "timeout_rate": 0.0,
+            "interval_hit_rate": 0.0
+          },
+          "T+10": {
+            "count": 8,
+            "label_counts": {
+              "hit": 2,
+              "invalidated": 4,
+              "miss": 2
+            },
+            "hit_rate": 0.25,
+            "invalidation_rate": 0.5,
+            "timeout_rate": 0.0,
+            "interval_hit_rate": 0.5
+          },
+          "T+20": {
+            "count": 8,
+            "label_counts": {
+              "invalidated": 8
+            },
+            "hit_rate": 0.0,
+            "invalidation_rate": 1.0,
+            "timeout_rate": 0.0,
+            "interval_hit_rate": 0.0
+          },
+          "T+60": {
+            "count": 8,
+            "label_counts": {
+              "invalidated": 8
+            },
+            "hit_rate": 0.0,
+            "invalidation_rate": 1.0,
+            "timeout_rate": 0.0,
+            "interval_hit_rate": 0.125
+          }
+        },
+        "recommendation": {
+          "bias": "tighten_risk",
+          "reason_codes": [
+            "t20_hit_rate_low",
+            "t20_invalidation_high"
+          ],
+          "summary": "基于 ask 侧归因样本给训练侧的建议：tighten_risk"
+        },
+        "notes": [
+          "样本数=8",
+          "T+20 hit_rate=0.0",
+          "T+20 invalidation_rate=1.0",
+          "T+20 interval_hit_rate=0.0",
+          "direction_brier=0.221562"
+        ]
+      },
+      "regime_breakdown": {
+        "bull": {
+          "generated_at": "2026-03-15T01:24:32.062147",
+          "subject": {
+            "model_name": "momentum",
+            "config_name": "momentum_v1",
+            "as_of_date": "20250830",
+            "regime": "bull"
+          },
+          "matched_case_count": 8,
+          "sample_count": 8,
+          "brier_like_direction_score": 0.221562,
+          "invalidation_timeliness": {
+            "sample_count": 8,
+            "avg_first_invalidation_horizon": 13.125
+          },
+          "scenario_hit_distribution": {
+            "bear": 4,
+            "bull": 4
+          },
+          "horizons": {
+            "T+5": {
+              "count": 8,
+              "label_counts": {
+                "hit": 4,
+                "invalidated": 3,
+                "miss": 1
+              },
+              "hit_rate": 0.5,
+              "invalidation_rate": 0.375,
+              "timeout_rate": 0.0,
+              "interval_hit_rate": 0.0
+            },
+            "T+10": {
+              "count": 8,
+              "label_counts": {
+                "hit": 2,
+                "invalidated": 4,
+                "miss": 2
+              },
+              "hit_rate": 0.25,
+              "invalidation_rate": 0.5,
+              "timeout_rate": 0.0,
+              "interval_hit_rate": 0.5
+            },
+            "T+20": {
+              "count": 8,
+              "label_counts": {
+                "invalidated": 8
+              },
+              "hit_rate": 0.0,
+              "invalidation_rate": 1.0,
+              "timeout_rate": 0.0,
+              "interval_hit_rate": 0.0
+            },
+            "T+60": {
+              "count": 8,
+              "label_counts": {
+                "invalidated": 8
+              },
+              "hit_rate": 0.0,
+              "invalidation_rate": 1.0,
+              "timeout_rate": 0.0,
+              "interval_hit_rate": 0.125
+            }
+          },
+          "recommendation": {
+            "bias": "tighten_risk",
+            "reason_codes": [
+              "t20_hit_rate_low",
+              "t20_invalidation_high"
+            ],
+            "summary": "基于 ask 侧归因样本给训练侧的建议：tighten_risk"
+          },
+          "notes": [
+            "样本数=8",
+            "T+20 hit_rate=0.0",
+            "T+20 invalidation_rate=1.0",
+            "T+20 interval_hit_rate=0.0",
+            "direction_brier=0.221562"
+          ]
+        },
+        "oscillation": {
+          "generated_at": "2026-03-15T01:24:32.062223",
+          "subject": {
+            "model_name": "momentum",
+            "config_name": "momentum_v1",
+            "as_of_date": "20250830",
+            "regime": "oscillation"
+          },
+          "matched_case_count": 16,
+          "sample_count": 16,
+          "brier_like_direction_score": 0.31005,
+          "invalidation_timeliness": {
+            "sample_count": 13,
+            "avg_first_invalidation_horizon": 16.9231
+          },
+          "scenario_hit_distribution": {
+            "base": 5,
+            "bear": 3,
+            "bull": 8
+          },
+          "horizons": {
+            "T+5": {
+              "count": 16,
+              "label_counts": {
+                "hit": 6,
+                "miss": 2,
+                "invalidated": 6,
+                "not_triggered": 2
+              },
+              "hit_rate": 0.375,
+              "invalidation_rate": 0.375,
+              "timeout_rate": 0.0,
+              "interval_hit_rate": 0.25
+            },
+            "T+10": {
+              "count": 16,
+              "label_counts": {
+                "hit": 4,
+                "invalidated": 9,
+                "miss": 2,
+                "not_triggered": 1
+              },
+              "hit_rate": 0.25,
+              "invalidation_rate": 0.5625,
+              "timeout_rate": 0.0,
+              "interval_hit_rate": 0.1875
+            },
+            "T+20": {
+              "count": 16,
+              "label_counts": {
+                "hit": 5,
+                "invalidated": 11
+              },
+              "hit_rate": 0.3125,
+              "invalidation_rate": 0.6875,
+              "timeout_rate": 0.0,
+              "interval_hit_rate": 0.3125
+            },
+            "T+60": {
+              "count": 16,
+              "label_counts": {
+                "invalidated": 13,
+                "hit": 3
+              },
+              "hit_rate": 0.1875,
+              "invalidation_rate": 0.8125,
+              "timeout_rate": 0.0,
+              "interval_hit_rate": 0.3125
+            }
+          },
+          "recommendation": {
+            "bias": "tighten_risk",
+            "reason_codes": [
+              "t20_hit_rate_low",
+              "t20_invalidation_high"
+            ],
+            "summary": "基于 ask 侧归因样本给训练侧的建议：tighten_risk"
+          },
+          "notes": [
+            "样本数=16",
+            "T+20 hit_rate=0.3125",
+            "T+20 invalidation_rate=0.6875",
+            "T+20 interval_hit_rate=0.3125",
+            "direction_brier=0.31005"
+          ]
+        }
+      }
+    },
+    "similar_cases": [
+      {
+        "cycle_id": 10,
+        "as_of_date": "20181119",
+        "return_pct": -3.631945703688194,
+        "is_profit": false,
+        "selection_mode": "meeting",
+        "plan_source": "meeting",
+        "benchmark_passed": false,
+        "review_applied": true,
+        "regime": "bull",
+        "metadata": {
+          "model_name": "momentum",
+          "config_name": "/Users/zhangsan/Desktop/投资进化系统v1.0/invest/models/configs/momentum_v1.yaml",
+          "research_feedback": {
+            "schema_version": "research.training_feedback.v1",
+            "generated_at": "2026-03-15T01:23:46.923002",
+            "subject": {
+              "model_name": "momentum",
+              "config_name": "momentum_v1",
+              "as_of_date": "20181119",
+              "regime": "bull"
+            },
+            "matched_case_count": 4,
+            "sample_count": 4,
+            "brier_like_direction_score": 0.25,
+            "invalidation_timeliness": {
+              "sample_count": 4,
+              "avg_first_invalidation_horizon": 6.25
+            },
+            "scenario_hit_distribution": {
+              "bear": 1,
+              "bull": 3
+            },
+            "horizons": {
+              "T+5": {
+                "count": 4,
+                "label_counts": {
+                  "invalidated": 3,
+                  "miss": 1
+                },
+                "hit_rate": 0.0,
+                "invalidation_rate": 0.75,
+                "timeout_rate": 0.0,
+                "interval_hit_rate": 0.0
+              },
+              "T+10": {
+                "count": 4,
+                "label_counts": {
+                  "invalidated": 4
+                },
+                "hit_rate": 0.0,
+                "invalidation_rate": 1.0,
+                "timeout_rate": 0.0,
+                "interval_hit_rate": 0.5
+              },
+              "T+20": {
+                "count": 4,
+                "label_counts": {
+                  "invalidated": 4
+                },
+                "hit_rate": 0.0,
+                "invalidation_rate": 1.0,
+                "timeout_rate": 0.0,
+                "interval_hit_rate": 0.0
+              },
+              "T+60": {
+                "count": 4,
+                "label_counts": {
+                  "invalidated": 4
+                },
+                "hit_rate": 0.0,
+                "invalidation_rate": 1.0,
+                "timeout_rate": 0.0,
+                "interval_hit_rate": 0.0
+              }
+            },
+            "recommendation": {
+              "bias": "tighten_risk",
+              "reason_codes": [
+                "t20_hit_rate_low",
+                "t20_invalidation_high"
+              ],
+              "summary": "基于 ask 侧归因样本给训练侧的建议：tighten_risk"
+            },
+            "notes": [
+              "样本数=4",
+              "T+20 hit_rate=0.0",
+              "T+20 invalidation_rate=1.0",
+              "T+20 interval_hit_rate=0.0",
+              "direction_brier=0.25"
+            ],
+            "scope": {
+              "requested_regime": "bull",
+              "effective_scope": "regime",
+              "overall_sample_count": 4,
+              "regime_sample_count": 4,
+              "covered_regimes": [
+                "bull"
+              ]
+            },
+            "overall_feedback": {
+              "generated_at": "2026-03-15T01:23:46.922969",
+              "subject": {
+                "model_name": "momentum",
+                "config_name": "momentum_v1",
+                "as_of_date": "20181119"
+              },
+              "matched_case_count": 4,
+              "sample_count": 4,
+              "brier_like_direction_score": 0.25,
+              "invalidation_timeliness": {
+                "sample_count": 4,
+                "avg_first_invalidation_horizon": 6.25
+              },
+              "scenario_hit_distribution": {
+                "bear": 1,
+                "bull": 3
+              },
+              "horizons": {
+                "T+5": {
+                  "count": 4,
+                  "label_counts": {
+                    "invalidated": 3,
+                    "miss": 1
+                  },
+                  "hit_rate": 0.0,
+                  "invalidation_rate": 0.75,
+                  "timeout_rate": 0.0,
+                  "interval_hit_rate": 0.0
+                },
+                "T+10": {
+                  "count": 4,
+                  "label_counts": {
+                    "invalidated": 4
+                  },
+                  "hit_rate": 0.0,
+                  "invalidation_rate": 1.0,
+                  "timeout_rate": 0.0,
+                  "interval_hit_rate": 0.5
+                },
+                "T+20": {
+                  "count": 4,
+                  "label_counts": {
+                    "invalidated": 4
+                  },
+                  "hit_rate": 0.0,
+                  "invalidation_rate": 1.0,
+                  "timeout_rate": 0.0,
+                  "interval_hit_rate": 0.0
+                },
+                "T+60": {
+                  "count": 4,
+                  "label_counts": {
+                    "invalidated": 4
+                  },
+                  "hit_rate": 0.0,
+                  "invalidation_rate": 1.0,
+                  "timeout_rate": 0.0,
+                  "interval_hit_rate": 0.0
+                }
+              },
+              "recommendation": {
+                "bias": "tighten_risk",
+                "reason_codes": [
+                  "t20_hit_rate_low",
+                  "t20_invalidation_high"
+                ],
+                "summary": "基于 ask 侧归因样本给训练侧的建议：tighten_risk"
+              },
+              "notes": [
+                "样本数=4",
+                "T+20 hit_rate=0.0",
+                "T+20 invalidation_rate=1.0",
+                "T+20 interval_hit_rate=0.0",
+                "direction_brier=0.25"
+              ]
+            },
+            "requested_regime_feedback": {
+              "generated_at": "2026-03-15T01:23:46.923002",
+              "subject": {
+                "model_name": "momentum",
+                "config_name": "momentum_v1",
+                "as_of_date": "20181119",
+                "regime": "bull"
+              },
+              "matched_case_count": 4,
+              "sample_count": 4,
+              "brier_like_direction_score": 0.25,
+              "invalidation_timeliness": {
+                "sample_count": 4,
+                "avg_first_invalidation_horizon": 6.25
+              },
+              "scenario_hit_distribution": {
+                "bear": 1,
+                "bull": 3
+              },
+              "horizons": {
+                "T+5": {
+                  "count": 4,
+                  "label_counts": {
+                    "invalidated": 3,
+                    "miss": 1
+                  },
+                  "hit_rate": 0.0,
+                  "invalidation_rate": 0.75,
+                  "timeout_rate": 0.0,
+                  "interval_hit_rate": 0.0
+                },
+                "T+10": {
+                  "count": 4,
+                  "label_counts": {
+                    "invalidated": 4
+                  },
+                  "hit_rate": 0.0,
+                  "invalidation_rate": 1.0,
+                  "timeout_rate": 0.0,
+                  "interval_hit_rate": 0.5
+                },
+                "T+20": {
+                  "count": 4,
+                  "label_counts": {
+                    "invalidated": 4
+                  },
+                  "hit_rate": 0.0,
+                  "invalidation_rate": 1.0,
+                  "timeout_rate": 0.0,
+                  "interval_hit_rate": 0.0
+                },
+                "T+60": {
+                  "count": 4,
+                  "label_counts": {
+                    "invalidated": 4
+                  },
+                  "hit_rate": 0.0,
+                  "invalidation_rate": 1.0,
+                  "timeout_rate": 0.0,
+                  "interval_hit_rate": 0.0
+                }
+              },
+              "recommendation": {
+                "bias": "tighten_risk",
+                "reason_codes": [
+                  "t20_hit_rate_low",
+                  "t20_invalidation_high"
+                ],
+                "summary": "基于 ask 侧归因样本给训练侧的建议：tighten_risk"
+              },
+              "notes": [
+                "样本数=4",
+                "T+20 hit_rate=0.0",
+                "T+20 invalidation_rate=1.0",
+                "T+20 interval_hit_rate=0.0",
+                "direction_brier=0.25"
+              ]
+            },
+            "regime_breakdown": {
+              "bull": {
+                "generated_at": "2026-03-15T01:23:46.923002",
+                "subject": {
+                  "model_name": "momentum",
+                  "config_name": "momentum_v1",
+                  "as_of_date": "20181119",
+                  "regime": "bull"
+                },
+                "matched_case_count": 4,
+                "sample_count": 4,
+                "brier_like_direction_score": 0.25,
+                "invalidation_timeliness": {
+                  "sample_count": 4,
+                  "avg_first_invalidation_horizon": 6.25
+                },
+                "scenario_hit_distribution": {
+                  "bear": 1,
+                  "bull": 3
+                },
+                "horizons": {
+                  "T+5": {
+                    "count": 4,
+                    "label_counts": {
+                      "invalidated": 3,
+                      "miss": 1
+                    },
+                    "hit_rate": 0.0,
+                    "invalidation_rate": 0.75,
+                    "timeout_rate": 0.0,
+                    "interval_hit_rate": 0.0
+                  },
+                  "T+10": {
+                    "count": 4,
+                    "label_counts": {
+                      "invalidated": 4
+                    },
+                    "hit_rate": 0.0,
+                    "invalidation_rate": 1.0,
+                    "timeout_rate": 0.0,
+                    "interval_hit_rate": 0.5
+                  },
+                  "T+20": {
+                    "count": 4,
+                    "label_counts": {
+                      "invalidated": 4
+                    },
+                    "hit_rate": 0.0,
+                    "invalidation_rate": 1.0,
+                    "timeout_rate": 0.0,
+                    "interval_hit_rate": 0.0
+                  },
+                  "T+60": {
+                    "count": 4,
+                    "label_counts": {
+                      "invalidated": 4
+                    },
+                    "hit_rate": 0.0,
+                    "invalidation_rate": 1.0,
+                    "timeout_rate": 0.0,
+                    "interval_hit_rate": 0.0
+                  }
+                },
+                "recommendation": {
+                  "bias": "tighten_risk",
+                  "reason_codes": [
+                    "t20_hit_rate_low",
+                    "t20_invalidation_high"
+                  ],
+                  "summary": "基于 ask 侧归因样本给训练侧的建议：tighten_risk"
+                },
+                "notes": [
+                  "样本数=4",
+                  "T+20 hit_rate=0.0",
+                  "T+20 invalidation_rate=1.0",
+                  "T+20 interval_hit_rate=0.0",
+                  "direction_brier=0.25"
+                ]
+              }
+            }
+          }
+        },
+        "research_feedback": {
+          "schema_version": "research.training_feedback.v1",
+          "generated_at": "2026-03-15T01:23:46.923002",
+          "subject": {
+            "model_name": "momentum",
+            "config_name": "momentum_v1",
+            "as_of_date": "20181119",
+            "regime": "bull"
+          },
+          "matched_case_count": 4,
+          "sample_count": 4,
+          "brier_like_direction_score": 0.25,
+          "invalidation_timeliness": {
+            "sample_count": 4,
+            "avg_first_invalidation_horizon": 6.25
+          },
+          "scenario_hit_distribution": {
+            "bear": 1,
+            "bull": 3
+          },
+          "horizons": {
+            "T+5": {
+              "count": 4,
+              "label_counts": {
+                "invalidated": 3,
+                "miss": 1
+              },
+              "hit_rate": 0.0,
+              "invalidation_rate": 0.75,
+              "timeout_rate": 0.0,
+              "interval_hit_rate": 0.0
+            },
+            "T+10": {
+              "count": 4,
+              "label_counts": {
+                "invalidated": 4
+              },
+              "hit_rate": 0.0,
+              "invalidation_rate": 1.0,
+              "timeout_rate": 0.0,
+              "interval_hit_rate": 0.5
+            },
+            "T+20": {
+              "count": 4,
+              "label_counts": {
+                "invalidated": 4
+              },
+              "hit_rate": 0.0,
+              "invalidation_rate": 1.0,
+              "timeout_rate": 0.0,
+              "interval_hit_rate": 0.0
+            },
+            "T+60": {
+              "count": 4,
+              "label_counts": {
+                "invalidated": 4
+              },
+              "hit_rate": 0.0,
+              "invalidation_rate": 1.0,
+              "timeout_rate": 0.0,
+              "interval_hit_rate": 0.0
+            }
+          },
+          "recommendation": {
+            "bias": "tighten_risk",
+            "reason_codes": [
+              "t20_hit_rate_low",
+              "t20_invalidation_high"
+            ],
+            "summary": "基于 ask 侧归因样本给训练侧的建议：tighten_risk"
+          },
+          "notes": [
+            "样本数=4",
+            "T+20 hit_rate=0.0",
+            "T+20 invalidation_rate=1.0",
+            "T+20 interval_hit_rate=0.0",
+            "direction_brier=0.25"
+          ],
+          "scope": {
+            "requested_regime": "bull",
+            "effective_scope": "regime",
+            "overall_sample_count": 4,
+            "regime_sample_count": 4,
+            "covered_regimes": [
+              "bull"
+            ]
+          },
+          "overall_feedback": {
+            "generated_at": "2026-03-15T01:23:46.922969",
+            "subject": {
+              "model_name": "momentum",
+              "config_name": "momentum_v1",
+              "as_of_date": "20181119"
+            },
+            "matched_case_count": 4,
+            "sample_count": 4,
+            "brier_like_direction_score": 0.25,
+            "invalidation_timeliness": {
+              "sample_count": 4,
+              "avg_first_invalidation_horizon": 6.25
+            },
+            "scenario_hit_distribution": {
+              "bear": 1,
+              "bull": 3
+            },
+            "horizons": {
+              "T+5": {
+                "count": 4,
+                "label_counts": {
+                  "invalidated": 3,
+                  "miss": 1
+                },
+                "hit_rate": 0.0,
+                "invalidation_rate": 0.75,
+                "timeout_rate": 0.0,
+                "interval_hit_rate": 0.0
+              },
+              "T+10": {
+                "count": 4,
+                "label_counts": {
+                  "invalidated": 4
+                },
+                "hit_rate": 0.0,
+                "invalidation_rate": 1.0,
+                "timeout_rate": 0.0,
+                "interval_hit_rate": 0.5
+              },
+              "T+20": {
+                "count": 4,
+                "label_counts": {
+                  "invalidated": 4
+                },
+                "hit_rate": 0.0,
+                "invalidation_rate": 1.0,
+                "timeout_rate": 0.0,
+                "interval_hit_rate": 0.0
+              },
+              "T+60": {
+                "count": 4,
+                "label_counts": {
+                  "invalidated": 4
+                },
+                "hit_rate": 0.0,
+                "invalidation_rate": 1.0,
+                "timeout_rate": 0.0,
+                "interval_hit_rate": 0.0
+              }
+            },
+            "recommendation": {
+              "bias": "tighten_risk",
+              "reason_codes": [
+                "t20_hit_rate_low",
+                "t20_invalidation_high"
+              ],
+              "summary": "基于 ask 侧归因样本给训练侧的建议：tighten_risk"
+            },
+            "notes": [
+              "样本数=4",
+              "T+20 hit_rate=0.0",
+              "T+20 invalidation_rate=1.0",
+              "T+20 interval_hit_rate=0.0",
+              "direction_brier=0.25"
+            ]
+          },
+          "requested_regime_feedback": {
+            "generated_at": "2026-03-15T01:23:46.923002",
+            "subject": {
+              "model_name": "momentum",
+              "config_name": "momentum_v1",
+              "as_of_date": "20181119",
+              "regime": "bull"
+            },
+            "matched_case_count": 4,
+            "sample_count": 4,
+            "brier_like_direction_score": 0.25,
+            "invalidation_timeliness": {
+              "sample_count": 4,
+              "avg_first_invalidation_horizon": 6.25
+            },
+            "scenario_hit_distribution": {
+              "bear": 1,
+              "bull": 3
+            },
+            "horizons": {
+              "T+5": {
+                "count": 4,
+                "label_counts": {
+                  "invalidated": 3,
+                  "miss": 1
+                },
+                "hit_rate": 0.0,
+                "invalidation_rate": 0.75,
+                "timeout_rate": 0.0,
+                "interval_hit_rate": 0.0
+              },
+              "T+10": {
+                "count": 4,
+                "label_counts": {
+                  "invalidated": 4
+                },
+                "hit_rate": 0.0,
+                "invalidation_rate": 1.0,
+                "timeout_rate": 0.0,
+                "interval_hit_rate": 0.5
+              },
+              "T+20": {
+                "count": 4,
+                "label_counts": {
+                  "invalidated": 4
+                },
+                "hit_rate": 0.0,
+                "invalidation_rate": 1.0,
+                "timeout_rate": 0.0,
+                "interval_hit_rate": 0.0
+              },
+              "T+60": {
+                "count": 4,
+                "label_counts": {
+                  "invalidated": 4
+                },
+                "hit_rate": 0.0,
+                "invalidation_rate": 1.0,
+                "timeout_rate": 0.0,
+                "interval_hit_rate": 0.0
+              }
+            },
+            "recommendation": {
+              "bias": "tighten_risk",
+              "reason_codes": [
+                "t20_hit_rate_low",
+                "t20_invalidation_high"
+              ],
+              "summary": "基于 ask 侧归因样本给训练侧的建议：tighten_risk"
+            },
+            "notes": [
+              "样本数=4",
+              "T+20 hit_rate=0.0",
+              "T+20 invalidation_rate=1.0",
+              "T+20 interval_hit_rate=0.0",
+              "direction_brier=0.25"
+            ]
+          },
+          "regime_breakdown": {
+            "bull": {
+              "generated_at": "2026-03-15T01:23:46.923002",
+              "subject": {
+                "model_name": "momentum",
+                "config_name": "momentum_v1",
+                "as_of_date": "20181119",
+                "regime": "bull"
+              },
+              "matched_case_count": 4,
+              "sample_count": 4,
+              "brier_like_direction_score": 0.25,
+              "invalidation_timeliness": {
+                "sample_count": 4,
+                "avg_first_invalidation_horizon": 6.25
+              },
+              "scenario_hit_distribution": {
+                "bear": 1,
+                "bull": 3
+              },
+              "horizons": {
+                "T+5": {
+                  "count": 4,
+                  "label_counts": {
+                    "invalidated": 3,
+                    "miss": 1
+                  },
+                  "hit_rate": 0.0,
+                  "invalidation_rate": 0.75,
+                  "timeout_rate": 0.0,
+                  "interval_hit_rate": 0.0
+                },
+                "T+10": {
+                  "count": 4,
+                  "label_counts": {
+                    "invalidated": 4
+                  },
+                  "hit_rate": 0.0,
+                  "invalidation_rate": 1.0,
+                  "timeout_rate": 0.0,
+                  "interval_hit_rate": 0.5
+                },
+                "T+20": {
+                  "count": 4,
+                  "label_counts": {
+                    "invalidated": 4
+                  },
+                  "hit_rate": 0.0,
+                  "invalidation_rate": 1.0,
+                  "timeout_rate": 0.0,
+                  "interval_hit_rate": 0.0
+                },
+                "T+60": {
+                  "count": 4,
+                  "label_counts": {
+                    "invalidated": 4
+                  },
+                  "hit_rate": 0.0,
+                  "invalidation_rate": 1.0,
+                  "timeout_rate": 0.0,
+                  "interval_hit_rate": 0.0
+                }
+              },
+              "recommendation": {
+                "bias": "tighten_risk",
+                "reason_codes": [
+                  "t20_hit_rate_low",
+                  "t20_invalidation_high"
+                ],
+                "summary": "基于 ask 侧归因样本给训练侧的建议：tighten_risk"
+              },
+              "notes": [
+                "样本数=4",
+                "T+20 hit_rate=0.0",
+                "T+20 invalidation_rate=1.0",
+                "T+20 interval_hit_rate=0.0",
+                "direction_brier=0.25"
+              ]
+            }
+          }
+        },
+        "llm_used": false,
+        "similarity_score": 11,
+        "matched_features": [
+          "regime",
+          "selection_mode",
+          "plan_source",
+          "model_name"
+        ]
+      },
+      {
+        "cycle_id": 9,
+        "as_of_date": "20230409",
+        "return_pct": -1.2649314667801663,
+        "is_profit": false,
+        "selection_mode": "meeting",
+        "plan_source": "meeting",
+        "benchmark_passed": false,
+        "review_applied": true,
+        "regime": "bull",
+        "metadata": {
+          "model_name": "momentum",
+          "config_name": "/Users/zhangsan/Desktop/投资进化系统v1.0/invest/models/configs/momentum_v1.yaml",
+          "research_feedback": {
+            "schema_version": "research.training_feedback.v1",
+            "generated_at": "2026-03-15T01:23:42.158890",
+            "subject": {
+              "model_name": "momentum",
+              "config_name": "momentum_v1",
+              "as_of_date": "20230409",
+              "regime": "bull"
+            },
+            "matched_case_count": 4,
+            "sample_count": 4,
+            "brier_like_direction_score": 0.193125,
+            "invalidation_timeliness": {
+              "sample_count": 4,
+              "avg_first_invalidation_horizon": 20.0
+            },
+            "scenario_hit_distribution": {
+              "bear": 3,
+              "bull": 1
+            },
+            "horizons": {
+              "T+5": {
+                "count": 4,
+                "label_counts": {
+                  "hit": 4
+                },
+                "hit_rate": 1.0,
+                "invalidation_rate": 0.0,
+                "timeout_rate": 0.0,
+                "interval_hit_rate": 0.0
+              },
+              "T+10": {
+                "count": 4,
+                "label_counts": {
+                  "hit": 2,
+                  "miss": 2
+                },
+                "hit_rate": 0.5,
+                "invalidation_rate": 0.0,
+                "timeout_rate": 0.0,
+                "interval_hit_rate": 0.5
+              },
+              "T+20": {
+                "count": 4,
+                "label_counts": {
+                  "invalidated": 4
+                },
+                "hit_rate": 0.0,
+                "invalidation_rate": 1.0,
+                "timeout_rate": 0.0,
+                "interval_hit_rate": 0.0
+              },
+              "T+60": {
+                "count": 4,
+                "label_counts": {
+                  "invalidated": 4
+                },
+                "hit_rate": 0.0,
+                "invalidation_rate": 1.0,
+                "timeout_rate": 0.0,
+                "interval_hit_rate": 0.25
+              }
+            },
+            "recommendation": {
+              "bias": "tighten_risk",
+              "reason_codes": [
+                "t20_hit_rate_low",
+                "t20_invalidation_high"
+              ],
+              "summary": "基于 ask 侧归因样本给训练侧的建议：tighten_risk"
+            },
+            "notes": [
+              "样本数=4",
+              "T+20 hit_rate=0.0",
+              "T+20 invalidation_rate=1.0",
+              "T+20 interval_hit_rate=0.0",
+              "direction_brier=0.193125"
+            ],
+            "scope": {
+              "requested_regime": "bull",
+              "effective_scope": "regime",
+              "overall_sample_count": 12,
+              "regime_sample_count": 4,
+              "covered_regimes": [
+                "bull",
+                "oscillation"
+              ]
+            },
+            "overall_feedback": {
+              "generated_at": "2026-03-15T01:23:42.158854",
+              "subject": {
+                "model_name": "momentum",
+                "config_name": "momentum_v1",
+                "as_of_date": "20230409"
+              },
+              "matched_case_count": 12,
+              "sample_count": 12,
+              "brier_like_direction_score": 0.310802,
+              "invalidation_timeliness": {
+                "sample_count": 12,
+                "avg_first_invalidation_horizon": 21.25
+              },
+              "scenario_hit_distribution": {
+                "base": 1,
+                "bear": 5,
+                "bull": 6
+              },
+              "horizons": {
+                "T+5": {
+                  "count": 12,
+                  "label_counts": {
+                    "hit": 7,
+                    "not_triggered": 1,
+                    "invalidated": 3,
+                    "miss": 1
+                  },
+                  "hit_rate": 0.5833,
+                  "invalidation_rate": 0.25,
+                  "timeout_rate": 0.0,
+                  "interval_hit_rate": 0.1667
+                },
+                "T+10": {
+                  "count": 12,
+                  "label_counts": {
+                    "hit": 3,
+                    "not_triggered": 1,
+                    "miss": 3,
+                    "invalidated": 5
+                  },
+                  "hit_rate": 0.25,
+                  "invalidation_rate": 0.4167,
+                  "timeout_rate": 0.0,
+                  "interval_hit_rate": 0.1667
+                },
+                "T+20": {
+                  "count": 12,
+                  "label_counts": {
+                    "invalidated": 10,
+                    "hit": 2
+                  },
+                  "hit_rate": 0.1667,
+                  "invalidation_rate": 0.8333,
+                  "timeout_rate": 0.0,
+                  "interval_hit_rate": 0.0833
+                },
+                "T+60": {
+                  "count": 12,
+                  "label_counts": {
+                    "invalidated": 12
+                  },
+                  "hit_rate": 0.0,
+                  "invalidation_rate": 1.0,
+                  "timeout_rate": 0.0,
+                  "interval_hit_rate": 0.1667
+                }
+              },
+              "recommendation": {
+                "bias": "tighten_risk",
+                "reason_codes": [
+                  "t20_hit_rate_low",
+                  "t20_invalidation_high"
+                ],
+                "summary": "基于 ask 侧归因样本给训练侧的建议：tighten_risk"
+              },
+              "notes": [
+                "样本数=12",
+                "T+20 hit_rate=0.1667",
+                "T+20 invalidation_rate=0.8333",
+                "T+20 interval_hit_rate=0.0833",
+                "direction_brier=0.310802"
+              ]
+            },
+            "requested_regime_feedback": {
+              "generated_at": "2026-03-15T01:23:42.158890",
+              "subject": {
+                "model_name": "momentum",
+                "config_name": "momentum_v1",
+                "as_of_date": "20230409",
+                "regime": "bull"
+              },
+              "matched_case_count": 4,
+              "sample_count": 4,
+              "brier_like_direction_score": 0.193125,
+              "invalidation_timeliness": {
+                "sample_count": 4,
+                "avg_first_invalidation_horizon": 20.0
+              },
+              "scenario_hit_distribution": {
+                "bear": 3,
+                "bull": 1
+              },
+              "horizons": {
+                "T+5": {
+                  "count": 4,
+                  "label_counts": {
+                    "hit": 4
+                  },
+                  "hit_rate": 1.0,
+                  "invalidation_rate": 0.0,
+                  "timeout_rate": 0.0,
+                  "interval_hit_rate": 0.0
+                },
+                "T+10": {
+                  "count": 4,
+                  "label_counts": {
+                    "hit": 2,
+                    "miss": 2
+                  },
+                  "hit_rate": 0.5,
+                  "invalidation_rate": 0.0,
+                  "timeout_rate": 0.0,
+                  "interval_hit_rate": 0.5
+                },
+                "T+20": {
+                  "count": 4,
+                  "label_counts": {
+                    "invalidated": 4
+                  },
+                  "hit_rate": 0.0,
+                  "invalidation_rate": 1.0,
+                  "timeout_rate": 0.0,
+                  "interval_hit_rate": 0.0
+                },
+                "T+60": {
+                  "count": 4,
+                  "label_counts": {
+                    "invalidated": 4
+                  },
+                  "hit_rate": 0.0,
+                  "invalidation_rate": 1.0,
+                  "timeout_rate": 0.0,
+                  "interval_hit_rate": 0.25
+                }
+              },
+              "recommendation": {
+                "bias": "tighten_risk",
+                "reason_codes": [
+                  "t20_hit_rate_low",
+                  "t20_invalidation_high"
+                ],
+                "summary": "基于 ask 侧归因样本给训练侧的建议：tighten_risk"
+              },
+              "notes": [
+                "样本数=4",
+                "T+20 hit_rate=0.0",
+                "T+20 invalidation_rate=1.0",
+                "T+20 interval_hit_rate=0.0",
+                "direction_brier=0.193125"
+              ]
+            },
+            "regime_breakdown": {
+              "bull": {
+                "generated_at": "2026-03-15T01:23:42.158890",
+                "subject": {
+                  "model_name": "momentum",
+                  "config_name": "momentum_v1",
+                  "as_of_date": "20230409",
+                  "regime": "bull"
+                },
+                "matched_case_count": 4,
+                "sample_count": 4,
+                "brier_like_direction_score": 0.193125,
+                "invalidation_timeliness": {
+                  "sample_count": 4,
+                  "avg_first_invalidation_horizon": 20.0
+                },
+                "scenario_hit_distribution": {
+                  "bear": 3,
+                  "bull": 1
+                },
+                "horizons": {
+                  "T+5": {
+                    "count": 4,
+                    "label_counts": {
+                      "hit": 4
+                    },
+                    "hit_rate": 1.0,
+                    "invalidation_rate": 0.0,
+                    "timeout_rate": 0.0,
+                    "interval_hit_rate": 0.0
+                  },
+                  "T+10": {
+                    "count": 4,
+                    "label_counts": {
+                      "hit": 2,
+                      "miss": 2
+                    },
+                    "hit_rate": 0.5,
+                    "invalidation_rate": 0.0,
+                    "timeout_rate": 0.0,
+                    "interval_hit_rate": 0.5
+                  },
+                  "T+20": {
+                    "count": 4,
+                    "label_counts": {
+                      "invalidated": 4
+                    },
+                    "hit_rate": 0.0,
+                    "invalidation_rate": 1.0,
+                    "timeout_rate": 0.0,
+                    "interval_hit_rate": 0.0
+                  },
+                  "T+60": {
+                    "count": 4,
+                    "label_counts": {
+                      "invalidated": 4
+                    },
+                    "hit_rate": 0.0,
+                    "invalidation_rate": 1.0,
+                    "timeout_rate": 0.0,
+                    "interval_hit_rate": 0.25
+                  }
+                },
+                "recommendation": {
+                  "bias": "tighten_risk",
+                  "reason_codes": [
+                    "t20_hit_rate_low",
+                    "t20_invalidation_high"
+                  ],
+                  "summary": "基于 ask 侧归因样本给训练侧的建议：tighten_risk"
+                },
+                "notes": [
+                  "样本数=4",
+                  "T+20 hit_rate=0.0",
+                  "T+20 invalidation_rate=1.0",
+                  "T+20 interval_hit_rate=0.0",
+                  "direction_brier=0.193125"
+                ]
+              },
+              "oscillation": {
+                "generated_at": "2026-03-15T01:23:42.158933",
+                "subject": {
+                  "model_name": "momentum",
+                  "config_name": "momentum_v1",
+                  "as_of_date": "20230409",
+                  "regime": "oscillation"
+                },
+                "matched_case_count": 8,
+                "sample_count": 8,
+                "brier_like_direction_score": 0.36964,
+                "invalidation_timeliness": {
+                  "sample_count": 8,
+                  "avg_first_invalidation_horizon": 21.875
+                },
+                "scenario_hit_distribution": {
+                  "base": 1,
+                  "bear": 2,
+                  "bull": 5
+                },
+                "horizons": {
+                  "T+5": {
+                    "count": 8,
+                    "label_counts": {
+                      "hit": 3,
+                      "not_triggered": 1,
+                      "invalidated": 3,
+                      "miss": 1
+                    },
+                    "hit_rate": 0.375,
+                    "invalidation_rate": 0.375,
+                    "timeout_rate": 0.0,
+                    "interval_hit_rate": 0.25
+                  },
+                  "T+10": {
+                    "count": 8,
+                    "label_counts": {
+                      "hit": 1,
+                      "not_triggered": 1,
+                      "invalidated": 5,
+                      "miss": 1
+                    },
+                    "hit_rate": 0.125,
+                    "invalidation_rate": 0.625,
+                    "timeout_rate": 0.0,
+                    "interval_hit_rate": 0.0
+                  },
+                  "T+20": {
+                    "count": 8,
+                    "label_counts": {
+                      "hit": 2,
+                      "invalidated": 6
+                    },
+                    "hit_rate": 0.25,
+                    "invalidation_rate": 0.75,
+                    "timeout_rate": 0.0,
+                    "interval_hit_rate": 0.125
+                  },
+                  "T+60": {
+                    "count": 8,
+                    "label_counts": {
+                      "invalidated": 8
+                    },
+                    "hit_rate": 0.0,
+                    "invalidation_rate": 1.0,
+                    "timeout_rate": 0.0,
+                    "interval_hit_rate": 0.125
+                  }
+                },
+                "recommendation": {
+                  "bias": "tighten_risk",
+                  "reason_codes": [
+                    "t20_hit_rate_low",
+                    "t20_invalidation_high"
+                  ],
+                  "summary": "基于 ask 侧归因样本给训练侧的建议：tighten_risk"
+                },
+                "notes": [
+                  "样本数=8",
+                  "T+20 hit_rate=0.25",
+                  "T+20 invalidation_rate=0.75",
+                  "T+20 interval_hit_rate=0.125",
+                  "direction_brier=0.36964"
+                ]
+              }
+            }
+          }
+        },
+        "research_feedback": {
+          "schema_version": "research.training_feedback.v1",
+          "generated_at": "2026-03-15T01:23:42.158890",
+          "subject": {
+            "model_name": "momentum",
+            "config_name": "momentum_v1",
+            "as_of_date": "20230409",
+            "regime": "bull"
+          },
+          "matched_case_count": 4,
+          "sample_count": 4,
+          "brier_like_direction_score": 0.193125,
+          "invalidation_timeliness": {
+            "sample_count": 4,
+            "avg_first_invalidation_horizon": 20.0
+          },
+          "scenario_hit_distribution": {
+            "bear": 3,
+            "bull": 1
+          },
+          "horizons": {
+            "T+5": {
+              "count": 4,
+              "label_counts": {
+                "hit": 4
+              },
+              "hit_rate": 1.0,
+              "invalidation_rate": 0.0,
+              "timeout_rate": 0.0,
+              "interval_hit_rate": 0.0
+            },
+            "T+10": {
+              "count": 4,
+              "label_counts": {
+                "hit": 2,
+                "miss": 2
+              },
+              "hit_rate": 0.5,
+              "invalidation_rate": 0.0,
+              "timeout_rate": 0.0,
+              "interval_hit_rate": 0.5
+            },
+            "T+20": {
+              "count": 4,
+              "label_counts": {
+                "invalidated": 4
+              },
+              "hit_rate": 0.0,
+              "invalidation_rate": 1.0,
+              "timeout_rate": 0.0,
+              "interval_hit_rate": 0.0
+            },
+            "T+60": {
+              "count": 4,
+              "label_counts": {
+                "invalidated": 4
+              },
+              "hit_rate": 0.0,
+              "invalidation_rate": 1.0,
+              "timeout_rate": 0.0,
+              "interval_hit_rate": 0.25
+            }
+          },
+          "recommendation": {
+            "bias": "tighten_risk",
+            "reason_codes": [
+              "t20_hit_rate_low",
+              "t20_invalidation_high"
+            ],
+            "summary": "基于 ask 侧归因样本给训练侧的建议：tighten_risk"
+          },
+          "notes": [
+            "样本数=4",
+            "T+20 hit_rate=0.0",
+            "T+20 invalidation_rate=1.0",
+            "T+20 interval_hit_rate=0.0",
+            "direction_brier=0.193125"
+          ],
+          "scope": {
+            "requested_regime": "bull",
+            "effective_scope": "regime",
+            "overall_sample_count": 12,
+            "regime_sample_count": 4,
+            "covered_regimes": [
+              "bull",
+              "oscillation"
+            ]
+          },
+          "overall_feedback": {
+            "generated_at": "2026-03-15T01:23:42.158854",
+            "subject": {
+              "model_name": "momentum",
+              "config_name": "momentum_v1",
+              "as_of_date": "20230409"
+            },
+            "matched_case_count": 12,
+            "sample_count": 12,
+            "brier_like_direction_score": 0.310802,
+            "invalidation_timeliness": {
+              "sample_count": 12,
+              "avg_first_invalidation_horizon": 21.25
+            },
+            "scenario_hit_distribution": {
+              "base": 1,
+              "bear": 5,
+              "bull": 6
+            },
+            "horizons": {
+              "T+5": {
+                "count": 12,
+                "label_counts": {
+                  "hit": 7,
+                  "not_triggered": 1,
+                  "invalidated": 3,
+                  "miss": 1
+                },
+                "hit_rate": 0.5833,
+                "invalidation_rate": 0.25,
+                "timeout_rate": 0.0,
+                "interval_hit_rate": 0.1667
+              },
+              "T+10": {
+                "count": 12,
+                "label_counts": {
+                  "hit": 3,
+                  "not_triggered": 1,
+                  "miss": 3,
+                  "invalidated": 5
+                },
+                "hit_rate": 0.25,
+                "invalidation_rate": 0.4167,
+                "timeout_rate": 0.0,
+                "interval_hit_rate": 0.1667
+              },
+              "T+20": {
+                "count": 12,
+                "label_counts": {
+                  "invalidated": 10,
+                  "hit": 2
+                },
+                "hit_rate": 0.1667,
+                "invalidation_rate": 0.8333,
+                "timeout_rate": 0.0,
+                "interval_hit_rate": 0.0833
+              },
+              "T+60": {
+                "count": 12,
+                "label_counts": {
+                  "invalidated": 12
+                },
+                "hit_rate": 0.0,
+                "invalidation_rate": 1.0,
+                "timeout_rate": 0.0,
+                "interval_hit_rate": 0.1667
+              }
+            },
+            "recommendation": {
+              "bias": "tighten_risk",
+              "reason_codes": [
+                "t20_hit_rate_low",
+                "t20_invalidation_high"
+              ],
+              "summary": "基于 ask 侧归因样本给训练侧的建议：tighten_risk"
+            },
+            "notes": [
+              "样本数=12",
+              "T+20 hit_rate=0.1667",
+              "T+20 invalidation_rate=0.8333",
+              "T+20 interval_hit_rate=0.0833",
+              "direction_brier=0.310802"
+            ]
+          },
+          "requested_regime_feedback": {
+            "generated_at": "2026-03-15T01:23:42.158890",
+            "subject": {
+              "model_name": "momentum",
+              "config_name": "momentum_v1",
+              "as_of_date": "20230409",
+              "regime": "bull"
+            },
+            "matched_case_count": 4,
+            "sample_count": 4,
+            "brier_like_direction_score": 0.193125,
+            "invalidation_timeliness": {
+              "sample_count": 4,
+              "avg_first_invalidation_horizon": 20.0
+            },
+            "scenario_hit_distribution": {
+              "bear": 3,
+              "bull": 1
+            },
+            "horizons": {
+              "T+5": {
+                "count": 4,
+                "label_counts": {
+                  "hit": 4
+                },
+                "hit_rate": 1.0,
+                "invalidation_rate": 0.0,
+                "timeout_rate": 0.0,
+                "interval_hit_rate": 0.0
+              },
+              "T+10": {
+                "count": 4,
+                "label_counts": {
+                  "hit": 2,
+                  "miss": 2
+                },
+                "hit_rate": 0.5,
+                "invalidation_rate": 0.0,
+                "timeout_rate": 0.0,
+                "interval_hit_rate": 0.5
+              },
+              "T+20": {
+                "count": 4,
+                "label_counts": {
+                  "invalidated": 4
+                },
+                "hit_rate": 0.0,
+                "invalidation_rate": 1.0,
+                "timeout_rate": 0.0,
+                "interval_hit_rate": 0.0
+              },
+              "T+60": {
+                "count": 4,
+                "label_counts": {
+                  "invalidated": 4
+                },
+                "hit_rate": 0.0,
+                "invalidation_rate": 1.0,
+                "timeout_rate": 0.0,
+                "interval_hit_rate": 0.25
+              }
+            },
+            "recommendation": {
+              "bias": "tighten_risk",
+              "reason_codes": [
+                "t20_hit_rate_low",
+                "t20_invalidation_high"
+              ],
+              "summary": "基于 ask 侧归因样本给训练侧的建议：tighten_risk"
+            },
+            "notes": [
+              "样本数=4",
+              "T+20 hit_rate=0.0",
+              "T+20 invalidation_rate=1.0",
+              "T+20 interval_hit_rate=0.0",
+              "direction_brier=0.193125"
+            ]
+          },
+          "regime_breakdown": {
+            "bull": {
+              "generated_at": "2026-03-15T01:23:42.158890",
+              "subject": {
+                "model_name": "momentum",
+                "config_name": "momentum_v1",
+                "as_of_date": "20230409",
+                "regime": "bull"
+              },
+              "matched_case_count": 4,
+              "sample_count": 4,
+              "brier_like_direction_score": 0.193125,
+              "invalidation_timeliness": {
+                "sample_count": 4,
+                "avg_first_invalidation_horizon": 20.0
+              },
+              "scenario_hit_distribution": {
+                "bear": 3,
+                "bull": 1
+              },
+              "horizons": {
+                "T+5": {
+                  "count": 4,
+                  "label_counts": {
+                    "hit": 4
+                  },
+                  "hit_rate": 1.0,
+                  "invalidation_rate": 0.0,
+                  "timeout_rate": 0.0,
+                  "interval_hit_rate": 0.0
+                },
+                "T+10": {
+                  "count": 4,
+                  "label_counts": {
+                    "hit": 2,
+                    "miss": 2
+                  },
+                  "hit_rate": 0.5,
+                  "invalidation_rate": 0.0,
+                  "timeout_rate": 0.0,
+                  "interval_hit_rate": 0.5
+                },
+                "T+20": {
+                  "count": 4,
+                  "label_counts": {
+                    "invalidated": 4
+                  },
+                  "hit_rate": 0.0,
+                  "invalidation_rate": 1.0,
+                  "timeout_rate": 0.0,
+                  "interval_hit_rate": 0.0
+                },
+                "T+60": {
+                  "count": 4,
+                  "label_counts": {
+                    "invalidated": 4
+                  },
+                  "hit_rate": 0.0,
+                  "invalidation_rate": 1.0,
+                  "timeout_rate": 0.0,
+                  "interval_hit_rate": 0.25
+                }
+              },
+              "recommendation": {
+                "bias": "tighten_risk",
+                "reason_codes": [
+                  "t20_hit_rate_low",
+                  "t20_invalidation_high"
+                ],
+                "summary": "基于 ask 侧归因样本给训练侧的建议：tighten_risk"
+              },
+              "notes": [
+                "样本数=4",
+                "T+20 hit_rate=0.0",
+                "T+20 invalidation_rate=1.0",
+                "T+20 interval_hit_rate=0.0",
+                "direction_brier=0.193125"
+              ]
+            },
+            "oscillation": {
+              "generated_at": "2026-03-15T01:23:42.158933",
+              "subject": {
+                "model_name": "momentum",
+                "config_name": "momentum_v1",
+                "as_of_date": "20230409",
+                "regime": "oscillation"
+              },
+              "matched_case_count": 8,
+              "sample_count": 8,
+              "brier_like_direction_score": 0.36964,
+              "invalidation_timeliness": {
+                "sample_count": 8,
+                "avg_first_invalidation_horizon": 21.875
+              },
+              "scenario_hit_distribution": {
+                "base": 1,
+                "bear": 2,
+                "bull": 5
+              },
+              "horizons": {
+                "T+5": {
+                  "count": 8,
+                  "label_counts": {
+                    "hit": 3,
+                    "not_triggered": 1,
+                    "invalidated": 3,
+                    "miss": 1
+                  },
+                  "hit_rate": 0.375,
+                  "invalidation_rate": 0.375,
+                  "timeout_rate": 0.0,
+                  "interval_hit_rate": 0.25
+                },
+                "T+10": {
+                  "count": 8,
+                  "label_counts": {
+                    "hit": 1,
+                    "not_triggered": 1,
+                    "invalidated": 5,
+                    "miss": 1
+                  },
+                  "hit_rate": 0.125,
+                  "invalidation_rate": 0.625,
+                  "timeout_rate": 0.0,
+                  "interval_hit_rate": 0.0
+                },
+                "T+20": {
+                  "count": 8,
+                  "label_counts": {
+                    "hit": 2,
+                    "invalidated": 6
+                  },
+                  "hit_rate": 0.25,
+                  "invalidation_rate": 0.75,
+                  "timeout_rate": 0.0,
+                  "interval_hit_rate": 0.125
+                },
+                "T+60": {
+                  "count": 8,
+                  "label_counts": {
+                    "invalidated": 8
+                  },
+                  "hit_rate": 0.0,
+                  "invalidation_rate": 1.0,
+                  "timeout_rate": 0.0,
+                  "interval_hit_rate": 0.125
+                }
+              },
+              "recommendation": {
+                "bias": "tighten_risk",
+                "reason_codes": [
+                  "t20_hit_rate_low",
+                  "t20_invalidation_high"
+                ],
+                "summary": "基于 ask 侧归因样本给训练侧的建议：tighten_risk"
+              },
+              "notes": [
+                "样本数=8",
+                "T+20 hit_rate=0.25",
+                "T+20 invalidation_rate=0.75",
+                "T+20 interval_hit_rate=0.125",
+                "direction_brier=0.36964"
+              ]
+            }
+          }
+        },
+        "llm_used": false,
+        "similarity_score": 11,
+        "matched_features": [
+          "regime",
+          "selection_mode",
+          "plan_source",
+          "model_name"
+        ]
+      },
+      {
+        "cycle_id": 8,
+        "as_of_date": "20221127",
+        "return_pct": -3.846443711625383,
+        "is_profit": false,
+        "selection_mode": "meeting",
+        "plan_source": "meeting",
+        "benchmark_passed": false,
+        "review_applied": true,
+        "regime": "bull",
+        "metadata": {
+          "model_name": "momentum",
+          "config_name": "/Users/zhangsan/Desktop/投资进化系统v1.0/invest/models/configs/momentum_v1.yaml",
+          "research_feedback": {
+            "schema_version": "research.training_feedback.v1",
+            "generated_at": "2026-03-15T01:23:34.413263",
+            "subject": {
+              "model_name": "momentum",
+              "config_name": "momentum_v1",
+              "as_of_date": "20221127",
+              "regime": "bull"
+            },
+            "matched_case_count": 4,
+            "sample_count": 4,
+            "brier_like_direction_score": 0.193125,
+            "invalidation_timeliness": {
+              "sample_count": 4,
+              "avg_first_invalidation_horizon": 20.0
+            },
+            "scenario_hit_distribution": {
+              "bear": 3,
+              "bull": 1
+            },
+            "horizons": {
+              "T+5": {
+                "count": 4,
+                "label_counts": {
+                  "hit": 4
+                },
+                "hit_rate": 1.0,
+                "invalidation_rate": 0.0,
+                "timeout_rate": 0.0,
+                "interval_hit_rate": 0.0
+              },
+              "T+10": {
+                "count": 4,
+                "label_counts": {
+                  "hit": 2,
+                  "miss": 2
+                },
+                "hit_rate": 0.5,
+                "invalidation_rate": 0.0,
+                "timeout_rate": 0.0,
+                "interval_hit_rate": 0.5
+              },
+              "T+20": {
+                "count": 4,
+                "label_counts": {
+                  "invalidated": 4
+                },
+                "hit_rate": 0.0,
+                "invalidation_rate": 1.0,
+                "timeout_rate": 0.0,
+                "interval_hit_rate": 0.0
+              },
+              "T+60": {
+                "count": 4,
+                "label_counts": {
+                  "invalidated": 4
+                },
+                "hit_rate": 0.0,
+                "invalidation_rate": 1.0,
+                "timeout_rate": 0.0,
+                "interval_hit_rate": 0.25
+              }
+            },
+            "recommendation": {
+              "bias": "tighten_risk",
+              "reason_codes": [
+                "t20_hit_rate_low",
+                "t20_invalidation_high"
+              ],
+              "summary": "基于 ask 侧归因样本给训练侧的建议：tighten_risk"
+            },
+            "notes": [
+              "样本数=4",
+              "T+20 hit_rate=0.0",
+              "T+20 invalidation_rate=1.0",
+              "T+20 interval_hit_rate=0.0",
+              "direction_brier=0.193125"
+            ],
+            "scope": {
+              "requested_regime": "bull",
+              "effective_scope": "regime",
+              "overall_sample_count": 8,
+              "regime_sample_count": 4,
+              "covered_regimes": [
+                "bull",
+                "oscillation"
+              ]
+            },
+            "overall_feedback": {
+              "generated_at": "2026-03-15T01:23:34.413229",
+              "subject": {
+                "model_name": "momentum",
+                "config_name": "momentum_v1",
+                "as_of_date": "20221127"
+              },
+              "matched_case_count": 8,
+              "sample_count": 8,
+              "brier_like_direction_score": 0.280625,
+              "invalidation_timeliness": {
+                "sample_count": 8,
+                "avg_first_invalidation_horizon": 15.625
+              },
+              "scenario_hit_distribution": {
+                "bear": 5,
+                "bull": 3
+              },
+              "horizons": {
+                "T+5": {
+                  "count": 8,
+                  "label_counts": {
+                    "hit": 6,
+                    "invalidated": 1,
+                    "miss": 1
+                  },
+                  "hit_rate": 0.75,
+                  "invalidation_rate": 0.125,
+                  "timeout_rate": 0.0,
+                  "interval_hit_rate": 0.0
+                },
+                "T+10": {
+                  "count": 8,
+                  "label_counts": {
+                    "hit": 2,
+                    "miss": 3,
+                    "invalidated": 3
+                  },
+                  "hit_rate": 0.25,
+                  "invalidation_rate": 0.375,
+                  "timeout_rate": 0.0,
+                  "interval_hit_rate": 0.25
+                },
+                "T+20": {
+                  "count": 8,
+                  "label_counts": {
+                    "invalidated": 8
+                  },
+                  "hit_rate": 0.0,
+                  "invalidation_rate": 1.0,
+                  "timeout_rate": 0.0,
+                  "interval_hit_rate": 0.0
+                },
+                "T+60": {
+                  "count": 8,
+                  "label_counts": {
+                    "invalidated": 8
+                  },
+                  "hit_rate": 0.0,
+                  "invalidation_rate": 1.0,
+                  "timeout_rate": 0.0,
+                  "interval_hit_rate": 0.125
+                }
+              },
+              "recommendation": {
+                "bias": "tighten_risk",
+                "reason_codes": [
+                  "t20_hit_rate_low",
+                  "t20_invalidation_high"
+                ],
+                "summary": "基于 ask 侧归因样本给训练侧的建议：tighten_risk"
+              },
+              "notes": [
+                "样本数=8",
+                "T+20 hit_rate=0.0",
+                "T+20 invalidation_rate=1.0",
+                "T+20 interval_hit_rate=0.0",
+                "direction_brier=0.280625"
+              ]
+            },
+            "requested_regime_feedback": {
+              "generated_at": "2026-03-15T01:23:34.413263",
+              "subject": {
+                "model_name": "momentum",
+                "config_name": "momentum_v1",
+                "as_of_date": "20221127",
+                "regime": "bull"
+              },
+              "matched_case_count": 4,
+              "sample_count": 4,
+              "brier_like_direction_score": 0.193125,
+              "invalidation_timeliness": {
+                "sample_count": 4,
+                "avg_first_invalidation_horizon": 20.0
+              },
+              "scenario_hit_distribution": {
+                "bear": 3,
+                "bull": 1
+              },
+              "horizons": {
+                "T+5": {
+                  "count": 4,
+                  "label_counts": {
+                    "hit": 4
+                  },
+                  "hit_rate": 1.0,
+                  "invalidation_rate": 0.0,
+                  "timeout_rate": 0.0,
+                  "interval_hit_rate": 0.0
+                },
+                "T+10": {
+                  "count": 4,
+                  "label_counts": {
+                    "hit": 2,
+                    "miss": 2
+                  },
+                  "hit_rate": 0.5,
+                  "invalidation_rate": 0.0,
+                  "timeout_rate": 0.0,
+                  "interval_hit_rate": 0.5
+                },
+                "T+20": {
+                  "count": 4,
+                  "label_counts": {
+                    "invalidated": 4
+                  },
+                  "hit_rate": 0.0,
+                  "invalidation_rate": 1.0,
+                  "timeout_rate": 0.0,
+                  "interval_hit_rate": 0.0
+                },
+                "T+60": {
+                  "count": 4,
+                  "label_counts": {
+                    "invalidated": 4
+                  },
+                  "hit_rate": 0.0,
+                  "invalidation_rate": 1.0,
+                  "timeout_rate": 0.0,
+                  "interval_hit_rate": 0.25
+                }
+              },
+              "recommendation": {
+                "bias": "tighten_risk",
+                "reason_codes": [
+                  "t20_hit_rate_low",
+                  "t20_invalidation_high"
+                ],
+                "summary": "基于 ask 侧归因样本给训练侧的建议：tighten_risk"
+              },
+              "notes": [
+                "样本数=4",
+                "T+20 hit_rate=0.0",
+                "T+20 invalidation_rate=1.0",
+                "T+20 interval_hit_rate=0.0",
+                "direction_brier=0.193125"
+              ]
+            },
+            "regime_breakdown": {
+              "bull": {
+                "generated_at": "2026-03-15T01:23:34.413263",
+                "subject": {
+                  "model_name": "momentum",
+                  "config_name": "momentum_v1",
+                  "as_of_date": "20221127",
+                  "regime": "bull"
+                },
+                "matched_case_count": 4,
+                "sample_count": 4,
+                "brier_like_direction_score": 0.193125,
+                "invalidation_timeliness": {
+                  "sample_count": 4,
+                  "avg_first_invalidation_horizon": 20.0
+                },
+                "scenario_hit_distribution": {
+                  "bear": 3,
+                  "bull": 1
+                },
+                "horizons": {
+                  "T+5": {
+                    "count": 4,
+                    "label_counts": {
+                      "hit": 4
+                    },
+                    "hit_rate": 1.0,
+                    "invalidation_rate": 0.0,
+                    "timeout_rate": 0.0,
+                    "interval_hit_rate": 0.0
+                  },
+                  "T+10": {
+                    "count": 4,
+                    "label_counts": {
+                      "hit": 2,
+                      "miss": 2
+                    },
+                    "hit_rate": 0.5,
+                    "invalidation_rate": 0.0,
+                    "timeout_rate": 0.0,
+                    "interval_hit_rate": 0.5
+                  },
+                  "T+20": {
+                    "count": 4,
+                    "label_counts": {
+                      "invalidated": 4
+                    },
+                    "hit_rate": 0.0,
+                    "invalidation_rate": 1.0,
+                    "timeout_rate": 0.0,
+                    "interval_hit_rate": 0.0
+                  },
+                  "T+60": {
+                    "count": 4,
+                    "label_counts": {
+                      "invalidated": 4
+                    },
+                    "hit_rate": 0.0,
+                    "invalidation_rate": 1.0,
+                    "timeout_rate": 0.0,
+                    "interval_hit_rate": 0.25
+                  }
+                },
+                "recommendation": {
+                  "bias": "tighten_risk",
+                  "reason_codes": [
+                    "t20_hit_rate_low",
+                    "t20_invalidation_high"
+                  ],
+                  "summary": "基于 ask 侧归因样本给训练侧的建议：tighten_risk"
+                },
+                "notes": [
+                  "样本数=4",
+                  "T+20 hit_rate=0.0",
+                  "T+20 invalidation_rate=1.0",
+                  "T+20 interval_hit_rate=0.0",
+                  "direction_brier=0.193125"
+                ]
+              },
+              "oscillation": {
+                "generated_at": "2026-03-15T01:23:34.413289",
+                "subject": {
+                  "model_name": "momentum",
+                  "config_name": "momentum_v1",
+                  "as_of_date": "20221127",
+                  "regime": "oscillation"
+                },
+                "matched_case_count": 4,
+                "sample_count": 4,
+                "brier_like_direction_score": 0.368125,
+                "invalidation_timeliness": {
+                  "sample_count": 4,
+                  "avg_first_invalidation_horizon": 11.25
+                },
+                "scenario_hit_distribution": {
+                  "bear": 2,
+                  "bull": 2
+                },
+                "horizons": {
+                  "T+5": {
+                    "count": 4,
+                    "label_counts": {
+                      "invalidated": 1,
+                      "miss": 1,
+                      "hit": 2
+                    },
+                    "hit_rate": 0.5,
+                    "invalidation_rate": 0.25,
+                    "timeout_rate": 0.0,
+                    "interval_hit_rate": 0.0
+                  },
+                  "T+10": {
+                    "count": 4,
+                    "label_counts": {
+                      "invalidated": 3,
+                      "miss": 1
+                    },
+                    "hit_rate": 0.0,
+                    "invalidation_rate": 0.75,
+                    "timeout_rate": 0.0,
+                    "interval_hit_rate": 0.0
+                  },
+                  "T+20": {
+                    "count": 4,
+                    "label_counts": {
+                      "invalidated": 4
+                    },
+                    "hit_rate": 0.0,
+                    "invalidation_rate": 1.0,
+                    "timeout_rate": 0.0,
+                    "interval_hit_rate": 0.0
+                  },
+                  "T+60": {
+                    "count": 4,
+                    "label_counts": {
+                      "invalidated": 4
+                    },
+                    "hit_rate": 0.0,
+                    "invalidation_rate": 1.0,
+                    "timeout_rate": 0.0,
+                    "interval_hit_rate": 0.0
+                  }
+                },
+                "recommendation": {
+                  "bias": "tighten_risk",
+                  "reason_codes": [
+                    "t20_hit_rate_low",
+                    "t20_invalidation_high"
+                  ],
+                  "summary": "基于 ask 侧归因样本给训练侧的建议：tighten_risk"
+                },
+                "notes": [
+                  "样本数=4",
+                  "T+20 hit_rate=0.0",
+                  "T+20 invalidation_rate=1.0",
+                  "T+20 interval_hit_rate=0.0",
+                  "direction_brier=0.368125"
+                ]
+              }
+            }
+          }
+        },
+        "research_feedback": {
+          "schema_version": "research.training_feedback.v1",
+          "generated_at": "2026-03-15T01:23:34.413263",
+          "subject": {
+            "model_name": "momentum",
+            "config_name": "momentum_v1",
+            "as_of_date": "20221127",
+            "regime": "bull"
+          },
+          "matched_case_count": 4,
+          "sample_count": 4,
+          "brier_like_direction_score": 0.193125,
+          "invalidation_timeliness": {
+            "sample_count": 4,
+            "avg_first_invalidation_horizon": 20.0
+          },
+          "scenario_hit_distribution": {
+            "bear": 3,
+            "bull": 1
+          },
+          "horizons": {
+            "T+5": {
+              "count": 4,
+              "label_counts": {
+                "hit": 4
+              },
+              "hit_rate": 1.0,
+              "invalidation_rate": 0.0,
+              "timeout_rate": 0.0,
+              "interval_hit_rate": 0.0
+            },
+            "T+10": {
+              "count": 4,
+              "label_counts": {
+                "hit": 2,
+                "miss": 2
+              },
+              "hit_rate": 0.5,
+              "invalidation_rate": 0.0,
+              "timeout_rate": 0.0,
+              "interval_hit_rate": 0.5
+            },
+            "T+20": {
+              "count": 4,
+              "label_counts": {
+                "invalidated": 4
+              },
+              "hit_rate": 0.0,
+              "invalidation_rate": 1.0,
+              "timeout_rate": 0.0,
+              "interval_hit_rate": 0.0
+            },
+            "T+60": {
+              "count": 4,
+              "label_counts": {
+                "invalidated": 4
+              },
+              "hit_rate": 0.0,
+              "invalidation_rate": 1.0,
+              "timeout_rate": 0.0,
+              "interval_hit_rate": 0.25
+            }
+          },
+          "recommendation": {
+            "bias": "tighten_risk",
+            "reason_codes": [
+              "t20_hit_rate_low",
+              "t20_invalidation_high"
+            ],
+            "summary": "基于 ask 侧归因样本给训练侧的建议：tighten_risk"
+          },
+          "notes": [
+            "样本数=4",
+            "T+20 hit_rate=0.0",
+            "T+20 invalidation_rate=1.0",
+            "T+20 interval_hit_rate=0.0",
+            "direction_brier=0.193125"
+          ],
+          "scope": {
+            "requested_regime": "bull",
+            "effective_scope": "regime",
+            "overall_sample_count": 8,
+            "regime_sample_count": 4,
+            "covered_regimes": [
+              "bull",
+              "oscillation"
+            ]
+          },
+          "overall_feedback": {
+            "generated_at": "2026-03-15T01:23:34.413229",
+            "subject": {
+              "model_name": "momentum",
+              "config_name": "momentum_v1",
+              "as_of_date": "20221127"
+            },
+            "matched_case_count": 8,
+            "sample_count": 8,
+            "brier_like_direction_score": 0.280625,
+            "invalidation_timeliness": {
+              "sample_count": 8,
+              "avg_first_invalidation_horizon": 15.625
+            },
+            "scenario_hit_distribution": {
+              "bear": 5,
+              "bull": 3
+            },
+            "horizons": {
+              "T+5": {
+                "count": 8,
+                "label_counts": {
+                  "hit": 6,
+                  "invalidated": 1,
+                  "miss": 1
+                },
+                "hit_rate": 0.75,
+                "invalidation_rate": 0.125,
+                "timeout_rate": 0.0,
+                "interval_hit_rate": 0.0
+              },
+              "T+10": {
+                "count": 8,
+                "label_counts": {
+                  "hit": 2,
+                  "miss": 3,
+                  "invalidated": 3
+                },
+                "hit_rate": 0.25,
+                "invalidation_rate": 0.375,
+                "timeout_rate": 0.0,
+                "interval_hit_rate": 0.25
+              },
+              "T+20": {
+                "count": 8,
+                "label_counts": {
+                  "invalidated": 8
+                },
+                "hit_rate": 0.0,
+                "invalidation_rate": 1.0,
+                "timeout_rate": 0.0,
+                "interval_hit_rate": 0.0
+              },
+              "T+60": {
+                "count": 8,
+                "label_counts": {
+                  "invalidated": 8
+                },
+                "hit_rate": 0.0,
+                "invalidation_rate": 1.0,
+                "timeout_rate": 0.0,
+                "interval_hit_rate": 0.125
+              }
+            },
+            "recommendation": {
+              "bias": "tighten_risk",
+              "reason_codes": [
+                "t20_hit_rate_low",
+                "t20_invalidation_high"
+              ],
+              "summary": "基于 ask 侧归因样本给训练侧的建议：tighten_risk"
+            },
+            "notes": [
+              "样本数=8",
+              "T+20 hit_rate=0.0",
+              "T+20 invalidation_rate=1.0",
+              "T+20 interval_hit_rate=0.0",
+              "direction_brier=0.280625"
+            ]
+          },
+          "requested_regime_feedback": {
+            "generated_at": "2026-03-15T01:23:34.413263",
+            "subject": {
+              "model_name": "momentum",
+              "config_name": "momentum_v1",
+              "as_of_date": "20221127",
+              "regime": "bull"
+            },
+            "matched_case_count": 4,
+            "sample_count": 4,
+            "brier_like_direction_score": 0.193125,
+            "invalidation_timeliness": {
+              "sample_count": 4,
+              "avg_first_invalidation_horizon": 20.0
+            },
+            "scenario_hit_distribution": {
+              "bear": 3,
+              "bull": 1
+            },
+            "horizons": {
+              "T+5": {
+                "count": 4,
+                "label_counts": {
+                  "hit": 4
+                },
+                "hit_rate": 1.0,
+                "invalidation_rate": 0.0,
+                "timeout_rate": 0.0,
+                "interval_hit_rate": 0.0
+              },
+              "T+10": {
+                "count": 4,
+                "label_counts": {
+                  "hit": 2,
+                  "miss": 2
+                },
+                "hit_rate": 0.5,
+                "invalidation_rate": 0.0,
+                "timeout_rate": 0.0,
+                "interval_hit_rate": 0.5
+              },
+              "T+20": {
+                "count": 4,
+                "label_counts": {
+                  "invalidated": 4
+                },
+                "hit_rate": 0.0,
+                "invalidation_rate": 1.0,
+                "timeout_rate": 0.0,
+                "interval_hit_rate": 0.0
+              },
+              "T+60": {
+                "count": 4,
+                "label_counts": {
+                  "invalidated": 4
+                },
+                "hit_rate": 0.0,
+                "invalidation_rate": 1.0,
+                "timeout_rate": 0.0,
+                "interval_hit_rate": 0.25
+              }
+            },
+            "recommendation": {
+              "bias": "tighten_risk",
+              "reason_codes": [
+                "t20_hit_rate_low",
+                "t20_invalidation_high"
+              ],
+              "summary": "基于 ask 侧归因样本给训练侧的建议：tighten_risk"
+            },
+            "notes": [
+              "样本数=4",
+              "T+20 hit_rate=0.0",
+              "T+20 invalidation_rate=1.0",
+              "T+20 interval_hit_rate=0.0",
+              "direction_brier=0.193125"
+            ]
+          },
+          "regime_breakdown": {
+            "bull": {
+              "generated_at": "2026-03-15T01:23:34.413263",
+              "subject": {
+                "model_name": "momentum",
+                "config_name": "momentum_v1",
+                "as_of_date": "20221127",
+                "regime": "bull"
+              },
+              "matched_case_count": 4,
+              "sample_count": 4,
+              "brier_like_direction_score": 0.193125,
+              "invalidation_timeliness": {
+                "sample_count": 4,
+                "avg_first_invalidation_horizon": 20.0
+              },
+              "scenario_hit_distribution": {
+                "bear": 3,
+                "bull": 1
+              },
+              "horizons": {
+                "T+5": {
+                  "count": 4,
+                  "label_counts": {
+                    "hit": 4
+                  },
+                  "hit_rate": 1.0,
+                  "invalidation_rate": 0.0,
+                  "timeout_rate": 0.0,
+                  "interval_hit_rate": 0.0
+                },
+                "T+10": {
+                  "count": 4,
+                  "label_counts": {
+                    "hit": 2,
+                    "miss": 2
+                  },
+                  "hit_rate": 0.5,
+                  "invalidation_rate": 0.0,
+                  "timeout_rate": 0.0,
+                  "interval_hit_rate": 0.5
+                },
+                "T+20": {
+                  "count": 4,
+                  "label_counts": {
+                    "invalidated": 4
+                  },
+                  "hit_rate": 0.0,
+                  "invalidation_rate": 1.0,
+                  "timeout_rate": 0.0,
+                  "interval_hit_rate": 0.0
+                },
+                "T+60": {
+                  "count": 4,
+                  "label_counts": {
+                    "invalidated": 4
+                  },
+                  "hit_rate": 0.0,
+                  "invalidation_rate": 1.0,
+                  "timeout_rate": 0.0,
+                  "interval_hit_rate": 0.25
+                }
+              },
+              "recommendation": {
+                "bias": "tighten_risk",
+                "reason_codes": [
+                  "t20_hit_rate_low",
+                  "t20_invalidation_high"
+                ],
+                "summary": "基于 ask 侧归因样本给训练侧的建议：tighten_risk"
+              },
+              "notes": [
+                "样本数=4",
+                "T+20 hit_rate=0.0",
+                "T+20 invalidation_rate=1.0",
+                "T+20 interval_hit_rate=0.0",
+                "direction_brier=0.193125"
+              ]
+            },
+            "oscillation": {
+              "generated_at": "2026-03-15T01:23:34.413289",
+              "subject": {
+                "model_name": "momentum",
+                "config_name": "momentum_v1",
+                "as_of_date": "20221127",
+                "regime": "oscillation"
+              },
+              "matched_case_count": 4,
+              "sample_count": 4,
+              "brier_like_direction_score": 0.368125,
+              "invalidation_timeliness": {
+                "sample_count": 4,
+                "avg_first_invalidation_horizon": 11.25
+              },
+              "scenario_hit_distribution": {
+                "bear": 2,
+                "bull": 2
+              },
+              "horizons": {
+                "T+5": {
+                  "count": 4,
+                  "label_counts": {
+                    "invalidated": 1,
+                    "miss": 1,
+                    "hit": 2
+                  },
+                  "hit_rate": 0.5,
+                  "invalidation_rate": 0.25,
+                  "timeout_rate": 0.0,
+                  "interval_hit_rate": 0.0
+                },
+                "T+10": {
+                  "count": 4,
+                  "label_counts": {
+                    "invalidated": 3,
+                    "miss": 1
+                  },
+                  "hit_rate": 0.0,
+                  "invalidation_rate": 0.75,
+                  "timeout_rate": 0.0,
+                  "interval_hit_rate": 0.0
+                },
+                "T+20": {
+                  "count": 4,
+                  "label_counts": {
+                    "invalidated": 4
+                  },
+                  "hit_rate": 0.0,
+                  "invalidation_rate": 1.0,
+                  "timeout_rate": 0.0,
+                  "interval_hit_rate": 0.0
+                },
+                "T+60": {
+                  "count": 4,
+                  "label_counts": {
+                    "invalidated": 4
+                  },
+                  "hit_rate": 0.0,
+                  "invalidation_rate": 1.0,
+                  "timeout_rate": 0.0,
+                  "interval_hit_rate": 0.0
+                }
+              },
+              "recommendation": {
+                "bias": "tighten_risk",
+                "reason_codes": [
+                  "t20_hit_rate_low",
+                  "t20_invalidation_high"
+                ],
+                "summary": "基于 ask 侧归因样本给训练侧的建议：tighten_risk"
+              },
+              "notes": [
+                "样本数=4",
+                "T+20 hit_rate=0.0",
+                "T+20 invalidation_rate=1.0",
+                "T+20 interval_hit_rate=0.0",
+                "direction_brier=0.368125"
+              ]
+            }
+          }
+        },
+        "llm_used": false,
+        "similarity_score": 11,
+        "matched_features": [
+          "regime",
+          "selection_mode",
+          "plan_source",
+          "model_name"
+        ]
+      }
+    ],
+    "similarity_summary": {
+      "target_cycle_id": 17,
+      "matched_cycle_ids": [
+        10,
+        9,
+        8
+      ],
+      "match_features": [
+        "regime",
+        "selection_mode",
+        "plan_source",
+        "model_name"
+      ],
+      "dominant_regime": "bull",
+      "compared_history_size": 16
+    },
+    "causal_diagnosis": {
+      "primary_driver": "selection_mode_cluster",
+      "summary": "相似样本集中在同一决策模式，建议先围绕首要驱动逐步收敛参数。",
+      "drivers": [
+        {
+          "code": "selection_mode_cluster",
+          "label": "相似样本集中在同一决策模式",
+          "score": 0.31,
+          "evidence_cycle_ids": [
+            10,
+            9,
+            8
+          ]
+        }
+      ],
+      "evidence": {
+        "matched_cycle_ids": [
+          10,
+          9,
+          8
+        ],
+        "current_cycle_id": 17
+      }
+    },
+    "review_basis_window": {
+      "mode": "single_cycle",
+      "size": 1,
+      "cycle_ids": [
+        17
+      ],
+      "current_cycle_id": 17
+    }
+  },
+  "decision": {
+    "strategy_suggestions": [
+      "先收紧入场条件与风险暴露",
+      "问股校准显示近期命中偏弱，先收紧止损与仓位",
+      "基于 ask 侧归因样本给训练侧的建议：tighten_risk"
+    ],
+    "param_adjustments": {
+      "stop_loss_pct": 0.03,
+      "position_size": 0.15
+    },
+    "agent_weight_adjustments": {
+      "trend_hunter": 0.67,
+      "contrarian": 0.86,
+      "defensive_agent": 0.91
+    },
+    "reasoning": "复盘综合: 方向=conservative",
+    "applied_summary": "最终执行参数：stop_loss_pct=3%，position_size=15%；最终执行权重：trend_hunter=0.67，contrarian=0.86，defensive_agent=0.91",
+    "review_basis_window": {
+      "mode": "single_cycle",
+      "size": 1,
+      "cycle_ids": [
+        17
+      ],
+      "current_cycle_id": 17
+    },
+    "similar_results": [
+      {
+        "cycle_id": 10,
+        "as_of_date": "20181119",
+        "return_pct": -3.631945703688194,
+        "is_profit": false,
+        "selection_mode": "meeting",
+        "plan_source": "meeting",
+        "benchmark_passed": false,
+        "review_applied": true,
+        "regime": "bull",
+        "metadata": {
+          "model_name": "momentum",
+          "config_name": "/Users/zhangsan/Desktop/投资进化系统v1.0/invest/models/configs/momentum_v1.yaml",
+          "research_feedback": {
+            "schema_version": "research.training_feedback.v1",
+            "generated_at": "2026-03-15T01:23:46.923002",
+            "subject": {
+              "model_name": "momentum",
+              "config_name": "momentum_v1",
+              "as_of_date": "20181119",
+              "regime": "bull"
+            },
+            "matched_case_count": 4,
+            "sample_count": 4,
+            "brier_like_direction_score": 0.25,
+            "invalidation_timeliness": {
+              "sample_count": 4,
+              "avg_first_invalidation_horizon": 6.25
+            },
+            "scenario_hit_distribution": {
+              "bear": 1,
+              "bull": 3
+            },
+            "horizons": {
+              "T+5": {
+                "count": 4,
+                "label_counts": {
+                  "invalidated": 3,
+                  "miss": 1
+                },
+                "hit_rate": 0.0,
+                "invalidation_rate": 0.75,
+                "timeout_rate": 0.0,
+                "interval_hit_rate": 0.0
+              },
+              "T+10": {
+                "count": 4,
+                "label_counts": {
+                  "invalidated": 4
+                },
+                "hit_rate": 0.0,
+                "invalidation_rate": 1.0,
+                "timeout_rate": 0.0,
+                "interval_hit_rate": 0.5
+              },
+              "T+20": {
+                "count": 4,
+                "label_counts": {
+                  "invalidated": 4
+                },
+                "hit_rate": 0.0,
+                "invalidation_rate": 1.0,
+                "timeout_rate": 0.0,
+                "interval_hit_rate": 0.0
+              },
+              "T+60": {
+                "count": 4,
+                "label_counts": {
+                  "invalidated": 4
+                },
+                "hit_rate": 0.0,
+                "invalidation_rate": 1.0,
+                "timeout_rate": 0.0,
+                "interval_hit_rate": 0.0
+              }
+            },
+            "recommendation": {
+              "bias": "tighten_risk",
+              "reason_codes": [
+                "t20_hit_rate_low",
+                "t20_invalidation_high"
+              ],
+              "summary": "基于 ask 侧归因样本给训练侧的建议：tighten_risk"
+            },
+            "notes": [
+              "样本数=4",
+              "T+20 hit_rate=0.0",
+              "T+20 invalidation_rate=1.0",
+              "T+20 interval_hit_rate=0.0",
+              "direction_brier=0.25"
+            ],
+            "scope": {
+              "requested_regime": "bull",
+              "effective_scope": "regime",
+              "overall_sample_count": 4,
+              "regime_sample_count": 4,
+              "covered_regimes": [
+                "bull"
+              ]
+            },
+            "overall_feedback": {
+              "generated_at": "2026-03-15T01:23:46.922969",
+              "subject": {
+                "model_name": "momentum",
+                "config_name": "momentum_v1",
+                "as_of_date": "20181119"
+              },
+              "matched_case_count": 4,
+              "sample_count": 4,
+              "brier_like_direction_score": 0.25,
+              "invalidation_timeliness": {
+                "sample_count": 4,
+                "avg_first_invalidation_horizon": 6.25
+              },
+              "scenario_hit_distribution": {
+                "bear": 1,
+                "bull": 3
+              },
+              "horizons": {
+                "T+5": {
+                  "count": 4,
+                  "label_counts": {
+                    "invalidated": 3,
+                    "miss": 1
+                  },
+                  "hit_rate": 0.0,
+                  "invalidation_rate": 0.75,
+                  "timeout_rate": 0.0,
+                  "interval_hit_rate": 0.0
+                },
+                "T+10": {
+                  "count": 4,
+                  "label_counts": {
+                    "invalidated": 4
+                  },
+                  "hit_rate": 0.0,
+                  "invalidation_rate": 1.0,
+                  "timeout_rate": 0.0,
+                  "interval_hit_rate": 0.5
+                },
+                "T+20": {
+                  "count": 4,
+                  "label_counts": {
+                    "invalidated": 4
+                  },
+                  "hit_rate": 0.0,
+                  "invalidation_rate": 1.0,
+                  "timeout_rate": 0.0,
+                  "interval_hit_rate": 0.0
+                },
+                "T+60": {
+                  "count": 4,
+                  "label_counts": {
+                    "invalidated": 4
+                  },
+                  "hit_rate": 0.0,
+                  "invalidation_rate": 1.0,
+                  "timeout_rate": 0.0,
+                  "interval_hit_rate": 0.0
+                }
+              },
+              "recommendation": {
+                "bias": "tighten_risk",
+                "reason_codes": [
+                  "t20_hit_rate_low",
+                  "t20_invalidation_high"
+                ],
+                "summary": "基于 ask 侧归因样本给训练侧的建议：tighten_risk"
+              },
+              "notes": [
+                "样本数=4",
+                "T+20 hit_rate=0.0",
+                "T+20 invalidation_rate=1.0",
+                "T+20 interval_hit_rate=0.0",
+                "direction_brier=0.25"
+              ]
+            },
+            "requested_regime_feedback": {
+              "generated_at": "2026-03-15T01:23:46.923002",
+              "subject": {
+                "model_name": "momentum",
+                "config_name": "momentum_v1",
+                "as_of_date": "20181119",
+                "regime": "bull"
+              },
+              "matched_case_count": 4,
+              "sample_count": 4,
+              "brier_like_direction_score": 0.25,
+              "invalidation_timeliness": {
+                "sample_count": 4,
+                "avg_first_invalidation_horizon": 6.25
+              },
+              "scenario_hit_distribution": {
+                "bear": 1,
+                "bull": 3
+              },
+              "horizons": {
+                "T+5": {
+                  "count": 4,
+                  "label_counts": {
+                    "invalidated": 3,
+                    "miss": 1
+                  },
+                  "hit_rate": 0.0,
+                  "invalidation_rate": 0.75,
+                  "timeout_rate": 0.0,
+                  "interval_hit_rate": 0.0
+                },
+                "T+10": {
+                  "count": 4,
+                  "label_counts": {
+                    "invalidated": 4
+                  },
+                  "hit_rate": 0.0,
+                  "invalidation_rate": 1.0,
+                  "timeout_rate": 0.0,
+                  "interval_hit_rate": 0.5
+                },
+                "T+20": {
+                  "count": 4,
+                  "label_counts": {
+                    "invalidated": 4
+                  },
+                  "hit_rate": 0.0,
+                  "invalidation_rate": 1.0,
+                  "timeout_rate": 0.0,
+                  "interval_hit_rate": 0.0
+                },
+                "T+60": {
+                  "count": 4,
+                  "label_counts": {
+                    "invalidated": 4
+                  },
+                  "hit_rate": 0.0,
+                  "invalidation_rate": 1.0,
+                  "timeout_rate": 0.0,
+                  "interval_hit_rate": 0.0
+                }
+              },
+              "recommendation": {
+                "bias": "tighten_risk",
+                "reason_codes": [
+                  "t20_hit_rate_low",
+                  "t20_invalidation_high"
+                ],
+                "summary": "基于 ask 侧归因样本给训练侧的建议：tighten_risk"
+              },
+              "notes": [
+                "样本数=4",
+                "T+20 hit_rate=0.0",
+                "T+20 invalidation_rate=1.0",
+                "T+20 interval_hit_rate=0.0",
+                "direction_brier=0.25"
+              ]
+            },
+            "regime_breakdown": {
+              "bull": {
+                "generated_at": "2026-03-15T01:23:46.923002",
+                "subject": {
+                  "model_name": "momentum",
+                  "config_name": "momentum_v1",
+                  "as_of_date": "20181119",
+                  "regime": "bull"
+                },
+                "matched_case_count": 4,
+                "sample_count": 4,
+                "brier_like_direction_score": 0.25,
+                "invalidation_timeliness": {
+                  "sample_count": 4,
+                  "avg_first_invalidation_horizon": 6.25
+                },
+                "scenario_hit_distribution": {
+                  "bear": 1,
+                  "bull": 3
+                },
+                "horizons": {
+                  "T+5": {
+                    "count": 4,
+                    "label_counts": {
+                      "invalidated": 3,
+                      "miss": 1
+                    },
+                    "hit_rate": 0.0,
+                    "invalidation_rate": 0.75,
+                    "timeout_rate": 0.0,
+                    "interval_hit_rate": 0.0
+                  },
+                  "T+10": {
+                    "count": 4,
+                    "label_counts": {
+                      "invalidated": 4
+                    },
+                    "hit_rate": 0.0,
+                    "invalidation_rate": 1.0,
+                    "timeout_rate": 0.0,
+                    "interval_hit_rate": 0.5
+                  },
+                  "T+20": {
+                    "count": 4,
+                    "label_counts": {
+                      "invalidated": 4
+                    },
+                    "hit_rate": 0.0,
+                    "invalidation_rate": 1.0,
+                    "timeout_rate": 0.0,
+                    "interval_hit_rate": 0.0
+                  },
+                  "T+60": {
+                    "count": 4,
+                    "label_counts": {
+                      "invalidated": 4
+                    },
+                    "hit_rate": 0.0,
+                    "invalidation_rate": 1.0,
+                    "timeout_rate": 0.0,
+                    "interval_hit_rate": 0.0
+                  }
+                },
+                "recommendation": {
+                  "bias": "tighten_risk",
+                  "reason_codes": [
+                    "t20_hit_rate_low",
+                    "t20_invalidation_high"
+                  ],
+                  "summary": "基于 ask 侧归因样本给训练侧的建议：tighten_risk"
+                },
+                "notes": [
+                  "样本数=4",
+                  "T+20 hit_rate=0.0",
+                  "T+20 invalidation_rate=1.0",
+                  "T+20 interval_hit_rate=0.0",
+                  "direction_brier=0.25"
+                ]
+              }
+            }
+          }
+        },
+        "research_feedback": {
+          "schema_version": "research.training_feedback.v1",
+          "generated_at": "2026-03-15T01:23:46.923002",
+          "subject": {
+            "model_name": "momentum",
+            "config_name": "momentum_v1",
+            "as_of_date": "20181119",
+            "regime": "bull"
+          },
+          "matched_case_count": 4,
+          "sample_count": 4,
+          "brier_like_direction_score": 0.25,
+          "invalidation_timeliness": {
+            "sample_count": 4,
+            "avg_first_invalidation_horizon": 6.25
+          },
+          "scenario_hit_distribution": {
+            "bear": 1,
+            "bull": 3
+          },
+          "horizons": {
+            "T+5": {
+              "count": 4,
+              "label_counts": {
+                "invalidated": 3,
+                "miss": 1
+              },
+              "hit_rate": 0.0,
+              "invalidation_rate": 0.75,
+              "timeout_rate": 0.0,
+              "interval_hit_rate": 0.0
+            },
+            "T+10": {
+              "count": 4,
+              "label_counts": {
+                "invalidated": 4
+              },
+              "hit_rate": 0.0,
+              "invalidation_rate": 1.0,
+              "timeout_rate": 0.0,
+              "interval_hit_rate": 0.5
+            },
+            "T+20": {
+              "count": 4,
+              "label_counts": {
+                "invalidated": 4
+              },
+              "hit_rate": 0.0,
+              "invalidation_rate": 1.0,
+              "timeout_rate": 0.0,
+              "interval_hit_rate": 0.0
+            },
+            "T+60": {
+              "count": 4,
+              "label_counts": {
+                "invalidated": 4
+              },
+              "hit_rate": 0.0,
+              "invalidation_rate": 1.0,
+              "timeout_rate": 0.0,
+              "interval_hit_rate": 0.0
+            }
+          },
+          "recommendation": {
+            "bias": "tighten_risk",
+            "reason_codes": [
+              "t20_hit_rate_low",
+              "t20_invalidation_high"
+            ],
+            "summary": "基于 ask 侧归因样本给训练侧的建议：tighten_risk"
+          },
+          "notes": [
+            "样本数=4",
+            "T+20 hit_rate=0.0",
+            "T+20 invalidation_rate=1.0",
+            "T+20 interval_hit_rate=0.0",
+            "direction_brier=0.25"
+          ],
+          "scope": {
+            "requested_regime": "bull",
+            "effective_scope": "regime",
+            "overall_sample_count": 4,
+            "regime_sample_count": 4,
+            "covered_regimes": [
+              "bull"
+            ]
+          },
+          "overall_feedback": {
+            "generated_at": "2026-03-15T01:23:46.922969",
+            "subject": {
+              "model_name": "momentum",
+              "config_name": "momentum_v1",
+              "as_of_date": "20181119"
+            },
+            "matched_case_count": 4,
+            "sample_count": 4,
+            "brier_like_direction_score": 0.25,
+            "invalidation_timeliness": {
+              "sample_count": 4,
+              "avg_first_invalidation_horizon": 6.25
+            },
+            "scenario_hit_distribution": {
+              "bear": 1,
+              "bull": 3
+            },
+            "horizons": {
+              "T+5": {
+                "count": 4,
+                "label_counts": {
+                  "invalidated": 3,
+                  "miss": 1
+                },
+                "hit_rate": 0.0,
+                "invalidation_rate": 0.75,
+                "timeout_rate": 0.0,
+                "interval_hit_rate": 0.0
+              },
+              "T+10": {
+                "count": 4,
+                "label_counts": {
+                  "invalidated": 4
+                },
+                "hit_rate": 0.0,
+                "invalidation_rate": 1.0,
+                "timeout_rate": 0.0,
+                "interval_hit_rate": 0.5
+              },
+              "T+20": {
+                "count": 4,
+                "label_counts": {
+                  "invalidated": 4
+                },
+                "hit_rate": 0.0,
+                "invalidation_rate": 1.0,
+                "timeout_rate": 0.0,
+                "interval_hit_rate": 0.0
+              },
+              "T+60": {
+                "count": 4,
+                "label_counts": {
+                  "invalidated": 4
+                },
+                "hit_rate": 0.0,
+                "invalidation_rate": 1.0,
+                "timeout_rate": 0.0,
+                "interval_hit_rate": 0.0
+              }
+            },
+            "recommendation": {
+              "bias": "tighten_risk",
+              "reason_codes": [
+                "t20_hit_rate_low",
+                "t20_invalidation_high"
+              ],
+              "summary": "基于 ask 侧归因样本给训练侧的建议：tighten_risk"
+            },
+            "notes": [
+              "样本数=4",
+              "T+20 hit_rate=0.0",
+              "T+20 invalidation_rate=1.0",
+              "T+20 interval_hit_rate=0.0",
+              "direction_brier=0.25"
+            ]
+          },
+          "requested_regime_feedback": {
+            "generated_at": "2026-03-15T01:23:46.923002",
+            "subject": {
+              "model_name": "momentum",
+              "config_name": "momentum_v1",
+              "as_of_date": "20181119",
+              "regime": "bull"
+            },
+            "matched_case_count": 4,
+            "sample_count": 4,
+            "brier_like_direction_score": 0.25,
+            "invalidation_timeliness": {
+              "sample_count": 4,
+              "avg_first_invalidation_horizon": 6.25
+            },
+            "scenario_hit_distribution": {
+              "bear": 1,
+              "bull": 3
+            },
+            "horizons": {
+              "T+5": {
+                "count": 4,
+                "label_counts": {
+                  "invalidated": 3,
+                  "miss": 1
+                },
+                "hit_rate": 0.0,
+                "invalidation_rate": 0.75,
+                "timeout_rate": 0.0,
+                "interval_hit_rate": 0.0
+              },
+              "T+10": {
+                "count": 4,
+                "label_counts": {
+                  "invalidated": 4
+                },
+                "hit_rate": 0.0,
+                "invalidation_rate": 1.0,
+                "timeout_rate": 0.0,
+                "interval_hit_rate": 0.5
+              },
+              "T+20": {
+                "count": 4,
+                "label_counts": {
+                  "invalidated": 4
+                },
+                "hit_rate": 0.0,
+                "invalidation_rate": 1.0,
+                "timeout_rate": 0.0,
+                "interval_hit_rate": 0.0
+              },
+              "T+60": {
+                "count": 4,
+                "label_counts": {
+                  "invalidated": 4
+                },
+                "hit_rate": 0.0,
+                "invalidation_rate": 1.0,
+                "timeout_rate": 0.0,
+                "interval_hit_rate": 0.0
+              }
+            },
+            "recommendation": {
+              "bias": "tighten_risk",
+              "reason_codes": [
+                "t20_hit_rate_low",
+                "t20_invalidation_high"
+              ],
+              "summary": "基于 ask 侧归因样本给训练侧的建议：tighten_risk"
+            },
+            "notes": [
+              "样本数=4",
+              "T+20 hit_rate=0.0",
+              "T+20 invalidation_rate=1.0",
+              "T+20 interval_hit_rate=0.0",
+              "direction_brier=0.25"
+            ]
+          },
+          "regime_breakdown": {
+            "bull": {
+              "generated_at": "2026-03-15T01:23:46.923002",
+              "subject": {
+                "model_name": "momentum",
+                "config_name": "momentum_v1",
+                "as_of_date": "20181119",
+                "regime": "bull"
+              },
+              "matched_case_count": 4,
+              "sample_count": 4,
+              "brier_like_direction_score": 0.25,
+              "invalidation_timeliness": {
+                "sample_count": 4,
+                "avg_first_invalidation_horizon": 6.25
+              },
+              "scenario_hit_distribution": {
+                "bear": 1,
+                "bull": 3
+              },
+              "horizons": {
+                "T+5": {
+                  "count": 4,
+                  "label_counts": {
+                    "invalidated": 3,
+                    "miss": 1
+                  },
+                  "hit_rate": 0.0,
+                  "invalidation_rate": 0.75,
+                  "timeout_rate": 0.0,
+                  "interval_hit_rate": 0.0
+                },
+                "T+10": {
+                  "count": 4,
+                  "label_counts": {
+                    "invalidated": 4
+                  },
+                  "hit_rate": 0.0,
+                  "invalidation_rate": 1.0,
+                  "timeout_rate": 0.0,
+                  "interval_hit_rate": 0.5
+                },
+                "T+20": {
+                  "count": 4,
+                  "label_counts": {
+                    "invalidated": 4
+                  },
+                  "hit_rate": 0.0,
+                  "invalidation_rate": 1.0,
+                  "timeout_rate": 0.0,
+                  "interval_hit_rate": 0.0
+                },
+                "T+60": {
+                  "count": 4,
+                  "label_counts": {
+                    "invalidated": 4
+                  },
+                  "hit_rate": 0.0,
+                  "invalidation_rate": 1.0,
+                  "timeout_rate": 0.0,
+                  "interval_hit_rate": 0.0
+                }
+              },
+              "recommendation": {
+                "bias": "tighten_risk",
+                "reason_codes": [
+                  "t20_hit_rate_low",
+                  "t20_invalidation_high"
+                ],
+                "summary": "基于 ask 侧归因样本给训练侧的建议：tighten_risk"
+              },
+              "notes": [
+                "样本数=4",
+                "T+20 hit_rate=0.0",
+                "T+20 invalidation_rate=1.0",
+                "T+20 interval_hit_rate=0.0",
+                "direction_brier=0.25"
+              ]
+            }
+          }
+        },
+        "llm_used": false,
+        "similarity_score": 11,
+        "matched_features": [
+          "regime",
+          "selection_mode",
+          "plan_source",
+          "model_name"
+        ]
+      },
+      {
+        "cycle_id": 9,
+        "as_of_date": "20230409",
+        "return_pct": -1.2649314667801663,
+        "is_profit": false,
+        "selection_mode": "meeting",
+        "plan_source": "meeting",
+        "benchmark_passed": false,
+        "review_applied": true,
+        "regime": "bull",
+        "metadata": {
+          "model_name": "momentum",
+          "config_name": "/Users/zhangsan/Desktop/投资进化系统v1.0/invest/models/configs/momentum_v1.yaml",
+          "research_feedback": {
+            "schema_version": "research.training_feedback.v1",
+            "generated_at": "2026-03-15T01:23:42.158890",
+            "subject": {
+              "model_name": "momentum",
+              "config_name": "momentum_v1",
+              "as_of_date": "20230409",
+              "regime": "bull"
+            },
+            "matched_case_count": 4,
+            "sample_count": 4,
+            "brier_like_direction_score": 0.193125,
+            "invalidation_timeliness": {
+              "sample_count": 4,
+              "avg_first_invalidation_horizon": 20.0
+            },
+            "scenario_hit_distribution": {
+              "bear": 3,
+              "bull": 1
+            },
+            "horizons": {
+              "T+5": {
+                "count": 4,
+                "label_counts": {
+                  "hit": 4
+                },
+                "hit_rate": 1.0,
+                "invalidation_rate": 0.0,
+                "timeout_rate": 0.0,
+                "interval_hit_rate": 0.0
+              },
+              "T+10": {
+                "count": 4,
+                "label_counts": {
+                  "hit": 2,
+                  "miss": 2
+                },
+                "hit_rate": 0.5,
+                "invalidation_rate": 0.0,
+                "timeout_rate": 0.0,
+                "interval_hit_rate": 0.5
+              },
+              "T+20": {
+                "count": 4,
+                "label_counts": {
+                  "invalidated": 4
+                },
+                "hit_rate": 0.0,
+                "invalidation_rate": 1.0,
+                "timeout_rate": 0.0,
+                "interval_hit_rate": 0.0
+              },
+              "T+60": {
+                "count": 4,
+                "label_counts": {
+                  "invalidated": 4
+                },
+                "hit_rate": 0.0,
+                "invalidation_rate": 1.0,
+                "timeout_rate": 0.0,
+                "interval_hit_rate": 0.25
+              }
+            },
+            "recommendation": {
+              "bias": "tighten_risk",
+              "reason_codes": [
+                "t20_hit_rate_low",
+                "t20_invalidation_high"
+              ],
+              "summary": "基于 ask 侧归因样本给训练侧的建议：tighten_risk"
+            },
+            "notes": [
+              "样本数=4",
+              "T+20 hit_rate=0.0",
+              "T+20 invalidation_rate=1.0",
+              "T+20 interval_hit_rate=0.0",
+              "direction_brier=0.193125"
+            ],
+            "scope": {
+              "requested_regime": "bull",
+              "effective_scope": "regime",
+              "overall_sample_count": 12,
+              "regime_sample_count": 4,
+              "covered_regimes": [
+                "bull",
+                "oscillation"
+              ]
+            },
+            "overall_feedback": {
+              "generated_at": "2026-03-15T01:23:42.158854",
+              "subject": {
+                "model_name": "momentum",
+                "config_name": "momentum_v1",
+                "as_of_date": "20230409"
+              },
+              "matched_case_count": 12,
+              "sample_count": 12,
+              "brier_like_direction_score": 0.310802,
+              "invalidation_timeliness": {
+                "sample_count": 12,
+                "avg_first_invalidation_horizon": 21.25
+              },
+              "scenario_hit_distribution": {
+                "base": 1,
+                "bear": 5,
+                "bull": 6
+              },
+              "horizons": {
+                "T+5": {
+                  "count": 12,
+                  "label_counts": {
+                    "hit": 7,
+                    "not_triggered": 1,
+                    "invalidated": 3,
+                    "miss": 1
+                  },
+                  "hit_rate": 0.5833,
+                  "invalidation_rate": 0.25,
+                  "timeout_rate": 0.0,
+                  "interval_hit_rate": 0.1667
+                },
+                "T+10": {
+                  "count": 12,
+                  "label_counts": {
+                    "hit": 3,
+                    "not_triggered": 1,
+                    "miss": 3,
+                    "invalidated": 5
+                  },
+                  "hit_rate": 0.25,
+                  "invalidation_rate": 0.4167,
+                  "timeout_rate": 0.0,
+                  "interval_hit_rate": 0.1667
+                },
+                "T+20": {
+                  "count": 12,
+                  "label_counts": {
+                    "invalidated": 10,
+                    "hit": 2
+                  },
+                  "hit_rate": 0.1667,
+                  "invalidation_rate": 0.8333,
+                  "timeout_rate": 0.0,
+                  "interval_hit_rate": 0.0833
+                },
+                "T+60": {
+                  "count": 12,
+                  "label_counts": {
+                    "invalidated": 12
+                  },
+                  "hit_rate": 0.0,
+                  "invalidation_rate": 1.0,
+                  "timeout_rate": 0.0,
+                  "interval_hit_rate": 0.1667
+                }
+              },
+              "recommendation": {
+                "bias": "tighten_risk",
+                "reason_codes": [
+                  "t20_hit_rate_low",
+                  "t20_invalidation_high"
+                ],
+                "summary": "基于 ask 侧归因样本给训练侧的建议：tighten_risk"
+              },
+              "notes": [
+                "样本数=12",
+                "T+20 hit_rate=0.1667",
+                "T+20 invalidation_rate=0.8333",
+                "T+20 interval_hit_rate=0.0833",
+                "direction_brier=0.310802"
+              ]
+            },
+            "requested_regime_feedback": {
+              "generated_at": "2026-03-15T01:23:42.158890",
+              "subject": {
+                "model_name": "momentum",
+                "config_name": "momentum_v1",
+                "as_of_date": "20230409",
+                "regime": "bull"
+              },
+              "matched_case_count": 4,
+              "sample_count": 4,
+              "brier_like_direction_score": 0.193125,
+              "invalidation_timeliness": {
+                "sample_count": 4,
+                "avg_first_invalidation_horizon": 20.0
+              },
+              "scenario_hit_distribution": {
+                "bear": 3,
+                "bull": 1
+              },
+              "horizons": {
+                "T+5": {
+                  "count": 4,
+                  "label_counts": {
+                    "hit": 4
+                  },
+                  "hit_rate": 1.0,
+                  "invalidation_rate": 0.0,
+                  "timeout_rate": 0.0,
+                  "interval_hit_rate": 0.0
+                },
+                "T+10": {
+                  "count": 4,
+                  "label_counts": {
+                    "hit": 2,
+                    "miss": 2
+                  },
+                  "hit_rate": 0.5,
+                  "invalidation_rate": 0.0,
+                  "timeout_rate": 0.0,
+                  "interval_hit_rate": 0.5
+                },
+                "T+20": {
+                  "count": 4,
+                  "label_counts": {
+                    "invalidated": 4
+                  },
+                  "hit_rate": 0.0,
+                  "invalidation_rate": 1.0,
+                  "timeout_rate": 0.0,
+                  "interval_hit_rate": 0.0
+                },
+                "T+60": {
+                  "count": 4,
+                  "label_counts": {
+                    "invalidated": 4
+                  },
+                  "hit_rate": 0.0,
+                  "invalidation_rate": 1.0,
+                  "timeout_rate": 0.0,
+                  "interval_hit_rate": 0.25
+                }
+              },
+              "recommendation": {
+                "bias": "tighten_risk",
+                "reason_codes": [
+                  "t20_hit_rate_low",
+                  "t20_invalidation_high"
+                ],
+                "summary": "基于 ask 侧归因样本给训练侧的建议：tighten_risk"
+              },
+              "notes": [
+                "样本数=4",
+                "T+20 hit_rate=0.0",
+                "T+20 invalidation_rate=1.0",
+                "T+20 interval_hit_rate=0.0",
+                "direction_brier=0.193125"
+              ]
+            },
+            "regime_breakdown": {
+              "bull": {
+                "generated_at": "2026-03-15T01:23:42.158890",
+                "subject": {
+                  "model_name": "momentum",
+                  "config_name": "momentum_v1",
+                  "as_of_date": "20230409",
+                  "regime": "bull"
+                },
+                "matched_case_count": 4,
+                "sample_count": 4,
+                "brier_like_direction_score": 0.193125,
+                "invalidation_timeliness": {
+                  "sample_count": 4,
+                  "avg_first_invalidation_horizon": 20.0
+                },
+                "scenario_hit_distribution": {
+                  "bear": 3,
+                  "bull": 1
+                },
+                "horizons": {
+                  "T+5": {
+                    "count": 4,
+                    "label_counts": {
+                      "hit": 4
+                    },
+                    "hit_rate": 1.0,
+                    "invalidation_rate": 0.0,
+                    "timeout_rate": 0.0,
+                    "interval_hit_rate": 0.0
+                  },
+                  "T+10": {
+                    "count": 4,
+                    "label_counts": {
+                      "hit": 2,
+                      "miss": 2
+                    },
+                    "hit_rate": 0.5,
+                    "invalidation_rate": 0.0,
+                    "timeout_rate": 0.0,
+                    "interval_hit_rate": 0.5
+                  },
+                  "T+20": {
+                    "count": 4,
+                    "label_counts": {
+                      "invalidated": 4
+                    },
+                    "hit_rate": 0.0,
+                    "invalidation_rate": 1.0,
+                    "timeout_rate": 0.0,
+                    "interval_hit_rate": 0.0
+                  },
+                  "T+60": {
+                    "count": 4,
+                    "label_counts": {
+                      "invalidated": 4
+                    },
+                    "hit_rate": 0.0,
+                    "invalidation_rate": 1.0,
+                    "timeout_rate": 0.0,
+                    "interval_hit_rate": 0.25
+                  }
+                },
+                "recommendation": {
+                  "bias": "tighten_risk",
+                  "reason_codes": [
+                    "t20_hit_rate_low",
+                    "t20_invalidation_high"
+                  ],
+                  "summary": "基于 ask 侧归因样本给训练侧的建议：tighten_risk"
+                },
+                "notes": [
+                  "样本数=4",
+                  "T+20 hit_rate=0.0",
+                  "T+20 invalidation_rate=1.0",
+                  "T+20 interval_hit_rate=0.0",
+                  "direction_brier=0.193125"
+                ]
+              },
+              "oscillation": {
+                "generated_at": "2026-03-15T01:23:42.158933",
+                "subject": {
+                  "model_name": "momentum",
+                  "config_name": "momentum_v1",
+                  "as_of_date": "20230409",
+                  "regime": "oscillation"
+                },
+                "matched_case_count": 8,
+                "sample_count": 8,
+                "brier_like_direction_score": 0.36964,
+                "invalidation_timeliness": {
+                  "sample_count": 8,
+                  "avg_first_invalidation_horizon": 21.875
+                },
+                "scenario_hit_distribution": {
+                  "base": 1,
+                  "bear": 2,
+                  "bull": 5
+                },
+                "horizons": {
+                  "T+5": {
+                    "count": 8,
+                    "label_counts": {
+                      "hit": 3,
+                      "not_triggered": 1,
+                      "invalidated": 3,
+                      "miss": 1
+                    },
+                    "hit_rate": 0.375,
+                    "invalidation_rate": 0.375,
+                    "timeout_rate": 0.0,
+                    "interval_hit_rate": 0.25
+                  },
+                  "T+10": {
+                    "count": 8,
+                    "label_counts": {
+                      "hit": 1,
+                      "not_triggered": 1,
+                      "invalidated": 5,
+                      "miss": 1
+                    },
+                    "hit_rate": 0.125,
+                    "invalidation_rate": 0.625,
+                    "timeout_rate": 0.0,
+                    "interval_hit_rate": 0.0
+                  },
+                  "T+20": {
+                    "count": 8,
+                    "label_counts": {
+                      "hit": 2,
+                      "invalidated": 6
+                    },
+                    "hit_rate": 0.25,
+                    "invalidation_rate": 0.75,
+                    "timeout_rate": 0.0,
+                    "interval_hit_rate": 0.125
+                  },
+                  "T+60": {
+                    "count": 8,
+                    "label_counts": {
+                      "invalidated": 8
+                    },
+                    "hit_rate": 0.0,
+                    "invalidation_rate": 1.0,
+                    "timeout_rate": 0.0,
+                    "interval_hit_rate": 0.125
+                  }
+                },
+                "recommendation": {
+                  "bias": "tighten_risk",
+                  "reason_codes": [
+                    "t20_hit_rate_low",
+                    "t20_invalidation_high"
+                  ],
+                  "summary": "基于 ask 侧归因样本给训练侧的建议：tighten_risk"
+                },
+                "notes": [
+                  "样本数=8",
+                  "T+20 hit_rate=0.25",
+                  "T+20 invalidation_rate=0.75",
+                  "T+20 interval_hit_rate=0.125",
+                  "direction_brier=0.36964"
+                ]
+              }
+            }
+          }
+        },
+        "research_feedback": {
+          "schema_version": "research.training_feedback.v1",
+          "generated_at": "2026-03-15T01:23:42.158890",
+          "subject": {
+            "model_name": "momentum",
+            "config_name": "momentum_v1",
+            "as_of_date": "20230409",
+            "regime": "bull"
+          },
+          "matched_case_count": 4,
+          "sample_count": 4,
+          "brier_like_direction_score": 0.193125,
+          "invalidation_timeliness": {
+            "sample_count": 4,
+            "avg_first_invalidation_horizon": 20.0
+          },
+          "scenario_hit_distribution": {
+            "bear": 3,
+            "bull": 1
+          },
+          "horizons": {
+            "T+5": {
+              "count": 4,
+              "label_counts": {
+                "hit": 4
+              },
+              "hit_rate": 1.0,
+              "invalidation_rate": 0.0,
+              "timeout_rate": 0.0,
+              "interval_hit_rate": 0.0
+            },
+            "T+10": {
+              "count": 4,
+              "label_counts": {
+                "hit": 2,
+                "miss": 2
+              },
+              "hit_rate": 0.5,
+              "invalidation_rate": 0.0,
+              "timeout_rate": 0.0,
+              "interval_hit_rate": 0.5
+            },
+            "T+20": {
+              "count": 4,
+              "label_counts": {
+                "invalidated": 4
+              },
+              "hit_rate": 0.0,
+              "invalidation_rate": 1.0,
+              "timeout_rate": 0.0,
+              "interval_hit_rate": 0.0
+            },
+            "T+60": {
+              "count": 4,
+              "label_counts": {
+                "invalidated": 4
+              },
+              "hit_rate": 0.0,
+              "invalidation_rate": 1.0,
+              "timeout_rate": 0.0,
+              "interval_hit_rate": 0.25
+            }
+          },
+          "recommendation": {
+            "bias": "tighten_risk",
+            "reason_codes": [
+              "t20_hit_rate_low",
+              "t20_invalidation_high"
+            ],
+            "summary": "基于 ask 侧归因样本给训练侧的建议：tighten_risk"
+          },
+          "notes": [
+            "样本数=4",
+            "T+20 hit_rate=0.0",
+            "T+20 invalidation_rate=1.0",
+            "T+20 interval_hit_rate=0.0",
+            "direction_brier=0.193125"
+          ],
+          "scope": {
+            "requested_regime": "bull",
+            "effective_scope": "regime",
+            "overall_sample_count": 12,
+            "regime_sample_count": 4,
+            "covered_regimes": [
+              "bull",
+              "oscillation"
+            ]
+          },
+          "overall_feedback": {
+            "generated_at": "2026-03-15T01:23:42.158854",
+            "subject": {
+              "model_name": "momentum",
+              "config_name": "momentum_v1",
+              "as_of_date": "20230409"
+            },
+            "matched_case_count": 12,
+            "sample_count": 12,
+            "brier_like_direction_score": 0.310802,
+            "invalidation_timeliness": {
+              "sample_count": 12,
+              "avg_first_invalidation_horizon": 21.25
+            },
+            "scenario_hit_distribution": {
+              "base": 1,
+              "bear": 5,
+              "bull": 6
+            },
+            "horizons": {
+              "T+5": {
+                "count": 12,
+                "label_counts": {
+                  "hit": 7,
+                  "not_triggered": 1,
+                  "invalidated": 3,
+                  "miss": 1
+                },
+                "hit_rate": 0.5833,
+                "invalidation_rate": 0.25,
+                "timeout_rate": 0.0,
+                "interval_hit_rate": 0.1667
+              },
+              "T+10": {
+                "count": 12,
+                "label_counts": {
+                  "hit": 3,
+                  "not_triggered": 1,
+                  "miss": 3,
+                  "invalidated": 5
+                },
+                "hit_rate": 0.25,
+                "invalidation_rate": 0.4167,
+                "timeout_rate": 0.0,
+                "interval_hit_rate": 0.1667
+              },
+              "T+20": {
+                "count": 12,
+                "label_counts": {
+                  "invalidated": 10,
+                  "hit": 2
+                },
+                "hit_rate": 0.1667,
+                "invalidation_rate": 0.8333,
+                "timeout_rate": 0.0,
+                "interval_hit_rate": 0.0833
+              },
+              "T+60": {
+                "count": 12,
+                "label_counts": {
+                  "invalidated": 12
+                },
+                "hit_rate": 0.0,
+                "invalidation_rate": 1.0,
+                "timeout_rate": 0.0,
+                "interval_hit_rate": 0.1667
+              }
+            },
+            "recommendation": {
+              "bias": "tighten_risk",
+              "reason_codes": [
+                "t20_hit_rate_low",
+                "t20_invalidation_high"
+              ],
+              "summary": "基于 ask 侧归因样本给训练侧的建议：tighten_risk"
+            },
+            "notes": [
+              "样本数=12",
+              "T+20 hit_rate=0.1667",
+              "T+20 invalidation_rate=0.8333",
+              "T+20 interval_hit_rate=0.0833",
+              "direction_brier=0.310802"
+            ]
+          },
+          "requested_regime_feedback": {
+            "generated_at": "2026-03-15T01:23:42.158890",
+            "subject": {
+              "model_name": "momentum",
+              "config_name": "momentum_v1",
+              "as_of_date": "20230409",
+              "regime": "bull"
+            },
+            "matched_case_count": 4,
+            "sample_count": 4,
+            "brier_like_direction_score": 0.193125,
+            "invalidation_timeliness": {
+              "sample_count": 4,
+              "avg_first_invalidation_horizon": 20.0
+            },
+            "scenario_hit_distribution": {
+              "bear": 3,
+              "bull": 1
+            },
+            "horizons": {
+              "T+5": {
+                "count": 4,
+                "label_counts": {
+                  "hit": 4
+                },
+                "hit_rate": 1.0,
+                "invalidation_rate": 0.0,
+                "timeout_rate": 0.0,
+                "interval_hit_rate": 0.0
+              },
+              "T+10": {
+                "count": 4,
+                "label_counts": {
+                  "hit": 2,
+                  "miss": 2
+                },
+                "hit_rate": 0.5,
+                "invalidation_rate": 0.0,
+                "timeout_rate": 0.0,
+                "interval_hit_rate": 0.5
+              },
+              "T+20": {
+                "count": 4,
+                "label_counts": {
+                  "invalidated": 4
+                },
+                "hit_rate": 0.0,
+                "invalidation_rate": 1.0,
+                "timeout_rate": 0.0,
+                "interval_hit_rate": 0.0
+              },
+              "T+60": {
+                "count": 4,
+                "label_counts": {
+                  "invalidated": 4
+                },
+                "hit_rate": 0.0,
+                "invalidation_rate": 1.0,
+                "timeout_rate": 0.0,
+                "interval_hit_rate": 0.25
+              }
+            },
+            "recommendation": {
+              "bias": "tighten_risk",
+              "reason_codes": [
+                "t20_hit_rate_low",
+                "t20_invalidation_high"
+              ],
+              "summary": "基于 ask 侧归因样本给训练侧的建议：tighten_risk"
+            },
+            "notes": [
+              "样本数=4",
+              "T+20 hit_rate=0.0",
+              "T+20 invalidation_rate=1.0",
+              "T+20 interval_hit_rate=0.0",
+              "direction_brier=0.193125"
+            ]
+          },
+          "regime_breakdown": {
+            "bull": {
+              "generated_at": "2026-03-15T01:23:42.158890",
+              "subject": {
+                "model_name": "momentum",
+                "config_name": "momentum_v1",
+                "as_of_date": "20230409",
+                "regime": "bull"
+              },
+              "matched_case_count": 4,
+              "sample_count": 4,
+              "brier_like_direction_score": 0.193125,
+              "invalidation_timeliness": {
+                "sample_count": 4,
+                "avg_first_invalidation_horizon": 20.0
+              },
+              "scenario_hit_distribution": {
+                "bear": 3,
+                "bull": 1
+              },
+              "horizons": {
+                "T+5": {
+                  "count": 4,
+                  "label_counts": {
+                    "hit": 4
+                  },
+                  "hit_rate": 1.0,
+                  "invalidation_rate": 0.0,
+                  "timeout_rate": 0.0,
+                  "interval_hit_rate": 0.0
+                },
+                "T+10": {
+                  "count": 4,
+                  "label_counts": {
+                    "hit": 2,
+                    "miss": 2
+                  },
+                  "hit_rate": 0.5,
+                  "invalidation_rate": 0.0,
+                  "timeout_rate": 0.0,
+                  "interval_hit_rate": 0.5
+                },
+                "T+20": {
+                  "count": 4,
+                  "label_counts": {
+                    "invalidated": 4
+                  },
+                  "hit_rate": 0.0,
+                  "invalidation_rate": 1.0,
+                  "timeout_rate": 0.0,
+                  "interval_hit_rate": 0.0
+                },
+                "T+60": {
+                  "count": 4,
+                  "label_counts": {
+                    "invalidated": 4
+                  },
+                  "hit_rate": 0.0,
+                  "invalidation_rate": 1.0,
+                  "timeout_rate": 0.0,
+                  "interval_hit_rate": 0.25
+                }
+              },
+              "recommendation": {
+                "bias": "tighten_risk",
+                "reason_codes": [
+                  "t20_hit_rate_low",
+                  "t20_invalidation_high"
+                ],
+                "summary": "基于 ask 侧归因样本给训练侧的建议：tighten_risk"
+              },
+              "notes": [
+                "样本数=4",
+                "T+20 hit_rate=0.0",
+                "T+20 invalidation_rate=1.0",
+                "T+20 interval_hit_rate=0.0",
+                "direction_brier=0.193125"
+              ]
+            },
+            "oscillation": {
+              "generated_at": "2026-03-15T01:23:42.158933",
+              "subject": {
+                "model_name": "momentum",
+                "config_name": "momentum_v1",
+                "as_of_date": "20230409",
+                "regime": "oscillation"
+              },
+              "matched_case_count": 8,
+              "sample_count": 8,
+              "brier_like_direction_score": 0.36964,
+              "invalidation_timeliness": {
+                "sample_count": 8,
+                "avg_first_invalidation_horizon": 21.875
+              },
+              "scenario_hit_distribution": {
+                "base": 1,
+                "bear": 2,
+                "bull": 5
+              },
+              "horizons": {
+                "T+5": {
+                  "count": 8,
+                  "label_counts": {
+                    "hit": 3,
+                    "not_triggered": 1,
+                    "invalidated": 3,
+                    "miss": 1
+                  },
+                  "hit_rate": 0.375,
+                  "invalidation_rate": 0.375,
+                  "timeout_rate": 0.0,
+                  "interval_hit_rate": 0.25
+                },
+                "T+10": {
+                  "count": 8,
+                  "label_counts": {
+                    "hit": 1,
+                    "not_triggered": 1,
+                    "invalidated": 5,
+                    "miss": 1
+                  },
+                  "hit_rate": 0.125,
+                  "invalidation_rate": 0.625,
+                  "timeout_rate": 0.0,
+                  "interval_hit_rate": 0.0
+                },
+                "T+20": {
+                  "count": 8,
+                  "label_counts": {
+                    "hit": 2,
+                    "invalidated": 6
+                  },
+                  "hit_rate": 0.25,
+                  "invalidation_rate": 0.75,
+                  "timeout_rate": 0.0,
+                  "interval_hit_rate": 0.125
+                },
+                "T+60": {
+                  "count": 8,
+                  "label_counts": {
+                    "invalidated": 8
+                  },
+                  "hit_rate": 0.0,
+                  "invalidation_rate": 1.0,
+                  "timeout_rate": 0.0,
+                  "interval_hit_rate": 0.125
+                }
+              },
+              "recommendation": {
+                "bias": "tighten_risk",
+                "reason_codes": [
+                  "t20_hit_rate_low",
+                  "t20_invalidation_high"
+                ],
+                "summary": "基于 ask 侧归因样本给训练侧的建议：tighten_risk"
+              },
+              "notes": [
+                "样本数=8",
+                "T+20 hit_rate=0.25",
+                "T+20 invalidation_rate=0.75",
+                "T+20 interval_hit_rate=0.125",
+                "direction_brier=0.36964"
+              ]
+            }
+          }
+        },
+        "llm_used": false,
+        "similarity_score": 11,
+        "matched_features": [
+          "regime",
+          "selection_mode",
+          "plan_source",
+          "model_name"
+        ]
+      },
+      {
+        "cycle_id": 8,
+        "as_of_date": "20221127",
+        "return_pct": -3.846443711625383,
+        "is_profit": false,
+        "selection_mode": "meeting",
+        "plan_source": "meeting",
+        "benchmark_passed": false,
+        "review_applied": true,
+        "regime": "bull",
+        "metadata": {
+          "model_name": "momentum",
+          "config_name": "/Users/zhangsan/Desktop/投资进化系统v1.0/invest/models/configs/momentum_v1.yaml",
+          "research_feedback": {
+            "schema_version": "research.training_feedback.v1",
+            "generated_at": "2026-03-15T01:23:34.413263",
+            "subject": {
+              "model_name": "momentum",
+              "config_name": "momentum_v1",
+              "as_of_date": "20221127",
+              "regime": "bull"
+            },
+            "matched_case_count": 4,
+            "sample_count": 4,
+            "brier_like_direction_score": 0.193125,
+            "invalidation_timeliness": {
+              "sample_count": 4,
+              "avg_first_invalidation_horizon": 20.0
+            },
+            "scenario_hit_distribution": {
+              "bear": 3,
+              "bull": 1
+            },
+            "horizons": {
+              "T+5": {
+                "count": 4,
+                "label_counts": {
+                  "hit": 4
+                },
+                "hit_rate": 1.0,
+                "invalidation_rate": 0.0,
+                "timeout_rate": 0.0,
+                "interval_hit_rate": 0.0
+              },
+              "T+10": {
+                "count": 4,
+                "label_counts": {
+                  "hit": 2,
+                  "miss": 2
+                },
+                "hit_rate": 0.5,
+                "invalidation_rate": 0.0,
+                "timeout_rate": 0.0,
+                "interval_hit_rate": 0.5
+              },
+              "T+20": {
+                "count": 4,
+                "label_counts": {
+                  "invalidated": 4
+                },
+                "hit_rate": 0.0,
+                "invalidation_rate": 1.0,
+                "timeout_rate": 0.0,
+                "interval_hit_rate": 0.0
+              },
+              "T+60": {
+                "count": 4,
+                "label_counts": {
+                  "invalidated": 4
+                },
+                "hit_rate": 0.0,
+                "invalidation_rate": 1.0,
+                "timeout_rate": 0.0,
+                "interval_hit_rate": 0.25
+              }
+            },
+            "recommendation": {
+              "bias": "tighten_risk",
+              "reason_codes": [
+                "t20_hit_rate_low",
+                "t20_invalidation_high"
+              ],
+              "summary": "基于 ask 侧归因样本给训练侧的建议：tighten_risk"
+            },
+            "notes": [
+              "样本数=4",
+              "T+20 hit_rate=0.0",
+              "T+20 invalidation_rate=1.0",
+              "T+20 interval_hit_rate=0.0",
+              "direction_brier=0.193125"
+            ],
+            "scope": {
+              "requested_regime": "bull",
+              "effective_scope": "regime",
+              "overall_sample_count": 8,
+              "regime_sample_count": 4,
+              "covered_regimes": [
+                "bull",
+                "oscillation"
+              ]
+            },
+            "overall_feedback": {
+              "generated_at": "2026-03-15T01:23:34.413229",
+              "subject": {
+                "model_name": "momentum",
+                "config_name": "momentum_v1",
+                "as_of_date": "20221127"
+              },
+              "matched_case_count": 8,
+              "sample_count": 8,
+              "brier_like_direction_score": 0.280625,
+              "invalidation_timeliness": {
+                "sample_count": 8,
+                "avg_first_invalidation_horizon": 15.625
+              },
+              "scenario_hit_distribution": {
+                "bear": 5,
+                "bull": 3
+              },
+              "horizons": {
+                "T+5": {
+                  "count": 8,
+                  "label_counts": {
+                    "hit": 6,
+                    "invalidated": 1,
+                    "miss": 1
+                  },
+                  "hit_rate": 0.75,
+                  "invalidation_rate": 0.125,
+                  "timeout_rate": 0.0,
+                  "interval_hit_rate": 0.0
+                },
+                "T+10": {
+                  "count": 8,
+                  "label_counts": {
+                    "hit": 2,
+                    "miss": 3,
+                    "invalidated": 3
+                  },
+                  "hit_rate": 0.25,
+                  "invalidation_rate": 0.375,
+                  "timeout_rate": 0.0,
+                  "interval_hit_rate": 0.25
+                },
+                "T+20": {
+                  "count": 8,
+                  "label_counts": {
+                    "invalidated": 8
+                  },
+                  "hit_rate": 0.0,
+                  "invalidation_rate": 1.0,
+                  "timeout_rate": 0.0,
+                  "interval_hit_rate": 0.0
+                },
+                "T+60": {
+                  "count": 8,
+                  "label_counts": {
+                    "invalidated": 8
+                  },
+                  "hit_rate": 0.0,
+                  "invalidation_rate": 1.0,
+                  "timeout_rate": 0.0,
+                  "interval_hit_rate": 0.125
+                }
+              },
+              "recommendation": {
+                "bias": "tighten_risk",
+                "reason_codes": [
+                  "t20_hit_rate_low",
+                  "t20_invalidation_high"
+                ],
+                "summary": "基于 ask 侧归因样本给训练侧的建议：tighten_risk"
+              },
+              "notes": [
+                "样本数=8",
+                "T+20 hit_rate=0.0",
+                "T+20 invalidation_rate=1.0",
+                "T+20 interval_hit_rate=0.0",
+                "direction_brier=0.280625"
+              ]
+            },
+            "requested_regime_feedback": {
+              "generated_at": "2026-03-15T01:23:34.413263",
+              "subject": {
+                "model_name": "momentum",
+                "config_name": "momentum_v1",
+                "as_of_date": "20221127",
+                "regime": "bull"
+              },
+              "matched_case_count": 4,
+              "sample_count": 4,
+              "brier_like_direction_score": 0.193125,
+              "invalidation_timeliness": {
+                "sample_count": 4,
+                "avg_first_invalidation_horizon": 20.0
+              },
+              "scenario_hit_distribution": {
+                "bear": 3,
+                "bull": 1
+              },
+              "horizons": {
+                "T+5": {
+                  "count": 4,
+                  "label_counts": {
+                    "hit": 4
+                  },
+                  "hit_rate": 1.0,
+                  "invalidation_rate": 0.0,
+                  "timeout_rate": 0.0,
+                  "interval_hit_rate": 0.0
+                },
+                "T+10": {
+                  "count": 4,
+                  "label_counts": {
+                    "hit": 2,
+                    "miss": 2
+                  },
+                  "hit_rate": 0.5,
+                  "invalidation_rate": 0.0,
+                  "timeout_rate": 0.0,
+                  "interval_hit_rate": 0.5
+                },
+                "T+20": {
+                  "count": 4,
+                  "label_counts": {
+                    "invalidated": 4
+                  },
+                  "hit_rate": 0.0,
+                  "invalidation_rate": 1.0,
+                  "timeout_rate": 0.0,
+                  "interval_hit_rate": 0.0
+                },
+                "T+60": {
+                  "count": 4,
+                  "label_counts": {
+                    "invalidated": 4
+                  },
+                  "hit_rate": 0.0,
+                  "invalidation_rate": 1.0,
+                  "timeout_rate": 0.0,
+                  "interval_hit_rate": 0.25
+                }
+              },
+              "recommendation": {
+                "bias": "tighten_risk",
+                "reason_codes": [
+                  "t20_hit_rate_low",
+                  "t20_invalidation_high"
+                ],
+                "summary": "基于 ask 侧归因样本给训练侧的建议：tighten_risk"
+              },
+              "notes": [
+                "样本数=4",
+                "T+20 hit_rate=0.0",
+                "T+20 invalidation_rate=1.0",
+                "T+20 interval_hit_rate=0.0",
+                "direction_brier=0.193125"
+              ]
+            },
+            "regime_breakdown": {
+              "bull": {
+                "generated_at": "2026-03-15T01:23:34.413263",
+                "subject": {
+                  "model_name": "momentum",
+                  "config_name": "momentum_v1",
+                  "as_of_date": "20221127",
+                  "regime": "bull"
+                },
+                "matched_case_count": 4,
+                "sample_count": 4,
+                "brier_like_direction_score": 0.193125,
+                "invalidation_timeliness": {
+                  "sample_count": 4,
+                  "avg_first_invalidation_horizon": 20.0
+                },
+                "scenario_hit_distribution": {
+                  "bear": 3,
+                  "bull": 1
+                },
+                "horizons": {
+                  "T+5": {
+                    "count": 4,
+                    "label_counts": {
+                      "hit": 4
+                    },
+                    "hit_rate": 1.0,
+                    "invalidation_rate": 0.0,
+                    "timeout_rate": 0.0,
+                    "interval_hit_rate": 0.0
+                  },
+                  "T+10": {
+                    "count": 4,
+                    "label_counts": {
+                      "hit": 2,
+                      "miss": 2
+                    },
+                    "hit_rate": 0.5,
+                    "invalidation_rate": 0.0,
+                    "timeout_rate": 0.0,
+                    "interval_hit_rate": 0.5
+                  },
+                  "T+20": {
+                    "count": 4,
+                    "label_counts": {
+                      "invalidated": 4
+                    },
+                    "hit_rate": 0.0,
+                    "invalidation_rate": 1.0,
+                    "timeout_rate": 0.0,
+                    "interval_hit_rate": 0.0
+                  },
+                  "T+60": {
+                    "count": 4,
+                    "label_counts": {
+                      "invalidated": 4
+                    },
+                    "hit_rate": 0.0,
+                    "invalidation_rate": 1.0,
+                    "timeout_rate": 0.0,
+                    "interval_hit_rate": 0.25
+                  }
+                },
+                "recommendation": {
+                  "bias": "tighten_risk",
+                  "reason_codes": [
+                    "t20_hit_rate_low",
+                    "t20_invalidation_high"
+                  ],
+                  "summary": "基于 ask 侧归因样本给训练侧的建议：tighten_risk"
+                },
+                "notes": [
+                  "样本数=4",
+                  "T+20 hit_rate=0.0",
+                  "T+20 invalidation_rate=1.0",
+                  "T+20 interval_hit_rate=0.0",
+                  "direction_brier=0.193125"
+                ]
+              },
+              "oscillation": {
+                "generated_at": "2026-03-15T01:23:34.413289",
+                "subject": {
+                  "model_name": "momentum",
+                  "config_name": "momentum_v1",
+                  "as_of_date": "20221127",
+                  "regime": "oscillation"
+                },
+                "matched_case_count": 4,
+                "sample_count": 4,
+                "brier_like_direction_score": 0.368125,
+                "invalidation_timeliness": {
+                  "sample_count": 4,
+                  "avg_first_invalidation_horizon": 11.25
+                },
+                "scenario_hit_distribution": {
+                  "bear": 2,
+                  "bull": 2
+                },
+                "horizons": {
+                  "T+5": {
+                    "count": 4,
+                    "label_counts": {
+                      "invalidated": 1,
+                      "miss": 1,
+                      "hit": 2
+                    },
+                    "hit_rate": 0.5,
+                    "invalidation_rate": 0.25,
+                    "timeout_rate": 0.0,
+                    "interval_hit_rate": 0.0
+                  },
+                  "T+10": {
+                    "count": 4,
+                    "label_counts": {
+                      "invalidated": 3,
+                      "miss": 1
+                    },
+                    "hit_rate": 0.0,
+                    "invalidation_rate": 0.75,
+                    "timeout_rate": 0.0,
+                    "interval_hit_rate": 0.0
+                  },
+                  "T+20": {
+                    "count": 4,
+                    "label_counts": {
+                      "invalidated": 4
+                    },
+                    "hit_rate": 0.0,
+                    "invalidation_rate": 1.0,
+                    "timeout_rate": 0.0,
+                    "interval_hit_rate": 0.0
+                  },
+                  "T+60": {
+                    "count": 4,
+                    "label_counts": {
+                      "invalidated": 4
+                    },
+                    "hit_rate": 0.0,
+                    "invalidation_rate": 1.0,
+                    "timeout_rate": 0.0,
+                    "interval_hit_rate": 0.0
+                  }
+                },
+                "recommendation": {
+                  "bias": "tighten_risk",
+                  "reason_codes": [
+                    "t20_hit_rate_low",
+                    "t20_invalidation_high"
+                  ],
+                  "summary": "基于 ask 侧归因样本给训练侧的建议：tighten_risk"
+                },
+                "notes": [
+                  "样本数=4",
+                  "T+20 hit_rate=0.0",
+                  "T+20 invalidation_rate=1.0",
+                  "T+20 interval_hit_rate=0.0",
+                  "direction_brier=0.368125"
+                ]
+              }
+            }
+          }
+        },
+        "research_feedback": {
+          "schema_version": "research.training_feedback.v1",
+          "generated_at": "2026-03-15T01:23:34.413263",
+          "subject": {
+            "model_name": "momentum",
+            "config_name": "momentum_v1",
+            "as_of_date": "20221127",
+            "regime": "bull"
+          },
+          "matched_case_count": 4,
+          "sample_count": 4,
+          "brier_like_direction_score": 0.193125,
+          "invalidation_timeliness": {
+            "sample_count": 4,
+            "avg_first_invalidation_horizon": 20.0
+          },
+          "scenario_hit_distribution": {
+            "bear": 3,
+            "bull": 1
+          },
+          "horizons": {
+            "T+5": {
+              "count": 4,
+              "label_counts": {
+                "hit": 4
+              },
+              "hit_rate": 1.0,
+              "invalidation_rate": 0.0,
+              "timeout_rate": 0.0,
+              "interval_hit_rate": 0.0
+            },
+            "T+10": {
+              "count": 4,
+              "label_counts": {
+                "hit": 2,
+                "miss": 2
+              },
+              "hit_rate": 0.5,
+              "invalidation_rate": 0.0,
+              "timeout_rate": 0.0,
+              "interval_hit_rate": 0.5
+            },
+            "T+20": {
+              "count": 4,
+              "label_counts": {
+                "invalidated": 4
+              },
+              "hit_rate": 0.0,
+              "invalidation_rate": 1.0,
+              "timeout_rate": 0.0,
+              "interval_hit_rate": 0.0
+            },
+            "T+60": {
+              "count": 4,
+              "label_counts": {
+                "invalidated": 4
+              },
+              "hit_rate": 0.0,
+              "invalidation_rate": 1.0,
+              "timeout_rate": 0.0,
+              "interval_hit_rate": 0.25
+            }
+          },
+          "recommendation": {
+            "bias": "tighten_risk",
+            "reason_codes": [
+              "t20_hit_rate_low",
+              "t20_invalidation_high"
+            ],
+            "summary": "基于 ask 侧归因样本给训练侧的建议：tighten_risk"
+          },
+          "notes": [
+            "样本数=4",
+            "T+20 hit_rate=0.0",
+            "T+20 invalidation_rate=1.0",
+            "T+20 interval_hit_rate=0.0",
+            "direction_brier=0.193125"
+          ],
+          "scope": {
+            "requested_regime": "bull",
+            "effective_scope": "regime",
+            "overall_sample_count": 8,
+            "regime_sample_count": 4,
+            "covered_regimes": [
+              "bull",
+              "oscillation"
+            ]
+          },
+          "overall_feedback": {
+            "generated_at": "2026-03-15T01:23:34.413229",
+            "subject": {
+              "model_name": "momentum",
+              "config_name": "momentum_v1",
+              "as_of_date": "20221127"
+            },
+            "matched_case_count": 8,
+            "sample_count": 8,
+            "brier_like_direction_score": 0.280625,
+            "invalidation_timeliness": {
+              "sample_count": 8,
+              "avg_first_invalidation_horizon": 15.625
+            },
+            "scenario_hit_distribution": {
+              "bear": 5,
+              "bull": 3
+            },
+            "horizons": {
+              "T+5": {
+                "count": 8,
+                "label_counts": {
+                  "hit": 6,
+                  "invalidated": 1,
+                  "miss": 1
+                },
+                "hit_rate": 0.75,
+                "invalidation_rate": 0.125,
+                "timeout_rate": 0.0,
+                "interval_hit_rate": 0.0
+              },
+              "T+10": {
+                "count": 8,
+                "label_counts": {
+                  "hit": 2,
+                  "miss": 3,
+                  "invalidated": 3
+                },
+                "hit_rate": 0.25,
+                "invalidation_rate": 0.375,
+                "timeout_rate": 0.0,
+                "interval_hit_rate": 0.25
+              },
+              "T+20": {
+                "count": 8,
+                "label_counts": {
+                  "invalidated": 8
+                },
+                "hit_rate": 0.0,
+                "invalidation_rate": 1.0,
+                "timeout_rate": 0.0,
+                "interval_hit_rate": 0.0
+              },
+              "T+60": {
+                "count": 8,
+                "label_counts": {
+                  "invalidated": 8
+                },
+                "hit_rate": 0.0,
+                "invalidation_rate": 1.0,
+                "timeout_rate": 0.0,
+                "interval_hit_rate": 0.125
+              }
+            },
+            "recommendation": {
+              "bias": "tighten_risk",
+              "reason_codes": [
+                "t20_hit_rate_low",
+                "t20_invalidation_high"
+              ],
+              "summary": "基于 ask 侧归因样本给训练侧的建议：tighten_risk"
+            },
+            "notes": [
+              "样本数=8",
+              "T+20 hit_rate=0.0",
+              "T+20 invalidation_rate=1.0",
+              "T+20 interval_hit_rate=0.0",
+              "direction_brier=0.280625"
+            ]
+          },
+          "requested_regime_feedback": {
+            "generated_at": "2026-03-15T01:23:34.413263",
+            "subject": {
+              "model_name": "momentum",
+              "config_name": "momentum_v1",
+              "as_of_date": "20221127",
+              "regime": "bull"
+            },
+            "matched_case_count": 4,
+            "sample_count": 4,
+            "brier_like_direction_score": 0.193125,
+            "invalidation_timeliness": {
+              "sample_count": 4,
+              "avg_first_invalidation_horizon": 20.0
+            },
+            "scenario_hit_distribution": {
+              "bear": 3,
+              "bull": 1
+            },
+            "horizons": {
+              "T+5": {
+                "count": 4,
+                "label_counts": {
+                  "hit": 4
+                },
+                "hit_rate": 1.0,
+                "invalidation_rate": 0.0,
+                "timeout_rate": 0.0,
+                "interval_hit_rate": 0.0
+              },
+              "T+10": {
+                "count": 4,
+                "label_counts": {
+                  "hit": 2,
+                  "miss": 2
+                },
+                "hit_rate": 0.5,
+                "invalidation_rate": 0.0,
+                "timeout_rate": 0.0,
+                "interval_hit_rate": 0.5
+              },
+              "T+20": {
+                "count": 4,
+                "label_counts": {
+                  "invalidated": 4
+                },
+                "hit_rate": 0.0,
+                "invalidation_rate": 1.0,
+                "timeout_rate": 0.0,
+                "interval_hit_rate": 0.0
+              },
+              "T+60": {
+                "count": 4,
+                "label_counts": {
+                  "invalidated": 4
+                },
+                "hit_rate": 0.0,
+                "invalidation_rate": 1.0,
+                "timeout_rate": 0.0,
+                "interval_hit_rate": 0.25
+              }
+            },
+            "recommendation": {
+              "bias": "tighten_risk",
+              "reason_codes": [
+                "t20_hit_rate_low",
+                "t20_invalidation_high"
+              ],
+              "summary": "基于 ask 侧归因样本给训练侧的建议：tighten_risk"
+            },
+            "notes": [
+              "样本数=4",
+              "T+20 hit_rate=0.0",
+              "T+20 invalidation_rate=1.0",
+              "T+20 interval_hit_rate=0.0",
+              "direction_brier=0.193125"
+            ]
+          },
+          "regime_breakdown": {
+            "bull": {
+              "generated_at": "2026-03-15T01:23:34.413263",
+              "subject": {
+                "model_name": "momentum",
+                "config_name": "momentum_v1",
+                "as_of_date": "20221127",
+                "regime": "bull"
+              },
+              "matched_case_count": 4,
+              "sample_count": 4,
+              "brier_like_direction_score": 0.193125,
+              "invalidation_timeliness": {
+                "sample_count": 4,
+                "avg_first_invalidation_horizon": 20.0
+              },
+              "scenario_hit_distribution": {
+                "bear": 3,
+                "bull": 1
+              },
+              "horizons": {
+                "T+5": {
+                  "count": 4,
+                  "label_counts": {
+                    "hit": 4
+                  },
+                  "hit_rate": 1.0,
+                  "invalidation_rate": 0.0,
+                  "timeout_rate": 0.0,
+                  "interval_hit_rate": 0.0
+                },
+                "T+10": {
+                  "count": 4,
+                  "label_counts": {
+                    "hit": 2,
+                    "miss": 2
+                  },
+                  "hit_rate": 0.5,
+                  "invalidation_rate": 0.0,
+                  "timeout_rate": 0.0,
+                  "interval_hit_rate": 0.5
+                },
+                "T+20": {
+                  "count": 4,
+                  "label_counts": {
+                    "invalidated": 4
+                  },
+                  "hit_rate": 0.0,
+                  "invalidation_rate": 1.0,
+                  "timeout_rate": 0.0,
+                  "interval_hit_rate": 0.0
+                },
+                "T+60": {
+                  "count": 4,
+                  "label_counts": {
+                    "invalidated": 4
+                  },
+                  "hit_rate": 0.0,
+                  "invalidation_rate": 1.0,
+                  "timeout_rate": 0.0,
+                  "interval_hit_rate": 0.25
+                }
+              },
+              "recommendation": {
+                "bias": "tighten_risk",
+                "reason_codes": [
+                  "t20_hit_rate_low",
+                  "t20_invalidation_high"
+                ],
+                "summary": "基于 ask 侧归因样本给训练侧的建议：tighten_risk"
+              },
+              "notes": [
+                "样本数=4",
+                "T+20 hit_rate=0.0",
+                "T+20 invalidation_rate=1.0",
+                "T+20 interval_hit_rate=0.0",
+                "direction_brier=0.193125"
+              ]
+            },
+            "oscillation": {
+              "generated_at": "2026-03-15T01:23:34.413289",
+              "subject": {
+                "model_name": "momentum",
+                "config_name": "momentum_v1",
+                "as_of_date": "20221127",
+                "regime": "oscillation"
+              },
+              "matched_case_count": 4,
+              "sample_count": 4,
+              "brier_like_direction_score": 0.368125,
+              "invalidation_timeliness": {
+                "sample_count": 4,
+                "avg_first_invalidation_horizon": 11.25
+              },
+              "scenario_hit_distribution": {
+                "bear": 2,
+                "bull": 2
+              },
+              "horizons": {
+                "T+5": {
+                  "count": 4,
+                  "label_counts": {
+                    "invalidated": 1,
+                    "miss": 1,
+                    "hit": 2
+                  },
+                  "hit_rate": 0.5,
+                  "invalidation_rate": 0.25,
+                  "timeout_rate": 0.0,
+                  "interval_hit_rate": 0.0
+                },
+                "T+10": {
+                  "count": 4,
+                  "label_counts": {
+                    "invalidated": 3,
+                    "miss": 1
+                  },
+                  "hit_rate": 0.0,
+                  "invalidation_rate": 0.75,
+                  "timeout_rate": 0.0,
+                  "interval_hit_rate": 0.0
+                },
+                "T+20": {
+                  "count": 4,
+                  "label_counts": {
+                    "invalidated": 4
+                  },
+                  "hit_rate": 0.0,
+                  "invalidation_rate": 1.0,
+                  "timeout_rate": 0.0,
+                  "interval_hit_rate": 0.0
+                },
+                "T+60": {
+                  "count": 4,
+                  "label_counts": {
+                    "invalidated": 4
+                  },
+                  "hit_rate": 0.0,
+                  "invalidation_rate": 1.0,
+                  "timeout_rate": 0.0,
+                  "interval_hit_rate": 0.0
+                }
+              },
+              "recommendation": {
+                "bias": "tighten_risk",
+                "reason_codes": [
+                  "t20_hit_rate_low",
+                  "t20_invalidation_high"
+                ],
+                "summary": "基于 ask 侧归因样本给训练侧的建议：tighten_risk"
+              },
+              "notes": [
+                "样本数=4",
+                "T+20 hit_rate=0.0",
+                "T+20 invalidation_rate=1.0",
+                "T+20 interval_hit_rate=0.0",
+                "direction_brier=0.368125"
+              ]
+            }
+          }
+        },
+        "llm_used": false,
+        "similarity_score": 11,
+        "matched_features": [
+          "regime",
+          "selection_mode",
+          "plan_source",
+          "model_name"
+        ]
+      }
+    ],
+    "similarity_summary": {
+      "target_cycle_id": 17,
+      "matched_cycle_ids": [
+        10,
+        9,
+        8
+      ],
+      "match_features": [
+        "regime",
+        "selection_mode",
+        "plan_source",
+        "model_name"
+      ],
+      "dominant_regime": "bull",
+      "compared_history_size": 16
+    },
+    "causal_diagnosis": {
+      "primary_driver": "selection_mode_cluster",
+      "summary": "相似样本集中在同一决策模式，建议先围绕首要驱动逐步收敛参数。",
+      "drivers": [
+        {
+          "code": "selection_mode_cluster",
+          "label": "相似样本集中在同一决策模式",
+          "score": 0.31,
+          "evidence_cycle_ids": [
+            10,
+            9,
+            8
+          ]
+        }
+      ],
+      "evidence": {
+        "matched_cycle_ids": [
+          10,
+          9,
+          8
+        ],
+        "current_cycle_id": 17
+      }
+    },
+    "strategy_advice": {
+      "source": "review_meeting",
+      "selected_codes": [
+        "sh.600107",
+        "sh.600058",
+        "sh.600082",
+        "sh.600095"
+      ],
+      "selected_meta": [],
+      "confidence": 1.0,
+      "reasoning": "复盘综合: 方向=conservative",
+      "strategy_suggestions": [
+        "先收紧入场条件与风险暴露",
+        "问股校准显示近期命中偏弱，先收紧止损与仓位",
+        "基于 ask 侧归因样本给训练侧的建议：tighten_risk"
+      ],
+      "param_adjustments": {
+        "stop_loss_pct": 0.03,
+        "position_size": 0.15
+      },
+      "agent_weight_adjustments": {
+        "trend_hunter": 0.67,
+        "contrarian": 0.86,
+        "defensive_agent": 0.91
+      },
+      "metadata": {
+        "cycle_id": 17,
+        "benchmark_passed": true,
+        "review_basis_window": {
+          "mode": "single_cycle",
+          "size": 1,
+          "cycle_ids": [
+            17
+          ],
+          "current_cycle_id": 17
+        },
+        "review_window_size": 1,
+        "similarity_summary": {
+          "target_cycle_id": 17,
+          "matched_cycle_ids": [
+            10,
+            9,
+            8
+          ],
+          "match_features": [
+            "regime",
+            "selection_mode",
+            "plan_source",
+            "model_name"
+          ],
+          "dominant_regime": "bull",
+          "compared_history_size": 16
+        },
+        "causal_diagnosis": {
+          "primary_driver": "selection_mode_cluster",
+          "summary": "相似样本集中在同一决策模式，建议先围绕首要驱动逐步收敛参数。",
+          "drivers": [
+            {
+              "code": "selection_mode_cluster",
+              "label": "相似样本集中在同一决策模式",
+              "score": 0.31,
+              "evidence_cycle_ids": [
+                10,
+                9,
+                8
+              ]
+            }
+          ],
+          "evidence": {
+            "matched_cycle_ids": [
+              10,
+              9,
+              8
+            ],
+            "current_cycle_id": 17
+          }
+        }
+      }
+    }
+  }
+}

@@ -544,3 +544,112 @@
 
 - `source .venv/bin/activate && pytest -q tests/test_structured_output_adapter.py tests/test_brain_runtime.py tests/test_lab_artifacts.py tests/test_freeze_gate.py` -> pass
 - `source .venv/bin/activate && python -m app.freeze_gate --mode quick` -> pass
+
+### Phase 0-5 execution hardening
+
+- 新增 `docs/plans/V1_1_EXECUTION_FREEZE_20260315.md`
+- 更新：
+  - `app/freeze_gate.py`
+  - `tests/test_freeze_gate.py`
+  - `tests/test_v2_contracts.py`
+  - `tests/test_structured_output_adapter.py`
+  - `tests/test_brain_runtime.py`
+  - `tests/test_lab_artifacts.py`
+  - `tests/test_web_training_lab_api.py`
+  - `tests/test_governance_phase_a_f.py`
+- 更新 planning files：
+  - `task_plan.md`
+  - `findings.md`
+  - `progress.md`
+
+### Completed
+
+- `Phase 0`：
+  - 冻结 `v1.1` 当前执行基线
+  - 明确 frozen seam、默认 gate、Phase 0-5 验收标准
+  - quick freeze gate 已纳入本轮核心 seam 与 focused suites
+- `Phase 1`：
+  - training governance / realism 摘要已进入 artifact brief、status summary 与 web status view 的测试面
+- `Phase 2`：
+  - `confidence` clamp 与 legacy helper 已补 focused tests
+- `Phase 3`：
+  - structured-output 的 training read side、config read side、agent prompt read side 已补 focused tests
+- `Phase 4`：
+  - 新增 guardrail 规则已补 focused tests：
+    - `fixed_cutoff_missing_date`
+    - `sequence_cutoff_missing_dates`
+    - `regime_balanced_missing_targets`
+    - `invalid_llm_mode`
+    - `blank_runtime_path`
+    - `relative_runtime_path`
+    - `missing_agent_name`
+    - `empty_system_prompt`
+- `Phase 5`：
+  - commander status / web status 的治理汇总与卡片已补 focused tests
+
+### Verification
+
+- Focused lint:
+  - `source .venv/bin/activate && ruff check app/freeze_gate.py tests/test_freeze_gate.py tests/test_v2_contracts.py tests/test_structured_output_adapter.py tests/test_brain_runtime.py tests/test_lab_artifacts.py tests/test_web_training_lab_api.py tests/test_governance_phase_a_f.py` -> pass
+- Focused type:
+  - `source .venv/bin/activate && pyright app/freeze_gate.py tests/test_freeze_gate.py tests/test_v2_contracts.py tests/test_structured_output_adapter.py tests/test_brain_runtime.py tests/test_lab_artifacts.py tests/test_web_training_lab_api.py tests/test_governance_phase_a_f.py` -> `0 errors`
+- Focused tests:
+  - `source .venv/bin/activate && pytest -q tests/test_freeze_gate.py tests/test_v2_contracts.py tests/test_structured_output_adapter.py tests/test_brain_runtime.py tests/test_lab_artifacts.py tests/test_web_training_lab_api.py tests/test_governance_phase_a_f.py` -> pass
+
+## Final closure
+
+### Additional implementation
+
+- 为修复最终复审里发现的观测尾巴，继续更新：
+  - `app/training/simulation_services.py`
+  - `app/training/outcome_services.py`
+  - `app/training/reporting.py`
+  - `invest/leaderboard/engine.py`
+- 新增/更新回归测试：
+  - `tests/test_training_controller_services.py`
+  - `tests/test_train_ui_semantics.py`
+  - `tests/test_leaderboard_snapshot_exclusion.py`
+
+### Completed
+
+- 训练 trade payload 现在会在持久化前清洗非有限数值，避免 `NaN/Inf` 落盘污染 JSON
+- realism metrics / realism summary 现在会忽略非有限数值，避免聚合结果被单个异常 trade 污染
+- leaderboard 收集现在会排除 `config_snapshots/` 目录中的伪 cycle 文件，避免出现 `unknown::config_snapshots`
+- 已在修复后的代码上完成新的完整验证与新的 `20` 轮训练复核
+
+### Verification
+
+- Repair-focused:
+  - `source .venv/bin/activate && pytest -q tests/test_training_controller_services.py tests/test_leaderboard_snapshot_exclusion.py tests/test_train_ui_semantics.py` -> pass
+  - `source .venv/bin/activate && ruff check app/training/simulation_services.py app/training/outcome_services.py app/training/reporting.py invest/leaderboard/engine.py tests/test_training_controller_services.py tests/test_leaderboard_snapshot_exclusion.py tests/test_train_ui_semantics.py` -> pass
+  - `source .venv/bin/activate && pyright app/training/simulation_services.py app/training/outcome_services.py app/training/reporting.py invest/leaderboard/engine.py tests/test_training_controller_services.py tests/test_leaderboard_snapshot_exclusion.py tests/test_train_ui_semantics.py` -> `0 errors`
+- Full:
+  - `source .venv/bin/activate && ruff check .` -> pass
+  - `source .venv/bin/activate && pyright .` -> `0 errors`
+  - `source .venv/bin/activate && pytest -q` -> pass
+  - `source .venv/bin/activate && python -m app.freeze_gate --mode quick` -> pass
+  - `source .venv/bin/activate && python -m app.freeze_gate --mode full` -> pass
+
+### 20-cycle rerun
+
+- 执行命令：
+  - `source .venv/bin/activate && python train.py --cycles 20 --force-full-cycles --output outputs/phase_v11_validation_20260315_final --meeting-log-dir outputs/phase_v11_validation_20260315_final/meetings --config-audit-log-path outputs/phase_v11_validation_20260315_final/config_changes.jsonl --config-snapshot-dir outputs/phase_v11_validation_20260315_final/config_snapshots`
+- 运行事实：
+  - 使用真实数据
+  - `LLM API key is empty`，因此持续走 `fallback to algorithm path`
+- 产物核验：
+  - `outputs/phase_v11_validation_20260315_final/leaderboard.json` 仅包含 `momentum / defensive_low_vol / mean_reversion`
+  - `rg -n "NaN" outputs/phase_v11_validation_20260315_final` -> 无结果
+- 汇总结果：
+  - `20` 轮，盈利 `8`，亏损 `12`，盈利率 `0.4`
+  - `governance_metrics.total_cycles=20`
+  - `governance_metrics.promotion_attempt_count=5`
+  - `governance_metrics.promotion_applied_count=0`
+  - `governance_metrics.candidate_pending_count=5`
+  - `governance_metrics.active_candidate_drift_rate=0.25`
+  - `realism_summary.avg_trade_amount=668815085.8005`
+  - `realism_summary.avg_holding_days=9.3625`
+  - `realism_summary.high_turnover_trade_count=0`
+  - `freeze_gate_evaluation.ready=True`
+  - `freeze_gate_evaluation.passed=False`
+  - 主要阻塞项：`win_rate`、`avg_sharpe`、`benchmark_pass_rate`、`research_feedback_gate`

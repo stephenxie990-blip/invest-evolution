@@ -69,6 +69,8 @@ def collect_cycle_records(root_dir: str | Path) -> List[Dict[str, Any]]:
     for path in sorted(root_path.rglob("cycle_*.json")):
         if not (path.name.startswith("cycle_") and path.name.endswith(".json")):
             continue
+        if "config_snapshots" in path.parts:
+            continue
         if path.name.endswith("_config_snapshot.json"):
             continue
         try:

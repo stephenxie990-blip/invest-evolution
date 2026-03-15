@@ -650,6 +650,50 @@ def test_generate_report_wrapper_preserves_fields(tmp_path):
     assert report['realism_summary']['avg_trade_amount'] == 1000.0
 
 
+def test_generate_report_ignores_non_finite_realism_metrics(tmp_path):
+    from app.train import TrainingResult
+
+    controller = SelfLearningController(
+        output_dir=str(tmp_path / 'training'),
+        meeting_log_dir=str(tmp_path / 'meetings'),
+        config_audit_log_path=str(tmp_path / 'audit' / 'changes.jsonl'),
+        config_snapshot_dir=str(tmp_path / 'snapshots'),
+    )
+    controller.total_cycle_attempts = 2
+    controller.cycle_history.extend([
+        TrainingResult(
+            cycle_id=1,
+            cutoff_date='20240101',
+            selected_stocks=['x'],
+            initial_capital=1,
+            final_value=2,
+            return_pct=1.0,
+            is_profit=True,
+            trade_history=[],
+            params={},
+            realism_metrics={'avg_trade_amount': float('nan'), 'avg_turnover_rate': float('nan'), 'avg_holding_days': float('nan')},
+        ),
+        TrainingResult(
+            cycle_id=2,
+            cutoff_date='20240102',
+            selected_stocks=['y'],
+            initial_capital=1,
+            final_value=2,
+            return_pct=1.0,
+            is_profit=True,
+            trade_history=[],
+            params={},
+            realism_metrics={'avg_trade_amount': 200.0, 'avg_turnover_rate': 0.5, 'avg_holding_days': 4.0},
+        ),
+    ])
+
+    report = controller._generate_report()
+
+    assert report['realism_summary']['cycles_with_realism_metrics'] == 2
+    assert report['realism_summary']['avg_trade_amount'] == 200.0
+    assert report['realism_summary']['avg_turnover_rate'] == 0.5
+    assert report['realism_summary']['avg_holding_days'] == 4.0
+
 
 def test_commander_snapshot_exposes_research_feedback(tmp_path):
     from app.commander import InvestmentBodyService, CommanderConfig

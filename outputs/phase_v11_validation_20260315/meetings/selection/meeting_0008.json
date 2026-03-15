@@ -1,0 +1,92 @@
+{
+  "cycle": 6,
+  "timestamp": "2026-03-15T01:23:21.239528",
+  "type": "selection",
+  "regime": "bear",
+  "confidence": 0.449609475,
+  "hunters": [
+    {
+      "name": "defensive_agent",
+      "result": {
+        "picks": [
+          {
+            "code": "sh.600086",
+            "score": 0.88,
+            "reasoning": "防御视角：波动 0.0, 20日涨跌 +0.00%"
+          },
+          {
+            "code": "sh.600026",
+            "score": 0.7129,
+            "reasoning": "防御视角：波动 0.0337, 20日涨跌 +11.86%"
+          },
+          {
+            "code": "sh.600036",
+            "score": 0.7026,
+            "reasoning": "防御视角：波动 0.0277, 20日涨跌 +9.29%"
+          },
+          {
+            "code": "sh.600090",
+            "score": 0.8052549999999999,
+            "reasoning": "防御视角：波动 0.0165, 20日涨跌 +3.14%"
+          }
+        ],
+        "overall_view": "优先低波、回撤可控与抗跌性更强的标的",
+        "confidence": 0.58
+      }
+    }
+  ],
+  "selected": [
+    "sh.600086",
+    "sh.600090",
+    "sh.600026",
+    "sh.600036"
+  ],
+  "selected_meta": [
+    {
+      "code": "sh.600086",
+      "score": 0.51,
+      "source": "defensive_agent",
+      "sources": [
+        "defensive_agent"
+      ],
+      "trailing_pct": null,
+      "reasoning": "防御视角：波动 0.0, 20日涨跌 +0.00%"
+    },
+    {
+      "code": "sh.600090",
+      "score": 0.467,
+      "source": "defensive_agent",
+      "sources": [
+        "defensive_agent"
+      ],
+      "trailing_pct": null,
+      "reasoning": "防御视角：波动 0.0165, 20日涨跌 +3.14%"
+    },
+    {
+      "code": "sh.600026",
+      "score": 0.413,
+      "source": "defensive_agent",
+      "sources": [
+        "defensive_agent"
+      ],
+      "trailing_pct": null,
+      "reasoning": "防御视角：波动 0.0337, 20日涨跌 +11.86%"
+    },
+    {
+      "code": "sh.600036",
+      "score": 0.408,
+      "source": "defensive_agent",
+      "sources": [
+        "defensive_agent"
+      ],
+      "trailing_pct": null,
+      "reasoning": "防御视角：波动 0.0277, 20日涨跌 +9.29%"
+    }
+  ],
+  "source": "llm",
+  "meeting_id": 8,
+  "cutoff_date": "20181022",
+  "model_name": "defensive_low_vol",
+  "config_name": "defensive_low_vol_v1",
+  "agent_context_summary": "当前市场大致处于 bear 状态。 市场广度 90%，近20日平均涨跌幅 -4.88%，站上MA20比例 23%。 风险提示：强势股占比不足，避免高弹性追涨"
+}

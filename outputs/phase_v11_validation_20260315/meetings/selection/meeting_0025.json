@@ -1,0 +1,92 @@
+{
+  "cycle": 15,
+  "timestamp": "2026-03-15T01:24:19.227633",
+  "type": "selection",
+  "regime": "oscillation",
+  "confidence": 0.50481982,
+  "hunters": [
+    {
+      "name": "defensive_agent",
+      "result": {
+        "picks": [
+          {
+            "code": "sh.600099",
+            "score": 1.197416,
+            "reasoning": "防御视角：波动 0.013, 20日涨跌 +3.76%"
+          },
+          {
+            "code": "sh.600068",
+            "score": 0.9854,
+            "reasoning": "防御视角：波动 0.0135, 20日涨跌 +5.45%"
+          },
+          {
+            "code": "sh.600033",
+            "score": 0.4418,
+            "reasoning": "防御视角：波动 0.0066, 20日涨跌 +0.00%"
+          },
+          {
+            "code": "sh.600020",
+            "score": 0.8569,
+            "reasoning": "防御视角：波动 0.0093, 20日涨跌 -1.79%"
+          }
+        ],
+        "overall_view": "优先低波、回撤可控与抗跌性更强的标的",
+        "confidence": 0.58
+      }
+    }
+  ],
+  "selected": [
+    "sh.600099",
+    "sh.600068",
+    "sh.600020",
+    "sh.600033"
+  ],
+  "selected_meta": [
+    {
+      "code": "sh.600099",
+      "score": 0.695,
+      "source": "defensive_agent",
+      "sources": [
+        "defensive_agent"
+      ],
+      "trailing_pct": null,
+      "reasoning": "防御视角：波动 0.013, 20日涨跌 +3.76%"
+    },
+    {
+      "code": "sh.600068",
+      "score": 0.572,
+      "source": "defensive_agent",
+      "sources": [
+        "defensive_agent"
+      ],
+      "trailing_pct": null,
+      "reasoning": "防御视角：波动 0.0135, 20日涨跌 +5.45%"
+    },
+    {
+      "code": "sh.600020",
+      "score": 0.497,
+      "source": "defensive_agent",
+      "sources": [
+        "defensive_agent"
+      ],
+      "trailing_pct": null,
+      "reasoning": "防御视角：波动 0.0093, 20日涨跌 -1.79%"
+    },
+    {
+      "code": "sh.600033",
+      "score": 0.256,
+      "source": "defensive_agent",
+      "sources": [
+        "defensive_agent"
+      ],
+      "trailing_pct": null,
+      "reasoning": "防御视角：波动 0.0066, 20日涨跌 +0.00%"
+    }
+  ],
+  "source": "llm",
+  "meeting_id": 25,
+  "cutoff_date": "20210412",
+  "model_name": "defensive_low_vol",
+  "config_name": "defensive_low_vol_v1",
+  "agent_context_summary": "当前市场大致处于 oscillation 状态。 市场广度 34%，近20日平均涨跌幅 +0.73%，站上MA20比例 42%。 风险提示：强势股占比不足，避免高弹性追涨；市场广度偏弱，保留更高现金储备"
+}

@@ -1,0 +1,204 @@
+{
+  "generated_at": "2026-03-15T01:24:52.868388",
+  "total_records": 38,
+  "total_models": 4,
+  "entries": [
+    {
+      "key": "defensive_low_vol::defensive_low_vol_v1",
+      "model_name": "defensive_low_vol",
+      "config_name": "defensive_low_vol_v1",
+      "run_dirs": [
+        "outputs/phase_v11_validation_20260315"
+      ],
+      "cycles": 8,
+      "profit_cycles": 4,
+      "profit_rate": 0.5,
+      "avg_return_pct": 0.35583211649260926,
+      "avg_sharpe_ratio": -0.04012812598641208,
+      "avg_max_drawdown": 2.668251185661461,
+      "avg_excess_return": -0.229364631304027,
+      "avg_strategy_score": 0.6692815531842327,
+      "benchmark_pass_rate": 0.25,
+      "dominant_regime": "bear",
+      "regime_breakdown": {
+        "bear": 4,
+        "bull": 2,
+        "oscillation": 2
+      },
+      "latest_cycle_id": 16,
+      "latest_cutoff_date": "20221023",
+      "latest_return_pct": 1.5351473049889466,
+      "score": 13.009574,
+      "scoring_mutation_count": 0,
+      "scoring_changed_keys": [],
+      "rank": 1
+    },
+    {
+      "key": "momentum::momentum_v1",
+      "model_name": "momentum",
+      "config_name": "momentum_v1",
+      "run_dirs": [
+        "outputs/phase_v11_validation_20260315"
+      ],
+      "cycles": 8,
+      "profit_cycles": 4,
+      "profit_rate": 0.5,
+      "avg_return_pct": -0.43203044810654306,
+      "avg_sharpe_ratio": -0.9063059345839933,
+      "avg_max_drawdown": 3.1440469617462505,
+      "avg_excess_return": 1.7056379427773514,
+      "avg_strategy_score": 0.6418178591147613,
+      "benchmark_pass_rate": 0.25,
+      "dominant_regime": "bull",
+      "regime_breakdown": {
+        "bear": 1,
+        "bull": 6,
+        "oscillation": 1
+      },
+      "latest_cycle_id": 19,
+      "latest_cutoff_date": "20180728",
+      "latest_return_pct": 0.9855270112527506,
+      "score": 3.775624,
+      "scoring_mutation_count": 0,
+      "scoring_changed_keys": [],
+      "rank": 2
+    },
+    {
+      "key": "unknown::config_snapshots",
+      "model_name": "unknown",
+      "config_name": "config_snapshots",
+      "run_dirs": [
+        "outputs/phase_v11_validation_20260315/config_snapshots"
+      ],
+      "cycles": 19,
+      "profit_cycles": 0,
+      "profit_rate": 0.0,
+      "avg_return_pct": 0.0,
+      "avg_sharpe_ratio": 0.0,
+      "avg_max_drawdown": 0.0,
+      "avg_excess_return": 0.0,
+      "avg_strategy_score": 0.0,
+      "benchmark_pass_rate": 0.0,
+      "dominant_regime": "unknown",
+      "regime_breakdown": {
+        "unknown": 19
+      },
+      "latest_cycle_id": 0,
+      "latest_cutoff_date": "",
+      "latest_return_pct": 0.0,
+      "score": 0.0,
+      "scoring_mutation_count": 0,
+      "scoring_changed_keys": [],
+      "rank": 3
+    },
+    {
+      "key": "mean_reversion::mean_reversion_v1",
+      "model_name": "mean_reversion",
+      "config_name": "mean_reversion_v1",
+      "run_dirs": [
+        "outputs/phase_v11_validation_20260315"
+      ],
+      "cycles": 3,
+      "profit_cycles": 1,
+      "profit_rate": 0.3333333333333333,
+      "avg_return_pct": -0.4581290396363619,
+      "avg_sharpe_ratio": -1.4165823874736254,
+      "avg_max_drawdown": 2.7156746386770982,
+      "avg_excess_return": -1.853961712149944,
+      "avg_strategy_score": 0.647377480069974,
+      "benchmark_pass_rate": 0.0,
+      "dominant_regime": "oscillation",
+      "regime_breakdown": {
+        "bear": 1,
+        "oscillation": 2
+      },
+      "latest_cycle_id": 4,
+      "latest_cutoff_date": "20230520",
+      "latest_return_pct": -2.1946666291541477,
+      "score": -6.092748,
+      "scoring_mutation_count": 0,
+      "scoring_changed_keys": [],
+      "rank": 4
+    }
+  ],
+  "best_model": {
+    "key": "defensive_low_vol::defensive_low_vol_v1",
+    "model_name": "defensive_low_vol",
+    "config_name": "defensive_low_vol_v1",
+    "run_dirs": [
+      "outputs/phase_v11_validation_20260315"
+    ],
+    "cycles": 8,
+    "profit_cycles": 4,
+    "profit_rate": 0.5,
+    "avg_return_pct": 0.35583211649260926,
+    "avg_sharpe_ratio": -0.04012812598641208,
+    "avg_max_drawdown": 2.668251185661461,
+    "avg_excess_return": -0.229364631304027,
+    "avg_strategy_score": 0.6692815531842327,
+    "benchmark_pass_rate": 0.25,
+    "dominant_regime": "bear",
+    "regime_breakdown": {
+      "bear": 4,
+      "bull": 2,
+      "oscillation": 2
+    },
+    "latest_cycle_id": 16,
+    "latest_cutoff_date": "20221023",
+    "latest_return_pct": 1.5351473049889466,
+    "score": 13.009574,
+    "scoring_mutation_count": 0,
+    "scoring_changed_keys": [],
+    "rank": 1
+  },
+  "regime_leaderboards": {
+    "unknown": [
+      {
+        "rank": 1,
+        "model_name": "unknown",
+        "config_name": "config_snapshots",
+        "score": 0.0,
+        "avg_return_pct": 0.0,
+        "avg_sharpe_ratio": 0.0,
+        "benchmark_pass_rate": 0.0,
+        "scoring_mutation_count": 0
+      }
+    ],
+    "bull": [
+      {
+        "rank": 1,
+        "model_name": "momentum",
+        "config_name": "momentum_v1",
+        "score": 3.775624,
+        "avg_return_pct": -0.43203044810654306,
+        "avg_sharpe_ratio": -0.9063059345839933,
+        "benchmark_pass_rate": 0.25,
+        "scoring_mutation_count": 0
+      }
+    ],
+    "bear": [
+      {
+        "rank": 1,
+        "model_name": "defensive_low_vol",
+        "config_name": "defensive_low_vol_v1",
+        "score": 13.009574,
+        "avg_return_pct": 0.35583211649260926,
+        "avg_sharpe_ratio": -0.04012812598641208,
+        "benchmark_pass_rate": 0.25,
+        "scoring_mutation_count": 0
+      }
+    ],
+    "oscillation": [
+      {
+        "rank": 1,
+        "model_name": "mean_reversion",
+        "config_name": "mean_reversion_v1",
+        "score": -6.092748,
+        "avg_return_pct": -0.4581290396363619,
+        "avg_sharpe_ratio": -1.4165823874736254,
+        "benchmark_pass_rate": 0.0,
+        "scoring_mutation_count": 0
+      }
+    ]
+  }
+}

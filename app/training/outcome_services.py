@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from typing import Any
 
 from app.training.experiment_protocol import build_cycle_run_context, build_execution_snapshot
@@ -11,6 +12,16 @@ class TrainingOutcomeService:
     """Builds cycle audit metadata and training result payloads."""
 
     @staticmethod
+    def _finite_float(value: Any) -> float | None:
+        if value in (None, ""):
+            return None
+        try:
+            number = float(value)
+        except (TypeError, ValueError):
+            return None
+        return number if math.isfinite(number) else None
+
+    @staticmethod
     def build_realism_metrics(
         *,
         trade_dicts: list[dict[str, Any]],
@@ -18,15 +29,26 @@ class TrainingOutcomeService:
         optimization_events: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         trades = [dict(item) for item in list(trade_dicts or []) if isinstance(item, dict)]
+        trade_amounts = [
+            amount
+            for amount in (
+                TrainingOutcomeService._finite_float(item.get("amount"))
+                for item in trades
+            )
+            if amount is not None
+        ]
         avg_trade_amount = (
-            sum(float(item.get("amount", 0.0) or 0.0) for item in trades) / len(trades)
-            if trades
+            sum(trade_amounts) / len(trade_amounts)
+            if trade_amounts
             else 0.0
         )
         turnover_values = [
-            float(item.get("turnover_rate", 0.0) or 0.0)
-            for item in trades
-            if item.get("turnover_rate") not in (None, "")
+            turnover_rate
+            for turnover_rate in (
+                TrainingOutcomeService._finite_float(item.get("turnover_rate"))
+                for item in trades
+            )
+            if turnover_rate is not None
         ]
         holding_days = [
             int(item.get("holding_days", 0) or 0)

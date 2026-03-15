@@ -36,8 +36,17 @@ def test_training_lab_artifact_store_roundtrip(tmp_path: Path):
         'plan_id': 'plan_demo',
         'created_at': '2026-03-10T00:00:00',
         'status': 'completed',
-        'assessment': {'success_count': 1},
-        'promotion': {'verdict': 'rejected'},
+        'assessment': {
+            'success_count': 1,
+            'latest_result': {'cycle_id': 1, 'status': 'ok', 'return_pct': 1.2},
+        },
+        'promotion': {'verdict': 'rejected', 'passed': False},
+        'governance_metrics': {
+            'candidate_pending_count': 1,
+            'promotion_awaiting_gate_count': 1,
+            'active_candidate_drift_rate': 1.0,
+        },
+        'realism_summary': {'avg_holding_days': 5.0, 'high_turnover_trade_count': 1},
         'artifacts': {
             'run_path': str(store.run_path('run_demo')),
             'evaluation_path': str(store.evaluation_path('run_demo')),
@@ -45,7 +54,7 @@ def test_training_lab_artifact_store_roundtrip(tmp_path: Path):
     }
     recorded = store.record_training_lab_artifacts(
         plan=plan,
-        payload={'results': [{'status': 'ok', 'return_pct': 1.2}]},
+        payload={'results': [{'cycle_id': 1, 'status': 'ok', 'return_pct': 1.2}]},
         status='completed',
         eval_payload=eval_payload,
         run_id='run_demo',
@@ -53,12 +62,24 @@ def test_training_lab_artifact_store_roundtrip(tmp_path: Path):
 
     assert recorded['plan']['llm']['timeout'] == 7
     assert recorded['run']['plan']['llm']['max_retries'] == 1
+    assert recorded['run']['plan']['protocol']['holdout']['enabled'] is True
+    assert recorded['run']['plan']['dataset']['symbol_pool'] == ['AAA']
+    assert recorded['run']['plan']['model_scope']['candidate_model'] == 'momentum'
+    assert recorded['run']['plan']['optimization']['promotion_gate']['min_samples'] == 1
     assert recorded['run']['plan']['guardrails']['promotion_gate']['research_feedback']['enabled'] is True
     assert recorded['plan']['last_run_id'] == 'run_demo'
     assert recorded['plan']['artifacts']['latest_run_path'] == str(store.run_path('run_demo'))
     assert store.counts() == {'plan_count': 1, 'run_count': 1, 'evaluation_count': 1}
     assert store.read_json_artifact(store.plan_path('plan_demo'), label='training plan')['status'] == 'completed'
-    assert store.list_json_artifacts(store.training_run_dir, limit=5)['count'] == 1
+    run_listing = store.list_json_artifacts(store.training_run_dir, limit=5)
+    evaluation_listing = store.list_json_artifacts(store.training_eval_dir, limit=5)
+    assert run_listing['count'] == 1
+    assert run_listing['items'][0]['latest_result']['cycle_id'] == 1
+    assert run_listing['items'][0]['latest_result']['promotion_record'] == {}
+    assert evaluation_listing['items'][0]['assessment']['latest_result']['cycle_id'] == 1
+    assert evaluation_listing['items'][0]['promotion']['verdict'] == 'rejected'
+    assert evaluation_listing['items'][0]['governance_metrics']['candidate_pending_count'] == 1
+    assert evaluation_listing['items'][0]['realism_summary']['avg_holding_days'] == 5.0
     raw_run = json.loads(store.run_path('run_demo').read_text(encoding='utf-8'))
     assert raw_run['payload']['results'][0]['return_pct'] == 1.2
 

@@ -169,3 +169,33 @@
   - training protocol completion
   - promotion/lineage discipline
   - structured output / guardrails coverage and policy depth
+
+### Phase 0-5 execution findings
+
+- `Phase 0` 的关键不只是“写一个 freeze 文档”，而是把 quick gate 真正对准当前主矛盾；因此 `freeze_gate` 已补到 `structured_output / guardrails / training_lab / governance status` 这些 seam。
+- `Phase 2` 的 `confidence` 收口如果只改实现、不补 clamp 测试，后续很容易被重新引入裸 `metadata["confidence"]` 读取；因此 contract helper 与 focused tests 必须一起落地。
+- `Phase 3` 最值得做的不是继续给 write side 加 normalize，而是把 training read side 和 config read side 也纳入；因为运营、web 和 runtime 汇总大量依赖这些读接口。
+- `Phase 4` 新增的 runtime path / cutoff / agent prompt guardrail 都属于高频“低成本可防事故”；把 reason code 固定下来，比单纯返回错误文本更有治理价值。
+- `Phase 5` 的真实收益来自“三处汇总一致”：
+  - commander status 有 `latest_run_summary / latest_evaluation_summary / governance_summary`
+  - web status 有 `training_governance / runtime_governance` 卡片
+  - brain receipt / human display 都能暴露 runtime governance bullets
+
+### Final validation findings after the repaired rerun
+
+- 本轮最后补收的两个可观测性尾巴都已证实修复：
+  - `invest/leaderboard/engine.py` 现在会排除 `config_snapshots/` 目录下的伪 cycle 文件，`outputs/phase_v11_validation_20260315_final/leaderboard.json` 只剩真实模型：`momentum / defensive_low_vol / mean_reversion`
+  - `app/training/simulation_services.py` 与 `app/training/outcome_services.py` 现在会把非有限数值拦在持久化前，并且 `app/training/reporting.py` 会在 realism 汇总时忽略非有限值；新 run 目录中已搜索不到 `NaN`
+- 修复后的 `20` 轮训练验证说明：
+  - 系统工程面是稳定的，训练完整跑完，promotion/lineage/leaderboard/research artifacts/meeting logs 都能生成
+  - 但策略质量面仍未过 freeze gate；这已经是“模型/数据/训练策略问题”，不再是“协议、结构化输出、guardrail、展示链”问题
+- 新 run 的关键表现：
+  - `20` 轮中盈利 `8` 轮，盈利率 `0.4`
+  - `governance_metrics`：promotion attempt `5`，promotion applied `0`，candidate pending `5`，active-candidate drift rate `0.25`
+  - `realism_summary`：`avg_trade_amount=668815085.8005`，`avg_holding_days=9.3625`，`high_turnover_trade_count=0`
+- 最终 gate 失败的根因已经在运行日志中明确，不是观测链污染导致：
+  - `win_rate` 未达标
+  - `avg_sharpe` 未达标
+  - `benchmark_pass_rate` 未达标
+  - `research_feedback_gate` 因 `tighten_risk` 偏置与多项 horizon check 失败而未通过
+- 本次训练仍然是在“真实数据 + LLM API key 为空时自动回退算法路径”的模式下完成，因此它验证的是系统韧性与协议闭环，不代表 live-LLM 决策质量已经被证明

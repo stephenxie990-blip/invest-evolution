@@ -299,3 +299,58 @@
   - promotion/lineage discipline
   - schema/contract tail hardening
   - structured output / guardrails coverage expansion
+
+## 2026-03-15 Phase 0-5 execution lock
+
+### Frozen scope
+
+- `Phase 0`：冻结当前 `v1.1` 执行基线与 quick/full gate
+- `Phase 1`：训练协议与治理摘要继续硬化
+- `Phase 2`：`confidence` 尾项彻底收口到 contract helper
+- `Phase 3`：内建 structured-output 深化到 training read side 与 config read side
+- `Phase 4`：内建 runtime guardrails 升级到 cutoff/runtime path/agent prompt 语义校验
+- `Phase 5`：CLI / web / runtime receipt 的治理与可观测性补齐
+
+### Completed in this lock
+
+- 已新增 `docs/plans/V1_1_EXECUTION_FREEZE_20260315.md`，把 frozen seams、默认 gates、Phase 0-5 验收标准落盘
+- 已将 `freeze_gate` quick 门升级为覆盖：
+  - `brain/structured_output.py`
+  - `brain/guardrails.py`
+  - `app/commander_support/status.py`
+  - `app/interfaces/web/presentation.py`
+  - `invest/contracts/agent_context.py`
+  - `tests/test_v2_contracts.py`
+  - `tests/test_lab_artifacts.py`
+  - `tests/test_web_training_lab_api.py`
+  - `tests/test_governance_phase_a_f.py`
+- 已为本轮 Phase 0-5 新增 focused regression，覆盖：
+  - `confidence` clamp 与 legacy helper
+  - structured-output 的 training list/summary/config/prompt read side
+  - guardrail 的 fixed/sequence/regime cutoff、runtime path、agent prompt 规则
+  - training lab artifact brief 与 commander/web status governance 摘要
+
+### Remaining execution order
+
+- 先做全量验证：`ruff .`、`pyright .`、`pytest -q`、`freeze_gate quick/full`
+- 再做系统级复审：架构、模块边界、数据流、训练链路、展示链、治理链一致性
+- 复审通过后执行 `20` 轮训练，并以实际产物复盘优化效果
+
+### Final closure
+
+- 已完成全量验证：
+  - `ruff check .`
+  - `pyright .`
+  - `pytest -q`
+  - `python -m app.freeze_gate --mode quick`
+  - `python -m app.freeze_gate --mode full`
+- 已完成系统级二次复审，并确认：
+  - 训练协议、contract tail、structured output、guardrails、presentation/ops seams 已形成稳定闭环
+  - Phase 0-5 的验收目标均已在代码与测试面落地
+- 已在修复后的代码上完成新的 `20` 轮训练验证：
+  - 输出目录：`outputs/phase_v11_validation_20260315_final`
+  - `leaderboard.json` 已不再把 `config_snapshots` 识别成模型
+  - 新输出目录中已无 `NaN` 序列化污染
+- 当前剩余不是系统实现缺口，而是策略性能门槛未过：
+  - 最终 run 的 `freeze_gate_evaluation.ready=True`
+  - 但 `passed=False`，主因是 `win_rate / avg_sharpe / benchmark_pass_rate / research_feedback_gate` 未达标

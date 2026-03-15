@@ -332,3 +332,89 @@ def test_commander_status_includes_training_lab_summary(tmp_path: Path):
     assert status["training_lab"]["latest_plans"][0]["plan_id"] == plan["plan_id"]
     assert status["training_lab"]["latest_runs"] == []
     assert status["training_lab"]["latest_evaluations"] == []
+
+
+def test_commander_status_exposes_governance_rollups(tmp_path: Path):
+    cfg = CommanderConfig(
+        workspace=tmp_path / "workspace",
+        strategy_dir=tmp_path / "strategies",
+        state_file=tmp_path / "state" / "state.json",
+        cron_store=tmp_path / "state" / "cron.json",
+        memory_store=tmp_path / "memory" / "memory.jsonl",
+        plugin_dir=tmp_path / "plugins",
+        bridge_inbox=tmp_path / "sessions" / "inbox",
+        bridge_outbox=tmp_path / "sessions" / "outbox",
+        mock_mode=True,
+        autopilot_enabled=False,
+        heartbeat_enabled=False,
+        bridge_enabled=False,
+    )
+    rt = CommanderRuntime(cfg)
+    rt.brain._governance_metrics_snapshot = lambda: {  # type: ignore[method-assign]
+        "guardrails": {"block_count": 2, "last_reason_codes": ["empty_patch"]},
+        "structured_output": {
+            "validated_count": 3,
+            "repaired_count": 1,
+            "fallback_count": 0,
+            "degraded_count": 0,
+        },
+    }
+    plan = rt.create_training_plan(rounds=1, mock=True, goal="governance")
+    rt.training_lab.record_training_lab_artifacts(
+        plan=plan,
+        payload={
+            "results": [
+                {
+                    "cycle_id": 1,
+                    "status": "ok",
+                    "return_pct": 1.2,
+                    "benchmark_passed": True,
+                    "promotion_record": {"gate_status": "awaiting_gate", "attempted": True},
+                    "lineage_record": {
+                        "lineage_status": "candidate_pending",
+                        "active_config_ref": "configs/active.yaml",
+                        "candidate_config_ref": "configs/candidate.yaml",
+                    },
+                    "realism_metrics": {
+                        "avg_holding_days": 4.5,
+                        "high_turnover_trade_count": 1,
+                    },
+                }
+            ]
+        },
+        status="completed",
+        eval_payload={
+            "run_id": "run_demo",
+            "plan_id": plan["plan_id"],
+            "created_at": "2026-03-15T00:00:00",
+            "status": "completed",
+            "assessment": {
+                "success_count": 1,
+                "latest_result": {"cycle_id": 1, "status": "ok"},
+            },
+            "promotion": {"verdict": "rejected", "passed": False},
+            "governance_metrics": {
+                "candidate_pending_count": 1,
+                "promotion_awaiting_gate_count": 1,
+                "active_candidate_drift_rate": 1.0,
+            },
+            "realism_summary": {
+                "avg_holding_days": 4.5,
+                "high_turnover_trade_count": 1,
+            },
+            "artifacts": {
+                "run_path": str(rt.cfg.training_run_dir / "run_demo.json"),
+                "evaluation_path": str(rt.cfg.training_eval_dir / "run_demo.json"),
+            },
+        },
+        run_id="run_demo",
+    )
+
+    status = rt.status(detail="slow")
+
+    assert status["training_lab"]["latest_run_summary"]["run_id"] == "run_demo"
+    assert status["training_lab"]["latest_run_summary"]["latest_result"]["cycle_id"] == 1
+    assert status["training_lab"]["latest_evaluation_summary"]["assessment"]["latest_result"]["cycle_id"] == 1
+    assert status["training_lab"]["governance_summary"]["governance_metrics"]["candidate_pending_count"] == 1
+    assert status["training_lab"]["governance_summary"]["realism_summary"]["avg_holding_days"] == 4.5
+    assert status["brain"]["governance_metrics"]["guardrails"]["block_count"] == 2

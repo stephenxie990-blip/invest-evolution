@@ -313,6 +313,7 @@ def test_training_experiment_service_configures_protocol_dataset_and_model_scope
         experiment_allowed_models = []
         experiment_llm = {}
         experiment_review_window = {}
+        experiment_cutoff_policy = {}
         experiment_promotion_policy = {}
         allocator_enabled = False
         model_routing_enabled = False
@@ -697,6 +698,24 @@ def test_training_outcome_service_builds_audit_tags_and_cycle_result():
         'source_mix': {'unknown': 1.0},
         'exit_trigger_mix': {},
     }
+
+
+def test_training_outcome_service_ignores_non_finite_realism_amounts():
+    service = TrainingOutcomeService()
+
+    realism_metrics = service.build_realism_metrics(
+        trade_dicts=[
+            {'amount': float('nan'), 'source': 'signal'},
+            {'amount': float('inf'), 'source': 'signal'},
+            {'amount': 300.0, 'source': 'signal', 'holding_days': 2, 'turnover_rate': 1.25},
+        ],
+        selection_mode='meeting_selection',
+        optimization_events=[],
+    )
+
+    assert realism_metrics['avg_trade_amount'] == 300.0
+    assert realism_metrics['avg_turnover_rate'] == 1.25
+    assert realism_metrics['avg_holding_days'] == 2.0
 
 
 def test_run_continuous_delegates_to_lifecycle_service(monkeypatch, tmp_path):
@@ -1546,6 +1565,70 @@ def test_training_simulation_service_builds_cycle_and_trade_payloads():
         'volume': 1000.0,
         'amount': 123400.0,
         'pct_chg': 1.2,
+    }]
+
+
+def test_training_simulation_service_sanitizes_non_finite_trade_payloads():
+    service = TrainingSimulationService()
+    trade = SimpleNamespace(
+        date='20240202',
+        action=SimpleNamespace(value='BUY'),
+        ts_code='sh.600519',
+        price=float('nan'),
+        shares=100,
+        pnl=float('inf'),
+        pnl_pct=float('-inf'),
+        reason='entry',
+        source='signal',
+        entry_reason='breakout',
+        exit_reason='',
+        exit_trigger='',
+        entry_date='20240202',
+        entry_price=float('nan'),
+        holding_days=0,
+        stop_loss_price=float('nan'),
+        take_profit_price=float('nan'),
+        trailing_pct=float('nan'),
+        capital_before=float('nan'),
+        capital_after=float('inf'),
+        open_price=float('nan'),
+        high_price=float('inf'),
+        low_price=float('-inf'),
+        volume=float('nan'),
+        amount=float('nan'),
+        pct_chg=float('nan'),
+    )
+    sim_result = SimpleNamespace(trade_history=[trade])
+
+    trades = service.build_trade_dicts(sim_result)
+
+    assert trades == [{
+        'date': '20240202',
+        'action': 'BUY',
+        'ts_code': 'sh.600519',
+        'price': 0.0,
+        'shares': 100,
+        'pnl': 0.0,
+        'pnl_pct': 0.0,
+        'reason': 'entry',
+        'source': 'signal',
+        'entry_reason': 'breakout',
+        'exit_reason': '',
+        'exit_trigger': '',
+        'entry_date': '20240202',
+        'entry_price': 0.0,
+        'holding_days': 0,
+        'stop_loss_price': 0.0,
+        'take_profit_price': 0.0,
+        'trailing_pct': None,
+        'capital_before': 0.0,
+        'capital_after': 0.0,
+        'open_price': None,
+        'high_price': None,
+        'low_price': None,
+        'volume': None,
+        'amount': None,
+        'pct_chg': None,
     }]
 
 

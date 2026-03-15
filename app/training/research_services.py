@@ -47,7 +47,7 @@ class TrainingResearchService:
 
         frame = stock_data.get(code)
         name = ""
-        if hasattr(frame, "empty") and not frame.empty and "name" in getattr(frame, "columns", []):
+        if frame is not None and hasattr(frame, "empty") and not frame.empty and "name" in getattr(frame, "columns", []):
             try:
                 name = str(frame.iloc[-1].get("name") or "")
             except Exception:

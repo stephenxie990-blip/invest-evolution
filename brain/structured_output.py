@@ -35,6 +35,88 @@ def _validation_errors(validator: Any, payload: dict[str, Any]) -> list[str]:
     return [str(item) for item in _list_payload(result) if str(item or "")]
 
 
+def _safe_int(value: Any, default: int = 0) -> int:
+    try:
+        if value is None or value == "":
+            return int(default)
+        return int(value)
+    except (TypeError, ValueError):
+        return int(default)
+
+
+def _brief_training_result(item: dict[str, Any]) -> dict[str, Any]:
+    payload = _dict_payload(item)
+    return {
+        "cycle_id": payload.get("cycle_id"),
+        "status": str(payload.get("status") or ""),
+        "return_pct": payload.get("return_pct"),
+        "benchmark_passed": bool(payload.get("benchmark_passed", False)),
+        "promotion_record": _dict_payload(payload.get("promotion_record")),
+        "lineage_record": _dict_payload(payload.get("lineage_record")),
+    }
+
+
+def _brief_training_plan_item(item: dict[str, Any]) -> dict[str, Any]:
+    payload = _dict_payload(item)
+    return {
+        "path": str(payload.get("path") or ""),
+        "name": str(payload.get("name") or ""),
+        "plan_id": str(payload.get("plan_id") or ""),
+        "status": str(payload.get("status") or ""),
+        "created_at": str(payload.get("created_at") or ""),
+        "last_run_id": str(payload.get("last_run_id") or ""),
+        "last_run_at": str(payload.get("last_run_at") or ""),
+        "spec": _dict_payload(payload.get("spec")),
+        "artifacts": _dict_payload(payload.get("artifacts")),
+    }
+
+
+def _brief_training_run_item(item: dict[str, Any]) -> dict[str, Any]:
+    payload = _dict_payload(item)
+    run_payload = _dict_payload(payload.get("payload"))
+    results = [dict(entry) for entry in _list_payload(run_payload.get("results")) if isinstance(entry, dict)]
+    latest_result = _dict_payload(payload.get("latest_result")) or (dict(results[-1]) if results else {})
+    return {
+        "path": str(payload.get("path") or ""),
+        "name": str(payload.get("name") or ""),
+        "run_id": str(payload.get("run_id") or ""),
+        "plan_id": str(payload.get("plan_id") or ""),
+        "status": str(payload.get("status") or ""),
+        "created_at": str(payload.get("created_at") or ""),
+        "artifacts": _dict_payload(payload.get("artifacts")),
+        "latest_result": _brief_training_result(latest_result),
+    }
+
+
+def _brief_training_evaluation_item(item: dict[str, Any]) -> dict[str, Any]:
+    payload = _dict_payload(item)
+    assessment = _dict_payload(payload.get("assessment"))
+    promotion = _dict_payload(payload.get("promotion"))
+    return {
+        "path": str(payload.get("path") or ""),
+        "name": str(payload.get("name") or ""),
+        "run_id": str(payload.get("run_id") or ""),
+        "plan_id": str(payload.get("plan_id") or ""),
+        "status": str(payload.get("status") or ""),
+        "created_at": str(payload.get("created_at") or ""),
+        "assessment": {
+            "success_count": _safe_int(assessment.get("success_count"), 0),
+            "no_data_count": _safe_int(assessment.get("no_data_count"), 0),
+            "error_count": _safe_int(assessment.get("error_count"), 0),
+            "avg_return_pct": assessment.get("avg_return_pct"),
+            "benchmark_pass_rate": assessment.get("benchmark_pass_rate"),
+            "latest_result": _dict_payload(assessment.get("latest_result")),
+        },
+        "promotion": {
+            "verdict": str(promotion.get("verdict") or ""),
+            "passed": bool(promotion.get("passed", False)),
+            "research_feedback": _dict_payload(promotion.get("research_feedback")),
+        },
+        "governance_metrics": _dict_payload(payload.get("governance_metrics")),
+        "realism_summary": _dict_payload(payload.get("realism_summary")),
+    }
+
+
 class StructuredOutputAdapter:
     """Produces stable payloads with validation, one repair pass, and fallback metadata."""
 
@@ -286,7 +368,7 @@ class StructuredOutputAdapter:
         normalized["status"] = str(payload.get("status") or "ok")
         normalized["pending"] = _dict_payload(normalized.get("pending"))
         normalized["updated"] = _list_payload(normalized.get("updated"))
-        normalized["control_plane"] = _dict_payload(normalized.get("control_plane"))
+        normalized["control_plane"] = _dict_payload(normalized.get("control_plane")) or _dict_payload(normalized.get("config"))
         normalized["restart_required"] = bool(normalized.get("restart_required", False))
         return normalized
 
@@ -321,7 +403,7 @@ class StructuredOutputAdapter:
         normalized["status"] = str(payload.get("status") or "ok")
         normalized["pending"] = _dict_payload(normalized.get("pending"))
         normalized["updated"] = _list_payload(normalized.get("updated"))
-        normalized["paths"] = _dict_payload(normalized.get("paths"))
+        normalized["paths"] = _dict_payload(normalized.get("paths")) or _dict_payload(normalized.get("config"))
         return normalized
 
     def _validate_invest_runtime_paths_update(self, payload: dict[str, Any]) -> list[str]:
@@ -379,6 +461,280 @@ class StructuredOutputAdapter:
         if "updated" in raw and not isinstance(raw.get("updated"), list):
             notes.append("updated_coerced_to_list")
         return notes
+
+    def _normalize_invest_training_plan_list(self, payload: dict[str, Any]) -> dict[str, Any]:
+        normalized = dict(payload)
+        items = [_brief_training_plan_item(item) for item in _list_payload(normalized.get("items")) if isinstance(item, dict)]
+        normalized["status"] = str(payload.get("status") or "ok")
+        normalized["count"] = _safe_int(payload.get("count"), len(items))
+        normalized["items"] = items
+        return normalized
+
+    def _validate_invest_training_plan_list(self, payload: dict[str, Any]) -> list[str]:
+        errors = _validate_type(payload.get("status"), str, label="status")
+        errors.extend(_validate_type(payload.get("count"), int, label="count"))
+        errors.extend(_validate_type(payload.get("items"), list, label="items"))
+        return errors
+
+    def _fallback_invest_training_plan_list(self, *, raw: dict[str, Any], normalized: dict[str, Any]) -> dict[str, Any]:
+        items = [_brief_training_plan_item(item) for item in _list_payload(normalized.get("items")) if isinstance(item, dict)]
+        return {
+            "status": str(raw.get("status") or normalized.get("status") or "ok"),
+            "count": _safe_int(normalized.get("count"), len(items)),
+            "items": items,
+        }
+
+    def _coercions_invest_training_plan_list(self, raw: dict[str, Any]) -> list[str]:
+        notes: list[str] = []
+        if "items" in raw and not isinstance(raw.get("items"), list):
+            notes.append("items_coerced_to_list")
+        if "count" in raw and not isinstance(raw.get("count"), int):
+            notes.append("count_coerced_to_int")
+        return notes
+
+    def _normalize_invest_training_runs_list(self, payload: dict[str, Any]) -> dict[str, Any]:
+        normalized = dict(payload)
+        items = [_brief_training_run_item(item) for item in _list_payload(normalized.get("items")) if isinstance(item, dict)]
+        normalized["status"] = str(payload.get("status") or "ok")
+        normalized["count"] = _safe_int(payload.get("count"), len(items))
+        normalized["items"] = items
+        return normalized
+
+    def _validate_invest_training_runs_list(self, payload: dict[str, Any]) -> list[str]:
+        errors = _validate_type(payload.get("status"), str, label="status")
+        errors.extend(_validate_type(payload.get("count"), int, label="count"))
+        errors.extend(_validate_type(payload.get("items"), list, label="items"))
+        return errors
+
+    def _fallback_invest_training_runs_list(self, *, raw: dict[str, Any], normalized: dict[str, Any]) -> dict[str, Any]:
+        items = [_brief_training_run_item(item) for item in _list_payload(normalized.get("items")) if isinstance(item, dict)]
+        return {
+            "status": str(raw.get("status") or normalized.get("status") or "ok"),
+            "count": _safe_int(normalized.get("count"), len(items)),
+            "items": items,
+        }
+
+    def _coercions_invest_training_runs_list(self, raw: dict[str, Any]) -> list[str]:
+        notes: list[str] = []
+        if "items" in raw and not isinstance(raw.get("items"), list):
+            notes.append("items_coerced_to_list")
+        if "count" in raw and not isinstance(raw.get("count"), int):
+            notes.append("count_coerced_to_int")
+        return notes
+
+    def _normalize_invest_training_evaluations_list(self, payload: dict[str, Any]) -> dict[str, Any]:
+        normalized = dict(payload)
+        items = [_brief_training_evaluation_item(item) for item in _list_payload(normalized.get("items")) if isinstance(item, dict)]
+        normalized["status"] = str(payload.get("status") or "ok")
+        normalized["count"] = _safe_int(payload.get("count"), len(items))
+        normalized["items"] = items
+        return normalized
+
+    def _validate_invest_training_evaluations_list(self, payload: dict[str, Any]) -> list[str]:
+        errors = _validate_type(payload.get("status"), str, label="status")
+        errors.extend(_validate_type(payload.get("count"), int, label="count"))
+        errors.extend(_validate_type(payload.get("items"), list, label="items"))
+        return errors
+
+    def _fallback_invest_training_evaluations_list(self, *, raw: dict[str, Any], normalized: dict[str, Any]) -> dict[str, Any]:
+        items = [_brief_training_evaluation_item(item) for item in _list_payload(normalized.get("items")) if isinstance(item, dict)]
+        return {
+            "status": str(raw.get("status") or normalized.get("status") or "ok"),
+            "count": _safe_int(normalized.get("count"), len(items)),
+            "items": items,
+        }
+
+    def _coercions_invest_training_evaluations_list(self, raw: dict[str, Any]) -> list[str]:
+        notes: list[str] = []
+        if "items" in raw and not isinstance(raw.get("items"), list):
+            notes.append("items_coerced_to_list")
+        if "count" in raw and not isinstance(raw.get("count"), int):
+            notes.append("count_coerced_to_int")
+        return notes
+
+    def _normalize_invest_training_lab_summary(self, payload: dict[str, Any]) -> dict[str, Any]:
+        normalized = dict(payload)
+        latest_plans = [_brief_training_plan_item(item) for item in _list_payload(normalized.get("latest_plans")) if isinstance(item, dict)]
+        latest_runs = [_brief_training_run_item(item) for item in _list_payload(normalized.get("latest_runs")) if isinstance(item, dict)]
+        latest_evaluations = [
+            _brief_training_evaluation_item(item)
+            for item in _list_payload(normalized.get("latest_evaluations"))
+            if isinstance(item, dict)
+        ]
+        normalized["status"] = str(payload.get("status") or "ok")
+        normalized["plan_count"] = _safe_int(payload.get("plan_count"), 0)
+        normalized["run_count"] = _safe_int(payload.get("run_count"), 0)
+        normalized["evaluation_count"] = _safe_int(payload.get("evaluation_count"), 0)
+        normalized["latest_plans"] = latest_plans
+        normalized["latest_runs"] = latest_runs
+        normalized["latest_evaluations"] = latest_evaluations
+        normalized["latest_run_summary"] = _dict_payload(normalized.get("latest_run_summary")) or {
+            "latest_result": _dict_payload(_dict_payload(latest_runs[0]).get("latest_result")) if latest_runs else {},
+            "ops_panel": {},
+        }
+        normalized["latest_evaluation_summary"] = _dict_payload(normalized.get("latest_evaluation_summary")) or (
+            dict(latest_evaluations[0]) if latest_evaluations else {}
+        )
+        normalized["governance_summary"] = _dict_payload(normalized.get("governance_summary"))
+        return normalized
+
+    def _validate_invest_training_lab_summary(self, payload: dict[str, Any]) -> list[str]:
+        errors = _validate_type(payload.get("status"), str, label="status")
+        for key in ("plan_count", "run_count", "evaluation_count"):
+            errors.extend(_validate_type(payload.get(key), int, label=key))
+        for key in ("latest_plans", "latest_runs", "latest_evaluations"):
+            errors.extend(_validate_type(payload.get(key), list, label=key))
+        for key in ("latest_run_summary", "latest_evaluation_summary", "governance_summary"):
+            errors.extend(_validate_type(payload.get(key), dict, label=key))
+        return errors
+
+    def _fallback_invest_training_lab_summary(self, *, raw: dict[str, Any], normalized: dict[str, Any]) -> dict[str, Any]:
+        latest_plans = [_brief_training_plan_item(item) for item in _list_payload(normalized.get("latest_plans")) if isinstance(item, dict)]
+        latest_runs = [_brief_training_run_item(item) for item in _list_payload(normalized.get("latest_runs")) if isinstance(item, dict)]
+        latest_evaluations = [
+            _brief_training_evaluation_item(item)
+            for item in _list_payload(normalized.get("latest_evaluations"))
+            if isinstance(item, dict)
+        ]
+        return {
+            "status": str(raw.get("status") or normalized.get("status") or "ok"),
+            "plan_count": _safe_int(normalized.get("plan_count"), 0),
+            "run_count": _safe_int(normalized.get("run_count"), 0),
+            "evaluation_count": _safe_int(normalized.get("evaluation_count"), 0),
+            "latest_plans": latest_plans,
+            "latest_runs": latest_runs,
+            "latest_evaluations": latest_evaluations,
+            "latest_run_summary": _dict_payload(normalized.get("latest_run_summary")),
+            "latest_evaluation_summary": _dict_payload(normalized.get("latest_evaluation_summary")),
+            "governance_summary": _dict_payload(normalized.get("governance_summary")),
+        }
+
+    def _coercions_invest_training_lab_summary(self, raw: dict[str, Any]) -> list[str]:
+        notes: list[str] = []
+        for key in ("latest_plans", "latest_runs", "latest_evaluations"):
+            if key in raw and not isinstance(raw.get(key), list):
+                notes.append(f"{key}_coerced_to_list")
+        for key in ("latest_run_summary", "latest_evaluation_summary", "governance_summary"):
+            if key in raw and not isinstance(raw.get(key), dict):
+                notes.append(f"{key}_coerced_to_dict")
+        return notes
+
+    def _normalize_invest_agent_prompts_list(self, payload: dict[str, Any]) -> dict[str, Any]:
+        normalized = dict(payload)
+        configs = []
+        for item in _list_payload(normalized.get("configs") or normalized.get("items")):
+            if not isinstance(item, dict):
+                continue
+            configs.append(
+                {
+                    "name": str(item.get("name") or ""),
+                    "role": str(item.get("role") or item.get("name") or ""),
+                    "system_prompt": str(item.get("system_prompt") or ""),
+                }
+            )
+        normalized["status"] = str(payload.get("status") or "ok")
+        normalized["configs"] = configs
+        return normalized
+
+    def _validate_invest_agent_prompts_list(self, payload: dict[str, Any]) -> list[str]:
+        errors = _validate_type(payload.get("status"), str, label="status")
+        errors.extend(_validate_type(payload.get("configs"), list, label="configs"))
+        return errors
+
+    def _fallback_invest_agent_prompts_list(self, *, raw: dict[str, Any], normalized: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "status": str(raw.get("status") or normalized.get("status") or "ok"),
+            "configs": [dict(item) for item in _list_payload(normalized.get("configs")) if isinstance(item, dict)],
+        }
+
+    def _normalize_invest_agent_prompts_update(self, payload: dict[str, Any]) -> dict[str, Any]:
+        normalized = dict(payload)
+        normalized["status"] = str(payload.get("status") or "ok")
+        normalized["updated"] = _list_payload(normalized.get("updated"))
+        normalized["restart_required"] = bool(normalized.get("restart_required", False))
+        return normalized
+
+    def _validate_invest_agent_prompts_update(self, payload: dict[str, Any]) -> list[str]:
+        errors = _validate_type(payload.get("status"), str, label="status")
+        errors.extend(_validate_type(payload.get("updated"), list, label="updated"))
+        errors.extend(_validate_type(payload.get("restart_required"), bool, label="restart_required"))
+        return errors
+
+    def _fallback_invest_agent_prompts_update(self, *, raw: dict[str, Any], normalized: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "status": str(raw.get("status") or normalized.get("status") or "ok"),
+            "updated": _list_payload(normalized.get("updated")),
+            "restart_required": bool(normalized.get("restart_required", False)),
+        }
+
+    def _normalize_invest_control_plane_get(self, payload: dict[str, Any]) -> dict[str, Any]:
+        normalized = dict(payload)
+        normalized["status"] = str(payload.get("status") or "ok")
+        normalized["control_plane"] = _dict_payload(normalized.get("control_plane")) or _dict_payload(normalized.get("config"))
+        normalized["restart_required"] = bool(normalized.get("restart_required", False))
+        normalized["config_path"] = str(normalized.get("config_path") or "")
+        normalized["local_override_path"] = str(normalized.get("local_override_path") or "")
+        normalized["audit_log_path"] = str(normalized.get("audit_log_path") or "")
+        normalized["snapshot_dir"] = str(normalized.get("snapshot_dir") or "")
+        return normalized
+
+    def _validate_invest_control_plane_get(self, payload: dict[str, Any]) -> list[str]:
+        errors = _validate_type(payload.get("status"), str, label="status")
+        errors.extend(_validate_type(payload.get("control_plane"), dict, label="control_plane"))
+        errors.extend(_validate_type(payload.get("restart_required"), bool, label="restart_required"))
+        return errors
+
+    def _fallback_invest_control_plane_get(self, *, raw: dict[str, Any], normalized: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "status": str(raw.get("status") or normalized.get("status") or "ok"),
+            "control_plane": _dict_payload(normalized.get("control_plane")),
+            "restart_required": bool(normalized.get("restart_required", False)),
+            "config_path": str(normalized.get("config_path") or ""),
+            "local_override_path": str(normalized.get("local_override_path") or ""),
+            "audit_log_path": str(normalized.get("audit_log_path") or ""),
+            "snapshot_dir": str(normalized.get("snapshot_dir") or ""),
+        }
+
+    def _normalize_invest_runtime_paths_get(self, payload: dict[str, Any]) -> dict[str, Any]:
+        normalized = dict(payload)
+        paths = _dict_payload(normalized.get("paths")) or _dict_payload(normalized.get("config"))
+        normalized["status"] = str(payload.get("status") or "ok")
+        normalized["paths"] = paths
+        normalized["runtime_loaded"] = bool(paths.get("runtime_loaded", normalized.get("runtime_loaded", False)))
+        return normalized
+
+    def _validate_invest_runtime_paths_get(self, payload: dict[str, Any]) -> list[str]:
+        errors = _validate_type(payload.get("status"), str, label="status")
+        errors.extend(_validate_type(payload.get("paths"), dict, label="paths"))
+        errors.extend(_validate_type(payload.get("runtime_loaded"), bool, label="runtime_loaded"))
+        return errors
+
+    def _fallback_invest_runtime_paths_get(self, *, raw: dict[str, Any], normalized: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "status": str(raw.get("status") or normalized.get("status") or "ok"),
+            "paths": _dict_payload(normalized.get("paths")),
+            "runtime_loaded": bool(normalized.get("runtime_loaded", False)),
+        }
+
+    def _normalize_invest_evolution_config_get(self, payload: dict[str, Any]) -> dict[str, Any]:
+        normalized = dict(payload)
+        normalized["status"] = str(payload.get("status") or "ok")
+        normalized["config"] = _dict_payload(normalized.get("config"))
+        normalized["restart_required"] = bool(normalized.get("restart_required", False))
+        return normalized
+
+    def _validate_invest_evolution_config_get(self, payload: dict[str, Any]) -> list[str]:
+        errors = _validate_type(payload.get("status"), str, label="status")
+        errors.extend(_validate_type(payload.get("config"), dict, label="config"))
+        errors.extend(_validate_type(payload.get("restart_required"), bool, label="restart_required"))
+        return errors
+
+    def _fallback_invest_evolution_config_get(self, *, raw: dict[str, Any], normalized: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "status": str(raw.get("status") or normalized.get("status") or "ok"),
+            "config": _dict_payload(normalized.get("config")),
+            "restart_required": bool(normalized.get("restart_required", False)),
+        }
 
 
 __all__ = ["StructuredOutputAdapter"]

@@ -160,6 +160,70 @@ def _training_display_cards(body: dict[str, Any]) -> list[dict[str, Any]]:
                 "badges": [str(realism_metrics.get("selection_mode") or "").strip()] if str(realism_metrics.get("selection_mode") or "").strip() else [],
             }
         )
+    governance_summary = dict(dict(body.get("training_lab") or {}).get("governance_summary") or {})
+    governance_metrics = dict(governance_summary.get("governance_metrics") or {})
+    realism_summary = dict(governance_summary.get("realism_summary") or {})
+    if governance_metrics or realism_summary:
+        rows = []
+        if governance_metrics:
+            rows.extend(
+                [
+                    _kv("candidate_pending", governance_metrics.get("candidate_pending_count") or 0),
+                    _kv("awaiting_gate", governance_metrics.get("promotion_awaiting_gate_count") or 0),
+                    _kv("drift_rate", f"{float(governance_metrics.get('active_candidate_drift_rate', 0.0) or 0.0):.2%}"),
+                ]
+            )
+        if realism_summary:
+            rows.extend(
+                [
+                    _kv("avg_holding_days", realism_summary.get("avg_holding_days") or ""),
+                    _kv("high_turnover", realism_summary.get("high_turnover_trade_count") or 0),
+                ]
+            )
+        cards.append(
+            {
+                "id": "training_governance",
+                "title": "Training Governance",
+                "tone": "warning" if int(governance_metrics.get("candidate_pending_count", 0) or 0) else "neutral",
+                "summary": "最近一次评估已沉淀治理与现实性摘要",
+                "rows": rows,
+                "badges": [
+                    str(item)
+                    for item in [
+                        governance_summary.get("run_id"),
+                        dict(governance_summary.get("promotion") or {}).get("verdict"),
+                    ]
+                    if str(item or "").strip()
+                ],
+            }
+        )
+    runtime_governance = dict(
+        dict(body.get("brain") or {}).get("governance_metrics")
+        or dict(body.get("governance_metrics") or {}).get("runtime")
+        or {}
+    )
+    if runtime_governance:
+        structured = dict(runtime_governance.get("structured_output") or {})
+        guardrails = dict(runtime_governance.get("guardrails") or {})
+        cards.append(
+            {
+                "id": "runtime_governance",
+                "title": "Runtime Governance",
+                "tone": "warning" if int(guardrails.get("block_count", 0) or 0) else "neutral",
+                "summary": "当前运行时的 structured output 与 guardrail 统计",
+                "rows": [
+                    _kv("guardrail_blocks", guardrails.get("block_count") or 0),
+                    _kv("validated", structured.get("validated_count") or 0),
+                    _kv("repaired", structured.get("repaired_count") or 0),
+                    _kv("fallback", structured.get("fallback_count") or 0),
+                ],
+                "badges": [
+                    str(item)
+                    for item in list(guardrails.get("last_reason_codes") or [])[:2]
+                    if str(item or "").strip()
+                ],
+            }
+        )
     return cards
 
 

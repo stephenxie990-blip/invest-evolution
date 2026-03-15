@@ -1,0 +1,168 @@
+{
+  "generated_at": "2026-03-15T01:48:49.240195",
+  "total_records": 19,
+  "total_models": 3,
+  "entries": [
+    {
+      "key": "momentum::momentum_v1",
+      "model_name": "momentum",
+      "config_name": "momentum_v1",
+      "run_dirs": [
+        "outputs/phase_v11_validation_20260315_final"
+      ],
+      "cycles": 9,
+      "profit_cycles": 6,
+      "profit_rate": 0.6666666666666666,
+      "avg_return_pct": 1.5123850976698532,
+      "avg_sharpe_ratio": 0.7859990924342084,
+      "avg_max_drawdown": 2.4043185173514257,
+      "avg_excess_return": -0.16309102953954432,
+      "avg_strategy_score": 0.6488981555590568,
+      "benchmark_pass_rate": 0.0,
+      "dominant_regime": "bull",
+      "regime_breakdown": {
+        "bear": 1,
+        "bull": 6,
+        "oscillation": 2
+      },
+      "latest_cycle_id": 19,
+      "latest_cutoff_date": "20191213",
+      "latest_return_pct": -2.994932602662273,
+      "score": 16.940772,
+      "scoring_mutation_count": 0,
+      "scoring_changed_keys": [],
+      "rank": 1
+    },
+    {
+      "key": "defensive_low_vol::defensive_low_vol_v1",
+      "model_name": "defensive_low_vol",
+      "config_name": "defensive_low_vol_v1",
+      "run_dirs": [
+        "outputs/phase_v11_validation_20260315_final"
+      ],
+      "cycles": 5,
+      "profit_cycles": 2,
+      "profit_rate": 0.4,
+      "avg_return_pct": 0.10837323924531231,
+      "avg_sharpe_ratio": -1.1756535747275638,
+      "avg_max_drawdown": 2.1247199011622024,
+      "avg_excess_return": -0.4045351935449747,
+      "avg_strategy_score": 0.6527505601976756,
+      "benchmark_pass_rate": 0.2,
+      "dominant_regime": "bear",
+      "regime_breakdown": {
+        "bear": 2,
+        "bull": 1,
+        "oscillation": 2
+      },
+      "latest_cycle_id": 15,
+      "latest_cutoff_date": "20231108",
+      "latest_return_pct": 1.3111946835380222,
+      "score": 0.65043,
+      "scoring_mutation_count": 0,
+      "scoring_changed_keys": [],
+      "rank": 2
+    },
+    {
+      "key": "mean_reversion::mean_reversion_v1",
+      "model_name": "mean_reversion",
+      "config_name": "mean_reversion_v1",
+      "run_dirs": [
+        "outputs/phase_v11_validation_20260315_final"
+      ],
+      "cycles": 5,
+      "profit_cycles": 0,
+      "profit_rate": 0.0,
+      "avg_return_pct": -2.599379635952934,
+      "avg_sharpe_ratio": -2.4994014719028086,
+      "avg_max_drawdown": 3.530448737348217,
+      "avg_excess_return": -0.5346268971190421,
+      "avg_strategy_score": 0.6374238781566295,
+      "benchmark_pass_rate": 0.0,
+      "dominant_regime": "oscillation",
+      "regime_breakdown": {
+        "bear": 1,
+        "bull": 1,
+        "oscillation": 3
+      },
+      "latest_cycle_id": 6,
+      "latest_cutoff_date": "20221111",
+      "latest_return_pct": -1.4497213618194509,
+      "score": -17.881366,
+      "scoring_mutation_count": 1,
+      "scoring_changed_keys": [
+        "penalties.insufficient_drop_5d",
+        "weights.volume_ratio_bonus"
+      ],
+      "rank": 3
+    }
+  ],
+  "best_model": {
+    "key": "momentum::momentum_v1",
+    "model_name": "momentum",
+    "config_name": "momentum_v1",
+    "run_dirs": [
+      "outputs/phase_v11_validation_20260315_final"
+    ],
+    "cycles": 9,
+    "profit_cycles": 6,
+    "profit_rate": 0.6666666666666666,
+    "avg_return_pct": 1.5123850976698532,
+    "avg_sharpe_ratio": 0.7859990924342084,
+    "avg_max_drawdown": 2.4043185173514257,
+    "avg_excess_return": -0.16309102953954432,
+    "avg_strategy_score": 0.6488981555590568,
+    "benchmark_pass_rate": 0.0,
+    "dominant_regime": "bull",
+    "regime_breakdown": {
+      "bear": 1,
+      "bull": 6,
+      "oscillation": 2
+    },
+    "latest_cycle_id": 19,
+    "latest_cutoff_date": "20191213",
+    "latest_return_pct": -2.994932602662273,
+    "score": 16.940772,
+    "scoring_mutation_count": 0,
+    "scoring_changed_keys": [],
+    "rank": 1
+  },
+  "regime_leaderboards": {
+    "bull": [
+      {
+        "rank": 1,
+        "model_name": "momentum",
+        "config_name": "momentum_v1",
+        "score": 16.940772,
+        "avg_return_pct": 1.5123850976698532,
+        "avg_sharpe_ratio": 0.7859990924342084,
+        "benchmark_pass_rate": 0.0,
+        "scoring_mutation_count": 0
+      }
+    ],
+    "bear": [
+      {
+        "rank": 1,
+        "model_name": "defensive_low_vol",
+        "config_name": "defensive_low_vol_v1",
+        "score": 0.65043,
+        "avg_return_pct": 0.10837323924531231,
+        "avg_sharpe_ratio": -1.1756535747275638,
+        "benchmark_pass_rate": 0.2,
+        "scoring_mutation_count": 0
+      }
+    ],
+    "oscillation": [
+      {
+        "rank": 1,
+        "model_name": "mean_reversion",
+        "config_name": "mean_reversion_v1",
+        "score": -17.881366,
+        "avg_return_pct": -2.599379635952934,
+        "avg_sharpe_ratio": -2.4994014719028086,
+        "benchmark_pass_rate": 0.0,
+        "scoring_mutation_count": 1
+      }
+    ]
+  }
+}

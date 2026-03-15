@@ -1,31 +1,24 @@
 name: momentum_v1
 kind: momentum
 params:
-  candidate_pool_size: 100.0
-  top_n: 5.0
-  max_positions: 4.0
-  cash_reserve: 0.35
-  stop_loss_pct: 0.03
-  take_profit_pct: 0.06
-  trailing_pct: 0.07
-  position_size: 0.25
-  ma_short: 10.0
-  ma_long: 30.0
-  rsi_period: 14
-  rsi_oversold: 30
-  rsi_overbought: 70
+  candidate_pool_size: 100
+  top_n: 5
+  max_positions: 4
+  cash_reserve: 0.2
+  stop_loss_pct: 0.0400587688525433
+  take_profit_pct: 0.13186335902171104
+  trailing_pct: 0.1
+  position_size: 0.29422482079642964
+  ma_short: 7.0
+  ma_long: 33.0
+  rsi_period: 12.0
+  rsi_oversold: 38.59609736576033
+  rsi_overbought: 77.07367758299182
   signal_threshold: 0.7
-  max_hold_days: 30.0
-  max_volatility: 0.035
-  preferred_rsi_low: 42.0
-  preferred_rsi_high: 62.0
-  min_change_20d: -2.0
-  max_change_20d: 12.0
-  min_defensive_score: 0.15
 risk:
-  stop_loss_pct: 0.03
-  take_profit_pct: 0.06
-  trailing_pct: 0.07
+  stop_loss_pct: 0.0400587688525433
+  take_profit_pct: 0.13186335902171104
+  trailing_pct: 0.1
 execution:
   initial_capital: 100000
   commission_rate: 0.00025

@@ -35,10 +35,37 @@ class BrainHumanReadablePresenter:
     def training_lab_bullets(training_lab: dict[str, Any]) -> list[str]:
         if not training_lab:
             return []
-        return [
+        bullets = [
             f"训练计划：{int(training_lab.get('plan_count', 0) or 0)}",
             f"训练运行：{int(training_lab.get('run_count', 0) or 0)}",
             f"训练评估：{int(training_lab.get('evaluation_count', 0) or 0)}",
+        ]
+        governance_summary = dict(training_lab.get("governance_summary") or {})
+        governance_metrics = dict(governance_summary.get("governance_metrics") or {})
+        if governance_metrics:
+            bullets.append(
+                f"候选待发布：{int(governance_metrics.get('candidate_pending_count', 0) or 0)}"
+            )
+            bullets.append(
+                f"配置漂移率：{float(governance_metrics.get('active_candidate_drift_rate', 0.0) or 0.0):.2%}"
+            )
+        return bullets
+
+    @staticmethod
+    def runtime_governance_bullets(payload: dict[str, Any]) -> list[str]:
+        brain_payload = dict(payload.get("brain") or {})
+        runtime_governance = dict(
+            brain_payload.get("governance_metrics")
+            or dict(payload.get("governance_metrics") or {}).get("runtime")
+            or {}
+        )
+        if not runtime_governance:
+            return []
+        structured = dict(runtime_governance.get("structured_output") or {})
+        guardrails = dict(runtime_governance.get("guardrails") or {})
+        return [
+            f"guardrail 阻断：{int(guardrails.get('block_count', 0) or 0)}",
+            f"结构化 fallback：{int(structured.get('fallback_count', 0) or 0)}",
         ]
 
     @staticmethod
@@ -584,6 +611,7 @@ class BrainHumanReadablePresenter:
             event_timeline = cls.event_timeline_items(recent_events)
             facts.extend(event_bullets)
             facts.extend(cls.training_lab_bullets(training_lab))
+            facts.extend(cls.runtime_governance_bullets(payload))
             risks = cls.risk_explanations(
                 diagnostics,
                 feedback=feedback,
@@ -620,6 +648,7 @@ class BrainHumanReadablePresenter:
         if intent in {"training_lab_summary", "training_execution"}:
             training_lab = dict(payload.get("training_lab") or payload)
             facts = cls.training_lab_bullets(training_lab)
+            facts.extend(cls.runtime_governance_bullets(payload))
             latest_result = cls.latest_training_result_summary(payload)
             if latest_result:
                 cycle_id = latest_result.get("cycle_id")

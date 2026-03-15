@@ -1,5 +1,5 @@
 from .allocation_plan import AllocationPlan
-from .agent_context import AgentContext
+from .agent_context import AgentContext, resolve_agent_context_confidence
 from .eval_report import EvalReport
 from .model_output import ModelOutput
 from .model_routing import ModelRoutingDecision
@@ -11,6 +11,7 @@ from .trade_contracts import PositionSnapshot, TradeRecordContract
 __all__ = [
     "AllocationPlan",
     "AgentContext",
+    "resolve_agent_context_confidence",
     "EvalReport",
     "ModelOutput",
     "ModelRoutingDecision",

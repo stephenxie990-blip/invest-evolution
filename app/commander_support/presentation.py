@@ -40,6 +40,15 @@ def _fallback_sections(body: dict[str, Any], summary: str) -> tuple[list[dict[st
             facts.append(f"训练计划：{int(training_lab.get('plan_count', 0) or 0)}")
         if training_lab.get("run_count") is not None:
             facts.append(f"训练运行：{int(training_lab.get('run_count', 0) or 0)}")
+        governance_summary = dict(training_lab.get("governance_summary") or {})
+        governance_metrics = dict(governance_summary.get("governance_metrics") or {})
+        if governance_metrics:
+            facts.append(
+                f"候选待发布：{int(governance_metrics.get('candidate_pending_count', 0) or 0)}"
+            )
+            facts.append(
+                f"配置漂移率：{float(governance_metrics.get('active_candidate_drift_rate', 0.0) or 0.0):.2%}"
+            )
     pending = dict(body.get("pending") or {})
     if pending:
         if pending.get("rounds") is not None:
@@ -112,6 +121,8 @@ def _fallback_sections(body: dict[str, Any], summary: str) -> tuple[list[dict[st
     causal_section: dict[str, Any] | None = None
     similar_section: dict[str, Any] | None = None
     realism_section: dict[str, Any] | None = None
+    governance_section: dict[str, Any] | None = None
+    runtime_governance_section: dict[str, Any] | None = None
     if latest_result:
         cycle_id = latest_result.get("cycle_id")
         if cycle_id is not None:
@@ -229,6 +240,47 @@ def _fallback_sections(body: dict[str, Any], summary: str) -> tuple[list[dict[st
             realism_section = {"label": "执行现实性", "items": realism_items}
             lines.append("执行现实性：" + "；".join(realism_items[:2]))
 
+    governance_summary = dict(training_lab.get("governance_summary") or {})
+    governance_metrics = dict(governance_summary.get("governance_metrics") or {})
+    realism_summary = dict(governance_summary.get("realism_summary") or {})
+    if governance_metrics or realism_summary:
+        governance_items: list[str] = []
+        if governance_metrics:
+            governance_items.extend(
+                [
+                    f"候选待发布数：{int(governance_metrics.get('candidate_pending_count', 0) or 0)}",
+                    f"待发布门确认数：{int(governance_metrics.get('promotion_awaiting_gate_count', 0) or 0)}",
+                    f"配置漂移率：{float(governance_metrics.get('active_candidate_drift_rate', 0.0) or 0.0):.2%}",
+                ]
+            )
+        if realism_summary:
+            governance_items.extend(
+                [
+                    f"平均持有天数：{float(realism_summary.get('avg_holding_days', 0.0) or 0.0):.2f}",
+                    f"高换手交易数：{int(realism_summary.get('high_turnover_trade_count', 0) or 0)}",
+                ]
+            )
+        if governance_items:
+            governance_section = {"label": "治理指标", "items": governance_items}
+            lines.append("治理指标：" + "；".join(governance_items[:3]))
+
+    brain_payload = dict(body.get("brain") or {})
+    runtime_governance = dict(
+        brain_payload.get("governance_metrics")
+        or dict(body.get("governance_metrics") or {}).get("runtime")
+        or {}
+    )
+    if runtime_governance:
+        structured = dict(runtime_governance.get("structured_output") or {})
+        guardrails = dict(runtime_governance.get("guardrails") or {})
+        runtime_items = [
+            f"guardrail 阻断：{int(guardrails.get('block_count', 0) or 0)}",
+            f"结构化 validated：{int(structured.get('validated_count', 0) or 0)}",
+            f"结构化 fallback：{int(structured.get('fallback_count', 0) or 0)}",
+        ]
+        runtime_governance_section = {"label": "运行时治理", "items": runtime_items}
+        lines.append("运行时治理：" + "；".join(runtime_items))
+
     action_label = str(next_action.get("label") or "").strip()
     action_description = str(next_action.get("description") or "").strip()
     actions = []
@@ -247,6 +299,10 @@ def _fallback_sections(body: dict[str, Any], summary: str) -> tuple[list[dict[st
         sections.append(similar_section)
     if realism_section:
         sections.append(realism_section)
+    if governance_section:
+        sections.append(governance_section)
+    if runtime_governance_section:
+        sections.append(runtime_governance_section)
     if reasons:
         sections.append({"label": "风险提示", "items": reasons})
         lines.append("风险提示：" + "；".join(reasons[:2]))

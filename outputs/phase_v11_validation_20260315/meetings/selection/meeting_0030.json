@@ -1,0 +1,98 @@
+{
+  "cycle": 18,
+  "timestamp": "2026-03-15T01:24:41.791309",
+  "type": "selection",
+  "regime": "oscillation",
+  "confidence": 0.22725433499999997,
+  "hunters": [
+    {
+      "name": "trend_hunter",
+      "result": {
+        "picks": [
+          {
+            "code": "sh.600088",
+            "score": 0.46632432,
+            "reasoning": "MA多头/MACD金叉/RSI68"
+          },
+          {
+            "code": "sh.600089",
+            "score": 0.46527403999999994,
+            "reasoning": "MA多头/MACD看多/RSI51"
+          },
+          {
+            "code": "sh.600027",
+            "score": 0.45582152,
+            "reasoning": "MA多头/MACD看多/RSI54"
+          },
+          {
+            "code": "sh.600060",
+            "score": 0.43061479999999996,
+            "reasoning": "MA多头/MACD看多/RSI66"
+          },
+          {
+            "code": "sh.600011",
+            "score": 0.40330752,
+            "reasoning": "MA多头/MACD看多/RSI62"
+          }
+        ],
+        "overall_view": "算法选股",
+        "confidence": 0.5,
+        "contract_status": "fallback_algorithm"
+      }
+    }
+  ],
+  "selected": [
+    "sh.600088",
+    "sh.600089",
+    "sh.600027",
+    "sh.600060"
+  ],
+  "selected_meta": [
+    {
+      "code": "sh.600088",
+      "score": 0.233,
+      "source": "trend_hunter",
+      "sources": [
+        "trend_hunter"
+      ],
+      "trailing_pct": 0.1,
+      "reasoning": "MA多头/MACD金叉/RSI68"
+    },
+    {
+      "code": "sh.600089",
+      "score": 0.233,
+      "source": "trend_hunter",
+      "sources": [
+        "trend_hunter"
+      ],
+      "trailing_pct": 0.1,
+      "reasoning": "MA多头/MACD看多/RSI51"
+    },
+    {
+      "code": "sh.600027",
+      "score": 0.228,
+      "source": "trend_hunter",
+      "sources": [
+        "trend_hunter"
+      ],
+      "trailing_pct": 0.1,
+      "reasoning": "MA多头/MACD看多/RSI54"
+    },
+    {
+      "code": "sh.600060",
+      "score": 0.215,
+      "source": "trend_hunter",
+      "sources": [
+        "trend_hunter"
+      ],
+      "trailing_pct": 0.1,
+      "reasoning": "MA多头/MACD看多/RSI66"
+    }
+  ],
+  "source": "llm",
+  "meeting_id": 30,
+  "cutoff_date": "20230320",
+  "model_name": "momentum",
+  "config_name": "momentum_v1",
+  "agent_context_summary": "当前市场大致处于 oscillation 状态。 市场广度 47%，近20日平均涨跌幅 -1.76%，站上MA20比例 27%。 风险提示：强势股占比不高，注意趋势延续性"
+}

@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from app.commander_support.observability import read_event_rows, summarize_event_rows
+from app.commander_support.training import build_promotion_lineage_ops_panel
 from app.commander_support.workflow import jsonable
 from market_data.services import MarketQueryService
 
@@ -21,6 +22,56 @@ def collect_data_status(detail_mode: str) -> dict[str, Any]:
         return MarketQueryService().get_status_summary(refresh=(detail_mode == "slow"))
     except Exception as exc:
         return {"status": "error", "error": str(exc), "detail_mode": detail_mode}
+
+
+def _latest_run_summary(latest_runs: list[dict[str, Any]] | None) -> dict[str, Any]:
+    latest = dict(list(latest_runs or [])[:1][0]) if list(latest_runs or []) else {}
+    latest_result = dict(latest.get("latest_result") or {})
+    ops_panel = build_promotion_lineage_ops_panel(latest_result) if latest_result else {}
+    if not latest and not latest_result:
+        return {}
+    return {
+        "run_id": latest.get("run_id"),
+        "status": str(latest.get("status") or ""),
+        "latest_result": latest_result,
+        "ops_panel": ops_panel if ops_panel.get("available", False) else {},
+    }
+
+
+def _latest_evaluation_summary(latest_evaluations: list[dict[str, Any]] | None) -> dict[str, Any]:
+    latest = dict(list(latest_evaluations or [])[:1][0]) if list(latest_evaluations or []) else {}
+    if not latest:
+        return {}
+    return {
+        "run_id": latest.get("run_id"),
+        "status": str(latest.get("status") or ""),
+        "assessment": dict(latest.get("assessment") or {}),
+        "promotion": dict(latest.get("promotion") or {}),
+    }
+
+
+def _latest_governance_summary(latest_evaluations: list[dict[str, Any]] | None) -> dict[str, Any]:
+    latest = dict(list(latest_evaluations or [])[:1][0]) if list(latest_evaluations or []) else {}
+    governance_metrics = dict(latest.get("governance_metrics") or {})
+    realism_summary = dict(latest.get("realism_summary") or {})
+    if not governance_metrics and not realism_summary:
+        return {}
+    return {
+        "run_id": latest.get("run_id"),
+        "governance_metrics": governance_metrics,
+        "realism_summary": realism_summary,
+        "promotion": dict(latest.get("promotion") or {}),
+    }
+
+
+def _brain_governance_metrics(runtime: Any) -> dict[str, Any]:
+    snapshot = getattr(getattr(runtime, "brain", None), "_governance_metrics_snapshot", None)
+    if callable(snapshot):
+        try:
+            return jsonable(snapshot())
+        except Exception:
+            return {}
+    return {}
 
 
 def build_training_lab_status(
@@ -38,10 +89,22 @@ def build_training_lab_status(
                 "latest_plans": list(latest_plans or []),
                 "latest_runs": list(latest_runs or []),
                 "latest_evaluations": list(latest_evaluations or []),
+                "latest_run_summary": _latest_run_summary(latest_runs),
+                "latest_evaluation_summary": _latest_evaluation_summary(latest_evaluations),
+                "governance_summary": _latest_governance_summary(latest_evaluations),
             }
         )
     else:
-        payload.update({"latest_plans": [], "latest_runs": [], "latest_evaluations": []})
+        payload.update(
+            {
+                "latest_plans": [],
+                "latest_runs": [],
+                "latest_evaluations": [],
+                "latest_run_summary": {},
+                "latest_evaluation_summary": {},
+                "governance_summary": {},
+            }
+        )
     return payload
 
 
@@ -93,12 +156,18 @@ def build_training_lab_summary_payload(
     limit: int,
     ok_status: str,
 ) -> dict[str, Any]:
+    latest_plans = list_training_plans(limit=limit).get("items", [])
+    latest_runs = list_training_runs(limit=limit).get("items", [])
+    latest_evaluations = list_training_evaluations(limit=limit).get("items", [])
     return {
         "status": ok_status,
         **dict(lab_counts or {}),
-        "latest_plans": list_training_plans(limit=limit).get("items", []),
-        "latest_runs": list_training_runs(limit=limit).get("items", []),
-        "latest_evaluations": list_training_evaluations(limit=limit).get("items", []),
+        "latest_plans": latest_plans,
+        "latest_runs": latest_runs,
+        "latest_evaluations": latest_evaluations,
+        "latest_run_summary": _latest_run_summary(latest_runs),
+        "latest_evaluation_summary": _latest_evaluation_summary(latest_evaluations),
+        "governance_summary": _latest_governance_summary(latest_evaluations),
     }
 
 
@@ -123,6 +192,7 @@ def build_runtime_status_payload(
     training_lock_active: bool,
     brain_tool_count: int,
     brain_session_count: int,
+    brain_governance_metrics: dict[str, Any],
     cron_status: dict[str, Any],
     body_snapshot: dict[str, Any],
     memory_stats: dict[str, Any],
@@ -162,6 +232,7 @@ def build_runtime_status_payload(
                 "tool_count": brain_tool_count,
                 "session_count": brain_session_count,
                 "cron": cron_status,
+                "governance_metrics": brain_governance_metrics,
             },
             "body": body_snapshot,
             "memory": memory_stats,
@@ -219,6 +290,7 @@ def build_commander_status_payload(
         training_lock_active=runtime.cfg.training_lock_file.exists(),
         brain_tool_count=len(runtime.brain.tools),
         brain_session_count=runtime.brain.session_count,
+        brain_governance_metrics=_brain_governance_metrics(runtime),
         cron_status=runtime.cron.status(),
         body_snapshot=runtime.body.snapshot(),
         memory_stats=runtime.memory.stats(),

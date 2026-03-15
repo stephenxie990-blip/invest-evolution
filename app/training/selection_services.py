@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from invest.contracts import resolve_agent_context_confidence
 from invest.models.defaults import COMMON_PARAM_DEFAULTS
 
 
@@ -20,16 +21,7 @@ class TrainingSelectionResult:
 
 
 def _agent_context_confidence(agent_context: Any, default: float) -> float:
-    resolver = getattr(agent_context, "effective_confidence", None)
-    if callable(resolver):
-        resolved: Any = resolver(default=default)
-        return float(resolved)
-    metadata: dict[str, Any] = dict(getattr(agent_context, "metadata", {}) or {})
-    explicit_confidence: Any = getattr(agent_context, "confidence", None)
-    try:
-        return float(explicit_confidence or metadata.get("confidence", default) or default)
-    except (TypeError, ValueError):
-        return float(default)
+    return float(resolve_agent_context_confidence(agent_context, default=default))
 
 
 class TrainingSelectionService:

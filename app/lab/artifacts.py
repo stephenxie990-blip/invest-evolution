@@ -357,6 +357,56 @@ class TrainingLabArtifactStore:
                 spec = dict(payload.get('spec') or {})
                 if spec:
                     item['spec'] = jsonable(spec)
+                run_payload = dict(payload.get('payload') or {})
+                results = [
+                    dict(entry)
+                    for entry in list(run_payload.get('results') or [])
+                    if isinstance(entry, dict)
+                ]
+                if results:
+                    latest = dict(results[-1])
+                    item['latest_result'] = jsonable(
+                        {
+                            'cycle_id': latest.get('cycle_id'),
+                            'status': str(latest.get('status') or ''),
+                            'return_pct': latest.get('return_pct'),
+                            'benchmark_passed': bool(latest.get('benchmark_passed', False)),
+                            'promotion_record': dict(latest.get('promotion_record') or {}),
+                            'lineage_record': dict(latest.get('lineage_record') or {}),
+                        }
+                    )
+                assessment = dict(payload.get('assessment') or {})
+                if assessment:
+                    item['assessment'] = jsonable(
+                        {
+                            'success_count': int(assessment.get('success_count', 0) or 0),
+                            'no_data_count': int(assessment.get('no_data_count', 0) or 0),
+                            'error_count': int(assessment.get('error_count', 0) or 0),
+                            'avg_return_pct': assessment.get('avg_return_pct'),
+                            'benchmark_pass_rate': assessment.get('benchmark_pass_rate'),
+                            'latest_result': dict(assessment.get('latest_result') or {}),
+                        }
+                    )
+                promotion = dict(payload.get('promotion') or {})
+                if promotion:
+                    research_feedback = dict(promotion.get('research_feedback') or {})
+                    item['promotion'] = jsonable(
+                        {
+                            'verdict': str(promotion.get('verdict') or ''),
+                            'passed': bool(promotion.get('passed', False)),
+                            'research_feedback': {
+                                'enabled': bool(research_feedback.get('enabled', False)),
+                                'passed': bool(research_feedback.get('passed', False)),
+                                'summary': str(research_feedback.get('summary') or ''),
+                            },
+                        }
+                    )
+                governance_metrics = dict(payload.get('governance_metrics') or {})
+                if governance_metrics:
+                    item['governance_metrics'] = jsonable(governance_metrics)
+                realism_summary = dict(payload.get('realism_summary') or {})
+                if realism_summary:
+                    item['realism_summary'] = jsonable(realism_summary)
             items.append(item)
         return {
             'count': len(paths),
@@ -457,6 +507,10 @@ class TrainingLabArtifactStore:
                 'source': plan.get('source'),
                 'auto_generated': plan.get('auto_generated', False),
                 'spec': dict(plan.get('spec') or {}),
+                'protocol': dict(plan.get('protocol') or {}),
+                'dataset': dict(plan.get('dataset') or {}),
+                'model_scope': dict(plan.get('model_scope') or {}),
+                'optimization': dict(plan.get('optimization') or {}),
                 'objective': dict(plan.get('objective') or {}),
                 'guardrails': dict(plan.get('guardrails') or {}),
                 'llm': dict(plan.get('llm') or {}),

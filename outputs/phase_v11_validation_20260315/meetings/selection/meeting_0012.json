@@ -1,0 +1,98 @@
+{
+  "cycle": 8,
+  "timestamp": "2026-03-15T01:23:34.165393",
+  "type": "selection",
+  "regime": "bull",
+  "confidence": 0.3388,
+  "hunters": [
+    {
+      "name": "trend_hunter",
+      "result": {
+        "picks": [
+          {
+            "code": "sh.600058",
+            "score": 0.7550399999999999,
+            "reasoning": "MA多头/MACD看多/RSI50"
+          },
+          {
+            "code": "sh.600101",
+            "score": 0.67034,
+            "reasoning": "MA多头/MACD看多/RSI55"
+          },
+          {
+            "code": "sh.600063",
+            "score": 0.65219,
+            "reasoning": "MA多头/MACD看多/RSI51"
+          },
+          {
+            "code": "sh.600021",
+            "score": 0.63283,
+            "reasoning": "MA多头/MACD看多/RSI53"
+          },
+          {
+            "code": "sh.600073",
+            "score": 0.62557,
+            "reasoning": "MA多头/MACD看多/RSI53"
+          }
+        ],
+        "overall_view": "算法选股",
+        "confidence": 0.5,
+        "contract_status": "fallback_algorithm"
+      }
+    }
+  ],
+  "selected": [
+    "sh.600058",
+    "sh.600101",
+    "sh.600063",
+    "sh.600021"
+  ],
+  "selected_meta": [
+    {
+      "code": "sh.600058",
+      "score": 0.378,
+      "source": "trend_hunter",
+      "sources": [
+        "trend_hunter"
+      ],
+      "trailing_pct": 0.1,
+      "reasoning": "MA多头/MACD看多/RSI50"
+    },
+    {
+      "code": "sh.600101",
+      "score": 0.335,
+      "source": "trend_hunter",
+      "sources": [
+        "trend_hunter"
+      ],
+      "trailing_pct": 0.1,
+      "reasoning": "MA多头/MACD看多/RSI55"
+    },
+    {
+      "code": "sh.600063",
+      "score": 0.326,
+      "source": "trend_hunter",
+      "sources": [
+        "trend_hunter"
+      ],
+      "trailing_pct": 0.1,
+      "reasoning": "MA多头/MACD看多/RSI51"
+    },
+    {
+      "code": "sh.600021",
+      "score": 0.316,
+      "source": "trend_hunter",
+      "sources": [
+        "trend_hunter"
+      ],
+      "trailing_pct": 0.1,
+      "reasoning": "MA多头/MACD看多/RSI53"
+    }
+  ],
+  "source": "llm",
+  "meeting_id": 12,
+  "cutoff_date": "20221127",
+  "model_name": "momentum",
+  "config_name": "momentum_v1",
+  "agent_context_summary": "当前市场大致处于 bull 状态。 市场广度 65%，近20日平均涨跌幅 +9.39%，站上MA20比例 77%。"
+}

@@ -5,6 +5,7 @@ from statistics import median
 from typing import Any
 
 from app.training.controller_services import TrainingFeedbackService
+from app.training.reporting import build_governance_metrics, build_realism_summary
 from app.training.reporting import evaluate_research_feedback_gate
 
 
@@ -579,6 +580,17 @@ def build_training_evaluation_summary(*, payload: dict[str, Any], plan: dict[str
     return_profile = build_return_profile(ok_results, benchmark_pass_rate=benchmark_pass_rate)
     regime_validation = build_regime_validation_summary(ok_results)
     latest_ab_comparison, _ = _latest_ab_comparison(ok_results)
+    latest_result = dict(results[-1]) if results else {}
+    latest_result_summary = {
+        "cycle_id": latest_result.get("cycle_id"),
+        "status": str(latest_result.get("status") or ""),
+        "return_pct": latest_result.get("return_pct"),
+        "benchmark_passed": bool(latest_result.get("benchmark_passed", False)),
+        "promotion_record": dict(latest_result.get("promotion_record") or {}),
+        "lineage_record": dict(latest_result.get("lineage_record") or {}),
+    }
+    governance_metrics = build_governance_metrics(results)
+    realism_summary = build_realism_summary(results)
     return {
         "run_id": run_id,
         "plan_id": plan["plan_id"],
@@ -586,6 +598,12 @@ def build_training_evaluation_summary(*, payload: dict[str, Any], plan: dict[str
         "status": str(payload.get("status", "ok")),
         "objective": dict(plan.get("objective") or {}),
         "spec": dict(plan.get("spec") or {}),
+        "protocol": dict(plan.get("protocol") or {}),
+        "dataset": dict(plan.get("dataset") or {}),
+        "model_scope": dict(plan.get("model_scope") or {}),
+        "optimization": dict(plan.get("optimization") or {}),
+        "guardrails": dict(plan.get("guardrails") or {}),
+        "llm": dict(plan.get("llm") or {}),
         "assessment": {
             "total_results": len(results),
             "success_count": len(ok_results),
@@ -599,8 +617,11 @@ def build_training_evaluation_summary(*, payload: dict[str, Any], plan: dict[str
             "return_profile": return_profile,
             "regime_validation": regime_validation,
             "latest_ab_comparison": latest_ab_comparison,
+            "latest_result": latest_result_summary,
         },
         "promotion": promotion,
+        "governance_metrics": governance_metrics,
+        "realism_summary": realism_summary,
         "error": str(error or ""),
         "artifacts": {"run_path": run_path, "evaluation_path": evaluation_path},
     }

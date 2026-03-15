@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+import math
 from typing import Any, Callable
 
 import numpy as np
@@ -48,9 +49,16 @@ def _safe_float(value: Any) -> float | None:
     try:
         if value is None or value == "":
             return None
-        return float(value)
+        number = float(value)
     except (TypeError, ValueError):
         return None
+    return number if math.isfinite(number) else None
+
+
+def _record_field(item: Any, key: str, default: Any = None) -> Any:
+    if isinstance(item, dict):
+        return item.get(key, default)
+    return getattr(item, key, default)
 
 
 def build_self_assessment_snapshot(snapshot_factory: Callable[..., Any], cycle_result: Any, cycle_dict: dict[str, Any]) -> Any:
@@ -98,8 +106,8 @@ def build_governance_metrics(cycle_history: list[Any]) -> dict[str, Any]:
     candidate_pending_count = 0
 
     for item in cycle_history:
-        promotion_record = dict(getattr(item, "promotion_record", {}) or {})
-        lineage_record = dict(getattr(item, "lineage_record", {}) or {})
+        promotion_record = dict(_record_field(item, "promotion_record", {}) or {})
+        lineage_record = dict(_record_field(item, "lineage_record", {}) or {})
         if bool(promotion_record.get("attempted", False)):
             promotion_attempt_count += 1
         if str(promotion_record.get("gate_status") or "") == "applied_to_active":
@@ -128,9 +136,9 @@ def build_governance_metrics(cycle_history: list[Any]) -> dict[str, Any]:
 
 def build_realism_summary(cycle_history: list[Any]) -> dict[str, Any]:
     metrics = [
-        dict(getattr(item, "realism_metrics", {}) or {})
+        dict(_record_field(item, "realism_metrics", {}) or {})
         for item in cycle_history
-        if dict(getattr(item, "realism_metrics", {}) or {})
+        if dict(_record_field(item, "realism_metrics", {}) or {})
     ]
     if not metrics:
         return {
@@ -142,12 +150,28 @@ def build_realism_summary(cycle_history: list[Any]) -> dict[str, Any]:
             "high_turnover_trade_count": 0,
         }
 
+    avg_trade_amounts = [
+        value
+        for value in (_safe_float(item.get("avg_trade_amount")) for item in metrics)
+        if value is not None
+    ]
+    avg_turnover_rates = [
+        value
+        for value in (_safe_float(item.get("avg_turnover_rate")) for item in metrics)
+        if value is not None
+    ]
+    avg_holding_days = [
+        value
+        for value in (_safe_float(item.get("avg_holding_days")) for item in metrics)
+        if value is not None
+    ]
+
     return {
         "total_cycles": len(cycle_history),
         "cycles_with_realism_metrics": len(metrics),
-        "avg_trade_amount": float(np.mean([float(item.get("avg_trade_amount", 0.0) or 0.0) for item in metrics])),
-        "avg_turnover_rate": float(np.mean([float(item.get("avg_turnover_rate", 0.0) or 0.0) for item in metrics])),
-        "avg_holding_days": float(np.mean([float(item.get("avg_holding_days", 0.0) or 0.0) for item in metrics])),
+        "avg_trade_amount": float(np.mean(avg_trade_amounts)) if avg_trade_amounts else 0.0,
+        "avg_turnover_rate": float(np.mean(avg_turnover_rates)) if avg_turnover_rates else 0.0,
+        "avg_holding_days": float(np.mean(avg_holding_days)) if avg_holding_days else 0.0,
         "high_turnover_trade_count": int(sum(int(item.get("high_turnover_trade_count", 0) or 0) for item in metrics)),
     }
 

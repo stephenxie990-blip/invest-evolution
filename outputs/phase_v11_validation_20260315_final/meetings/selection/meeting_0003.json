@@ -1,0 +1,93 @@
+{
+  "cycle": 3,
+  "timestamp": "2026-03-15T01:46:56.035199",
+  "type": "selection",
+  "regime": "oscillation",
+  "confidence": 0.1855,
+  "hunters": [
+    {
+      "name": "contrarian",
+      "result": {
+        "picks": [
+          {
+            "code": "sh.600107",
+            "score": 0.47600000000000003,
+            "reasoning": "RSI18/BB0.02/-9.7%"
+          },
+          {
+            "code": "sh.600105",
+            "score": 0.47600000000000003,
+            "reasoning": "RSI22/BB0.11/-6.4%"
+          },
+          {
+            "code": "sh.600021",
+            "score": 0.336,
+            "reasoning": "RSI8/BB0.27/-1.4%"
+          },
+          {
+            "code": "sh.600008",
+            "score": 0.196,
+            "reasoning": "RSI9/BB0.33/+0.0%"
+          }
+        ],
+        "overall_view": "算法选股",
+        "confidence": 0.5,
+        "contract_status": "fallback_algorithm"
+      }
+    }
+  ],
+  "selected": [
+    "sh.600107",
+    "sh.600105",
+    "sh.600021",
+    "sh.600008"
+  ],
+  "selected_meta": [
+    {
+      "code": "sh.600107",
+      "score": 0.238,
+      "source": "contrarian",
+      "sources": [
+        "contrarian"
+      ],
+      "trailing_pct": null,
+      "reasoning": "RSI18/BB0.02/-9.7%"
+    },
+    {
+      "code": "sh.600105",
+      "score": 0.238,
+      "source": "contrarian",
+      "sources": [
+        "contrarian"
+      ],
+      "trailing_pct": null,
+      "reasoning": "RSI22/BB0.11/-6.4%"
+    },
+    {
+      "code": "sh.600021",
+      "score": 0.168,
+      "source": "contrarian",
+      "sources": [
+        "contrarian"
+      ],
+      "trailing_pct": null,
+      "reasoning": "RSI8/BB0.27/-1.4%"
+    },
+    {
+      "code": "sh.600008",
+      "score": 0.098,
+      "source": "contrarian",
+      "sources": [
+        "contrarian"
+      ],
+      "trailing_pct": null,
+      "reasoning": "RSI9/BB0.33/+0.0%"
+    }
+  ],
+  "source": "llm",
+  "meeting_id": 3,
+  "cutoff_date": "20251110",
+  "model_name": "mean_reversion",
+  "config_name": "mean_reversion_v1",
+  "agent_context_summary": "当前市场大致处于 oscillation 状态。 市场广度 57%，近20日平均涨跌幅 +3.55%，站上MA20比例 79%。"
+}

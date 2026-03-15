@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 
@@ -52,6 +53,22 @@ def _flatten_leaf_paths(value: Any, *, prefix: str = "") -> list[str]:
     return [prefix or "value"]
 
 
+def _flatten_leaf_entries(value: Any, *, prefix: str = "") -> list[tuple[str, Any]]:
+    if isinstance(value, dict):
+        entries: list[tuple[str, Any]] = []
+        for key, item in value.items():
+            path = f"{prefix}.{key}" if prefix else str(key)
+            entries.extend(_flatten_leaf_entries(item, prefix=path))
+        return entries
+    if isinstance(value, list):
+        entries: list[tuple[str, Any]] = []
+        for index, item in enumerate(value):
+            path = f"{prefix}[{index}]" if prefix else f"[{index}]"
+            entries.extend(_flatten_leaf_entries(item, prefix=path))
+        return entries
+    return [(prefix or "value", value)]
+
+
 def _safe_int(value: Any) -> int | None:
     try:
         if value is None or value == "":
@@ -72,6 +89,7 @@ class RuntimeGuardrails:
         "invest_training_plan_execute",
         "invest_data_download",
         "invest_train",
+        "invest_agent_prompts_update",
     }
     _PATCH_SCOPE_RULES = {
         "invest_control_plane_update": {
@@ -148,6 +166,22 @@ class RuntimeGuardrails:
         patch_violation = self._evaluate_patch_scope(tool_name=name, payload=payload)
         if patch_violation is not None:
             return patch_violation
+
+        runtime_paths_violation = (
+            self._evaluate_runtime_paths_patch(payload=payload)
+            if name == "invest_runtime_paths_update"
+            else None
+        )
+        if runtime_paths_violation is not None:
+            return runtime_paths_violation
+
+        agent_prompt_violation = (
+            self._evaluate_agent_prompt_update(payload=payload)
+            if name == "invest_agent_prompts_update"
+            else None
+        )
+        if agent_prompt_violation is not None:
+            return agent_prompt_violation
 
         plan_violation = self._evaluate_training_plan_create(payload=payload) if name == "invest_training_plan_create" else None
         if plan_violation is not None:
@@ -232,9 +266,37 @@ class RuntimeGuardrails:
                 message="Guardrail blocked a training plan with an unsupported cutoff_policy.mode.",
                 details={"cutoff_policy_mode": cutoff_mode},
             )
+        if cutoff_mode == "fixed" and not str(cutoff_policy.get("date") or "").strip():
+            return self._blocked_payload(
+                tool_name="invest_training_plan_create",
+                reason_codes=["fixed_cutoff_missing_date"],
+                message="Guardrail blocked a fixed cutoff policy without a concrete date.",
+                details={"cutoff_policy_mode": cutoff_mode, "required": ["cutoff_policy.date"]},
+            )
+        if cutoff_mode == "sequence" and not _list_payload(cutoff_policy.get("dates")):
+            return self._blocked_payload(
+                tool_name="invest_training_plan_create",
+                reason_codes=["sequence_cutoff_missing_dates"],
+                message="Guardrail blocked a sequence cutoff policy without any scheduled dates.",
+                details={"cutoff_policy_mode": cutoff_mode, "required": ["cutoff_policy.dates"]},
+            )
+        if cutoff_mode == "regime_balanced" and not _list_payload(cutoff_policy.get("target_regimes")):
+            return self._blocked_payload(
+                tool_name="invest_training_plan_create",
+                reason_codes=["regime_balanced_missing_targets"],
+                message="Guardrail blocked a regime_balanced cutoff policy without target regimes.",
+                details={"cutoff_policy_mode": cutoff_mode, "required": ["cutoff_policy.target_regimes"]},
+            )
 
         llm_mode = str(llm.get("mode") or "").strip().lower()
         dry_run = bool(llm.get("dry_run", False))
+        if llm_mode and llm_mode not in {"live", "dry_run"}:
+            return self._blocked_payload(
+                tool_name="invest_training_plan_create",
+                reason_codes=["invalid_llm_mode"],
+                message="Guardrail blocked a training plan with an unsupported llm.mode.",
+                details={"llm_mode": llm_mode},
+            )
         if dry_run and llm_mode == "live":
             return self._blocked_payload(
                 tool_name="invest_training_plan_create",
@@ -251,6 +313,54 @@ class RuntimeGuardrails:
                 reason_codes=["promotion_gate_exceeds_rounds"],
                 message="Guardrail blocked a training plan whose promotion gate min_samples exceeds total rounds.",
                 details={"rounds": rounds, "min_samples": min_samples},
+            )
+        return None
+
+    def _evaluate_runtime_paths_patch(self, *, payload: dict[str, Any]) -> dict[str, Any] | None:
+        patch = _dict_payload(payload.get("patch"))
+        if not patch:
+            return None
+        blank_paths: list[str] = []
+        non_absolute_paths: list[str] = []
+        for leaf_path, value in _flatten_leaf_entries(patch):
+            text = str(value or "").strip()
+            if not text:
+                blank_paths.append(leaf_path)
+                continue
+            if not Path(text).is_absolute():
+                non_absolute_paths.append(leaf_path)
+        if blank_paths:
+            return self._blocked_payload(
+                tool_name="invest_runtime_paths_update",
+                reason_codes=["blank_runtime_path"],
+                message="Guardrail blocked a runtime paths patch with blank path values.",
+                details={"paths": blank_paths},
+            )
+        if non_absolute_paths:
+            return self._blocked_payload(
+                tool_name="invest_runtime_paths_update",
+                reason_codes=["relative_runtime_path"],
+                message="Guardrail blocked a runtime paths patch with non-absolute path values.",
+                details={"paths": non_absolute_paths},
+            )
+        return None
+
+    def _evaluate_agent_prompt_update(self, *, payload: dict[str, Any]) -> dict[str, Any] | None:
+        agent_name = str(payload.get("name") or "").strip()
+        system_prompt = str(payload.get("system_prompt") or "").strip()
+        if not agent_name:
+            return self._blocked_payload(
+                tool_name="invest_agent_prompts_update",
+                reason_codes=["missing_agent_name"],
+                message="Guardrail blocked an agent prompt update without a concrete agent name.",
+                details={"required": ["name"]},
+            )
+        if not system_prompt:
+            return self._blocked_payload(
+                tool_name="invest_agent_prompts_update",
+                reason_codes=["empty_system_prompt"],
+                message="Guardrail blocked an agent prompt update with an empty system_prompt.",
+                details={"required": ["system_prompt"]},
             )
         return None
 

@@ -1,0 +1,103 @@
+{
+  "attribution_id": "attribution_c4f0c5b887eb9420",
+  "created_at": "2026-03-15T01:47:42.463306",
+  "attribution": {
+    "attribution_id": "attribution_c4f0c5b887eb9420",
+    "hypothesis_id": "hypothesis_39e0d4ee5114e91f",
+    "thesis_result": "hit",
+    "horizon_results": {
+      "T+5": {
+        "label": "hit",
+        "return_pct": 3.0247,
+        "excess_return_pct": 3.0247,
+        "max_favorable_excursion": 6.3329,
+        "max_adverse_excursion": -0.0943,
+        "entry_triggered": true,
+        "invalidation_triggered": false,
+        "de_risk_triggered": false,
+        "end_trade_date": "20190213"
+      },
+      "T+10": {
+        "label": "hit",
+        "return_pct": 4.9151,
+        "excess_return_pct": 4.9151,
+        "max_favorable_excursion": 9.9246,
+        "max_adverse_excursion": -0.0943,
+        "entry_triggered": true,
+        "invalidation_triggered": false,
+        "de_risk_triggered": false,
+        "end_trade_date": "20190220"
+      },
+      "T+20": {
+        "label": "hit",
+        "return_pct": 26.0872,
+        "excess_return_pct": 26.0872,
+        "max_favorable_excursion": 27.5049,
+        "max_adverse_excursion": -0.0943,
+        "entry_triggered": true,
+        "invalidation_triggered": false,
+        "de_risk_triggered": true,
+        "end_trade_date": "20190306"
+      },
+      "T+60": {
+        "label": "hit",
+        "return_pct": 3.1193,
+        "excess_return_pct": 3.1193,
+        "max_favorable_excursion": 37.5239,
+        "max_adverse_excursion": -0.0943,
+        "entry_triggered": true,
+        "invalidation_triggered": false,
+        "de_risk_triggered": true,
+        "end_trade_date": "20190507"
+      }
+    },
+    "factor_attribution": {
+      "supporting_factors": [
+        "algo_score=0.510",
+        "change_20d=+20.95%",
+        "MACD=看多"
+      ],
+      "contradicting_factors": []
+    },
+    "timing_attribution": {
+      "entry_rule_kind": "limit_pullback",
+      "entry_price": 10.1
+    },
+    "risk_attribution": {
+      "invalidation_rule_kind": "stop_loss",
+      "invalidation_price": 9.89,
+      "de_risk_rule_kind": "take_profit",
+      "de_risk_price": 11.73
+    },
+    "execution_attribution": {
+      "clock": [
+        "T+5",
+        "T+10",
+        "T+20",
+        "T+60"
+      ]
+    },
+    "calibration_metrics": {
+      "positive_return_brier": 0.390625,
+      "predicted_positive_return_probability": 0.375,
+      "actual_positive_return": 1.0
+    },
+    "policy_update_candidates": {
+      "review_needed": false,
+      "selected_by_policy": true
+    },
+    "metadata": {
+      "code": "sh.600055",
+      "as_of_date": "20190130"
+    }
+  },
+  "metadata": {
+    "source": "training_cycle",
+    "cycle_id": 10,
+    "cutoff_date": "20190130",
+    "policy_id": "policy_d85cfc67ca37e90d",
+    "research_case_id": "case_154f4bcd83eb23e8",
+    "code": "sh.600055",
+    "regime": "bull"
+  }
+}

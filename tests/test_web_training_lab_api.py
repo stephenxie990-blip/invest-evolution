@@ -87,6 +87,10 @@ def test_training_lab_plan_run_eval_api(tmp_path, monkeypatch):
                     'selected_count': 1,
                     'selected_stocks': ['000001.SZ'],
                     'benchmark_passed': True,
+                    'realism_metrics': {
+                        'avg_holding_days': 4.0,
+                        'high_turnover_trade_count': 1,
+                    },
                     'promotion_record': {
                         'status': 'candidate_generated',
                         'gate_status': 'awaiting_gate',
@@ -227,6 +231,8 @@ def test_training_lab_plan_run_eval_api(tmp_path, monkeypatch):
     evaluation_data = evaluation_detail.get_json()
     assert evaluation_data['plan_id'] == plan_id
     assert evaluation_data['assessment']['success_count'] == 1
+    assert evaluation_data['governance_metrics']['candidate_pending_count'] == 1
+    assert evaluation_data['realism_summary']['avg_holding_days'] == 4.0
 
     run_human = client.get(f'/api/lab/training/runs/{run_id}?view=human')
     assert run_human.status_code == 200
@@ -236,6 +242,15 @@ def test_training_lab_plan_run_eval_api(tmp_path, monkeypatch):
     assert '候选配置：configs/candidate.yaml' in run_human_text
     assert 'review 窗口：rolling / 3' in run_human_text
     assert '因果诊断：regime_repeat_loss' in run_human_text
+
+    status_payload = client.get('/api/status?detail=slow')
+    assert status_payload.status_code == 200
+    status_data = status_payload.get_json()
+    assert status_data['training_lab']['governance_summary']['governance_metrics']['candidate_pending_count'] == 1
+    assert status_data['training_lab']['latest_run_summary']['latest_result']['cycle_id'] == 1
+    assert status_data['brain']['governance_metrics']['guardrails']['block_count'] >= 0
+    assert any(card['id'] == 'training_governance' for card in status_data['display']['cards'])
+    assert any(card['id'] == 'runtime_governance' for card in status_data['display']['cards'])
 
 
 

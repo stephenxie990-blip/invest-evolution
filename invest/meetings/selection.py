@@ -8,7 +8,13 @@ from invest.agents.hunters import ContrarianAgent, TrendHunterAgent
 from invest.agents.specialists import DefensiveAgent, QualityAgent
 from invest.shared.contracts import PositionPlan, TradingPlan
 from invest.shared.llm import LLMCaller
-from invest.contracts import AgentContext, ModelOutput, SignalPacket, StrategyAdvice
+from invest.contracts import (
+    AgentContext,
+    ModelOutput,
+    SignalPacket,
+    StrategyAdvice,
+    resolve_agent_context_confidence,
+)
 from invest.foundation.risk import (
     clamp_position_size,
     clamp_stop_loss_pct,
@@ -28,14 +34,8 @@ logger = logging.getLogger(__name__)
 
 
 def _agent_context_confidence(agent_context: Any, default: float) -> float:
-    resolver = getattr(agent_context, "effective_confidence", None)
-    if callable(resolver):
-        resolved: Any = resolver(default=default)
-        return _normalized_confidence(resolved, default=default)
-    metadata: dict[str, Any] = dict(getattr(agent_context, "metadata", {}) or {})
-    explicit_confidence: Any = getattr(agent_context, "confidence", None)
     return _normalized_confidence(
-        explicit_confidence if explicit_confidence not in (None, "") else metadata.get("confidence", default),
+        resolve_agent_context_confidence(agent_context, default=default),
         default=default,
     )
 

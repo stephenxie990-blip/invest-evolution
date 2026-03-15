@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta
+import math
 from typing import Any
 
 from config import config, normalize_date
@@ -10,6 +11,32 @@ from invest.models.defaults import COMMON_EXECUTION_DEFAULTS, COMMON_PARAM_DEFAU
 
 class TrainingSimulationService:
     """Owns simulation bootstrap, date resolution, and evaluation payload assembly."""
+
+    @staticmethod
+    def _safe_float(value: Any, default: float = 0.0) -> float:
+        try:
+            number = float(value)
+        except (TypeError, ValueError):
+            return default
+        return number if math.isfinite(number) else default
+
+    @staticmethod
+    def _safe_optional_float(value: Any) -> float | None:
+        if value in (None, ""):
+            return None
+        try:
+            number = float(value)
+        except (TypeError, ValueError):
+            return None
+        return number if math.isfinite(number) else None
+
+    @staticmethod
+    def _safe_int(value: Any, default: int = 0) -> int:
+        try:
+            number = int(value)
+        except (TypeError, ValueError):
+            return default
+        return number
 
     def build_trader(
         self,
@@ -102,29 +129,29 @@ class TrainingSimulationService:
                 "date": trade.date,
                 "action": trade.action.value if hasattr(trade.action, "value") else str(trade.action),
                 "ts_code": trade.ts_code,
-                "price": trade.price,
-                "shares": trade.shares,
-                "pnl": trade.pnl,
-                "pnl_pct": trade.pnl_pct,
+                "price": self._safe_float(getattr(trade, "price", 0.0)),
+                "shares": self._safe_int(getattr(trade, "shares", 0)),
+                "pnl": self._safe_float(getattr(trade, "pnl", 0.0)),
+                "pnl_pct": self._safe_float(getattr(trade, "pnl_pct", 0.0)),
                 "reason": trade.reason,
                 "source": getattr(trade, "source", ""),
                 "entry_reason": getattr(trade, "entry_reason", ""),
                 "exit_reason": getattr(trade, "exit_reason", ""),
                 "exit_trigger": getattr(trade, "exit_trigger", ""),
                 "entry_date": getattr(trade, "entry_date", ""),
-                "entry_price": getattr(trade, "entry_price", 0.0),
-                "holding_days": getattr(trade, "holding_days", 0),
-                "stop_loss_price": getattr(trade, "stop_loss_price", 0.0),
-                "take_profit_price": getattr(trade, "take_profit_price", 0.0),
-                "trailing_pct": getattr(trade, "trailing_pct", None),
-                "capital_before": getattr(trade, "capital_before", 0.0),
-                "capital_after": getattr(trade, "capital_after", 0.0),
-                "open_price": getattr(trade, "open_price", 0.0),
-                "high_price": getattr(trade, "high_price", 0.0),
-                "low_price": getattr(trade, "low_price", 0.0),
-                "volume": getattr(trade, "volume", 0.0),
-                "amount": getattr(trade, "amount", 0.0),
-                "pct_chg": getattr(trade, "pct_chg", 0.0),
+                "entry_price": self._safe_float(getattr(trade, "entry_price", 0.0)),
+                "holding_days": self._safe_int(getattr(trade, "holding_days", 0)),
+                "stop_loss_price": self._safe_float(getattr(trade, "stop_loss_price", 0.0)),
+                "take_profit_price": self._safe_float(getattr(trade, "take_profit_price", 0.0)),
+                "trailing_pct": self._safe_optional_float(getattr(trade, "trailing_pct", None)),
+                "capital_before": self._safe_float(getattr(trade, "capital_before", 0.0)),
+                "capital_after": self._safe_float(getattr(trade, "capital_after", 0.0)),
+                "open_price": self._safe_optional_float(getattr(trade, "open_price", 0.0)),
+                "high_price": self._safe_optional_float(getattr(trade, "high_price", 0.0)),
+                "low_price": self._safe_optional_float(getattr(trade, "low_price", 0.0)),
+                "volume": self._safe_optional_float(getattr(trade, "volume", None)),
+                "amount": self._safe_optional_float(getattr(trade, "amount", None)),
+                "pct_chg": self._safe_optional_float(getattr(trade, "pct_chg", 0.0)),
             }
             for trade in sim_result.trade_history
         ]

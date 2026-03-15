@@ -1,0 +1,64 @@
+{
+  "parent_config": "/Users/zhangsan/Desktop/投资进化系统v1.0/invest/models/configs/mean_reversion_v1.yaml",
+  "output_config": "/Users/zhangsan/Desktop/投资进化系统v1.0/data/evolution/generations/mean_reversion_v1_cycle_0004.yaml",
+  "param_adjustments": {
+    "stop_loss_pct": 0.05,
+    "take_profit_pct": 0.1,
+    "position_size": 0.15,
+    "candidate_pool_size": 100,
+    "top_n": 5,
+    "max_positions": 4,
+    "cash_reserve": 0.42999999999999994,
+    "trailing_pct": 0.051,
+    "max_hold_days": 30,
+    "oversold_rsi": 35,
+    "rebound_rsi_cap": 60,
+    "max_5d_drop": -2.0,
+    "max_20d_drop": -5.0,
+    "min_reversion_score": 0.05
+  },
+  "scoring_adjustments": {
+    "weights": {
+      "volume_ratio_bonus": 0.1
+    },
+    "penalties": {
+      "insufficient_drop_5d": 0.08
+    }
+  },
+  "applied_adjustments": {
+    "params": {
+      "stop_loss_pct": 0.05,
+      "take_profit_pct": 0.1,
+      "position_size": 0.15,
+      "candidate_pool_size": 100.0,
+      "top_n": 5.0,
+      "max_positions": 4.0,
+      "cash_reserve": 0.42999999999999994,
+      "trailing_pct": 0.051,
+      "max_hold_days": 30.0,
+      "oversold_rsi": 35.0,
+      "rebound_rsi_cap": 60.0,
+      "max_5d_drop": -2.0,
+      "max_20d_drop": -5.0,
+      "min_reversion_score": 0.05
+    },
+    "scoring": {
+      "weights": {
+        "volume_ratio_bonus": 0.1
+      },
+      "penalties": {
+        "insufficient_drop_5d": 0.08
+      }
+    }
+  },
+  "narrative_adjustments": {
+    "last_trigger": "consecutive_losses"
+  },
+  "generated_at": "2026-03-15T01:47:05.664124",
+  "parent_meta": {
+    "cycle_id": 4,
+    "trigger": "consecutive_losses",
+    "auto_apply": false,
+    "feedback_bias": ""
+  }
+}

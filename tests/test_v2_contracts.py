@@ -1,6 +1,16 @@
+from types import SimpleNamespace
 from typing import Any, cast
 
-from invest.contracts import AgentContext, EvalReport, ModelOutput, SignalPacket, SignalPacketContext, StockSignal, StrategyAdvice
+from invest.contracts import (
+    AgentContext,
+    EvalReport,
+    ModelOutput,
+    SignalPacket,
+    SignalPacketContext,
+    StockSignal,
+    StrategyAdvice,
+    resolve_agent_context_confidence,
+)
 
 
 def test_v2_contracts_round_trip():
@@ -97,3 +107,37 @@ def test_agent_context_effective_confidence_falls_back_to_metadata():
     )
 
     assert context.effective_confidence() == 0.67
+
+
+def test_agent_context_effective_confidence_clamps_to_unit_interval():
+    context = AgentContext(
+        as_of_date="20240131",
+        model_name="momentum",
+        config_name="momentum_v1",
+        summary="市场偏强",
+        narrative="市场偏强",
+        regime="bull",
+        confidence=1.8,
+        metadata={"confidence": -0.3},
+    )
+    metadata_only = AgentContext(
+        as_of_date="20240131",
+        model_name="momentum",
+        config_name="momentum_v1",
+        summary="市场偏强",
+        narrative="市场偏强",
+        regime="bull",
+        confidence=None,  # type: ignore[arg-type]
+        metadata={"confidence": -0.3},
+    )
+
+    assert context.effective_confidence() == 1.0
+    assert metadata_only.effective_confidence() == 0.0
+
+
+def test_resolve_agent_context_confidence_supports_legacy_objects():
+    legacy = SimpleNamespace(confidence="", metadata={"confidence": "1.7"})
+    invalid_explicit = SimpleNamespace(confidence="bad", metadata={"confidence": "0.64"})
+
+    assert resolve_agent_context_confidence(legacy, default=0.72) == 1.0
+    assert resolve_agent_context_confidence(invalid_explicit, default=0.72) == 0.64

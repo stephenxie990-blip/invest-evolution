@@ -1,0 +1,98 @@
+{
+  "cycle": 3,
+  "timestamp": "2026-03-15T01:23:03.122340",
+  "type": "selection",
+  "regime": "oscillation",
+  "confidence": 0.19443749999999999,
+  "hunters": [
+    {
+      "name": "contrarian",
+      "result": {
+        "picks": [
+          {
+            "code": "sh.600086",
+            "score": 0.5185,
+            "reasoning": "RSI4/BB0.01/-9.2%"
+          },
+          {
+            "code": "sh.600069",
+            "score": 0.366,
+            "reasoning": "RSI21/BB0.16/-3.5%"
+          },
+          {
+            "code": "sh.600058",
+            "score": 0.366,
+            "reasoning": "RSI28/BB0.08/-4.0%"
+          },
+          {
+            "code": "sh.600052",
+            "score": 0.305,
+            "reasoning": "RSI39/BB0.05/-4.4%"
+          },
+          {
+            "code": "sh.600010",
+            "score": 0.305,
+            "reasoning": "RSI32/BB0.04/-2.4%"
+          }
+        ],
+        "overall_view": "算法选股",
+        "confidence": 0.5,
+        "contract_status": "fallback_algorithm"
+      }
+    }
+  ],
+  "selected": [
+    "sh.600086",
+    "sh.600069",
+    "sh.600058",
+    "sh.600052"
+  ],
+  "selected_meta": [
+    {
+      "code": "sh.600086",
+      "score": 0.259,
+      "source": "contrarian",
+      "sources": [
+        "contrarian"
+      ],
+      "trailing_pct": null,
+      "reasoning": "RSI4/BB0.01/-9.2%"
+    },
+    {
+      "code": "sh.600069",
+      "score": 0.183,
+      "source": "contrarian",
+      "sources": [
+        "contrarian"
+      ],
+      "trailing_pct": null,
+      "reasoning": "RSI21/BB0.16/-3.5%"
+    },
+    {
+      "code": "sh.600058",
+      "score": 0.183,
+      "source": "contrarian",
+      "sources": [
+        "contrarian"
+      ],
+      "trailing_pct": null,
+      "reasoning": "RSI28/BB0.08/-4.0%"
+    },
+    {
+      "code": "sh.600052",
+      "score": 0.152,
+      "source": "contrarian",
+      "sources": [
+        "contrarian"
+      ],
+      "trailing_pct": null,
+      "reasoning": "RSI39/BB0.05/-4.4%"
+    }
+  ],
+  "source": "llm",
+  "meeting_id": 3,
+  "cutoff_date": "20190709",
+  "model_name": "mean_reversion",
+  "config_name": "mean_reversion_v1",
+  "agent_context_summary": "当前市场大致处于 oscillation 状态。 市场广度 14%，近20日平均涨跌幅 +1.45%，站上MA20比例 31%。 风险提示：市场普跌较广，反弹持续性存疑"
+}
