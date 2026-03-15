@@ -9,7 +9,6 @@
 3. `MAIN_FLOW.md`
 4. `TRAINING_FLOW.md`
 5. `AGENT_INTERACTION.md`
-6. `plans/PROJECT_ISSUES_AND_PRIORITY_ROADMAP_20260315.md`
 
 ## Canonical Docs / 当前主入口文档
 
@@ -30,14 +29,10 @@
 - `audits/MODEL_GOVERNANCE_RERUN_COMPARISON_20260315.md`：治理复跑对比结论
 - `audits/DATA_LAYER_UNIFICATION_REPORT.md`：数据层统一专题报告
 
-## Active Plans / 当前有效计划
+## Public Docs Policy / 公开文档边界
 
-- `plans/PROJECT_ISSUES_AND_PRIORITY_ROADMAP_20260315.md`
-- `plans/V1_1_EXECUTION_FREEZE_20260315.md`
-- `plans/MODEL_OPTIMIZATION_REMEDIATION_BLUEPRINT_20260315.md`
-- `plans/V1_1_IMPLEMENTATION_BLUEPRINT_20260314.md`
-- `plans/OPTIMIZATION_TRIGGER_MATRIX.md`
-- `plans/DATABASE_UPGRADE_V2.md`
+- GitHub 仓库优先公开项目定位、核心能力、架构概览、使用方式与审计结论。
+- 内部执行路线图、阶段性优先级和工作计划不作为公开文档入口维护。
 
 ## GitHub Community Docs / GitHub 社区文档
 

@@ -30,5 +30,5 @@
 ## Usage
 
 - 想理解“系统现在怎么工作”，回到 `docs/README.md`
-- 想查看当前实施主线，优先看 `docs/plans/V1_1_EXECUTION_FREEZE_20260315.md` 与 `docs/plans/MODEL_OPTIMIZATION_REMEDIATION_BLUEPRINT_20260315.md`
+- 公开仓库不再把内部执行路线图与阶段性工作计划作为主入口维护
 - 只有在需要追溯某次阶段决策、清理过程或历史判断时，再进入本目录

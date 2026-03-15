@@ -45,7 +45,7 @@
    - `README.md`
    - `docs/README.md`
    - `docs/audits/PROJECT_INTERPRETATION_REPORT_20260315.md`
-   - `docs/plans/PROJECT_ISSUES_AND_PRIORITY_ROADMAP_20260315.md`
+   - `docs/MAIN_FLOW.md`
 2. 明确本次改动影响的是：
    - 训练协议
    - 治理逻辑

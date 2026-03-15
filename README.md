@@ -333,7 +333,6 @@ pytest -q
 - `docs/README.md`：文档索引与分层导航
 - `docs/audits/PROJECT_INTERPRETATION_REPORT_20260315.md`：本轮升级后的解读与评审主报告
 - `docs/audits/MODEL_GOVERNANCE_RERUN_COMPARISON_20260315.md`：治理复跑对比结论
-- `docs/plans/PROJECT_ISSUES_AND_PRIORITY_ROADMAP_20260315.md`：项目问题清单与优先级路线图
 - `docs/MAIN_FLOW.md`：系统主链路
 - `docs/TRAINING_FLOW.md`：训练周期细节
 - `docs/AGENT_INTERACTION.md`：Agent 与会议协作
