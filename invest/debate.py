@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import logging
 import re
-from typing import TYPE_CHECKING, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 if TYPE_CHECKING:
     from invest.shared.contracts import TradingPlan
@@ -162,13 +162,20 @@ class DebateOrchestrator:
 
     def __init__(
         self,
-        fast_llm: "LLMCaller",
-        deep_llm: "LLMCaller",
+        fast_llm: Any,
+        deep_llm: Any,
         max_rounds: int = 1,
+        *,
+        bull_llm: Any = None,
+        bear_llm: Any = None,
+        judge_llm: Any = None,
     ):
         self.fast_llm = fast_llm
         self.deep_llm = deep_llm
         self.max_rounds = max_rounds
+        self.bull_llm = bull_llm or fast_llm
+        self.bear_llm = bear_llm or fast_llm
+        self.judge_llm = judge_llm or deep_llm
 
     def debate(
         self,
@@ -210,7 +217,7 @@ class DebateOrchestrator:
                 f"空方此前论点：{bear_history}\n\n"
                 "请给出你的看多论点（不超过200字）："
             )
-            bull_arg = self.fast_llm.call(_BULL_SYSTEM, bull_prompt, temperature=0.7, max_tokens=300)
+            bull_arg = self.bull_llm.call(_BULL_SYSTEM, bull_prompt, temperature=0.7, max_tokens=300)
             if not bull_arg or "dry_run" in bull_arg:
                 bull_arg = f"[Round {round_idx+1}] Bull：技术指标显示趋势向上，动量良好，建议买入。"
             bull_history += f"\n[Round {round_idx+1}] Bull：{bull_arg}"
@@ -222,7 +229,7 @@ class DebateOrchestrator:
                 f"多方此前论点：{bull_history}\n\n"
                 "请给出你的看空/风险提示论点（不超过200字）："
             )
-            bear_arg = self.fast_llm.call(_BEAR_SYSTEM, bear_prompt, temperature=0.7, max_tokens=300)
+            bear_arg = self.bear_llm.call(_BEAR_SYSTEM, bear_prompt, temperature=0.7, max_tokens=300)
             if not bear_arg or "dry_run" in bear_arg:
                 bear_arg = f"[Round {round_idx+1}] Bear：估值存在高估风险，回撤风险不可忽视，建议谨慎。"
             bear_history += f"\n[Round {round_idx+1}] Bear：{bear_arg}"
@@ -241,7 +248,7 @@ class DebateOrchestrator:
             '"bear_summary": "空方核心观点", '
             '"reasoning": "裁判综合理由（不超过100字）"}'
         )
-        result = self.deep_llm.call_json(_DEBATE_JUDGE_SYSTEM, judge_prompt, temperature=0.3, max_tokens=400, warn_on_parse_error=False)
+        result = self.judge_llm.call_json(_DEBATE_JUDGE_SYSTEM, judge_prompt, temperature=0.3, max_tokens=400, warn_on_parse_error=False)
 
         if result.get("_parse_error") or not result.get("verdict"):
             recovered = self._recover_judge_result(result.get("_raw", ""))
@@ -349,13 +356,22 @@ class RiskDebateOrchestrator:
 
     def __init__(
         self,
-        fast_llm: "LLMCaller",
-        deep_llm: "LLMCaller",
+        fast_llm: Any,
+        deep_llm: Any,
         max_rounds: int = 1,
+        *,
+        aggressive_llm: Any = None,
+        conservative_llm: Any = None,
+        neutral_llm: Any = None,
+        judge_llm: Any = None,
     ):
         self.fast_llm = fast_llm
         self.deep_llm = deep_llm
         self.max_rounds = max_rounds
+        self.aggressive_llm = aggressive_llm or fast_llm
+        self.conservative_llm = conservative_llm or fast_llm
+        self.neutral_llm = neutral_llm or fast_llm
+        self.judge_llm = judge_llm or deep_llm
 
     def assess_risk(
         self,
@@ -400,7 +416,7 @@ class RiskDebateOrchestrator:
                 f"此前辩论：{full_hist}\n\n"
                 "从激进型角度分析风险收益，强调机会成本，给出建议（不超过150字）："
             )
-            agg_arg = self.fast_llm.call(_AGGRESSIVE_SYSTEM, agg_prompt, temperature=0.7, max_tokens=250)
+            agg_arg = self.aggressive_llm.call(_AGGRESSIVE_SYSTEM, agg_prompt, temperature=0.7, max_tokens=250)
             if not agg_arg or "dry_run" in agg_arg:
                 agg_arg = "激进型：建议满仓操作，当前行情机会大于风险，不应错过。"
             aggressive_hist += f"\n[R{round_idx+1}] 激进：{agg_arg}"
@@ -412,7 +428,7 @@ class RiskDebateOrchestrator:
                 f"此前辩论：{full_hist}\n\n"
                 "从保守型角度强调风控，严格审视下行风险，给出建议（不超过150字）："
             )
-            con_arg = self.fast_llm.call(_CONSERVATIVE_SYSTEM, con_prompt, temperature=0.7, max_tokens=250)
+            con_arg = self.conservative_llm.call(_CONSERVATIVE_SYSTEM, con_prompt, temperature=0.7, max_tokens=250)
             if not con_arg or "dry_run" in con_arg:
                 con_arg = "保守型：当前市场波动较大，建议轻仓并设置较严格止损。"
             conservative_hist += f"\n[R{round_idx+1}] 保守：{con_arg}"
@@ -424,7 +440,7 @@ class RiskDebateOrchestrator:
                 f"激进方：{aggressive_hist}\n保守方：{conservative_hist}\n\n"
                 "从中立型角度平衡激进与保守，给出均衡建议（不超过150字）："
             )
-            neu_arg = self.fast_llm.call(_NEUTRAL_SYSTEM, neu_prompt, temperature=0.7, max_tokens=250)
+            neu_arg = self.neutral_llm.call(_NEUTRAL_SYSTEM, neu_prompt, temperature=0.7, max_tokens=250)
             if not neu_arg or "dry_run" in neu_arg:
                 neu_arg = "中立型：建议适度仓位，设置合理止损，在机会与风险之间取得平衡。"
             neutral_hist += f"\n[R{round_idx+1}] 中立：{neu_arg}"
@@ -446,7 +462,7 @@ class RiskDebateOrchestrator:
             '"key_concerns": ["关键风险点1", "关键风险点2"], '
             '"reasoning": "裁判综合理由（不超过100字）"}'
         )
-        result = self.deep_llm.call_json(_RISK_JUDGE_SYSTEM, judge_prompt, temperature=0.2, max_tokens=400, warn_on_parse_error=False)
+        result = self.judge_llm.call_json(_RISK_JUDGE_SYSTEM, judge_prompt, temperature=0.2, max_tokens=400, warn_on_parse_error=False)
 
         if result.get("_parse_error") or not result.get("risk_level"):
             recovered = self._recover_risk_judge_result(result.get("_raw", ""))

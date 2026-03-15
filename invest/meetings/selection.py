@@ -80,9 +80,16 @@ class SelectionMeeting:
         enable_debate: bool = True,
         max_debate_rounds: int = 1,
         deep_llm_caller: Optional[LLMCaller] = None,
+        bull_llm_caller: Optional[LLMCaller] = None,
+        bear_llm_caller: Optional[LLMCaller] = None,
+        judge_llm_caller: Optional[LLMCaller] = None,
         progress_callback: Optional[Callable[[dict], None]] = None,
     ):
         self.llm = llm_caller
+        self.deep_llm = deep_llm_caller or llm_caller
+        self.bull_llm = bull_llm_caller or llm_caller
+        self.bear_llm = bear_llm_caller or llm_caller
+        self.judge_llm = judge_llm_caller or self.deep_llm
         self.agent_weights = agent_weights or {
             "trend_hunter": 1.0,
             "contrarian": 1.0,
@@ -109,16 +116,27 @@ class SelectionMeeting:
 
         self._debate: Optional[Any] = None
         if _HAS_DEBATE and DebateOrchestrator is not None and enable_debate and llm_caller is not None:
-            deep = deep_llm_caller or llm_caller
+            deep = self.deep_llm or llm_caller
+            bull = self.bull_llm or llm_caller
+            bear = self.bear_llm or llm_caller
+            judge = self.judge_llm or deep
             self._debate = DebateOrchestrator(
                 fast_llm=llm_caller,
                 deep_llm=deep,
                 max_rounds=max_debate_rounds,
+                bull_llm=bull,
+                bear_llm=bear,
+                judge_llm=judge,
             )
             logger.info(
                 "SelectionMeeting: debate enabled (max_rounds=%d)",
                 max_debate_rounds,
             )
+        self._meeting_llms = [
+            llm
+            for llm in (self.llm, self.deep_llm, self.bull_llm, self.bear_llm, self.judge_llm)
+            if llm is not None
+        ]
 
     # ==================================================================
     # Public API
@@ -379,8 +397,40 @@ class SelectionMeeting:
         }
 
     @classmethod
+    def _llm_group_snapshot(cls, llms: Sequence[Any]) -> Dict[str, Any]:
+        snapshots = [cls._llm_snapshot(llm) for llm in llms if llm is not None]
+        if not snapshots:
+            return cls._llm_snapshot(None)
+        models = sorted({str(item.get("model") or "") for item in snapshots if str(item.get("model") or "")})
+        modes = sorted({str(item.get("mode") or "") for item in snapshots if str(item.get("mode") or "")})
+        return {
+            "call_count": sum(int(item.get("call_count", 0) or 0) for item in snapshots),
+            "input_tokens": sum(int(item.get("input_tokens", 0) or 0) for item in snapshots),
+            "output_tokens": sum(int(item.get("output_tokens", 0) or 0) for item in snapshots),
+            "total_time": sum(float(item.get("total_time", 0.0) or 0.0) for item in snapshots),
+            "mode": modes[0] if len(modes) == 1 else "mixed",
+            "model": models[0] if len(models) == 1 else ",".join(models),
+        }
+
+    @classmethod
     def _llm_delta(cls, llm: Any, before: Dict[str, Any]) -> Dict[str, Any]:
         after = cls._llm_snapshot(llm)
+        return {
+            "mode": str(after.get("mode") or "disabled"),
+            "model": str(after.get("model") or ""),
+            "call_count": max(0, int(after.get("call_count", 0) or 0) - int(before.get("call_count", 0) or 0)),
+            "input_tokens": max(0, int(after.get("input_tokens", 0) or 0) - int(before.get("input_tokens", 0) or 0)),
+            "output_tokens": max(0, int(after.get("output_tokens", 0) or 0) - int(before.get("output_tokens", 0) or 0)),
+            "total_time_ms": round(
+                max(0.0, float(after.get("total_time", 0.0) or 0.0) - float(before.get("total_time", 0.0) or 0.0))
+                * 1000.0,
+                3,
+            ),
+        }
+
+    @classmethod
+    def _llm_group_delta(cls, llms: Sequence[Any], before: Dict[str, Any]) -> Dict[str, Any]:
+        after = cls._llm_group_snapshot(llms)
         return {
             "mode": str(after.get("mode") or "disabled"),
             "model": str(after.get("model") or ""),
@@ -568,7 +618,7 @@ class SelectionMeeting:
             model_name=model_name if agent_context is not None else "",
             regime_name=regime_name,
         )
-        meeting_llm_before = self._llm_snapshot(self.llm)
+        meeting_llm_before = self._llm_group_snapshot(self._meeting_llms)
 
         # =============================================================
         # Phase 1: Parallel Agent Execution  (Tensor Parallelism)
@@ -756,7 +806,7 @@ class SelectionMeeting:
             result = self._run_algorithm(stock_summaries, top_n)
 
         t_total = time.perf_counter() - t_meeting_start
-        llm_delta = self._llm_delta(self.llm, meeting_llm_before)
+        llm_delta = self._llm_group_delta(self._meeting_llms, meeting_llm_before)
         agent_llm_calls = sum(
             int(dict(run.get("observability") or {}).get("llm", {}).get("call_count", 0) or 0)
             for run in agent_runs

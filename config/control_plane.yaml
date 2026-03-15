@@ -2,6 +2,8 @@ llm:
   providers:
     default_provider:
       api_base: https://vpsairobot.com/v1
+    minimax_provider:
+      api_base: https://api.minimaxi.com/v1
   models:
     default_fast:
       provider: default_provider
@@ -9,14 +11,33 @@ llm:
     default_deep:
       provider: default_provider
       model: gpt-5.4
+    minimax_fast:
+      provider: minimax_provider
+      model: MiniMax-M2.5
   bindings:
     defaults.fast: default_fast
     defaults.deep: default_deep
     controller.main: default_fast
-    meeting.selection.fast: default_fast
+    agent.MarketRegime: default_deep
+    agent.ModelSelector: default_deep
+    agent.TrendHunter: minimax_fast
+    agent.Contrarian: minimax_fast
+    agent.QualityAgent: default_fast
+    agent.DefensiveAgent: default_fast
+    agent.Strategist: default_deep
+    agent.ReviewDecision: default_deep
+    agent.EvoJudge: default_deep
+    meeting.selection.fast: minimax_fast
     meeting.selection.deep: default_deep
-    meeting.review.fast: default_fast
+    meeting.selection.debate.bull: default_fast
+    meeting.selection.debate.bear: minimax_fast
+    meeting.selection.debate.judge: default_deep
+    meeting.review.fast: default_deep
     meeting.review.deep: default_deep
+    meeting.review.risk.aggressive: default_fast
+    meeting.review.risk.conservative: minimax_fast
+    meeting.review.risk.neutral: default_fast
+    meeting.review.risk.judge: default_deep
     optimizer.loss_analysis: default_deep
     commander.brain: default_fast
 data:

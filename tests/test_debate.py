@@ -13,6 +13,37 @@ def _make_dry_callers():
     return fast, deep
 
 
+class _FakeCaller:
+    def __init__(self, *, text="", json_result=None, model="fake-model"):
+        self.text = text
+        self.json_result = dict(json_result or {})
+        self.model = model
+        self.calls = []
+
+    def call(self, system_prompt, user_message, temperature=0.7, max_tokens=2048):
+        self.calls.append(
+            {
+                "kind": "text",
+                "system_prompt": system_prompt,
+                "user_message": user_message,
+                "temperature": temperature,
+                "max_tokens": max_tokens,
+            }
+        )
+        return self.text
+
+    def call_json(self, system_prompt, user_message, **kwargs):
+        self.calls.append(
+            {
+                "kind": "json",
+                "system_prompt": system_prompt,
+                "user_message": user_message,
+                **dict(kwargs),
+            }
+        )
+        return dict(self.json_result)
+
+
 def _make_stock_info(code="sh.600001"):
     return {
         "code": code,
@@ -121,6 +152,40 @@ def test_debate_max_rounds():
     assert "verdict" in result
 
 
+def test_debate_supports_role_specific_callers():
+    from invest.debate import DebateOrchestrator
+
+    fast = _FakeCaller(text="unused-fast", model="fast-fallback")
+    deep = _FakeCaller(json_result={"verdict": "hold", "confidence": 0.4}, model="deep-fallback")
+    bull = _FakeCaller(text="bull thesis", model="bull-model")
+    bear = _FakeCaller(text="bear thesis", model="bear-model")
+    judge = _FakeCaller(
+        json_result={
+            "verdict": "hold",
+            "confidence": 0.61,
+            "bull_summary": "bull thesis",
+            "bear_summary": "bear thesis",
+            "reasoning": "balanced",
+        },
+        model="judge-model",
+    )
+    debate = DebateOrchestrator(
+        fast,
+        deep,
+        max_rounds=1,
+        bull_llm=bull,
+        bear_llm=bear,
+        judge_llm=judge,
+    )
+
+    result = debate.debate(_make_stock_info(), _make_regime())
+
+    assert result["verdict"] == "hold"
+    assert bull.calls and bear.calls and judge.calls
+    assert not fast.calls
+    assert not deep.calls
+
+
 # ─────────────────────────── RiskDebateOrchestrator ───────────────────────────
 
 def test_risk_debate_dry_run_returns_valid_structure():
@@ -180,6 +245,43 @@ def test_risk_debate_with_portfolio_state():
     }
     result = risk_debate.assess_risk(_make_trading_plan(), _make_regime(), portfolio_state)
     assert "risk_level" in result
+
+
+def test_risk_debate_supports_role_specific_callers():
+    from invest.debate import RiskDebateOrchestrator
+
+    fast = _FakeCaller(text="unused-fast", model="fast-fallback")
+    deep = _FakeCaller(json_result={"risk_level": "medium"}, model="deep-fallback")
+    aggressive = _FakeCaller(text="take more risk", model="aggressive-model")
+    conservative = _FakeCaller(text="tighten risk", model="conservative-model")
+    neutral = _FakeCaller(text="balanced plan", model="neutral-model")
+    judge = _FakeCaller(
+        json_result={
+            "risk_level": "medium",
+            "position_size_suggestion": 0.18,
+            "stop_loss_suggestion": 0.05,
+            "take_profit_suggestion": 0.14,
+            "key_concerns": ["dispersion"],
+            "reasoning": "balanced",
+        },
+        model="judge-model",
+    )
+    risk_debate = RiskDebateOrchestrator(
+        fast,
+        deep,
+        max_rounds=1,
+        aggressive_llm=aggressive,
+        conservative_llm=conservative,
+        neutral_llm=neutral,
+        judge_llm=judge,
+    )
+
+    result = risk_debate.assess_risk(_make_trading_plan(), _make_regime())
+
+    assert result["risk_level"] == "medium"
+    assert aggressive.calls and conservative.calls and neutral.calls and judge.calls
+    assert not fast.calls
+    assert not deep.calls
 
 def test_debate_recovers_truncated_judge_json():
     from invest.debate import DebateOrchestrator

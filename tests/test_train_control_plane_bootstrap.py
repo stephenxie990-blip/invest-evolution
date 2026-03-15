@@ -22,12 +22,24 @@ def test_controller_bootstraps_llm_components_from_control_plane(monkeypatch, tm
             '    selection_deep_model:',
             '      provider: provider_x',
             '      model: selection-deep-model',
+            '    selection_bull_model:',
+            '      provider: provider_x',
+            '      model: selection-bull-model',
+            '    selection_bear_model:',
+            '      provider: provider_x',
+            '      model: selection-bear-model',
             '    review_fast_model:',
             '      provider: provider_x',
             '      model: review-fast-model',
             '    review_deep_model:',
             '      provider: provider_x',
             '      model: review-deep-model',
+            '    risk_conservative_model:',
+            '      provider: provider_x',
+            '      model: risk-conservative-model',
+            '    risk_judge_model:',
+            '      provider: provider_x',
+            '      model: risk-judge-model',
             '    optimizer_model:',
             '      provider: provider_x',
             '      model: optimizer-model',
@@ -41,8 +53,12 @@ def test_controller_bootstraps_llm_components_from_control_plane(monkeypatch, tm
             '    controller.main: controller_model',
             '    meeting.selection.fast: selection_fast_model',
             '    meeting.selection.deep: selection_deep_model',
+            '    meeting.selection.debate.bull: selection_bull_model',
+            '    meeting.selection.debate.bear: selection_bear_model',
             '    meeting.review.fast: review_fast_model',
             '    meeting.review.deep: review_deep_model',
+            '    meeting.review.risk.conservative: risk_conservative_model',
+            '    meeting.review.risk.judge: risk_judge_model',
             '    optimizer.loss_analysis: optimizer_model',
             '    agent.TrendHunter: trend_model',
             '    agent.EvoJudge: judge_model',
@@ -70,7 +86,15 @@ def test_controller_bootstraps_llm_components_from_control_plane(monkeypatch, tm
     assert controller.agents['evo_judge'].llm.model == 'judge-model'
     assert controller.selection_meeting.llm is not None
     assert controller.review_meeting.llm is not None
+    assert controller.selection_meeting.bull_llm is not None
+    assert controller.selection_meeting.bear_llm is not None
+    assert controller.review_meeting.conservative_llm is not None
     assert controller.selection_meeting.llm.model == 'selection-fast-model'
     assert controller.review_meeting.llm.model == 'review-fast-model'
+    assert controller.selection_meeting.bull_llm.model == 'selection-bull-model'
+    assert controller.selection_meeting.bear_llm.model == 'selection-bear-model'
     assert getattr(controller.selection_meeting._debate, 'deep_llm').model == 'selection-deep-model'
+    assert getattr(controller.selection_meeting._debate, 'bear_llm').model == 'selection-bear-model'
+    assert controller.review_meeting.conservative_llm.model == 'risk-conservative-model'
     assert getattr(controller.review_meeting._risk_debate, 'deep_llm').model == 'review-deep-model'
+    assert getattr(controller.review_meeting._risk_debate, 'judge_llm').model == 'risk-judge-model'

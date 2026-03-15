@@ -162,9 +162,18 @@ class ReviewMeeting:
         enable_risk_debate: bool = True,
         max_risk_discuss_rounds: int = 1,
         deep_llm_caller: Optional[LLMCaller] = None,
+        aggressive_llm_caller: Optional[LLMCaller] = None,
+        conservative_llm_caller: Optional[LLMCaller] = None,
+        neutral_llm_caller: Optional[LLMCaller] = None,
+        risk_judge_llm_caller: Optional[LLMCaller] = None,
         progress_callback: Optional[Callable[[dict], None]] = None,
     ):
         self.llm = llm_caller
+        self.deep_llm = deep_llm_caller or llm_caller
+        self.aggressive_llm = aggressive_llm_caller or llm_caller
+        self.conservative_llm = conservative_llm_caller or llm_caller
+        self.neutral_llm = neutral_llm_caller or llm_caller
+        self.risk_judge_llm = risk_judge_llm_caller or self.deep_llm
         self.tracker = agent_tracker
         self.strategist = strategist or StrategistAgent()
         self.evo_judge = evo_judge or EvoJudgeAgent()
@@ -177,11 +186,19 @@ class ReviewMeeting:
 
         self._risk_debate: Optional[Any] = None
         if _HAS_DEBATE and RiskDebateOrchestrator is not None and enable_risk_debate and llm_caller is not None:
-            deep = deep_llm_caller or llm_caller
+            deep = self.deep_llm or llm_caller
+            aggressive = self.aggressive_llm or llm_caller
+            conservative = self.conservative_llm or llm_caller
+            neutral = self.neutral_llm or llm_caller
+            judge = self.risk_judge_llm or deep
             self._risk_debate = RiskDebateOrchestrator(
                 fast_llm=llm_caller,
                 deep_llm=deep,
                 max_rounds=max_risk_discuss_rounds,
+                aggressive_llm=aggressive,
+                conservative_llm=conservative,
+                neutral_llm=neutral,
+                judge_llm=judge,
             )
             logger.info("ReviewMeeting: risk debate enabled (max_rounds=%d)", max_risk_discuss_rounds)
 

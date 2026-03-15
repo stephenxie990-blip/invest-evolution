@@ -428,6 +428,21 @@ class SelfLearningController:
                 self._default_deep_llm.model,
                 fallback_kind="deep",
             ),
+            bull_llm_caller=build_llm(
+                "meeting.selection.debate.bull",
+                self._default_fast_llm.model,
+                fallback_kind="fast",
+            ),
+            bear_llm_caller=build_llm(
+                "meeting.selection.debate.bear",
+                self._default_fast_llm.model,
+                fallback_kind="fast",
+            ),
+            judge_llm_caller=build_llm(
+                "meeting.selection.debate.judge",
+                self._default_deep_llm.model,
+                fallback_kind="deep",
+            ),
             trend_hunter=self.agents["trend_hunter"],
             contrarian=self.agents["contrarian"],
             quality_agent=self.agents["quality_agent"],
@@ -445,6 +460,26 @@ class SelfLearningController:
             ),
             deep_llm_caller=build_llm(
                 "meeting.review.deep",
+                self._default_deep_llm.model,
+                fallback_kind="deep",
+            ),
+            aggressive_llm_caller=build_llm(
+                "meeting.review.risk.aggressive",
+                self._default_fast_llm.model,
+                fallback_kind="fast",
+            ),
+            conservative_llm_caller=build_llm(
+                "meeting.review.risk.conservative",
+                self._default_fast_llm.model,
+                fallback_kind="fast",
+            ),
+            neutral_llm_caller=build_llm(
+                "meeting.review.risk.neutral",
+                self._default_fast_llm.model,
+                fallback_kind="fast",
+            ),
+            risk_judge_llm_caller=build_llm(
+                "meeting.review.risk.judge",
                 self._default_deep_llm.model,
                 fallback_kind="deep",
             ),
