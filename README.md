@@ -3,15 +3,8 @@
 > Agent-first investment training / research / runtime platform with governance-first controls.  
 > 一个以 Agent 为第一用户、以可控性为核心约束的投资训练 / 研究 / 运行一体化平台。
 
-当前仓库不是单一“量化策略脚本集合”，而是把 `Commander` 指挥运行时、训练主循环、统一数据层、Training Lab、模型治理、Agent 协作与 Web/API 控制面收进同一工程的系统。
-
-当前代码主链已经稳定收敛到以下能力：
-
-- **统一入口**：CLI、训练入口、Web 服务都以 `app/` 下实现为准，根目录同名脚本只保留兼容启动壳。
-- **统一数据层**：`market_data/` 负责 SQLite canonical schema、离线同步、质量审计、训练/网页读取构造器。
-- **统一训练闭环**：`SelfLearningController` 完成“数据加载 → 模型产出 → Agent 会议 → 模拟交易 → 评估 → 复盘 → 优化 / 晋级纪律 / 冻结门控”。
-- **统一运行时**：`CommanderRuntime` 把 `brain/` 本地 agent loop 与投资训练主体融合到单进程内。
-- **统一实验产物**：训练计划、训练运行、训练评估、周期结果、会议记录、配置快照、优化事件都落盘到 `runtime/`。
+这不是一个单纯的量化脚本仓库。  
+它更像一套面向投资场景的协作底座：让 Agent 在明确边界、统一事实来源和治理约束下参与训练、研究、复盘与运行。
 
 ## 项目定位 / Positioning
 
@@ -19,11 +12,23 @@
 - **Governance-first**：系统强调 promotion、routing、deployment stage、freeze gate 等治理边界，而不是无约束自治。
 - **Scenario-first, but extensible**：当前最完整的是投资场景，但底层已经具备迁移到其他高反馈决策场景的结构雏形。
 
+## 项目理念 / Philosophy
+
+这个项目真正想解决的，不只是“如何做投资决策”，而是更底层的几个问题：
+
+- 如何让 Agent 成为真正可用的工具，而不是不可预测的参与者
+- 如何让人和 Agent 的协作关系可控、可审计、可约束
+- 如何让多个 Agent 围绕同一个数据底座和任务目标形成稳定的协作范式
+- 如何让系统持续进化，但始终在明确边界内生长
+
+投资是这套底层能力当前最完整的验证场。  
+因为它天然具备高复杂度、高反馈密度、高不确定性和高价值。
+
 ## 这是什么 / What This Is
 
-- 一个统一了 `CLI + Web/API + BrainRuntime + InvestmentBodyService + SelfLearningController` 的运行时。
-- 一个把实验协议、训练工件、模型榜单、分配器、会议记录和治理事件收进同一数据 / 工件平面的研究平台。
-- 一个让多个 Agent 围绕同一事实底座协作、并受到明确角色与输出协议约束的系统。
+- 一个面向投资场景的 Agent-first 协作系统
+- 一个把训练、研究、运行和治理放进同一条闭环里的平台
+- 一个能持续沉淀结果、复盘、候选、晋级和治理记录的实验环境
 
 ## 这不是什么 / What This Is Not
 
@@ -34,49 +39,45 @@
 
 ## 当前功能一览 / What Works Today
 
-### 1. 训练与研究
+### 1. 训练闭环
 
-- 支持四个内置投资模型：`momentum`、`mean_reversion`、`value_quality`、`defensive_low_vol`
-- 支持模型 YAML 配置、评分权重、风险策略、训练门控与 mutation space
-- 支持 mock 数据模式，便于本地验证训练链路
-- 支持训练计划 / 训练运行 / 训练评估三层实验工件
-- 支持 leaderboard 聚合、市场状态识别与训练前模型路由
+- 支持完整的训练主链：数据加载、模型处理、Agent 协作、模拟交易、评估、复盘、优化与治理判断
+- 支持多模型实验、配置演化、训练计划 / 训练运行 / 训练评估三层工件
+- 支持 mock 模式，便于验证链路和演示系统能力
 
-### 2. Agent 与会议系统
+### 2. 多 Agent 协作
 
-- 选股侧：`MarketRegimeAgent`、`TrendHunterAgent`、`ContrarianAgent`、`QualityAgent`、`DefensiveAgent`
-- 复盘侧：`StrategistAgent`、`EvoJudgeAgent`、`ReviewDecisionAgent`
-- 支持 debate 开关、Agent 权重调整、复盘建议回写、反思记忆
-- Agent prompt 可通过 `agent_settings/agents_config.json` 与 Web API 修改
+- 支持市场判断、不同风格的选股角色、复盘分析与统一指挥协作
+- 支持角色边界约束、输出结构化约束和协作反馈回路
+- 支持通过配置调整角色 prompt、权重和行为边界
 
-### 3. Commander 运行时
+### 3. 统一运行与控制
 
-- `BrainRuntime` 提供本地多轮对话 + tool calling
-- 内置工具覆盖：状态查询、训练执行、训练计划、策略基因、cron、记忆搜索、插件重载
-- 支持单实例锁、训练互斥锁、Bridge 收发箱、cron、heartbeat、记忆审计
-- 支持将训练结果自动写入 memory 与 training lab 工件目录
+- 支持统一入口管理状态、训练、配置、实验记录与结果查看
+- 支持命令行、Web/API 和运行时事件流
+- 支持把训练结果、会议记录、配置快照和治理事件持续沉淀下来
 
-### 4. Web 控制台与 API
+### 4. 治理与可控性
 
-- 旧版 Dashboard / Chat / Train / Strategies / Cron / Memory / Agents / Data 页面已移除，`/app` 与 `/legacy` 仅保留 tombstone 提示
-- Flask API 覆盖状态、训练、训练实验室、策略、leaderboard、allocator、配置、数据查询与后台下载
-- SSE 事件流：`/api/events`
-- Web 模式默认关闭 autopilot / heartbeat / bridge，仅保留手动触发与监控
-- `wsgi:app` 现为受支持生产入口，但仅支持单 worker gunicorn，因为 Commander runtime 以内嵌方式启动
+- 支持模型路由、候选晋级、部署阶段区分和冻结门控
+- 支持对训练结果、候选状态和治理判断进行记录与回放
+- 支持在持续进化的同时保持明确边界
 
-### 5. 数据层
+## 为什么值得关注 / Why It Matters
 
-- 默认离线库：`data/stock_history.db`
-- 数据源：`baostock`、`tushare`、`akshare`
-- 已统一表：`security_master`、`daily_bar`、`index_bar`、`financial_snapshot`、`trading_calendar`、`security_status_daily`、`factor_snapshot`、`capital_flow_daily`、`dragon_tiger_list`、`intraday_bar_60m`、`ingestion_meta`
-- 支持数据健康审计、训练 readiness 诊断、资金流 / 龙虎榜 / 60 分钟线读取
+这个项目关注的不只是“投资结果”，而是一个更底层的问题：
+
+> 如何让 Agent 在真实、高复杂度、高不确定性的场景中，成为可控、可审计、可进化的工具。
+
+如果这件事成立，那么这套协作方式不只可以用于投资，也可以迁移到更多决策辅助场景。
 
 ## 快速开始
 
 推荐使用 Python 3.11+ 与虚拟环境。
 
 ```bash
-cd ~/Desktop/投资进化系统v1.0
+git clone https://github.com/stephenxie990-blip/invest-evolution.git invest-evolution
+cd invest-evolution
 python3 -m venv .venv
 source .venv/bin/activate
 python3 -m pip install --upgrade pip
@@ -332,6 +333,7 @@ pytest -q
 - `docs/README.md`：文档索引与分层导航
 - `docs/audits/PROJECT_INTERPRETATION_REPORT_20260315.md`：本轮升级后的解读与评审主报告
 - `docs/audits/MODEL_GOVERNANCE_RERUN_COMPARISON_20260315.md`：治理复跑对比结论
+- `docs/plans/PROJECT_ISSUES_AND_PRIORITY_ROADMAP_20260315.md`：项目问题清单与优先级路线图
 - `docs/MAIN_FLOW.md`：系统主链路
 - `docs/TRAINING_FLOW.md`：训练周期细节
 - `docs/AGENT_INTERACTION.md`：Agent 与会议协作
@@ -340,6 +342,8 @@ pytest -q
 - `docs/CONFIG_GOVERNANCE.md`：配置治理与审计
 - `docs/RUNTIME_STATE_DESIGN.md`：运行态文件设计
 - `docs/archive/README.md`：历史计划、旧评审与会话文档归档索引
+- `CONTRIBUTING.md`：贡献方式与协作约定
+- `SECURITY.md`：安全边界与漏洞反馈方式
 
 ## 现阶段建议的阅读顺序
 
