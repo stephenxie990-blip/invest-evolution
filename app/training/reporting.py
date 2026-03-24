@@ -242,10 +242,21 @@ def evaluate_research_feedback_gate(
         )
 
     horizons = dict(payload.get("horizons") or {})
-    horizon_defaults = dict((config.get("horizons") or {}).get("default") or {})
+    horizon_policy_catalog = dict(config.get("horizons") or {})
+    apply_default_horizon_policy = bool(
+        config.get("apply_default_horizon_policy", True)
+    )
+    horizon_defaults = (
+        dict(horizon_policy_catalog.get("default") or {})
+        if apply_default_horizon_policy
+        else {}
+    )
     for horizon_key in sorted(horizons.keys()):
         horizon_metrics = dict(horizons.get(horizon_key) or {})
-        horizon_policy = _merge_policy(horizon_defaults, dict((config.get("horizons") or {}).get(horizon_key) or {}))
+        horizon_policy = _merge_policy(
+            horizon_defaults,
+            dict(horizon_policy_catalog.get(horizon_key) or {}),
+        )
         for metric_name, threshold_key, comparator in (
             ("hit_rate", "min_hit_rate", "gte"),
             ("invalidation_rate", "max_invalidation_rate", "lte"),

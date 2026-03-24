@@ -168,6 +168,24 @@ train:
     avg_sharpe_gte: 0.7
     avg_max_drawdown_lt: 10.0
     benchmark_pass_rate_gte: 0.6
+    research_feedback:
+      apply_default_horizon_policy: false
+      min_sample_count: 8
+      blocked_biases: [tighten_risk, recalibrate_probability]
+      max_brier_like_direction_score: 0.25
+      horizons:
+        T+5:
+          min_hit_rate: 0.40
+          max_invalidation_rate: 0.20
+          min_interval_hit_rate: 0.65
+        T+10:
+          min_hit_rate: 0.38
+          max_invalidation_rate: 0.25
+          min_interval_hit_rate: 0.60
+        T+20:
+          min_hit_rate: 0.30
+          max_invalidation_rate: 0.33
+          min_interval_hit_rate: 0.70
     governance:
       max_candidate_pending_count: 0
       max_override_pending_count: 0
