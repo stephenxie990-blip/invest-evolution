@@ -234,6 +234,32 @@ Web 端适合修改阈值、路径、role prompt 与 control-plane binding，不
 
 Web `evolution_config` 更偏运行层，而不是替代运行策略 YAML。
 
+第三阶段后，runtime YAML 额外承载以下治理契约：
+
+- `regime_profiles.<regime>.params`
+- `regime_profiles.<regime>.risk`
+- `regime_profiles.<regime>.filters`
+
+说明：
+
+- `regime_profiles` 是当前 runtime 分 regime 校准的统一 contract。
+- 旧 `oscillation_*` / `bear_*` 前缀参数仍保留为兼容 fallback，但新增策略应优先写入 `regime_profiles`。
+- 运行时会把实际应用的 profile 来源与参数回显到 `SignalPacketContext.debug_metadata`，便于审计“这轮为什么被收紧/放松”。
+
+### 6.5 Promotion / Freeze 治理可配置项补充
+
+当前与第三阶段直接相关的治理配置包括：
+
+- `train.promotion_gate.research_feedback`
+- `train.promotion_gate.regime_validation`
+- `train.promotion_gate.manager_regime_validation`
+- `train.freeze_gate.research_feedback`
+
+说明：
+
+- `manager_regime_validation` 已进入默认 promotion gate policy，但默认 `enabled: false`，只在显式开启时参与 verdict。
+- `research_feedback` 在 freeze / promotion 之外，还会补充 `coverage_plan` 到训练报告和 freeze report，用于暴露 requested regime 的 evidence 缺口。
+
 ## 7. 当前建议的使用方式
 
 - 需要改训练阈值、路由策略、Web 鉴权/限流：走 `/api/evolution_config`

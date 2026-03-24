@@ -14,15 +14,35 @@ params:
   max_5d_drop: -3.0
   max_20d_drop: -7.0
   min_reversion_score: 0.12
-  oscillation_max_positions: 2
-  oscillation_cash_reserve_floor: 0.55
-  oscillation_stop_loss_pct: 0.035
-  oscillation_take_profit_pct: 0.08
-  oscillation_trailing_pct: 0.05
-  oscillation_min_reversion_score: 0.18
+  oscillation_max_positions: 1
+  oscillation_cash_reserve_floor: 0.65
+  oscillation_stop_loss_pct: 0.03
+  oscillation_take_profit_pct: 0.06
+  oscillation_trailing_pct: 0.04
+  oscillation_min_reversion_score: 0.24
+  oscillation_entry_5d_ceiling: 0.0
   oscillation_max_5d_drop_guard: -6.0
   oscillation_max_20d_drop_guard: -9.0
-  oscillation_bear_trend_rsi_cap: 28
+  oscillation_max_bb_pos_guard: 0.18
+  oscillation_max_volatility_guard: 0.028
+  oscillation_bear_trend_rsi_cap: 24
+regime_profiles:
+  oscillation:
+    params:
+      max_positions: 1
+      cash_reserve_floor: 0.65
+      min_reversion_score: 0.24
+    risk:
+      stop_loss_pct: 0.03
+      take_profit_pct: 0.06
+      trailing_pct: 0.04
+    filters:
+      entry_5d_ceiling: 0.0
+      max_5d_drop_guard: -6.0
+      max_20d_drop_guard: -9.0
+      max_bb_pos_guard: 0.18
+      max_volatility_guard: 0.028
+      bear_trend_rsi_cap: 24
 risk:
   stop_loss_pct: 0.04
   take_profit_pct: 0.1
@@ -238,7 +258,7 @@ scoring:
     lower_bb: 0.2
     drop_5d: 0.2
     drop_20d: 0.15
-    bearish_trend_bonus: 0.05
+    bearish_trend_bonus: 0.0
     volume_ratio_bonus: 0.08
   bands:
     lower_bb_threshold: 0.35
@@ -248,10 +268,10 @@ scoring:
     high_volatility_threshold: 0.05
   penalties:
     upper_bb: 0.1
-    insufficient_drop_5d: 0.08
-    insufficient_drop_20d: 0.08
-    high_volatility: 0.12
-    overheat_rsi: 0.18
+    insufficient_drop_5d: 0.12
+    insufficient_drop_20d: 0.1
+    high_volatility: 0.15
+    overheat_rsi: 0.2
 mutation_space:
   params:
     stop_loss_pct:

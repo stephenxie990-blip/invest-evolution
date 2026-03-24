@@ -324,3 +324,54 @@ python3 -m pytest -q
 
 - bear 下 defensive runtime 默认只保留更干净的防御候选
 - signal packet 在 bear 下体现更高质量、低暴露输出
+
+### 2026-03-24 隔离短跑复核结论
+
+#### `defensive_low_vol @ bear`
+
+- 短跑产物：
+  - `outputs/isolated_phase2_short_defensive_bear/run_report.json`
+  - `outputs/isolated_phase2_short_defensive_bear/isolated_cycle_realization_summary.json`
+- 结果：
+  - `drift_count = 0`
+  - `avg_return = +0.6023%`
+  - `avg_sharpe = +1.2735`
+  - `avg_max_drawdown = 0.0098`
+  - `benchmark_pass_rate = 0.0`
+  - `research_feedback_gate.bias = tighten_risk`
+- 结论：
+  - 工程干扰已去除，bear 下 defensive 候选质量和风险一致性明显改善
+  - 但 strict 口径下仍未越过 benchmark / research gate，后续应继续处理行业集中与收益命中率
+
+#### `mean_reversion @ oscillation` 第一轮短跑
+
+- 短跑产物：
+  - `outputs/isolated_phase2_short_mean_reversion_oscillation/run_report.json`
+  - `outputs/isolated_phase2_short_mean_reversion_oscillation/isolated_cycle_realization_summary.json`
+- 结果：
+  - `drift_count = 0`
+  - `avg_return = -1.4493%`
+  - `avg_sharpe = -4.7294`
+  - `benchmark_pass_rate = 0.0`
+  - `research_feedback_gate.bias = tighten_risk`
+- 结论：
+  - cycle 内 runtime 污染问题已切掉，但业务上仍是明显的 falling-knife / 弱反弹误入场
+  - 这证明剩余问题是策略质量瓶颈，而不是隔离实验失真
+
+#### `mean_reversion @ oscillation` 第二轮止跌确认版短跑
+
+- 短跑产物：
+  - `outputs/isolated_phase2_short_mean_reversion_oscillation_v2/run_report.json`
+  - `outputs/isolated_phase2_short_mean_reversion_oscillation_v2/isolated_cycle_realization_summary.json`
+- 结果：
+  - `drift_count = 0`
+  - `status = no_data`
+  - `attempted_cycles = 4`
+  - `successful_cycles = 0`
+  - `skipped_cycles = 4`
+  - `research_feedback_gate.active = false`
+  - `sample_count = 0`
+- 结论：
+  - 第二轮 hardening 把该线从“持续做错交易”推到了“在这 4 个窗口宁可不做”
+  - 在 strict gate 语义下，这不是工程失败，而是业务结论：当前 oscillation 版 `mean_reversion` 缺少足够可靠的止跌确认信号
+  - 后续若要恢复该线，不应先放松 strict gate，而应补能识别“确认反转”的新特征或重新定义 oscillation 下的经理分工

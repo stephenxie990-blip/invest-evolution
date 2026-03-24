@@ -1208,6 +1208,8 @@ class TrainingFeedbackService:
         recommendation = dict(payload.get("recommendation") or {})
         t20 = dict(payload.get("horizons") or {}).get("T+20") or {}
         scope = dict(payload.get("scope") or {})
+        coverage = dict(payload.get("coverage_plan") or {})
+        current_cycle = dict(coverage.get("current_cycle_contribution") or {})
         return {
             "available": bool(payload),
             "source": dict(source or {}),
@@ -1220,6 +1222,19 @@ class TrainingFeedbackService:
             "available_horizons": sorted((payload.get("horizons") or {}).keys()),
             "effective_scope": str(scope.get("effective_scope") or "overall"),
             "requested_regime": str(scope.get("requested_regime") or ""),
+            "coverage_ready": bool(coverage.get("coverage_ready", False)),
+            "requested_regime_gap_count": int(
+                coverage.get("requested_regime_gap_count") or 0
+            ),
+            "next_target_regimes": [
+                str(item).strip()
+                for item in list(coverage.get("next_target_regimes") or [])
+                if str(item).strip()
+            ],
+            "current_cycle_requested_regime_gain": int(
+                current_cycle.get("requested_regime_sample_count") or 0
+            ),
+            "coverage_plan": coverage,
         }
 
     @staticmethod
@@ -1230,6 +1245,14 @@ class TrainingFeedbackService:
             "bias": str(summary.get("bias") or "unknown"),
             "brier_like_direction_score": summary.get("brier_like_direction_score"),
             "t20_hit_rate": summary.get("t20_hit_rate"),
+            "coverage_ready": bool(summary.get("coverage_ready", False)),
+            "requested_regime_gap_count": int(
+                summary.get("requested_regime_gap_count") or 0
+            ),
+            "next_target_regimes": list(summary.get("next_target_regimes") or []),
+            "current_cycle_requested_regime_gain": int(
+                summary.get("current_cycle_requested_regime_gain") or 0
+            ),
         }
 
     @staticmethod

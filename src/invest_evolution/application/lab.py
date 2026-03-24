@@ -176,6 +176,33 @@ def _build_regime_validation_guardrail_view(policy: dict[str, Any] | None) -> di
     }
 
 
+def _build_manager_regime_validation_guardrail_view(policy: dict[str, Any] | None) -> dict[str, Any]:
+    resolved = dict(policy or {})
+    if not resolved or not bool(resolved.get("enabled", False)):
+        return {
+            "enabled": False,
+            "summary": "未启用 manager x regime 二维验证。",
+            "reason_codes": [],
+            "thresholds": {},
+        }
+
+    summary = (
+        "已启用 manager x regime 二维验证："
+        f"至少覆盖 {int(resolved.get('min_manager_count') or 0)} 个 manager，"
+        f"每个 manager 样本数>={int(resolved.get('min_samples_per_manager') or 0)}，"
+        f"每个 manager 至少覆盖 {int(resolved.get('min_distinct_regimes') or 0)} 个 regime。"
+    )
+    return {
+        "enabled": True,
+        "summary": summary,
+        "reason_codes": [
+            "manager_regime_validation_enabled",
+            "manager_slice_quality_guarded",
+        ],
+        "thresholds": jsonable(resolved),
+    }
+
+
 def _build_return_objectives_guardrail_view(policy: dict[str, Any] | None) -> dict[str, Any]:
     resolved = dict(policy or {})
     if not resolved:
@@ -250,6 +277,9 @@ def _build_guardrails(
     regime_validation_view = _build_regime_validation_guardrail_view(
         dict(promotion_gate.get("regime_validation") or {}),
     )
+    manager_regime_validation_view = _build_manager_regime_validation_guardrail_view(
+        dict(promotion_gate.get("manager_regime_validation") or {}),
+    )
     return_objectives_view = _build_return_objectives_guardrail_view(
         dict(promotion_gate.get("return_objectives") or {}),
     )
@@ -269,11 +299,13 @@ def _build_guardrails(
                 "promotion_gate_enabled",
                 "promotion_gate_research_feedback_enabled",
                 "promotion_gate_regime_validation_enabled",
+                "promotion_gate_manager_regime_validation_available",
                 "promotion_gate_return_objectives_enabled",
                 "promotion_gate_candidate_ab_enabled",
             ],
             "research_feedback": research_feedback_view,
             "regime_validation": regime_validation_view,
+            "manager_regime_validation": manager_regime_validation_view,
             "return_objectives": return_objectives_view,
             "candidate_ab": candidate_ab_view,
         }
@@ -576,6 +608,18 @@ def _result_regime(item: dict[str, Any]) -> str:
     ).strip() or "unknown"
 
 
+def _result_manager_id(item: dict[str, Any]) -> str:
+    return str(item.get("manager_id") or "unknown").strip() or "unknown"
+
+
+def _result_manager_config_ref(item: dict[str, Any]) -> str:
+    return str(
+        item.get("manager_config_ref")
+        or item.get("runtime_config_ref")
+        or ""
+    ).strip()
+
+
 def build_return_profile(ok_results: list[dict[str, Any]], *, benchmark_pass_rate: float) -> dict[str, Any]:
     returns = [float(item.get("return_pct") or 0.0) for item in ok_results]
     if not returns:
@@ -668,6 +712,53 @@ def build_regime_validation_summary(ok_results: list[dict[str, Any]]) -> dict[st
         "dominant_regime": dominant_regime,
         "dominant_regime_share": round(len(regime_groups.get(dominant_regime, [])) / total, 4) if total else None,
         "regimes": regimes,
+    }
+
+
+def build_manager_regime_breakdown_summary(ok_results: list[dict[str, Any]]) -> dict[str, Any]:
+    if not ok_results:
+        return {
+            "sample_count": 0,
+            "manager_count": 0,
+            "managers": {},
+        }
+
+    manager_groups: dict[str, list[dict[str, Any]]] = {}
+    for item in ok_results:
+        manager_groups.setdefault(_result_manager_id(item), []).append(item)
+
+    managers: dict[str, dict[str, Any]] = {}
+    for manager_id, items in sorted(manager_groups.items()):
+        returns = [float(item.get("return_pct") or 0.0) for item in items]
+        benchmark_hits = sum(1 for item in items if bool(item.get("benchmark_passed", False)))
+        strategy_scores = [
+            float((item.get("strategy_scores") or {}).get("overall_score", 0.0) or 0.0)
+            for item in items
+        ]
+        runtime_config_refs = sorted(
+            {
+                config_ref
+                for config_ref in (
+                    _result_manager_config_ref(item)
+                    for item in items
+                )
+                if config_ref
+            }
+        )
+        managers[manager_id] = {
+            "manager_id": manager_id,
+            "runtime_config_refs": runtime_config_refs,
+            "sample_count": len(items),
+            "avg_return_pct": round(sum(returns) / len(returns), 4) if returns else None,
+            "benchmark_pass_rate": round(benchmark_hits / len(items), 4) if items else None,
+            "avg_strategy_score": round(sum(strategy_scores) / len(strategy_scores), 4) if strategy_scores else None,
+            "regime_validation": build_regime_validation_summary(items),
+        }
+
+    return {
+        "sample_count": len(ok_results),
+        "manager_count": len(managers),
+        "managers": managers,
     }
 
 
@@ -819,6 +910,79 @@ def evaluate_regime_validation(
     }
 
 
+def evaluate_manager_regime_validation(
+    manager_regime_breakdown: dict[str, Any],
+    *,
+    policy: dict[str, Any] | None,
+) -> dict[str, Any]:
+    config = dict(policy or {})
+    if not config or not bool(config.get("enabled", False)):
+        return {
+            "enabled": False,
+            "passed": True,
+            "checks": [],
+            "failed_checks": [],
+            "summary": manager_regime_breakdown,
+        }
+
+    checks: list[dict[str, Any]] = []
+    manager_count = int(manager_regime_breakdown.get("manager_count") or 0)
+    managers = dict(manager_regime_breakdown.get("managers") or {})
+    min_manager_count = int(config.get("min_manager_count") or 0)
+    min_samples_per_manager = int(config.get("min_samples_per_manager") or 0)
+    per_manager_policy = {
+        key: value
+        for key, value in config.items()
+        if key not in {"enabled", "min_manager_count", "min_samples_per_manager"}
+    }
+
+    if min_manager_count:
+        checks.append(
+            {
+                "name": "min_manager_count",
+                "passed": manager_count >= min_manager_count,
+                "actual": manager_count,
+                "threshold": min_manager_count,
+            }
+        )
+
+    for manager_id, summary in sorted(managers.items()):
+        sample_count = int(summary.get("sample_count") or 0)
+        if min_samples_per_manager:
+            checks.append(
+                {
+                    "name": f"{manager_id}.sample_count",
+                    "passed": sample_count >= min_samples_per_manager,
+                    "actual": sample_count,
+                    "threshold": min_samples_per_manager,
+                }
+            )
+        if sample_count < max(1, min_samples_per_manager):
+            continue
+        manager_validation = evaluate_regime_validation(
+            dict(summary.get("regime_validation") or {}),
+            policy=per_manager_policy,
+        )
+        for item in list(manager_validation.get("checks") or []):
+            checks.append(
+                {
+                    "name": f"{manager_id}.{item.get('name')}",
+                    "passed": bool(item.get("passed", False)),
+                    "actual": item.get("actual"),
+                    "threshold": item.get("threshold"),
+                }
+            )
+
+    failed_checks = [item for item in checks if not item.get("passed", False)]
+    return {
+        "enabled": True,
+        "passed": not failed_checks,
+        "checks": checks,
+        "failed_checks": failed_checks,
+        "summary": manager_regime_breakdown,
+    }
+
+
 def evaluate_candidate_ab(
     ab_comparison: dict[str, Any],
     *,
@@ -929,6 +1093,7 @@ def build_promotion_summary(*, plan: dict[str, Any], ok_results: list[dict[str, 
     baseline_avg_score = round(sum(float(entry.get("avg_strategy_score", 0.0) or 0.0) for entry in baseline_entries) / len(baseline_entries), 4) if baseline_entries else None
     return_profile = build_return_profile(ok_results, benchmark_pass_rate=benchmark_pass_rate)
     regime_validation = build_regime_validation_summary(ok_results)
+    manager_regime_breakdown = build_manager_regime_breakdown_summary(ok_results)
     checks: list[dict[str, Any]] = []
 
     def add_check(name: str, passed: bool, actual: Any, threshold: Any) -> None:
@@ -985,6 +1150,23 @@ def build_promotion_summary(*, plan: dict[str, Any], ok_results: list[dict[str, 
         **regime_validation_gate,
         "checks": normalized_regime_checks,
         "failed_checks": [item for item in normalized_regime_checks if not item.get("passed", False)],
+    }
+
+    manager_regime_validation_gate = evaluate_manager_regime_validation(
+        manager_regime_breakdown,
+        policy=dict(gate.get("manager_regime_validation") or {}),
+    )
+    normalized_manager_regime_checks = _extend_gate_checks(
+        checks,
+        "manager_regime_validation",
+        list(manager_regime_validation_gate.get("checks") or []),
+    )
+    manager_regime_validation_gate = {
+        **manager_regime_validation_gate,
+        "checks": normalized_manager_regime_checks,
+        "failed_checks": [
+            item for item in normalized_manager_regime_checks if not item.get("passed", False)
+        ],
     }
 
     latest_ab_comparison, ab_source = _latest_ab_comparison(ok_results)
@@ -1075,6 +1257,7 @@ def build_promotion_summary(*, plan: dict[str, Any], ok_results: list[dict[str, 
         "return_profile": return_profile,
         "return_objectives": return_objectives,
         "regime_validation": regime_validation_gate,
+        "manager_regime_validation": manager_regime_validation_gate,
         "candidate_ab": candidate_ab_gate,
         "research_feedback": promotion_feedback_gate,
         "verdict": verdict,
@@ -1096,6 +1279,7 @@ def build_training_evaluation_summary(*, payload: dict[str, Any], plan: dict[str
     benchmark_pass_rate = round(benchmark_passes / len(ok_results), 4) if ok_results else 0.0
     return_profile = build_return_profile(ok_results, benchmark_pass_rate=benchmark_pass_rate)
     regime_validation = build_regime_validation_summary(ok_results)
+    manager_regime_breakdown = build_manager_regime_breakdown_summary(ok_results)
     latest_ab_comparison, _ = _latest_ab_comparison(ok_results)
     latest_result = dict(results[-1]) if results else {}
     latest_result_summary = {
@@ -1134,6 +1318,7 @@ def build_training_evaluation_summary(*, payload: dict[str, Any], plan: dict[str
             "benchmark_pass_rate": benchmark_pass_rate,
             "return_profile": return_profile,
             "regime_validation": regime_validation,
+            "manager_regime_breakdown": manager_regime_breakdown,
             "latest_ab_comparison": latest_ab_comparison,
             "latest_result": latest_result_summary,
         },

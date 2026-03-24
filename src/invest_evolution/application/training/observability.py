@@ -2778,6 +2778,9 @@ def _build_training_report_state(
         "is_frozen": is_frozen,
         "self_assessment": self_assessment,
         "research_feedback": dict(research_feedback or {}),
+        "research_feedback_coverage": dict(
+            dict(research_feedback or {}).get("coverage_plan") or {}
+        ),
         "governance_metrics": build_governance_metrics(cycle_history),
         "realism_summary": build_realism_summary(cycle_history),
         "freeze_gate_evaluation": dict(freeze_gate_evaluation or {}),
@@ -2815,6 +2818,9 @@ def build_freeze_report(
         "frozen_time": datetime.now().isoformat(),
         "self_assessment": rolling,
         "research_feedback": dict(research_feedback or {}),
+        "research_feedback_coverage": dict(
+            dict(research_feedback or {}).get("coverage_plan") or {}
+        ),
         "governance_metrics": build_governance_metrics(cycle_history),
         "realism_summary": build_realism_summary(cycle_history),
         "freeze_gate": _build_freeze_gate_report_payload(

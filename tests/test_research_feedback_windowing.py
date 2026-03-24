@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import date, timedelta
 from pathlib import Path
 
+from invest_evolution.application.training.research import TrainingFeedbackService
 from invest_evolution.investment.research.analysis import (
     OutcomeAttribution,
     PolicySnapshot,
@@ -154,6 +155,79 @@ def test_gate_is_not_relaxed_by_windowing(tmp_path: Path) -> None:
 
     rec = dict(feedback.get("recommendation") or {})
     assert rec.get("bias") in {"tighten_risk", "recalibrate_probability", "insufficient_samples"}
+
+
+def test_feedback_coverage_plan_surfaces_gap_and_current_cycle_gain(
+    tmp_path: Path,
+) -> None:
+    store = ResearchCaseStore(tmp_path)
+
+    manager_id = "momentum"
+    manager_config_ref = "momentum_v1"
+
+    for i in range(5):
+        _make_case(
+            store,
+            manager_id=manager_id,
+            manager_config_ref=manager_config_ref,
+            as_of=f"2026-03-1{i + 1}",
+            regime="bull",
+            hypothesis_id=f"bull_cov_{i}",
+            label="hit",
+        )
+    for i in range(3):
+        _make_case(
+            store,
+            manager_id=manager_id,
+            manager_config_ref=manager_config_ref,
+            as_of="2026-03-24",
+            regime="bull",
+            hypothesis_id=f"bull_today_{i}",
+            label="hit",
+        )
+    for i in range(4):
+        _make_case(
+            store,
+            manager_id=manager_id,
+            manager_config_ref=manager_config_ref,
+            as_of=f"2026-03-2{i + 1}",
+            regime="bear",
+            hypothesis_id=f"bear_cov_{i}",
+            label="invalidated",
+        )
+
+    feedback = store.build_training_feedback(
+        manager_id=manager_id,
+        manager_config_ref=manager_config_ref,
+        as_of_date="2026-03-24",
+        regime="bear",
+        limit=5,
+        max_history_limit=200,
+    )
+
+    coverage = dict(feedback.get("coverage_plan") or {})
+    current_cycle = dict(coverage.get("current_cycle_contribution") or {})
+    regime_targets = dict(coverage.get("regime_targets") or {})
+
+    assert coverage.get("schema_version") == "research.feedback_coverage_plan.v1"
+    assert coverage.get("requested_regime") == "bear"
+    assert coverage.get("requested_regime_ready") is False
+    assert int(coverage.get("requested_regime_gap_count") or 0) == 4
+    assert "bear" in list(coverage.get("next_target_regimes") or [])
+    assert int(dict(regime_targets.get("bear") or {}).get("sample_count") or 0) == 4
+    assert int(dict(regime_targets.get("bear") or {}).get("gap_count") or 0) == 4
+    assert int(current_cycle.get("sample_count") or 0) == 4
+    assert dict(current_cycle.get("regime_counts") or {}) == {"bear": 1, "bull": 3}
+    assert int(current_cycle.get("requested_regime_sample_count") or 0) == 1
+
+    summary = TrainingFeedbackService.research_feedback_summary(feedback)
+    brief = TrainingFeedbackService.research_feedback_brief(feedback)
+    assert summary.get("coverage_ready") is False
+    assert int(summary.get("requested_regime_gap_count") or 0) == 4
+    assert summary.get("next_target_regimes") and "bear" in summary.get("next_target_regimes")
+    assert int(summary.get("current_cycle_requested_regime_gain") or 0) == 1
+    assert brief.get("coverage_ready") is False
+    assert int(brief.get("requested_regime_gap_count") or 0) == 4
 
 
 def test_list_cases_and_attributions_cache_hit_and_invalidation(monkeypatch, tmp_path: Path) -> None:

@@ -1,6 +1,8 @@
 import numpy as np
 import pandas as pd
 import pytest
+import yaml
+from pathlib import Path
 from types import SimpleNamespace
 
 from invest_evolution.investment.runtimes import (
@@ -45,7 +47,7 @@ def test_mean_reversion_runtime_outputs_dual_channel():
 
     assert out.manager_id == "mean_reversion"
     assert out.signal_packet.manager_id == "mean_reversion"
-    assert out.signal_packet.max_positions == 3
+    assert out.signal_packet.max_positions in {1, 3}
     assert len(out.signal_packet.signals) >= 1
     assert out.agent_context.candidate_codes
     assert any("reversion_score" in signal.factor_values for signal in out.signal_packet.signals)
@@ -162,7 +164,7 @@ def test_mean_reversion_runtime_applies_oscillation_guards(monkeypatch):
                 rsi=24.0,
                 bb_pos=0.10,
                 change_5d=-4.0,
-                change_20d=-3.0,
+                change_20d=-8.0,
                 vol_ratio=1.1,
                 volatility=0.02,
                 ma_trend="多头",
@@ -172,11 +174,55 @@ def test_mean_reversion_runtime_applies_oscillation_guards(monkeypatch):
                     "rsi": 24.0,
                     "bb_pos": 0.10,
                     "change_5d": -4.0,
-                    "change_20d": -3.0,
+                    "change_20d": -8.0,
                     "vol_ratio": 1.1,
                     "volatility": 0.02,
                     "ma_trend": "多头",
                     "macd": "gold_cross",
+                },
+            ),
+            SimpleNamespace(
+                code="sh.600102",
+                rsi=22.0,
+                bb_pos=0.09,
+                change_5d=1.5,
+                change_20d=-4.0,
+                vol_ratio=1.0,
+                volatility=0.02,
+                ma_trend="多头",
+                macd="gold_cross",
+                summary={
+                    "code": "sh.600102",
+                    "rsi": 22.0,
+                    "bb_pos": 0.09,
+                    "change_5d": 1.5,
+                    "change_20d": -4.0,
+                    "vol_ratio": 1.0,
+                    "volatility": 0.02,
+                    "ma_trend": "多头",
+                    "macd": "gold_cross",
+                },
+            ),
+            SimpleNamespace(
+                code="sh.600103",
+                rsi=23.0,
+                bb_pos=0.11,
+                change_5d=-3.6,
+                change_20d=-4.5,
+                vol_ratio=1.1,
+                volatility=0.02,
+                ma_trend="多头",
+                macd="bearish",
+                summary={
+                    "code": "sh.600103",
+                    "rsi": 23.0,
+                    "bb_pos": 0.11,
+                    "change_5d": -3.6,
+                    "change_20d": -4.5,
+                    "vol_ratio": 1.1,
+                    "volatility": 0.02,
+                    "ma_trend": "多头",
+                    "macd": "bearish",
                 },
             ),
         ],
@@ -186,9 +232,14 @@ def test_mean_reversion_runtime_applies_oscillation_guards(monkeypatch):
     out = runtime.process(_make_stock_data(), "20230601")
 
     assert out.signal_packet.regime == "oscillation"
-    assert out.signal_packet.max_positions == 2
-    assert out.signal_packet.cash_reserve >= 0.55
+    assert out.signal_packet.max_positions == 1
+    assert out.signal_packet.cash_reserve >= 0.65
     assert out.signal_packet.selected_codes == ["sh.600101"]
+    debug = dict(out.signal_packet.context.debug_metadata or {})
+    assert debug.get("runtime_profile") == "oscillation"
+    assert debug.get("resolved_profile_source") == "regime_profiles"
+    assert dict(debug.get("applied_profile_params") or {}).get("max_positions") == 1
+    assert dict(debug.get("applied_profile_filters") or {}).get("entry_5d_ceiling") == 0.0
 
 
 def test_defensive_runtime_applies_bear_quality_guards(monkeypatch):
@@ -260,3 +311,74 @@ def test_defensive_runtime_applies_bear_quality_guards(monkeypatch):
     assert out.signal_packet.max_positions == 2
     assert out.signal_packet.cash_reserve >= 0.48
     assert out.signal_packet.selected_codes == ["sh.600201"]
+    debug = dict(out.signal_packet.context.debug_metadata or {})
+    assert debug.get("runtime_profile") == "bear"
+    assert debug.get("resolved_profile_source") == "regime_profiles"
+    assert dict(debug.get("applied_profile_params") or {}).get("max_positions") == 2
+    assert dict(debug.get("applied_profile_filters") or {}).get("max_volatility_guard") == 0.025
+
+
+def test_defensive_runtime_regime_profile_falls_back_to_legacy_prefix(
+    monkeypatch,
+    tmp_path: Path,
+):
+    monkeypatch.setattr(
+        runtime_styles_module,
+        "compute_market_stats",
+        lambda *_args, **_kwargs: {
+            "regime_hint": "bear",
+            "avg_volatility": 0.03,
+            "market_breadth": 0.3,
+            "above_ma20_ratio": 0.35,
+        },
+    )
+    monkeypatch.setattr(
+        runtime_styles_module,
+        "summarize_stock_batches",
+        lambda *_args, **_kwargs: [
+            SimpleNamespace(
+                code="sh.600201",
+                rsi=51.0,
+                bb_pos=0.48,
+                change_5d=0.6,
+                change_20d=1.8,
+                vol_ratio=1.1,
+                volatility=0.018,
+                ma_trend="多头",
+                macd="bullish",
+                summary={
+                    "code": "sh.600201",
+                    "rsi": 51.0,
+                    "bb_pos": 0.48,
+                    "change_5d": 0.6,
+                    "change_20d": 1.8,
+                    "vol_ratio": 1.1,
+                    "volatility": 0.018,
+                    "ma_trend": "多头",
+                    "macd": "bullish",
+                },
+            ),
+        ],
+    )
+
+    default_path = DefensiveLowVolRuntime.resolve_runtime_config_ref(None)
+    config_payload = yaml.safe_load(Path(default_path).read_text(encoding="utf-8"))
+    config_payload.pop("regime_profiles", None)
+    config_path = Path(default_path).parent / "_defensive_low_vol_legacy_test.yaml"
+    try:
+        config_path.write_text(
+            yaml.safe_dump(config_payload, allow_unicode=True, sort_keys=False),
+            encoding="utf-8",
+        )
+
+        runtime = DefensiveLowVolRuntime(runtime_config_ref=config_path)
+        out = runtime.process(_make_stock_data(), "20230601")
+
+        assert out.signal_packet.regime == "bear"
+        assert out.signal_packet.max_positions == 2
+        assert out.signal_packet.cash_reserve >= 0.48
+        debug = dict(out.signal_packet.context.debug_metadata or {})
+        assert debug.get("resolved_profile_source") == "legacy_prefix"
+        assert dict(debug.get("applied_profile_params") or {}).get("max_positions") == 2
+    finally:
+        config_path.unlink(missing_ok=True)

@@ -60,6 +60,7 @@ _REQUIRED_SCORING_SHAPE = {
     "value_quality": {"weights", "bands"},
     "defensive_low_vol": {"weights", "bands", "penalties"},
 }
+_ALLOWED_REGIME_PROFILE_SECTIONS = {"params", "risk", "filters"}
 
 
 def _ensure_numeric_dict(name: str, payload: Dict[str, Any]) -> None:
@@ -161,6 +162,29 @@ def validate_runtime_config(data: Dict[str, Any]) -> Dict[str, Any]:
                 if not isinstance(section_ranges, dict):
                     raise RuntimeConfigValidationError(f"mutation_space.scoring.{section_name} must be a dict")
                 _ensure_range_dict(f"mutation_space.scoring.{section_name}", section_ranges)
+
+    regime_profiles = data.get("regime_profiles")
+    if regime_profiles is not None:
+        if not isinstance(regime_profiles, dict):
+            raise RuntimeConfigValidationError("regime_profiles must be a dict")
+        for regime_name, profile in regime_profiles.items():
+            if not isinstance(profile, dict):
+                raise RuntimeConfigValidationError(
+                    f"regime_profiles.{regime_name} must be a dict"
+                )
+            unknown_sections = sorted(
+                set(profile.keys()) - _ALLOWED_REGIME_PROFILE_SECTIONS
+            )
+            if unknown_sections:
+                raise RuntimeConfigValidationError(
+                    f"regime_profiles.{regime_name} contains unsupported sections: {', '.join(unknown_sections)}"
+                )
+            for section_name in _ALLOWED_REGIME_PROFILE_SECTIONS:
+                section_payload = profile.get(section_name)
+                if section_payload is not None and not isinstance(section_payload, dict):
+                    raise RuntimeConfigValidationError(
+                        f"regime_profiles.{regime_name}.{section_name} must be a dict"
+                    )
 
     return data
 

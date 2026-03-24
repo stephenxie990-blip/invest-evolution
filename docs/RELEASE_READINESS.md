@@ -250,6 +250,16 @@ uv run python -m invest_evolution.application.release shadow-gate \
 - 这意味着 strict gate 现在不仅验证 shadow pipeline 的治理统计，还要求 ask/research 反馈门满足 contract-ready 并且结论通过；`insufficient_samples` 不再算 strict 通过，只有显式 `requested_regime_feedback_unavailable` 才可作为“未跨 regime fallback”的可接受收口态。
 - probe 只允许临时覆盖 `successful_cycles` / `validation_pass_count` / `promote_count` 这类样本量相关门槛；`research_feedback_gate.active/passed` 仍必须保持 strict 口径。
 
+第三阶段后，manual sign-off 建议额外检查：
+
+- `run_report.research_feedback_coverage`
+  - requested regime gap 是否仍明显偏大
+  - `next_target_regimes` 是否指向当前 strict 失败的主要 regime
+- training evaluation 内的 `assessment.manager_regime_breakdown`
+  - 失败是否集中在单一 manager / regime 组合
+- `promotion.manager_regime_validation`
+  - 若本轮显式开启，应确认失败项确实来自二维质量缺口，而不是低样本误伤
+
 ## Stage 5 Manual Release Sign-off
 
 Stage 5 Manual Release Sign-off 只在前面自动化闸门全部通过后执行。

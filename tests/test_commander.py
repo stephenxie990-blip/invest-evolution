@@ -1486,9 +1486,101 @@ def test_training_evaluation_summary_surfaces_regime_and_return_validation(tmp_p
 
     assert summary['assessment']['return_profile']['win_rate'] == 1.0
     assert summary['assessment']['regime_validation']['distinct_regime_count'] == 2
+    assert summary['assessment']['manager_regime_breakdown']['manager_count'] == 1
     assert summary['promotion']['return_objectives']['enabled'] is True
     assert summary['promotion']['regime_validation']['enabled'] is True
+    assert summary['promotion']['manager_regime_validation']['enabled'] is False
     assert any(check['name'] == 'regime_validation.min_distinct_regimes' for check in summary['promotion']['checks'])
+
+
+def test_training_evaluation_summary_rejects_when_manager_regime_gate_fails(tmp_path):
+    cfg = CommanderConfig(
+        workspace=tmp_path / 'workspace',
+        playbook_dir=tmp_path / 'strategies',
+        state_file=tmp_path / 'state' / 'state.json',
+        cron_store=tmp_path / 'state' / 'cron.json',
+        memory_store=tmp_path / 'memory' / 'memory.jsonl',
+        plugin_dir=tmp_path / 'plugins',
+        bridge_inbox=tmp_path / 'inbox',
+        bridge_outbox=tmp_path / 'outbox',
+        training_output_dir=tmp_path / 'runtime' / 'training',
+        mock_mode=True,
+        autopilot_enabled=False,
+        heartbeat_enabled=False,
+        bridge_enabled=False,
+    )
+    runtime = CommanderRuntime(cfg)
+    plan = runtime.create_training_plan(
+        rounds=2,
+        mock=True,
+        optimization={'promotion_gate': {
+            'manager_regime_validation': {
+                'enabled': True,
+                'min_manager_count': 2,
+                'min_samples_per_manager': 1,
+                'min_distinct_regimes': 1,
+                'min_samples_per_regime': 1,
+                'min_avg_return_pct': 0.0,
+                'min_win_rate': 0.0,
+                'min_benchmark_pass_rate': 0.0,
+                'max_dominant_regime_share': 1.0,
+            },
+        }},
+    )
+
+    summary = runtime._build_training_evaluation_summary(
+        {
+            'status': 'completed',
+            'results': [
+                {
+                    'status': 'ok',
+                    'cycle_id': 1,
+                    'cutoff_date': '20240228',
+                    'manager_id': 'momentum',
+                    'manager_config_ref': 'momentum_v1',
+                    'return_pct': 1.1,
+                    'benchmark_passed': True,
+                    'governance_decision': {'regime': 'bull'},
+                    'strategy_scores': {'overall_score': 0.72},
+                    'research_feedback': {
+                        'sample_count': 8,
+                        'recommendation': {'bias': 'maintain', 'summary': 'maintain'},
+                        'horizons': {'T+20': {'hit_rate': 0.58, 'invalidation_rate': 0.16}},
+                        'brier_like_direction_score': 0.16,
+                    },
+                },
+                {
+                    'status': 'ok',
+                    'cycle_id': 2,
+                    'cutoff_date': '20240315',
+                    'manager_id': 'momentum',
+                    'manager_config_ref': 'momentum_v1',
+                    'return_pct': 0.7,
+                    'benchmark_passed': True,
+                    'governance_decision': {'regime': 'bear'},
+                    'strategy_scores': {'overall_score': 0.69},
+                    'research_feedback': {
+                        'sample_count': 8,
+                        'recommendation': {'bias': 'maintain', 'summary': 'maintain'},
+                        'horizons': {'T+20': {'hit_rate': 0.56, 'invalidation_rate': 0.15}},
+                        'brier_like_direction_score': 0.15,
+                    },
+                },
+            ],
+        },
+        plan=plan,
+        run_id='run_manager_regime_gate_fail',
+    )
+
+    assert summary['assessment']['manager_regime_breakdown']['manager_count'] == 1
+    assert summary['promotion']['manager_regime_validation']['enabled'] is True
+    assert summary['promotion']['manager_regime_validation']['passed'] is False
+    assert summary['promotion']['verdict'] == 'rejected'
+    assert any(
+        check['name'] == 'manager_regime_validation.min_manager_count'
+        and check['passed'] is False
+        for check in summary['promotion']['checks']
+    )
 
 
 def test_training_evaluation_summary_surfaces_candidate_ab_gate(tmp_path):

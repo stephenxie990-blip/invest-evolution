@@ -74,6 +74,9 @@
 
 - 支持经理激活、预算分配、组合约束、候选晋级、部署阶段区分和冻结门控
 - 支持对训练结果、候选状态和治理判断进行记录与回放
+- 支持 `research feedback coverage planner`，可直接暴露 requested regime 的样本缺口、补样优先级与当前 cycle 的 evidence 增益
+- 支持 runtime `regime_profiles` 统一 contract，并保留旧前缀参数 fallback，便于做分 regime 校准与审计
+- 支持在训练评估中下钻 `manager x regime` 质量矩阵，并按需启用更严格的二维晋级门
 - 支持在持续进化的同时保持明确边界
 
 ## 为什么值得关注 / Why It Matters

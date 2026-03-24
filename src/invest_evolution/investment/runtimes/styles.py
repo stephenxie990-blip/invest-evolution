@@ -142,6 +142,7 @@ class MeanReversionRuntime(ManagerRuntime):
         params = self.effective_params()
         market_stats = compute_market_stats(stock_data, cutoff_date, regime_policy=self.config_section("market_regime", {}) or None)
         regime = self._resolve_regime(market_stats)
+        runtime_profile = self.regime_profile(regime)
         stock_codes = list(stock_data.keys())[: int(self.param("candidate_pool_size"))]
         stock_batches = summarize_stock_batches(stock_data, stock_codes, cutoff_date, summary_scoring=self.config_section("summary_scoring", {}) or None)
         stock_summaries = self.build_stock_summary_views(item.summary for item in stock_batches)
@@ -149,32 +150,68 @@ class MeanReversionRuntime(ManagerRuntime):
         min_reversion_score = float(self.param("min_reversion_score", 0.05))
         oversold_rsi = float(self.param("oversold_rsi", 35.0))
         regime_min_reversion_score = min_reversion_score
+        applied_profile_params: Dict[str, Any] = {}
+        applied_profile_risk: Dict[str, Any] = {}
+        applied_profile_filters: Dict[str, Any] = {}
         oscillation_max_5d_drop_guard = float(
-            self.param("oscillation_max_5d_drop_guard", -6.0)
+            self.regime_filter("oscillation", "max_5d_drop_guard", -6.0)
         )
         oscillation_max_20d_drop_guard = float(
-            self.param("oscillation_max_20d_drop_guard", -9.0)
+            self.regime_filter("oscillation", "max_20d_drop_guard", -9.0)
+        )
+        oscillation_entry_5d_ceiling = float(
+            self.regime_filter("oscillation", "entry_5d_ceiling", 0.0)
+        )
+        oscillation_max_bb_pos_guard = float(
+            self.regime_filter("oscillation", "max_bb_pos_guard", 0.18)
+        )
+        oscillation_max_volatility_guard = float(
+            self.regime_filter("oscillation", "max_volatility_guard", 0.028)
         )
         oscillation_bear_trend_rsi_cap = float(
-            self.param("oscillation_bear_trend_rsi_cap", max(oversold_rsi - 2.0, 1.0))
+            self.regime_filter(
+                "oscillation",
+                "bear_trend_rsi_cap",
+                max(oversold_rsi - 2.0, 1.0),
+            )
+        )
+        applied_profile_filters.update(
+            {
+                "max_5d_drop_guard": oscillation_max_5d_drop_guard,
+                "max_20d_drop_guard": oscillation_max_20d_drop_guard,
+                "entry_5d_ceiling": oscillation_entry_5d_ceiling,
+                "max_bb_pos_guard": oscillation_max_bb_pos_guard,
+                "max_volatility_guard": oscillation_max_volatility_guard,
+                "bear_trend_rsi_cap": oscillation_bear_trend_rsi_cap,
+            }
         )
         if regime == "oscillation":
             regime_min_reversion_score = max(
                 regime_min_reversion_score,
                 float(
-                    self.param(
-                        "oscillation_min_reversion_score",
+                    self.regime_param(
+                        regime,
+                        "min_reversion_score",
                         regime_min_reversion_score,
                     )
                 ),
             )
+            applied_profile_params["min_reversion_score"] = regime_min_reversion_score
         scorer = MeanReversionScorer(self)
         for item in stock_batches:
             summary = dict(item.summary)
             if regime == "oscillation":
+                if float(summary.get("change_5d", 0.0) or 0.0) > oscillation_entry_5d_ceiling:
+                    continue
                 if float(summary.get("change_5d", 0.0) or 0.0) < oscillation_max_5d_drop_guard:
                     continue
                 if float(summary.get("change_20d", 0.0) or 0.0) < oscillation_max_20d_drop_guard:
+                    continue
+                if float(summary.get("bb_pos", 1.0) or 1.0) > oscillation_max_bb_pos_guard:
+                    continue
+                if float(summary.get("volatility", 0.0) or 0.0) > oscillation_max_volatility_guard:
+                    continue
+                if str(summary.get("macd", "") or "").lower() in {"bearish", "death_cross"}:
                     continue
                 if (
                     str(summary.get("ma_trend", "") or "") == "空头"
@@ -196,21 +233,25 @@ class MeanReversionRuntime(ManagerRuntime):
         if regime == "oscillation":
             max_positions = min(
                 max_positions,
-                max(1, int(self.param("oscillation_max_positions", max_positions))),
+                max(1, int(self.regime_param(regime, "max_positions", max_positions))),
             )
+            applied_profile_params["max_positions"] = max_positions
             stop_loss = min(
                 stop_loss,
-                float(self.param("oscillation_stop_loss_pct", stop_loss)),
+                float(self.regime_risk_param(regime, "stop_loss_pct", stop_loss)),
             )
+            applied_profile_risk["stop_loss_pct"] = stop_loss
             take_profit = min(
                 take_profit,
-                float(self.param("oscillation_take_profit_pct", take_profit)),
+                float(self.regime_risk_param(regime, "take_profit_pct", take_profit)),
             )
+            applied_profile_risk["take_profit_pct"] = take_profit
             if trailing_pct is not None:
                 trailing_pct = min(
                     float(trailing_pct),
-                    float(self.param("oscillation_trailing_pct", trailing_pct)),
+                    float(self.regime_risk_param(regime, "trailing_pct", trailing_pct)),
                 )
+                applied_profile_risk["trailing_pct"] = trailing_pct
         selected = self.build_stock_summary_views(scored[:top_n])
 
         signals = []
@@ -247,8 +288,9 @@ class MeanReversionRuntime(ManagerRuntime):
         if regime == "oscillation":
             cash_reserve = max(
                 cash_reserve,
-                float(self.param("oscillation_cash_reserve_floor", cash_reserve)),
+                float(self.regime_param(regime, "cash_reserve_floor", cash_reserve)),
             )
+            applied_profile_params["cash_reserve_floor"] = cash_reserve
         return SignalPacket(
             as_of_date=cutoff_date,
             manager_id=self.runtime_id,
@@ -264,6 +306,13 @@ class MeanReversionRuntime(ManagerRuntime):
                 market_stats=market_stats,
                 stock_summaries=selected,
                 raw_summaries=stock_summaries,
+                debug_metadata={
+                    "runtime_profile": regime,
+                    "resolved_profile_source": str(runtime_profile.get("source") or ""),
+                    "applied_profile_params": applied_profile_params,
+                    "applied_profile_risk": applied_profile_risk,
+                    "applied_profile_filters": applied_profile_filters,
+                },
             ),
         )
 
@@ -329,18 +378,33 @@ class DefensiveLowVolRuntime(ManagerRuntime):
         params = self.effective_params()
         market_stats = compute_market_stats(stock_data, cutoff_date, regime_policy=self.config_section("market_regime", {}) or None)
         regime = self._resolve_regime(market_stats)
+        runtime_profile = self.regime_profile(regime)
         stock_codes = list(stock_data.keys())[: int(self.param("candidate_pool_size"))]
         stock_batches = summarize_stock_batches(stock_data, stock_codes, cutoff_date, summary_scoring=self.config_section("summary_scoring", {}) or None)
         stock_summaries = self.build_stock_summary_views(item.summary for item in stock_batches)
         min_score = float(self.param("min_defensive_score", 0.15))
         regime_min_score = min_score
-        bear_max_volatility_guard = float(self.param("bear_max_volatility_guard", self.param("max_volatility", 0.035)))
-        bear_min_change_20d_guard = float(self.param("bear_min_change_20d_guard", 0.0))
+        applied_profile_params: Dict[str, Any] = {}
+        applied_profile_risk: Dict[str, Any] = {}
+        applied_profile_filters: Dict[str, Any] = {}
+        bear_max_volatility_guard = float(
+            self.regime_filter("bear", "max_volatility_guard", self.param("max_volatility", 0.035))
+        )
+        bear_min_change_20d_guard = float(
+            self.regime_filter("bear", "min_change_20d_guard", 0.0)
+        )
+        applied_profile_filters.update(
+            {
+                "max_volatility_guard": bear_max_volatility_guard,
+                "min_change_20d_guard": bear_min_change_20d_guard,
+            }
+        )
         if regime == "bear":
             regime_min_score = max(
                 regime_min_score,
-                float(self.param("bear_min_defensive_score", regime_min_score)),
+                float(self.regime_param(regime, "min_defensive_score", regime_min_score)),
             )
+            applied_profile_params["min_defensive_score"] = regime_min_score
         selected_pool: List[Dict[str, Any]] = []
         scorer = DefensiveLowVolScorer(self)
         for item in stock_batches:
@@ -370,21 +434,25 @@ class DefensiveLowVolRuntime(ManagerRuntime):
         if regime == "bear":
             max_positions = min(
                 max_positions,
-                max(1, int(self.param("bear_max_positions", max_positions))),
+                max(1, int(self.regime_param(regime, "max_positions", max_positions))),
             )
+            applied_profile_params["max_positions"] = max_positions
             stop_loss = min(
                 stop_loss,
-                float(self.param("bear_stop_loss_pct", stop_loss)),
+                float(self.regime_risk_param(regime, "stop_loss_pct", stop_loss)),
             )
+            applied_profile_risk["stop_loss_pct"] = stop_loss
             take_profit = min(
                 take_profit,
-                float(self.param("bear_take_profit_pct", take_profit)),
+                float(self.regime_risk_param(regime, "take_profit_pct", take_profit)),
             )
+            applied_profile_risk["take_profit_pct"] = take_profit
             if trailing_pct is not None:
                 trailing_pct = min(
                     float(trailing_pct),
-                    float(self.param("bear_trailing_pct", trailing_pct)),
+                    float(self.regime_risk_param(regime, "trailing_pct", trailing_pct)),
                 )
+                applied_profile_risk["trailing_pct"] = trailing_pct
         selected = self.build_stock_summary_views(selected_pool[:top_n])
 
         signals = []
@@ -422,8 +490,9 @@ class DefensiveLowVolRuntime(ManagerRuntime):
         if regime == "bear":
             cash_reserve = max(
                 cash_reserve,
-                float(self.param("bear_cash_reserve_floor", cash_reserve)),
+                float(self.regime_param(regime, "cash_reserve_floor", cash_reserve)),
             )
+            applied_profile_params["cash_reserve_floor"] = cash_reserve
         return SignalPacket(
             as_of_date=cutoff_date,
             manager_id=self.runtime_id,
@@ -439,6 +508,13 @@ class DefensiveLowVolRuntime(ManagerRuntime):
                 market_stats=market_stats,
                 stock_summaries=selected,
                 raw_summaries=stock_summaries,
+                debug_metadata={
+                    "runtime_profile": regime,
+                    "resolved_profile_source": str(runtime_profile.get("source") or ""),
+                    "applied_profile_params": applied_profile_params,
+                    "applied_profile_risk": applied_profile_risk,
+                    "applied_profile_filters": applied_profile_filters,
+                },
             ),
         )
 

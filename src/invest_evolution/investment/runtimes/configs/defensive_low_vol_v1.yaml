@@ -23,6 +23,19 @@ params:
   bear_min_defensive_score: 0.28
   bear_max_volatility_guard: 0.025
   bear_min_change_20d_guard: 0.0
+regime_profiles:
+  bear:
+    params:
+      max_positions: 2
+      cash_reserve_floor: 0.48
+      min_defensive_score: 0.28
+    risk:
+      stop_loss_pct: 0.04
+      take_profit_pct: 0.1
+      trailing_pct: 0.06
+    filters:
+      max_volatility_guard: 0.025
+      min_change_20d_guard: 0.0
 risk:
   stop_loss_pct: 0.05
   take_profit_pct: 0.12

@@ -148,6 +148,68 @@ class ManagerRuntime(ABC):
         scoring = self.config.data.get("scoring", {}) or {}
         return dict(scoring)
 
+    def regime_profile(self, regime: str) -> Dict[str, Any]:
+        normalized_regime = str(regime or "").strip()
+        profiles = self.config.data.get("regime_profiles", {}) or {}
+        profile = dict(profiles.get(normalized_regime) or {})
+        return {
+            "params": dict(profile.get("params") or {}),
+            "risk": dict(profile.get("risk") or {}),
+            "filters": dict(profile.get("filters") or {}),
+            "source": "regime_profiles" if profile else self.regime_profile_source(normalized_regime),
+        }
+
+    def regime_profile_source(self, regime: str) -> str:
+        normalized_regime = str(regime or "").strip()
+        if not normalized_regime:
+            return "default"
+        profiles = self.config.data.get("regime_profiles", {}) or {}
+        if dict(profiles.get(normalized_regime) or {}):
+            return "regime_profiles"
+        legacy_prefix = f"{normalized_regime}_"
+        params = self.config.data.get("params", {}) or {}
+        if any(str(key).startswith(legacy_prefix) for key in params.keys()):
+            return "legacy_prefix"
+        if any(str(key).startswith(legacy_prefix) for key in self.runtime_overrides.keys()):
+            return "legacy_prefix_override"
+        return "default"
+
+    def regime_param(self, regime: str, key: str, default: Any = None) -> Any:
+        normalized_regime = str(regime or "").strip()
+        profile_params = dict(self.regime_profile(normalized_regime).get("params") or {})
+        if key in profile_params:
+            return profile_params[key]
+        if normalized_regime:
+            legacy_key = f"{normalized_regime}_{key}"
+            legacy_value = self.param(legacy_key, None)
+            if legacy_value is not None:
+                return legacy_value
+        return self.param(key, default)
+
+    def regime_risk_param(self, regime: str, key: str, default: Any = None) -> Any:
+        normalized_regime = str(regime or "").strip()
+        profile_risk = dict(self.regime_profile(normalized_regime).get("risk") or {})
+        if key in profile_risk:
+            return profile_risk[key]
+        if normalized_regime:
+            legacy_key = f"{normalized_regime}_{key}"
+            legacy_value = self.risk_param(legacy_key, None)
+            if legacy_value is not None:
+                return legacy_value
+        return self.risk_param(key, default)
+
+    def regime_filter(self, regime: str, key: str, default: Any = None) -> Any:
+        normalized_regime = str(regime or "").strip()
+        profile_filters = dict(self.regime_profile(normalized_regime).get("filters") or {})
+        if key in profile_filters:
+            return profile_filters[key]
+        if normalized_regime:
+            legacy_key = f"{normalized_regime}_{key}"
+            legacy_value = self.param(legacy_key, None)
+            if legacy_value is not None:
+                return legacy_value
+        return self.param(key, default)
+
     @staticmethod
     def build_stock_summary_views(items: Iterable[Dict[str, Any] | StockSummaryView]) -> list[StockSummaryView]:
         return [StockSummaryView.from_mapping(item) for item in list(items or [])]

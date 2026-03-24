@@ -21,6 +21,15 @@
 - `promotion_record`
 - `lineage_record`
 
+围绕训练评估与冻结治理，当前还会在汇总层补充：
+
+- `research_feedback`
+- `research_feedback_coverage`
+- `return_profile`
+- `regime_validation`
+- `manager_regime_breakdown`
+- `promotion.manager_regime_validation`
+
 ## 1. 训练入口
 
 ### 1.1 直接训练
@@ -227,6 +236,17 @@ sequenceDiagram
 
 其中 `cycle_<id>.json` 需要显式体现 manager / portfolio 主语，而不再把单模型字段作为唯一事实源。
 同一份周期结果内的 `contract_stage_snapshots` 也应理解为阶段摘要投影，而不是任意 stage 内部中间态的全量转储。
+
+Training Lab / freeze 汇总层当前额外强调以下治理视图：
+
+- `research_feedback_coverage`
+  - requested regime 的样本缺口
+  - 下一步优先补样的 regime 列表
+  - 当前 cycle 对 requested regime 的 evidence 增量
+- `assessment.manager_regime_breakdown`
+  - 按 `manager x regime` 下钻的收益、基准通过率、策略分与 sample count
+- `promotion.manager_regime_validation`
+  - 可选启用的二维晋级门，默认关闭，仅在显式开启时参与 verdict
 
 ## 5. 历史会议制的当前定位
 

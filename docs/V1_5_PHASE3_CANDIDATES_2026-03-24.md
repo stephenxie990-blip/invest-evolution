@@ -1,7 +1,7 @@
 # v1.5 第三阶段优化候选清单
 
 Date: 2026-03-24
-Status: proposed
+Status: P0 completed, P1/P2 pending
 
 ## 定位
 
@@ -215,3 +215,20 @@ Status: proposed
 - 训练过程的参数变化能不能被完全解释
 
 第三阶段如果做对，输出不应只是“代码更完整”，而应是“strict readiness 的失败原因可以被量化、被定位、被针对性修复”。
+
+## 2026-03-24 完成情况回写
+
+本日已完成全部 `P0` 项：
+
+1. `regime-aware feedback evidence coverage planner`
+2. `manager runtime profile calibration framework`
+3. `strict run quality breakdown by manager x regime`
+
+已落地结果：
+
+- `research feedback` 现在带 `coverage_plan`，并进入 training / freeze report
+- runtime YAML 现在支持统一 `regime_profiles` contract，且保留 legacy prefix fallback
+- training evaluation 现在输出 `manager_regime_breakdown`
+- promotion gate 现在支持可选 `manager_regime_validation`，默认关闭，不改变历史默认 verdict
+
+剩余 `P1 / P2` 项仍作为后续候选，不在本轮提交内。

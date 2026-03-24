@@ -793,6 +793,17 @@ class ResearchCaseStore:
         def _attributed_sample_count(source: List[Dict[str, Any]]) -> int:
             return sum(1 for item in source if item.get("attribution"))
 
+        def _regime_attributed_counts(
+            source: List[Dict[str, Any]],
+        ) -> dict[str, int]:
+            counts: dict[str, int] = defaultdict(int)
+            for item in source:
+                if not item.get("attribution"):
+                    continue
+                regime_key = self._case_regime(dict(item.get("snapshot") or {})) or "unknown"
+                counts[regime_key] += 1
+            return dict(counts)
+
         overall_window_records, overall_effective_limit = _tail_window(records, base_limit)
         overall_summary = self._feedback_recommendation(
             self._summarize_records(
@@ -871,6 +882,87 @@ class ResearchCaseStore:
                 )
                 regime_breakdown[normalized_regime] = dict(requested_regime_feedback)
 
+        coverage_regime_counts = _regime_attributed_counts(records)
+        target_regimes = sorted(
+            {
+                *coverage_regime_counts.keys(),
+                *regime_breakdown.keys(),
+                *( [normalized_regime] if normalized_regime else [] ),
+            }
+        )
+        if normalized_regime:
+            target_regimes = [
+                normalized_regime,
+                *[item for item in target_regimes if item != normalized_regime],
+            ]
+        regime_targets: dict[str, dict[str, Any]] = {}
+        for regime_key in target_regimes:
+            sample_count = int(coverage_regime_counts.get(regime_key) or 0)
+            gap_count = max(0, min_sample_count - sample_count)
+            regime_targets[regime_key] = {
+                "sample_count": sample_count,
+                "gap_count": gap_count,
+                "ready": gap_count == 0,
+            }
+        requested_regime_sample_count = (
+            int(regime_targets.get(normalized_regime, {}).get("sample_count") or 0)
+            if normalized_regime
+            else 0
+        )
+        current_cycle_records = [
+            item
+            for item in records
+            if normalized_as_of
+            and normalize_date(str(dict(item.get("snapshot") or {}).get("as_of_date") or ""))
+            == normalized_as_of
+            and item.get("attribution")
+        ]
+        current_cycle_regime_counts = _regime_attributed_counts(current_cycle_records)
+        current_cycle_requested_regime_gain = (
+            int(current_cycle_regime_counts.get(normalized_regime) or 0)
+            if normalized_regime
+            else 0
+        )
+        requested_regime_gap_count = (
+            max(0, min_sample_count - requested_regime_sample_count)
+            if normalized_regime
+            else 0
+        )
+        coverage_plan = {
+            "schema_version": "research.feedback_coverage_plan.v1",
+            "requested_regime": normalized_regime,
+            "target_regimes": target_regimes,
+            "min_sample_count": int(min_sample_count),
+            "coverage_ready": bool(
+                target_regimes
+                and all(bool(item.get("ready", False)) for item in regime_targets.values())
+            ),
+            "requested_regime_ready": (
+                bool(regime_targets.get(normalized_regime, {}).get("ready", False))
+                if normalized_regime
+                else False
+            ),
+            "requested_regime_gap_count": int(requested_regime_gap_count),
+            "next_target_regimes": [
+                regime_key
+                for regime_key, summary in sorted(
+                    regime_targets.items(),
+                    key=lambda pair: (
+                        -int(pair[1].get("gap_count") or 0),
+                        -int(pair[1].get("sample_count") or 0),
+                        pair[0],
+                    ),
+                )
+                if int(summary.get("gap_count") or 0) > 0
+            ],
+            "regime_targets": regime_targets,
+            "current_cycle_contribution": {
+                "sample_count": len(current_cycle_records),
+                "regime_counts": current_cycle_regime_counts,
+                "requested_regime_sample_count": current_cycle_requested_regime_gain,
+            },
+        }
+
         effective_feedback = dict(overall_summary)
         effective_scope = "overall"
         scope_actionable = True
@@ -923,6 +1015,7 @@ class ResearchCaseStore:
             "overall_feedback": overall_summary,
             "requested_regime_feedback": requested_regime_feedback,
             "regime_breakdown": regime_breakdown,
+            "coverage_plan": coverage_plan,
         }
         return feedback
 

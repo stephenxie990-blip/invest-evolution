@@ -267,6 +267,17 @@ DEFAULT_PROMOTION_GATE_POLICY: dict[str, Any] = {
         "min_benchmark_pass_rate": 0.40,
         "max_dominant_regime_share": 0.75,
     },
+    "manager_regime_validation": {
+        "enabled": False,
+        "min_manager_count": 1,
+        "min_samples_per_manager": 1,
+        "min_distinct_regimes": 2,
+        "min_samples_per_regime": 1,
+        "min_avg_return_pct": 0.0,
+        "min_win_rate": 0.40,
+        "min_benchmark_pass_rate": 0.40,
+        "max_dominant_regime_share": 0.75,
+    },
     "return_objectives": {
         "min_avg_return_pct": 0.0,
         "min_median_return_pct": 0.0,

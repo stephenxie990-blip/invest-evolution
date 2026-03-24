@@ -198,6 +198,53 @@ def test_validate_runtime_config_accepts_complete_scoring():
     assert validate_runtime_config(cfg)["kind"] == "value_quality"
 
 
+def test_validate_runtime_config_accepts_regime_profiles_shape():
+    cfg = {
+        "name": "defensive_low_vol_v1",
+        "kind": "defensive_low_vol",
+        "params": {"top_n": 5, "max_positions": 4, "cash_reserve": 0.3},
+        "risk": {},
+        "execution": {},
+        "benchmark": {},
+        "scoring": {
+            "weights": {"low_volatility": 0.3},
+            "bands": {"bb_pos_low": 0.3},
+            "penalties": {"bad_rsi": 0.1},
+        },
+        "regime_profiles": {
+            "bear": {
+                "params": {"max_positions": 2},
+                "risk": {"stop_loss_pct": 0.04},
+                "filters": {"max_volatility_guard": 0.025},
+            }
+        },
+    }
+    assert validate_runtime_config(cfg)["kind"] == "defensive_low_vol"
+
+
+def test_validate_runtime_config_rejects_bad_regime_profiles_shape():
+    cfg = {
+        "name": "defensive_low_vol_v1",
+        "kind": "defensive_low_vol",
+        "params": {"top_n": 5, "max_positions": 4, "cash_reserve": 0.3},
+        "risk": {},
+        "execution": {},
+        "benchmark": {},
+        "scoring": {
+            "weights": {"low_volatility": 0.3},
+            "bands": {"bb_pos_low": 0.3},
+            "penalties": {"bad_rsi": 0.1},
+        },
+        "regime_profiles": {
+            "bear": {
+                "filters": ["not-a-dict"],
+            }
+        },
+    }
+    with pytest.raises(RuntimeConfigValidationError):
+        validate_runtime_config(cfg)
+
+
 def test_runtime_default_resolution_prefers_runtime_then_config_then_common_defaults():
     runtime = MomentumRuntime(runtime_overrides={"stop_loss_pct": 0.07, "top_n": 7})
     assert runtime.param("top_n") == 7
