@@ -2,6 +2,7 @@ import json
 from pathlib import Path
 
 import jsonschema
+import pytest
 import invest_evolution.interfaces.web.server as web_server
 from invest_evolution.application.runtime_contracts import (
     CONTRACT_PATH,
@@ -9,6 +10,7 @@ from invest_evolution.application.runtime_contracts import (
     SCHEMA_PATH,
     build_contract_documents,
     check_contract_documents,
+    load_contract_source,
 )
 
 
@@ -648,6 +650,36 @@ def test_generated_runtime_contract_documents_match_repo_files():
     }
 
     assert generated == current
+
+
+def test_build_contract_documents_rejects_unresolved_body_refs():
+    contract = load_contract_source()
+    contract["endpoints"] = [
+        *list(contract["endpoints"]),
+        {
+            "id": "test.invalid_ref",
+            "group": "test",
+            "method": "GET",
+            "path": "/api/test-invalid-ref",
+            "summary": "test",
+            "runtime_required": False,
+            "runtime_preferred": False,
+            "replacement": None,
+            "query_params": [],
+            "path_params": [],
+            "request_body": None,
+            "success": {"http_status": 200, "body_ref": "missingSchema"},
+            "errors": [],
+            "latency": "sync",
+            "pagination": "none",
+            "realtime": False,
+            "notes": [],
+            "sse_event_refs": [],
+        },
+    ]
+
+    with pytest.raises(ValueError, match="missingSchema"):
+        build_contract_documents(contract)
 
 
 def test_contract_catalog_endpoint_is_removed():

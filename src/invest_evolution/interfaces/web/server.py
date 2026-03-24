@@ -167,6 +167,19 @@ def get_ephemeral_web_state() -> WebRuntimeEphemeralState:
     return _WEB_STATE
 
 
+def set_runtime_facade_override(facade: Any | None) -> None:
+    globals()["_runtime_facade"] = facade
+
+
+def bind_embedded_runtime_context(
+    *,
+    runtime: Any | None,
+    loop: asyncio.AbstractEventLoop | None,
+) -> None:
+    globals()["_runtime"] = runtime
+    globals()["_loop"] = loop
+
+
 def _project_root_path() -> Path:
     return Path(config_module.PROJECT_ROOT).expanduser().resolve()
 
@@ -614,7 +627,19 @@ def _read_config_string(name: str, *, default: str = "") -> str:
 
 
 def _read_config_bool(name: str, *, default: bool = False) -> bool:
-    return bool(_read_config_value(name, default))
+    raw_value = _read_config_value(name, default)
+    if raw_value in (None, ""):
+        return default
+    try:
+        return _parse_bool(raw_value, name)
+    except ValueError:
+        logger.warning(
+            "Invalid web config boolean; using default: field=%s raw_value=%r default=%s",
+            name,
+            raw_value,
+            default,
+        )
+        return default
 
 
 def _read_config_int_with_minimum(
@@ -1147,10 +1172,14 @@ def main() -> None:
 
 __all__ = [
     "ROUTE_REGISTRAR_PATHS",
+    "bind_embedded_runtime_context",
     "bootstrap_embedded_runtime_if_enabled",
     "bootstrap_runtime_services",
     "create_app",
+    "get_ephemeral_web_state",
     "register_runtime_interface_routes",
+    "reset_ephemeral_web_state",
+    "set_runtime_facade_override",
 ]
 
 

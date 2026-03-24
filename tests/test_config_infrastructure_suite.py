@@ -111,3 +111,11 @@ def test_config_service_normalizes_multi_manager_fields(tmp_path):
     service = EvolutionConfigService(project_root=tmp_path, live_config=EvolutionConfig())
     normalized = service.normalize_patch({"manager_active_ids": "m1,m2"})
     assert normalized["manager_active_ids"] == ["m1", "m2"]
+
+
+def test_evolution_config_defaults_align_with_manager_portfolio_runtime():
+    cfg = EvolutionConfig()
+
+    assert cfg.manager_arch_enabled is True
+    assert cfg.portfolio_assembly_enabled is True
+    assert cfg.dual_review_enabled is True

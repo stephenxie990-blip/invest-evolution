@@ -328,11 +328,11 @@ class EvolutionConfig:
     default_manager_config_ref: str = "src/invest_evolution/investment/runtimes/configs/momentum_v1.yaml"
     allocator_enabled: bool = False
     allocator_top_n: int = 3
-    manager_arch_enabled: bool = False
+    manager_arch_enabled: bool = True
     manager_shadow_mode: bool = False
     manager_allocator_enabled: bool = False
-    portfolio_assembly_enabled: bool = False
-    dual_review_enabled: bool = False
+    portfolio_assembly_enabled: bool = True
+    dual_review_enabled: bool = True
     manager_persistence_enabled: bool = False
     manager_active_ids: Optional[List[str]] = None
     manager_budget_weights: dict = field(default_factory=dict)
