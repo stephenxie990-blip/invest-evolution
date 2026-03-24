@@ -466,6 +466,7 @@ uv run python -m pytest -q
 - `docs/RUNTIME_STATE_DESIGN.md`：运行态文件设计
 - `docs/COMPATIBILITY_SURFACE.md`：当前公共入口与非目标面
 - `docs/STRICT_TRAINING_READINESS_CHECKLIST_2026-03-24.md`：strict readiness 当前证据、剩余质量门与收尾路径
+- `docs/V1_5_NEXT_ROUND_CANDIDATE_CONVERGENCE_2026-03-24.md`：第三阶段后下一轮候选收敛，明确 strict readiness 下一轮只保留的 3 个主线项
 - `CONTRIBUTING.md`：贡献方式与协作约定
 - `SECURITY.md`：安全边界与漏洞反馈方式
 

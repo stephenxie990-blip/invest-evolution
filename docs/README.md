@@ -29,9 +29,10 @@
 
 ## Recent Change Notes / 最近变更摘要
 
+- `V1_5_NEXT_ROUND_CANDIDATE_CONVERGENCE_2026-03-24.md`：第三阶段完成后，对下一轮候选做收敛；只保留 3 个直接面向 strict readiness 收口的主线项
 - `V1_5_PHASE3_CHANGE_SUMMARY_2026-03-24.md`：第三阶段 3 个 P0 能力的正式变更摘要、落点、验证结果与剩余观察项
 - `V1_5_PHASE3_IMPLEMENTATION_BLUEPRINT_2026-03-24.md`：第三阶段实施蓝图、数据契约、测试矩阵与风险控制
-- `V1_5_PHASE3_CANDIDATES_2026-03-24.md`：第三阶段候选项清单；当前已完成全部 P0，P1/P2 仍为后续候选
+- `V1_5_PHASE3_CANDIDATES_2026-03-24.md`：第三阶段候选项原始清单；当前已完成全部 P0，后续候选已收敛到 `V1_5_NEXT_ROUND_CANDIDATE_CONVERGENCE_2026-03-24.md`
 - `V1_5_PHASE2_CHANGE_SUMMARY_2026-03-24.md`：第二阶段优化与 hardening 的正式变更摘要
 - `GOVERNANCE_RECOVERY_CHANGE_SUMMARY_2026-03-24.md`：`v1.5` 针对 `v1.0` 治理主线缺口的恢复摘要、owner map 与验证结果
 - `GOVERNANCE_RECOVERY_BLUEPRINT_2026-03-24.md`：治理恢复实施蓝图、恢复范围、owner 挂载点与质量门

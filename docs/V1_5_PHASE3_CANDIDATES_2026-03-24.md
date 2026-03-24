@@ -1,7 +1,17 @@
 # v1.5 第三阶段优化候选清单
 
 Date: 2026-03-24
-Status: P0 completed, P1/P2 pending
+Status: P0 completed, remaining items converged into next-round shortlist
+
+## 收敛说明
+
+本页保留为第三阶段原始候选记录。
+
+在 `P0` 三项于 2026-03-24 完成后，原 `P1 / P2` 已不再作为下一轮并行大清单继续推进，而是进一步收敛为新的主线 shortlist：
+
+- `docs/V1_5_NEXT_ROUND_CANDIDATE_CONVERGENCE_2026-03-24.md`
+
+下一轮应以该文档为准，只围绕 strict readiness 剩余主阻塞推进。
 
 ## 定位
 
@@ -231,4 +241,8 @@ Status: P0 completed, P1/P2 pending
 - training evaluation 现在输出 `manager_regime_breakdown`
 - promotion gate 现在支持可选 `manager_regime_validation`，默认关闭，不改变历史默认 verdict
 
-剩余 `P1 / P2` 项仍作为后续候选，不在本轮提交内。
+剩余 `P1 / P2` 项已在 2026-03-24 进一步收敛到：
+
+- `docs/V1_5_NEXT_ROUND_CANDIDATE_CONVERGENCE_2026-03-24.md`
+
+后续如继续推进，应以该 shortlist 为下一轮正式入口，而不是继续并行拉长候选面。
