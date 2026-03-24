@@ -240,6 +240,12 @@ class ResearchResolutionAvailableStageBundle:
 
 
 @dataclass(frozen=True)
+class ResearchResolutionAvailableDisplayAdapter:
+    identifiers: "ResearchResolutionIdentifiers"
+    detail_updates: "ResearchResolutionDetailUpdatesBundle"
+
+
+@dataclass(frozen=True)
 class ResearchResolutionBasePayload:
     status: str
     requested_as_of_date: str
@@ -263,21 +269,27 @@ class ResearchResolutionPayloadFactory:
             **dict(updates or {}),
         }
 
-    def build_detail_payloads(
+    def build_display_spec(
         self,
+        *,
+        dashboard: dict[str, Any],
+        identifiers: "ResearchResolutionIdentifiers",
         detail_updates: "ResearchResolutionDetailUpdatesBundle",
-    ) -> "ResearchResolutionDisplayPayloadBundle":
-        return ResearchResolutionDisplayPayloadBundle(
+    ) -> "ResearchResolutionDisplaySpec":
+        shared_updates = detail_updates.shared_updates
+        return ResearchResolutionDisplaySpec(
+            dashboard=dict(dashboard),
             research_payload=self.build(
                 detail_updates.research.build_payload(
-                    shared_updates=detail_updates.shared_updates
+                    shared_updates=shared_updates
                 )
             ),
             research_bridge_payload=self.build(
                 detail_updates.research_bridge.build_payload(
-                    shared_updates=detail_updates.shared_updates
+                    shared_updates=shared_updates
                 )
             ),
+            identifiers=identifiers,
         )
 
 
@@ -324,19 +336,32 @@ class ResearchResolutionDisplaySpec:
     research_bridge_payload: dict[str, Any]
     identifiers: ResearchResolutionIdentifiers
 
+    def to_payload(self) -> dict[str, Any]:
+        return {
+            "dashboard": dict(self.dashboard),
+            "research": dict(self.research_payload),
+            "research_bridge": dict(self.research_bridge_payload),
+            **self.identifiers.to_dict(),
+        }
+
 
 @dataclass(frozen=True)
-class ResearchResolutionDisplayPayloadBundle:
-    research_payload: dict[str, Any]
-    research_bridge_payload: dict[str, Any]
+class ResearchResolutionDisplayContract:
+    dashboard_projection_factory: "ResearchResolutionDashboardProjectionFactory"
+    payload_factory: ResearchResolutionPayloadFactory
 
-
-@dataclass(frozen=True)
-class ResearchResolutionDisplayBundle:
-    context: "ResearchResolutionContext"
-    dashboard: dict[str, Any]
-    identifiers: ResearchResolutionIdentifiers
-    detail_updates: ResearchResolutionDetailUpdatesBundle
+    def build_spec(
+        self,
+        *,
+        analysis: "PreDashboardAnalysisSpec",
+        identifiers: ResearchResolutionIdentifiers,
+        detail_updates: "ResearchResolutionDetailUpdatesBundle",
+    ) -> ResearchResolutionDisplaySpec:
+        return self.payload_factory.build_display_spec(
+            dashboard=self.dashboard_projection_factory.render(analysis),
+            identifiers=identifiers,
+            detail_updates=detail_updates,
+        )
 
 
 @dataclass(frozen=True)
@@ -432,7 +457,7 @@ class ResearchPersistenceProjection:
 
 
 @dataclass(frozen=True)
-class ResearchResolutionContext:
+class ResearchResolutionRequestInputs:
     question: str
     query: str
     strategy: Any
@@ -440,10 +465,19 @@ class ResearchResolutionContext:
     code: str
     requested_as_of_date: str
     effective_as_of_date: str
+
+
+@dataclass(frozen=True)
+class ResearchResolutionRuntimeInputs:
     execution: dict[str, Any]
     derived: dict[str, Any]
-    dashboard_projection_factory: "ResearchResolutionDashboardProjectionFactory"
-    payload_factory: ResearchResolutionPayloadFactory
+
+
+@dataclass(frozen=True)
+class ResearchResolutionContext:
+    request: ResearchResolutionRequestInputs
+    runtime: ResearchResolutionRuntimeInputs
+    display_contract: ResearchResolutionDisplayContract
 
 
 @dataclass(frozen=True)
@@ -739,6 +773,34 @@ class AskStockResponseAssemblySpec:
             artifact_taxonomy=dict(self.presentation_spec.artifact_taxonomy),
             default_reply="已完成问股分析。",
         )
+
+
+@dataclass(frozen=True)
+class AskStockResponseInputs:
+    header_factory: AskStockResponseHeaderFactory
+    presentation_spec: AskStockPresentationSpec
+    orchestration: dict[str, Any]
+    dashboard: dict[str, Any]
+
+
+@dataclass(frozen=True)
+class AskStockExecutionStageAdapter:
+    identifiers: AskStockIdentifiersProjection
+    execution_projection: AskStockExecutionProjection
+    execution_surface_spec: AskStockExecutionSurfaceSpec
+
+
+@dataclass(frozen=True)
+class AskStockStageContract:
+    request: AskStockRequestContext
+    execution: AskStockExecutionRunBundle
+    research: "AskStockResearchBundle"
+
+
+@dataclass(frozen=True)
+class AskStockAssemblyStageBundle:
+    presentation_spec: AskStockPresentationSpec
+    response_inputs: AskStockResponseInputs
 
 
 @dataclass(frozen=True)
@@ -2923,6 +2985,23 @@ class ResearchResolutionService:
         return identifiers.to_dict()
 
     @staticmethod
+    def _build_resolution_detail_updates_bundle(
+        *,
+        shared_updates: dict[str, Any] | None = None,
+        research_updates: dict[str, Any] | None = None,
+        research_bridge_updates: dict[str, Any] | None = None,
+    ) -> ResearchResolutionDetailUpdatesBundle:
+        return ResearchResolutionDetailUpdatesBundle(
+            shared_updates=dict(shared_updates or {}),
+            research=ResearchResolutionDetailSectionUpdates(
+                payload_updates=dict(research_updates or {}),
+            ),
+            research_bridge=ResearchResolutionDetailSectionUpdates(
+                payload_updates=dict(research_bridge_updates or {}),
+            ),
+        )
+
+    @staticmethod
     def _build_research_bridge_detail_updates(
         *,
         research_bridge: dict[str, Any],
@@ -2963,14 +3042,12 @@ class ResearchResolutionService:
         *,
         research_bridge: dict[str, Any],
     ) -> ResearchResolutionDetailUpdatesBundle:
-        return ResearchResolutionDetailUpdatesBundle(
+        return ResearchResolutionService._build_resolution_detail_updates_bundle(
             shared_updates={
                 "error": str(research_bridge.get("error") or ""),
                 "fallback": "canonical_dashboard_fallback",
                 "details": dict(research_bridge.get("details") or {}),
             },
-            research=ResearchResolutionDetailSectionUpdates(payload_updates={}),
-            research_bridge=ResearchResolutionDetailSectionUpdates(payload_updates={}),
         )
 
     @staticmethod
@@ -2980,22 +3057,34 @@ class ResearchResolutionService:
         stages: ResearchResolutionAvailableStageBundle,
         identifiers: ResearchResolutionIdentifiers,
     ) -> ResearchResolutionDetailUpdatesBundle:
-        return ResearchResolutionDetailUpdatesBundle(
-            shared_updates={},
-            research=ResearchResolutionDetailSectionUpdates(
-                payload_updates=ResearchResolutionService._build_research_detail_updates(
-                    snapshot=stages.artifacts.snapshot,
-                    policy=stages.artifacts.policy,
-                    hypothesis=stages.artifacts.hypothesis,
-                    scenario=stages.artifacts.scenario,
-                    persistence=stages.persistence.projection,
-                )
+        return ResearchResolutionService._build_resolution_detail_updates_bundle(
+            research_updates=ResearchResolutionService._build_research_detail_updates(
+                snapshot=stages.artifacts.snapshot,
+                policy=stages.artifacts.policy,
+                hypothesis=stages.artifacts.hypothesis,
+                scenario=stages.artifacts.scenario,
+                persistence=stages.persistence.projection,
             ),
-            research_bridge=ResearchResolutionDetailSectionUpdates(
-                payload_updates=ResearchResolutionService._build_research_bridge_detail_updates(
-                    research_bridge=research_bridge,
-                    identifiers=identifiers,
-                )
+            research_bridge_updates=ResearchResolutionService._build_research_bridge_detail_updates(
+                research_bridge=research_bridge,
+                identifiers=identifiers,
+            ),
+        )
+
+    @classmethod
+    def _build_available_display_adapter(
+        cls,
+        *,
+        research_bridge: dict[str, Any],
+        stages: ResearchResolutionAvailableStageBundle,
+    ) -> ResearchResolutionAvailableDisplayAdapter:
+        identifiers = stages.persistence.display_identifiers()
+        return ResearchResolutionAvailableDisplayAdapter(
+            identifiers=identifiers,
+            detail_updates=cls._build_available_detail_updates_bundle(
+                research_bridge=research_bridge,
+                stages=stages,
+                identifiers=identifiers,
             ),
         )
 
@@ -3015,6 +3104,40 @@ class ResearchResolutionService:
         dashboard_projection_builder: Callable[..., dict[str, Any]],
     ) -> ResearchResolutionContext:
         return ResearchResolutionContext(
+            request=self._build_resolution_request_inputs(
+                question=question,
+                query=query,
+                strategy=strategy,
+                strategy_source=strategy_source,
+                code=code,
+                requested_as_of_date=requested_as_of_date,
+                effective_as_of_date=effective_as_of_date,
+            ),
+            runtime=self._build_resolution_runtime_inputs(
+                execution=execution,
+                derived=derived,
+            ),
+            display_contract=self._build_resolution_display_contract(
+                research_bridge=research_bridge,
+                strategy=strategy,
+                requested_as_of_date=requested_as_of_date,
+                effective_as_of_date=effective_as_of_date,
+                dashboard_projection_builder=dashboard_projection_builder,
+            ),
+        )
+
+    @staticmethod
+    def _build_resolution_request_inputs(
+        *,
+        question: str,
+        query: str,
+        strategy: Any,
+        strategy_source: str,
+        code: str,
+        requested_as_of_date: str,
+        effective_as_of_date: str,
+    ) -> ResearchResolutionRequestInputs:
+        return ResearchResolutionRequestInputs(
             question=question,
             query=query,
             strategy=strategy,
@@ -3022,8 +3145,29 @@ class ResearchResolutionService:
             code=code,
             requested_as_of_date=requested_as_of_date,
             effective_as_of_date=effective_as_of_date,
+        )
+
+    @staticmethod
+    def _build_resolution_runtime_inputs(
+        *,
+        execution: dict[str, Any],
+        derived: dict[str, Any],
+    ) -> ResearchResolutionRuntimeInputs:
+        return ResearchResolutionRuntimeInputs(
             execution=dict(execution or {}),
             derived=dict(derived or {}),
+        )
+
+    def _build_resolution_display_contract(
+        self,
+        *,
+        research_bridge: dict[str, Any],
+        strategy: Any,
+        requested_as_of_date: str,
+        effective_as_of_date: str,
+        dashboard_projection_builder: Callable[..., dict[str, Any]],
+    ) -> ResearchResolutionDisplayContract:
+        return ResearchResolutionDisplayContract(
             dashboard_projection_factory=ResearchResolutionDashboardProjectionFactory(
                 strategy=strategy,
                 dashboard_projection_builder=dashboard_projection_builder,
@@ -3035,41 +3179,23 @@ class ResearchResolutionService:
             ),
         )
 
-    def _build_resolution_display_bundle(
-        self,
-        *,
-        context: ResearchResolutionContext,
-        dashboard: dict[str, Any],
-        identifiers: ResearchResolutionIdentifiers | None = None,
-        detail_updates: ResearchResolutionDetailUpdatesBundle | None = None,
-    ) -> ResearchResolutionDisplayBundle:
-        return ResearchResolutionDisplayBundle(
-            context=context,
-            dashboard=dict(dashboard),
-            identifiers=identifiers or self._build_resolution_identifiers(),
-            detail_updates=detail_updates
-            or ResearchResolutionDetailUpdatesBundle(
-                shared_updates={},
-                research=ResearchResolutionDetailSectionUpdates(payload_updates={}),
-                research_bridge=ResearchResolutionDetailSectionUpdates(
-                    payload_updates={}
-                ),
-            ),
-        )
-
     def _build_resolution_display_spec(
         self,
         *,
-        bundle: ResearchResolutionDisplayBundle,
+        context: ResearchResolutionContext,
+        analysis: PreDashboardAnalysisSpec,
+        identifiers: ResearchResolutionIdentifiers | None = None,
+        detail_updates: ResearchResolutionDetailUpdatesBundle | None = None,
     ) -> ResearchResolutionDisplaySpec:
-        payload_bundle = bundle.context.payload_factory.build_detail_payloads(
-            bundle.detail_updates,
+        resolved_identifiers = identifiers or self._build_resolution_identifiers()
+        resolved_detail_updates = (
+            detail_updates
+            or self._build_resolution_detail_updates_bundle()
         )
-        return ResearchResolutionDisplaySpec(
-            dashboard=dict(bundle.dashboard),
-            research_payload=payload_bundle.research_payload,
-            research_bridge_payload=payload_bundle.research_bridge_payload,
-            identifiers=bundle.identifiers,
+        return context.display_contract.build_spec(
+            analysis=analysis,
+            identifiers=resolved_identifiers,
+            detail_updates=resolved_detail_updates,
         )
 
     def _run_resolution_finalize_stage(
@@ -3077,30 +3203,25 @@ class ResearchResolutionService:
         *,
         spec: ResearchResolutionDisplaySpec,
     ) -> dict[str, Any]:
-        return {
-            "dashboard": dict(spec.dashboard),
-            "research": dict(spec.research_payload),
-            "research_bridge": dict(spec.research_bridge_payload),
-            **spec.identifiers.to_dict(),
-        }
+        return spec.to_payload()
 
-    def _build_unavailable_display_bundle(
+    def _build_unavailable_display_spec(
         self,
         *,
         context: ResearchResolutionContext,
         research_bridge: dict[str, Any],
-    ) -> ResearchResolutionDisplayBundle:
+    ) -> ResearchResolutionDisplaySpec:
         analysis = self._run_fallback_analysis_stage(
-            strategy=context.strategy,
-            derived=context.derived,
-            execution=context.execution,
+            strategy=context.request.strategy,
+            derived=context.runtime.derived,
+            execution=context.runtime.execution,
         )
         detail_updates = self._build_unavailable_detail_updates_bundle(
             research_bridge=research_bridge,
         )
-        return self._build_resolution_display_bundle(
+        return self._build_resolution_display_spec(
             context=context,
-            dashboard=context.dashboard_projection_factory.build(analysis).render(),
+            analysis=analysis,
             detail_updates=detail_updates,
         )
 
@@ -3207,26 +3328,23 @@ class ResearchResolutionService:
         )
 
     @staticmethod
-    def _build_normal_hypothesis(
+    def _resolve_analysis_stage_matched_signals(
         *,
-        artifacts: ResearchResolutionArtifacts,
-    ) -> ResearchHypothesis:
-        return artifacts.hypothesis
+        derived: dict[str, Any],
+    ) -> list[str]:
+        return list(derived.get("matched_signals") or [])
 
     @staticmethod
-    def _build_normal_analysis_spec(
+    def _build_analysis_stage_spec(
         *,
-        artifacts: ResearchResolutionArtifacts,
-        context: ResearchResolutionContext,
+        hypothesis: ResearchHypothesis,
+        matched_signals: list[str],
+        supplemental_reason: str = "",
     ) -> PreDashboardAnalysisSpec:
-        matched_signals = list(context.derived.get("matched_signals") or [])
-        hypothesis = ResearchResolutionService._build_normal_hypothesis(
-            artifacts=artifacts,
-        )
         return ResearchResolutionService._build_pre_dashboard_analysis_spec(
             hypothesis=hypothesis,
             matched_signals=matched_signals,
-            supplemental_reason="",
+            supplemental_reason=supplemental_reason,
         )
 
     @staticmethod
@@ -3416,7 +3534,9 @@ class ResearchResolutionService:
         derived: dict[str, Any],
         execution: dict[str, Any],
     ) -> PreDashboardAnalysisSpec:
-        matched_signals = list(derived.get("matched_signals") or [])
+        matched_signals = self._resolve_analysis_stage_matched_signals(
+            derived=derived
+        )
         values = self._derive_fallback_analysis_values(
             strategy=strategy,
             derived=derived,
@@ -3427,7 +3547,7 @@ class ResearchResolutionService:
             values=values,
             matched_signals=matched_signals,
         )
-        return self._build_pre_dashboard_analysis_spec(
+        return self._build_analysis_stage_spec(
             hypothesis=fallback_hypothesis,
             matched_signals=matched_signals,
             supplemental_reason=values.supplemental_reason,
@@ -3451,7 +3571,7 @@ class ResearchResolutionService:
         return ResearchResolutionDashboardProjectionFactory(
             strategy=strategy,
             dashboard_projection_builder=dashboard_projection_builder,
-        ).build(fallback_analysis).render()
+        ).render(fallback_analysis)
 
     def _run_resolution_artifact_stage(
         self,
@@ -3491,13 +3611,13 @@ class ResearchResolutionService:
             snapshot=artifacts.snapshot,
             policy=artifacts.policy,
             hypothesis=artifacts.hypothesis,
-            question=context.question,
-            query=context.query,
-            strategy=context.strategy,
-            strategy_source=context.strategy_source,
-            execution_mode=str(context.execution.get("mode") or ""),
-            code=context.code,
-            effective_as_of_date=context.effective_as_of_date,
+            question=context.request.question,
+            query=context.request.query,
+            strategy=context.request.strategy,
+            strategy_source=context.request.strategy_source,
+            execution_mode=str(context.runtime.execution.get("mode") or ""),
+            code=context.request.code,
+            effective_as_of_date=context.request.effective_as_of_date,
         )
         return ResearchResolutionPersistence(
             policy_id=str(artifacts.policy.policy_id or ""),
@@ -3510,11 +3630,12 @@ class ResearchResolutionService:
         artifacts: ResearchResolutionArtifacts,
         context: ResearchResolutionContext,
     ) -> PreDashboardAnalysisSpec:
-        normal_analysis = self._build_normal_analysis_spec(
-            artifacts=artifacts,
-            context=context,
+        return self._build_analysis_stage_spec(
+            hypothesis=artifacts.hypothesis,
+            matched_signals=self._resolve_analysis_stage_matched_signals(
+                derived=context.runtime.derived
+            ),
         )
-        return normal_analysis
 
     def _run_available_resolution_stages(
         self,
@@ -3524,7 +3645,7 @@ class ResearchResolutionService:
     ) -> ResearchResolutionAvailableStageBundle:
         artifacts = self._run_resolution_artifact_stage(
             research_bridge=research_bridge,
-            strategy=context.strategy,
+            strategy=context.request.strategy,
         )
         return ResearchResolutionAvailableStageBundle(
             artifacts=artifacts,
@@ -3538,35 +3659,22 @@ class ResearchResolutionService:
             ),
         )
 
-    def _build_available_display_bundle(
+    def _build_available_display_spec(
         self,
         *,
         context: ResearchResolutionContext,
         research_bridge: dict[str, Any],
         stages: ResearchResolutionAvailableStageBundle,
-    ) -> ResearchResolutionDisplayBundle:
-        identifiers = stages.persistence.display_identifiers()
-        detail_updates = self._build_available_detail_updates_bundle(
+    ) -> ResearchResolutionDisplaySpec:
+        display_adapter = self._build_available_display_adapter(
             research_bridge=research_bridge,
             stages=stages,
-            identifiers=identifiers,
         )
-        return self._build_resolution_display_bundle(
-            context=context,
-            dashboard=context.dashboard_projection_factory.build(
-                stages.analysis
-            ).render(),
-            identifiers=identifiers,
-            detail_updates=detail_updates,
-        )
-
-    def _run_resolution_display_stage(
-        self,
-        *,
-        bundle: ResearchResolutionDisplayBundle,
-    ) -> ResearchResolutionDisplaySpec:
         return self._build_resolution_display_spec(
-            bundle=bundle,
+            context=context,
+            analysis=stages.analysis,
+            identifiers=display_adapter.identifiers,
+            detail_updates=display_adapter.detail_updates,
         )
 
     def resolve_outputs(
@@ -3601,11 +3709,9 @@ class ResearchResolutionService:
         )
         if research_bridge.get("status") != "ok":
             return self._run_resolution_finalize_stage(
-                spec=self._run_resolution_display_stage(
-                    bundle=self._build_unavailable_display_bundle(
-                        context=context,
-                        research_bridge=research_bridge,
-                    )
+                spec=self._build_unavailable_display_spec(
+                    context=context,
+                    research_bridge=research_bridge,
                 ),
             )
         available_stages = self._run_available_resolution_stages(
@@ -3613,12 +3719,10 @@ class ResearchResolutionService:
             research_bridge=research_bridge,
         )
         return self._run_resolution_finalize_stage(
-            spec=self._run_resolution_display_stage(
-                bundle=self._build_available_display_bundle(
-                    context=context,
-                    research_bridge=research_bridge,
-                    stages=available_stages,
-                )
+            spec=self._build_available_display_spec(
+                context=context,
+                research_bridge=research_bridge,
+                stages=available_stages,
             ),
         )
 
@@ -4675,43 +4779,16 @@ class StockAnalysisService(StockAnalysisExecutionMixin):
             request_context=request_context,
             execution_bundle=execution_bundle,
         )
-        research_bundle = self._build_ask_stock_research_bundle(research_resolution)
-        identifiers = self._build_ask_stock_identifiers_projection(
-            policy_id=research_bundle.policy_id,
-            research_case_id=research_bundle.research_case_id,
-            attribution_id=research_bundle.attribution_id,
-        )
-        execution_projection = self._build_ask_stock_execution_projection(
-            execution=execution_bundle.execution,
-            recommended_plan=execution_bundle.recommended_plan,
-            coverage=execution_bundle.coverage,
-            task_bus_artifacts=self._build_ask_stock_task_artifacts(
-                code=request_context.code,
-                strategy_name=request_context.strategy.name,
-                strategy_source=request_context.strategy_source,
-                derived=execution_bundle.derived,
-                execution=execution_bundle.execution,
-            ),
-        )
-        execution_surface_spec = self._build_ask_stock_execution_surface_spec(
+        stage_contract = self._build_ask_stock_stage_contract(
             request_context=request_context,
-            execution_projection=execution_projection,
-            identifiers=identifiers,
-        )
-        presentation_spec = self._build_ask_stock_presentation_spec(
             execution_bundle=execution_bundle,
-            research_bundle=research_bundle,
-            execution_surface_spec=execution_surface_spec,
-            identifiers=identifiers,
+            research_resolution=research_resolution,
+        )
+        assembly_stage = self._build_ask_stock_assembly_stage_bundle(
+            stage_contract=stage_contract,
         )
         response_assembly_spec = self._build_ask_stock_response_assembly_spec(
-            request_context=request_context,
-            research_bundle=research_bundle,
-            identifiers=identifiers,
-            execution_projection=execution_projection,
-            allowed_tools=execution_bundle.allowed_tools,
-            presentation_spec=presentation_spec,
-            orchestration_extra=execution_surface_spec.orchestration_extra,
+            response_inputs=assembly_stage.response_inputs,
         )
         return response_assembly_spec.render_protocol_response()
 
@@ -4959,17 +5036,44 @@ class StockAnalysisService(StockAnalysisExecutionMixin):
     def _build_ask_stock_presentation_spec(
         self,
         *,
-        execution_bundle: AskStockExecutionRunBundle,
-        research_bundle: AskStockResearchBundle,
+        stage_contract: AskStockStageContract,
         execution_surface_spec: AskStockExecutionSurfaceSpec,
         identifiers: AskStockIdentifiersProjection,
     ) -> AskStockPresentationSpec:
         return execution_surface_spec.to_presentation_spec(
             sections=self._build_ask_stock_sections_bundle(
-                execution_bundle=execution_bundle,
-                research_bundle=research_bundle,
+                execution_bundle=stage_contract.execution,
+                research_bundle=stage_contract.research,
                 identifiers=identifiers,
             ),
+        )
+
+    def _build_ask_stock_analysis_section_payload(
+        self,
+        *,
+        execution_bundle: AskStockExecutionRunBundle,
+        research_bundle: AskStockResearchBundle,
+        identifiers: AskStockIdentifiersProjection,
+    ) -> dict[str, Any]:
+        return {
+            "tool_results": execution_bundle.execution["results"],
+            "result_sequence": execution_bundle.execution["result_sequence"],
+            "derived_signals": execution_bundle.derived,
+            "research_bridge": self._with_identifiers(
+                dict(research_bundle.research_bridge_payload),
+                identifiers,
+            ),
+        }
+
+    def _build_ask_stock_research_section_payload(
+        self,
+        *,
+        research_bundle: AskStockResearchBundle,
+        identifiers: AskStockIdentifiersProjection,
+    ) -> dict[str, Any]:
+        return self._with_identifiers(
+            dict(research_bundle.research_payload),
+            identifiers,
         )
 
     def _build_ask_stock_sections_bundle(
@@ -4980,18 +5084,14 @@ class StockAnalysisService(StockAnalysisExecutionMixin):
         identifiers: AskStockIdentifiersProjection,
     ) -> AskStockSectionsBundle:
         return AskStockSectionsBundle(
-            analysis={
-                "tool_results": execution_bundle.execution["results"],
-                "result_sequence": execution_bundle.execution["result_sequence"],
-                "derived_signals": execution_bundle.derived,
-                "research_bridge": self._with_identifiers(
-                    dict(research_bundle.research_bridge_payload),
-                    identifiers,
-                ),
-            },
-            research=self._with_identifiers(
-                dict(research_bundle.research_payload),
-                identifiers,
+            analysis=self._build_ask_stock_analysis_section_payload(
+                execution_bundle=execution_bundle,
+                research_bundle=research_bundle,
+                identifiers=identifiers,
+            ),
+            research=self._build_ask_stock_research_section_payload(
+                research_bundle=research_bundle,
+                identifiers=identifiers,
             ),
         )
 
@@ -5008,6 +5108,19 @@ class StockAnalysisService(StockAnalysisExecutionMixin):
             attribution_id=str(research_resolution.get("attribution_id") or ""),
         )
 
+    def _build_ask_stock_stage_contract(
+        self,
+        *,
+        request_context: AskStockRequestContext,
+        execution_bundle: AskStockExecutionRunBundle,
+        research_resolution: dict[str, Any],
+    ) -> AskStockStageContract:
+        return AskStockStageContract(
+            request=request_context,
+            execution=execution_bundle,
+            research=self._build_ask_stock_research_bundle(research_resolution),
+        )
+
     def _build_ask_stock_orchestration_payload(
         self,
         *,
@@ -5022,16 +5135,48 @@ class StockAnalysisService(StockAnalysisExecutionMixin):
             allowed_tools=list(allowed_tools),
             workflow=cast(list[str], list(execution_projection.workflow)),
             phase_stats=dict(execution_projection.phase_stats),
-            policy=build_bounded_policy(
-                source="yaml_strategy",
-                agent_kind="bounded_stock_agent",
-                workflow_mode="llm_react_with_yaml_gap_fill",
-                react_enabled=bool(strategy.react_enabled),
-                tool_catalog_scope="strategy_restricted",
-                fixed_boundary=True,
-                fixed_workflow=True,
-            ),
+            policy=self._build_ask_stock_orchestration_policy(strategy),
             extra=dict(orchestration_extra),
+        )
+
+    @staticmethod
+    def _build_ask_stock_orchestration_policy(
+        strategy: StockAnalysisStrategy,
+    ) -> dict[str, Any]:
+        return build_bounded_policy(
+            source="yaml_strategy",
+            agent_kind="bounded_stock_agent",
+            workflow_mode="llm_react_with_yaml_gap_fill",
+            react_enabled=bool(strategy.react_enabled),
+            tool_catalog_scope="strategy_restricted",
+            fixed_boundary=True,
+            fixed_workflow=True,
+        )
+
+    def _build_ask_stock_response_header_spec(
+        self,
+        *,
+        request: AskStockRequestProjection,
+        identifiers: AskStockIdentifiersProjection,
+        security: dict[str, Any],
+        strategy: StockAnalysisStrategy,
+        strategy_source: str,
+        days: int,
+    ) -> AskStockResponseHeaderSpec:
+        return AskStockResponseHeaderSpec(
+            request=AskStockResponseRequestHeader(
+                request=request,
+            ),
+            resolution=AskStockResponseResolutionHeader(
+                identifiers=identifiers,
+                security=dict(security),
+            ),
+            strategy=AskStockResponseStrategyHeader(
+                entrypoint=self._build_ask_stock_entrypoint(),
+                strategy_payload=strategy.to_dict(),
+                strategy_source=strategy_source,
+                days=days,
+            ),
         )
 
     def _build_ask_stock_response_header_factory(
@@ -5045,53 +5190,108 @@ class StockAnalysisService(StockAnalysisExecutionMixin):
         days: int,
     ) -> AskStockResponseHeaderFactory:
         return AskStockResponseHeaderFactory(
-            spec=AskStockResponseHeaderSpec(
-                request=AskStockResponseRequestHeader(
-                    request=request,
-                ),
-                resolution=AskStockResponseResolutionHeader(
-                    identifiers=identifiers,
-                    security=dict(security),
-                ),
-                strategy=AskStockResponseStrategyHeader(
-                    entrypoint=self._build_ask_stock_entrypoint(),
-                    strategy_payload=strategy.to_dict(),
-                    strategy_source=strategy_source,
-                    days=days,
-                ),
+            spec=self._build_ask_stock_response_header_spec(
+                request=request,
+                identifiers=identifiers,
+                security=security,
+                strategy=strategy,
+                strategy_source=strategy_source,
+                days=days,
             )
         )
 
     def _build_ask_stock_response_assembly_spec(
         self,
         *,
-        request_context: AskStockRequestContext,
-        research_bundle: AskStockResearchBundle,
-        identifiers: AskStockIdentifiersProjection,
-        execution_projection: AskStockExecutionProjection,
-        allowed_tools: list[str],
-        presentation_spec: AskStockPresentationSpec,
-        orchestration_extra: dict[str, Any],
+        response_inputs: AskStockResponseInputs,
     ) -> AskStockResponseAssemblySpec:
         return AskStockResponseAssemblySpec(
+            header_factory=response_inputs.header_factory,
+            presentation_spec=response_inputs.presentation_spec,
+            orchestration=dict(response_inputs.orchestration),
+            dashboard=dict(response_inputs.dashboard),
+        )
+
+    def _build_ask_stock_response_inputs(
+        self,
+        *,
+        stage_contract: AskStockStageContract,
+        execution_stage: AskStockExecutionStageAdapter,
+        presentation_spec: AskStockPresentationSpec,
+    ) -> AskStockResponseInputs:
+        return AskStockResponseInputs(
             header_factory=self._build_ask_stock_response_header_factory(
                 request=self._build_ask_stock_request_projection(
-                    request_context=request_context
+                    request_context=stage_contract.request
                 ),
-                identifiers=identifiers,
-                security=request_context.security,
-                strategy=request_context.strategy,
-                strategy_source=request_context.strategy_source,
-                days=request_context.days,
+                identifiers=execution_stage.identifiers,
+                security=stage_contract.request.security,
+                strategy=stage_contract.request.strategy,
+                strategy_source=stage_contract.request.strategy_source,
+                days=stage_contract.request.days,
             ),
             presentation_spec=presentation_spec,
             orchestration=self._build_ask_stock_orchestration_payload(
-                strategy=request_context.strategy,
-                execution_projection=execution_projection,
-                allowed_tools=allowed_tools,
-                orchestration_extra=orchestration_extra,
+                strategy=stage_contract.request.strategy,
+                execution_projection=execution_stage.execution_projection,
+                allowed_tools=stage_contract.execution.allowed_tools,
+                orchestration_extra=execution_stage.execution_surface_spec.orchestration_extra,
             ),
-            dashboard=dict(research_bundle.dashboard),
+            dashboard=dict(stage_contract.research.dashboard),
+        )
+
+    def _build_ask_stock_assembly_stage_bundle(
+        self,
+        *,
+        stage_contract: AskStockStageContract,
+    ) -> AskStockAssemblyStageBundle:
+        execution_stage = self._build_ask_stock_execution_stage_adapter(
+            stage_contract=stage_contract,
+        )
+        presentation_spec = self._build_ask_stock_presentation_spec(
+            stage_contract=stage_contract,
+            execution_surface_spec=execution_stage.execution_surface_spec,
+            identifiers=execution_stage.identifiers,
+        )
+        return AskStockAssemblyStageBundle(
+            presentation_spec=presentation_spec,
+            response_inputs=self._build_ask_stock_response_inputs(
+                stage_contract=stage_contract,
+                execution_stage=execution_stage,
+                presentation_spec=presentation_spec,
+            ),
+        )
+
+    def _build_ask_stock_execution_stage_adapter(
+        self,
+        *,
+        stage_contract: AskStockStageContract,
+    ) -> AskStockExecutionStageAdapter:
+        identifiers = self._build_ask_stock_identifiers_projection(
+            policy_id=stage_contract.research.policy_id,
+            research_case_id=stage_contract.research.research_case_id,
+            attribution_id=stage_contract.research.attribution_id,
+        )
+        execution_projection = self._build_ask_stock_execution_projection(
+            execution=stage_contract.execution.execution,
+            recommended_plan=stage_contract.execution.recommended_plan,
+            coverage=stage_contract.execution.coverage,
+            task_bus_artifacts=self._build_ask_stock_task_artifacts(
+                code=stage_contract.request.code,
+                strategy_name=stage_contract.request.strategy.name,
+                strategy_source=stage_contract.request.strategy_source,
+                derived=stage_contract.execution.derived,
+                execution=stage_contract.execution.execution,
+            ),
+        )
+        return AskStockExecutionStageAdapter(
+            identifiers=identifiers,
+            execution_projection=execution_projection,
+            execution_surface_spec=self._build_ask_stock_execution_surface_spec(
+                request_context=stage_contract.request,
+                execution_projection=execution_projection,
+                identifiers=identifiers,
+            ),
         )
 
     def _resolve_ask_stock_research_outputs(
