@@ -1,0 +1,89 @@
+{
+  "label": "canonical_release_gate_sample",
+  "run_dir": "/tmp/release_gate/sample",
+  "generated_at": "2026-03-22T10:00:00",
+  "window": {
+    "attempted_cycles": 2,
+    "successful_cycles": 2,
+    "successful_cycles_target": 2,
+    "target_met": true,
+    "status": "completed"
+  },
+  "new_governance": {
+    "validation_status_counts": {
+      "hold": 1,
+      "passed": 1
+    },
+    "judge_counts": {
+      "hold": 1,
+      "promote": 1
+    },
+    "reason_counts": {
+      "candidate_missing": 1,
+      "needs_more_optimization": 1
+    },
+    "gate_status_counts": {
+      "applied_to_active": 1,
+      "awaiting_gate": 1
+    },
+    "lineage_status_counts": {
+      "active_only": 1,
+      "candidate_applied": 1
+    },
+    "review_applied_count": 1,
+    "validation_pass_count": 1,
+    "promote_count": 1,
+    "unexpected_reject_count": 0,
+    "governance_blocked_count": 0,
+    "candidate_missing_rate": 0.5,
+    "needs_more_optimization_rate": 0.5,
+    "peer_dominated_rate": 0.0
+  },
+  "positive_evidence": {
+    "validation_pass_count": 1,
+    "validation_pass_cycles": [
+      2
+    ],
+    "promote_count": 1,
+    "promote_cycles": [
+      2
+    ]
+  },
+  "release_gate_snapshot": {
+    "positive_evidence_ready": false,
+    "unexpected_reject_free": true,
+    "governance_block_free": true,
+    "candidate_missing_ready": true,
+    "needs_more_optimization_ready": true
+  },
+  "governance_blocked_cycles": [],
+  "cycles": [
+    {
+      "cycle_id": 1,
+      "cutoff_date": "20240131",
+      "gate_status": "awaiting_gate",
+      "lineage_status": "active_only",
+      "new_decision": "hold",
+      "validation_status": "hold",
+      "review_applied": true,
+      "benchmark_passed": false,
+      "reason_codes": [
+        "candidate_missing",
+        "needs_more_optimization"
+      ],
+      "artifact_path": "/tmp/release_gate/sample/cycle_1.json"
+    },
+    {
+      "cycle_id": 2,
+      "cutoff_date": "20240229",
+      "gate_status": "applied_to_active",
+      "lineage_status": "candidate_applied",
+      "new_decision": "promote",
+      "validation_status": "passed",
+      "review_applied": false,
+      "benchmark_passed": true,
+      "reason_codes": [],
+      "artifact_path": "/tmp/release_gate/sample/cycle_2.json"
+    }
+  ]
+}

@@ -1,0 +1,13 @@
+# 本地敏感覆盖层示例（不要提交到版本库）
+# 优先级：环境变量 > INVEST_CONFIG_PATH > config/evolution.local.yaml > config/evolution.yaml > 默认值
+# LLM 密钥与模型/provider 请配置到 control_plane，而不是 evolution.local.yaml。
+
+# Web API 鉴权（生产部署强烈建议开启）
+# web_api_token: ${ENV:WEB_API_TOKEN}
+# web_api_require_auth: true
+# web_api_public_read_enabled: false
+# web_rate_limit_enabled: true
+# web_rate_limit_window_sec: 60
+# web_rate_limit_read_max: 120
+# web_rate_limit_write_max: 20
+# web_rate_limit_heavy_max: 5

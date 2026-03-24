@@ -1,0 +1,23 @@
+[Unit]
+Description=Invest Evolution Commander Runtime
+After=network.target
+Wants=network.target
+
+[Service]
+Type=simple
+User=invest
+Group=invest
+WorkingDirectory=/opt/invest-evolution
+EnvironmentFile=-/etc/default/invest-evolution
+# Runtime/service 负责持有 commander.lock、写入 runtime/state 与工件目录。
+# 若 commander.lock 可读取且 PID 已失活，可在启动时自愈；training.lock 仍需人工确认后清理。
+ExecStart=/opt/invest-evolution/.venv/bin/invest-runtime
+Restart=always
+RestartSec=5
+TimeoutStopSec=60
+KillSignal=SIGTERM
+PrivateTmp=true
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

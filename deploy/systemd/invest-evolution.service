@@ -1,0 +1,23 @@
+[Unit]
+Description=Invest Evolution Web API
+After=network.target
+Wants=network.target
+
+[Service]
+Type=simple
+User=invest
+Group=invest
+WorkingDirectory=/opt/invest-evolution
+EnvironmentFile=-/etc/default/invest-evolution
+# Web/API 进程保持无状态；Commander runtime 由独立的 runtime service 承担。
+# /healthz 只反映 Web 可用性；runtime live 状态请查看 /api/status。
+ExecStart=/opt/invest-evolution/.venv/bin/gunicorn -c /opt/invest-evolution/gunicorn.conf.py invest_evolution.interfaces.web.wsgi:app
+Restart=always
+RestartSec=5
+TimeoutStopSec=30
+KillSignal=SIGTERM
+PrivateTmp=true
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,10 @@
+# 本地敏感覆盖示例
+# 复制为 config/control_plane.local.yaml 后按需修改
+# 仅放 provider api_key 等敏感项，不要在 versioned control_plane.yaml 中写入密钥
+
+llm:
+  providers:
+    default_provider:
+      api_key: ${ENV:OPENAI_API_KEY}
+    minimax_provider:
+      api_key: ${ENV:MINIMAX_API_KEY}

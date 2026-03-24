@@ -1,0 +1,31 @@
+# 投资进化系统默认配置示例
+# 复制为 config/evolution.yaml 后按需修改
+# LLM 模型/provider/binding 已迁移到 config/control_plane.yaml
+
+initial_capital: 100000.0
+max_positions: 5
+position_size_pct: 0.2
+
+max_stocks: 50
+simulation_days: 30
+min_history_days: 750
+
+data_source: baostock
+
+llm_timeout: 60
+llm_max_retries: 2
+
+governance_enabled: true
+governance_mode: rule
+governance_cooldown_cycles: 2
+governance_min_confidence: 0.6
+governance_hysteresis_margin: 0.08
+governance_agent_override_enabled: false
+governance_agent_override_max_gap: 0.18
+default_manager_id: momentum
+default_manager_config_ref: src/invest_evolution/investment/runtimes/configs/momentum_v1.yaml
+governance_allowed_manager_ids:
+  - momentum
+  - mean_reversion
+  - value_quality
+  - defensive_low_vol

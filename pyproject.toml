@@ -1,0 +1,68 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "invest-evolution"
+version = "1.0.0"
+description = "Investment Evolution System (Commander fused runtime)"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "numpy>=1.26",
+  "pandas>=2.2",
+  "pydantic>=2.0",
+  "PyYAML>=6.0",
+  "litellm>=1.52",
+  "baostock>=0.8.9",
+  "tushare>=1.4.0",
+  "akshare>=1.18.35",
+  "rank-bm25>=0.2.2",
+  "flask>=3.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0", "pytest-asyncio>=1.3", "pytest-cov>=6.0", "ruff>=0.11", "pyright>=1.1"]
+prod = ["gunicorn>=23.0"]
+
+[project.scripts]
+invest-commander = "invest_evolution.interfaces.cli.commander:main"
+invest-runtime = "invest_evolution.interfaces.cli.runtime:main"
+invest-train = "invest_evolution.interfaces.cli.train:main"
+invest-data = "invest_evolution.interfaces.cli.market_data:main"
+invest-refresh-contracts = "invest_evolution.application.runtime_contracts:main"
+invest-freeze-gate = "invest_evolution.application.freeze_gate:main"
+invest-release-verify = "invest_evolution.application.release:main"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+pythonpath = [".", "src"]
+addopts = "-q"
+
+[tool.ruff]
+exclude = [
+  ".workspace",
+  ".git",
+  ".pytest_cache",
+  ".venv",
+  "external",
+  "runtime",
+]
+
+[tool.pyright]
+venvPath = "."
+venv = ".venv"
+reportUnsupportedDunderAll = "none"
+exclude = [
+  "**/.workspace",
+  "**/.git",
+  "**/.pytest_cache",
+  "**/.venv",
+  "**/external",
+  "**/runtime",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["invest_evolution*"]

@@ -1,0 +1,55 @@
+# Python virtualenvs and caches
+.venv/
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+*.py[cod]
+*.egg-info/
+
+# macOS
+.DS_Store
+
+# Runtime outputs and logs
+runtime/
+runtime/**
+outputs/
+outputs/**
+
+# Local workspace state (agent/session/artifacts)
+.workspace/
+.workspace/**
+.Codex/
+agent_settings/
+.learnings/
+.phase1-verify/
+findings.md
+progress.md
+task_plan.md
+SESSION_HANDOFF_*.md
+
+# Local state and downloaded data
+config/evolution.yaml
+config/*.local.yaml
+.env
+.env.*
+data/*.db
+data/*.db-shm
+data/*.db-wal
+data/evolution/generations/*.json
+data/evolution/generations/*.yaml
+data/evolution/generations/*.yml
+历史归档区/**
+!历史归档区/
+!历史归档区/README.md
+
+# Local tooling artifacts
+.coverage
+.venv_cleanup_backup/
+/invest_evolution/
+
+frontend/node_modules/
+frontend/dist/
+frontend/*.tsbuildinfo
+frontend/playwright-report/
+frontend/test-results/
+frontend/.playwright/

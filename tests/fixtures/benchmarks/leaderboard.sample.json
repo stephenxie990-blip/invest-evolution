@@ -1,0 +1,3245 @@
+{
+  "generated_at": "2026-03-20T13:20:03.889340",
+  "total_records": 101,
+  "total_managers": 18,
+  "eligible_managers": 1,
+  "policy": {
+    "min_cycles": 3,
+    "min_cycles_per_regime": 2,
+    "quality_gate_matrix": {
+      "review": {
+        "min_strategy_score": 0.45,
+        "min_benchmark_pass_rate": 0.05,
+        "max_drawdown_pct": 18.0
+      },
+      "optimization": {
+        "contract_version": "optimization_event.v2",
+        "require_cycle_id": true,
+        "require_lineage": true,
+        "required_fields": [
+          "event_id",
+          "contract_version",
+          "cycle_id",
+          "trigger",
+          "stage",
+          "status",
+          "decision",
+          "applied_change",
+          "lineage",
+          "evidence",
+          "ts"
+        ],
+        "required_lineage_fields": [
+          "deployment_stage",
+          "active_runtime_config_ref",
+          "candidate_runtime_config_ref",
+          "promotion_status",
+          "review_basis_window",
+          "fitness_source_cycles",
+          "runtime_override_keys"
+        ]
+      },
+      "governance": {
+        "min_score": 0.0,
+        "min_avg_return_pct": 0.0,
+        "min_avg_strategy_score": 0.0,
+        "min_benchmark_pass_rate": 0.0,
+        "max_avg_drawdown": 15.0,
+        "block_negative_score": true,
+        "allowed_deployment_stages": [
+          "active"
+        ]
+      },
+      "promotion": {
+        "max_pending_cycles": 3,
+        "max_pending_candidates": 1,
+        "max_override_cycles": 2,
+        "allowed_deployment_stages": [
+          "candidate"
+        ],
+        "prune_on_failed_candidate_ab": true,
+        "max_selection_overlap_for_failed_candidate": 0.85,
+        "blocked_feedback_biases": [
+          "tighten_risk",
+          "recalibrate_probability"
+        ],
+        "min_feedback_samples": 5
+      },
+      "freeze": {
+        "max_candidate_pending_count": 0,
+        "max_override_pending_count": 0,
+        "max_active_candidate_drift_rate": 0.0
+      },
+      "effect_objectives": {
+        "enabled_after_governance": true,
+        "required_governance_quality_pass_rate": 1.0,
+        "objective_order": [
+          "benchmark_pass_rate",
+          "avg_sharpe_ratio",
+          "avg_return_pct",
+          "avg_max_drawdown"
+        ]
+      },
+      "routing": {
+        "min_score": 0.0,
+        "min_avg_return_pct": 0.0,
+        "min_avg_strategy_score": 0.0,
+        "min_benchmark_pass_rate": 0.0,
+        "max_avg_drawdown": 15.0,
+        "allowed_deployment_stages": [
+          "active"
+        ]
+      }
+    },
+    "train": {
+      "promotion_gate": {
+        "min_samples": 3,
+        "research_feedback": {
+          "min_sample_count": 5,
+          "blocked_biases": [
+            "tighten_risk",
+            "recalibrate_probability"
+          ],
+          "max_brier_like_direction_score": 0.25,
+          "horizons": {
+            "T+20": {
+              "min_hit_rate": 0.45,
+              "max_invalidation_rate": 0.3,
+              "min_interval_hit_rate": 0.4
+            }
+          }
+        },
+        "regime_validation": {
+          "min_distinct_regimes": 2,
+          "min_samples_per_regime": 1,
+          "min_avg_return_pct": 0.0,
+          "min_win_rate": 0.4,
+          "min_benchmark_pass_rate": 0.4,
+          "max_dominant_regime_share": 0.75
+        },
+        "return_objectives": {
+          "min_avg_return_pct": 0.0,
+          "min_median_return_pct": 0.0,
+          "min_cumulative_return_pct": 0.0,
+          "min_win_rate": 0.5,
+          "max_loss_share": 0.5,
+          "min_benchmark_pass_rate": 0.5
+        },
+        "candidate_ab": {
+          "required_when_candidate_present": true,
+          "require_candidate_outperform_active": true,
+          "min_return_lift_pct": 0.0,
+          "min_strategy_score_lift": 0.0,
+          "min_benchmark_lift": 0.0
+        }
+      },
+      "freeze_gate": {
+        "avg_return_gt": 0.0,
+        "avg_sharpe_gte": 0.8,
+        "avg_max_drawdown_lt": 15.0,
+        "benchmark_pass_rate_gte": 0.6,
+        "research_feedback": {
+          "min_sample_count": 8,
+          "blocked_biases": [
+            "tighten_risk",
+            "recalibrate_probability"
+          ],
+          "max_brier_like_direction_score": 0.22,
+          "horizons": {
+            "default": {
+              "min_hit_rate": 0.5,
+              "max_invalidation_rate": 0.25,
+              "min_interval_hit_rate": 0.45
+            }
+          }
+        },
+        "governance": {
+          "max_candidate_pending_count": 0,
+          "max_override_pending_count": 0,
+          "max_active_candidate_drift_rate": 0.0
+        }
+      },
+      "quality_gate_matrix": {
+        "review": {
+          "min_strategy_score": 0.45,
+          "min_benchmark_pass_rate": 0.05,
+          "max_drawdown_pct": 18.0
+        },
+        "optimization": {
+          "contract_version": "optimization_event.v2",
+          "require_cycle_id": true,
+          "require_lineage": true,
+          "required_fields": [
+            "event_id",
+            "contract_version",
+            "cycle_id",
+            "trigger",
+            "stage",
+            "status",
+            "decision",
+            "applied_change",
+            "lineage",
+            "evidence",
+            "ts"
+          ],
+          "required_lineage_fields": [
+            "deployment_stage",
+            "active_runtime_config_ref",
+            "candidate_runtime_config_ref",
+            "promotion_status",
+            "review_basis_window",
+            "fitness_source_cycles",
+            "runtime_override_keys"
+          ]
+        },
+        "governance": {
+          "min_score": 0.0,
+          "min_avg_return_pct": 0.0,
+          "min_avg_strategy_score": 0.0,
+          "min_benchmark_pass_rate": 0.0,
+          "max_avg_drawdown": 15.0,
+          "block_negative_score": true,
+          "allowed_deployment_stages": [
+            "active"
+          ]
+        },
+        "promotion": {
+          "max_pending_cycles": 3,
+          "max_pending_candidates": 1,
+          "max_override_cycles": 2,
+          "allowed_deployment_stages": [
+            "candidate"
+          ],
+          "prune_on_failed_candidate_ab": true,
+          "max_selection_overlap_for_failed_candidate": 0.85,
+          "blocked_feedback_biases": [
+            "tighten_risk",
+            "recalibrate_probability"
+          ],
+          "min_feedback_samples": 5
+        },
+        "freeze": {
+          "max_candidate_pending_count": 0,
+          "max_override_pending_count": 0,
+          "max_active_candidate_drift_rate": 0.0
+        },
+        "effect_objectives": {
+          "enabled_after_governance": true,
+          "required_governance_quality_pass_rate": 1.0,
+          "objective_order": [
+            "benchmark_pass_rate",
+            "avg_sharpe_ratio",
+            "avg_return_pct",
+            "avg_max_drawdown"
+          ]
+        },
+        "routing": {
+          "min_score": 0.0,
+          "min_avg_return_pct": 0.0,
+          "min_avg_strategy_score": 0.0,
+          "min_benchmark_pass_rate": 0.0,
+          "max_avg_drawdown": 15.0,
+          "allowed_deployment_stages": [
+            "active"
+          ]
+        }
+      }
+    }
+  },
+  "quality_gate_matrix": {
+    "review": {
+      "min_strategy_score": 0.45,
+      "min_benchmark_pass_rate": 0.05,
+      "max_drawdown_pct": 18.0
+    },
+    "optimization": {
+      "contract_version": "optimization_event.v2",
+      "require_cycle_id": true,
+      "require_lineage": true,
+      "required_fields": [
+        "event_id",
+        "contract_version",
+        "cycle_id",
+        "trigger",
+        "stage",
+        "status",
+        "decision",
+        "applied_change",
+        "lineage",
+        "evidence",
+        "ts"
+      ],
+      "required_lineage_fields": [
+        "deployment_stage",
+        "active_runtime_config_ref",
+        "candidate_runtime_config_ref",
+        "promotion_status",
+        "review_basis_window",
+        "fitness_source_cycles",
+        "runtime_override_keys"
+      ]
+    },
+    "governance": {
+      "min_score": 0.0,
+      "min_avg_return_pct": 0.0,
+      "min_avg_strategy_score": 0.0,
+      "min_benchmark_pass_rate": 0.0,
+      "max_avg_drawdown": 15.0,
+      "block_negative_score": true,
+      "allowed_deployment_stages": [
+        "active"
+      ]
+    },
+    "promotion": {
+      "max_pending_cycles": 3,
+      "max_pending_candidates": 1,
+      "max_override_cycles": 2,
+      "allowed_deployment_stages": [
+        "candidate"
+      ],
+      "prune_on_failed_candidate_ab": true,
+      "max_selection_overlap_for_failed_candidate": 0.85,
+      "blocked_feedback_biases": [
+        "tighten_risk",
+        "recalibrate_probability"
+      ],
+      "min_feedback_samples": 5
+    },
+    "freeze": {
+      "max_candidate_pending_count": 0,
+      "max_override_pending_count": 0,
+      "max_active_candidate_drift_rate": 0.0
+    },
+    "effect_objectives": {
+      "enabled_after_governance": true,
+      "required_governance_quality_pass_rate": 1.0,
+      "objective_order": [
+        "benchmark_pass_rate",
+        "avg_sharpe_ratio",
+        "avg_return_pct",
+        "avg_max_drawdown"
+      ]
+    },
+    "routing": {
+      "min_score": 0.0,
+      "min_avg_return_pct": 0.0,
+      "min_avg_strategy_score": 0.0,
+      "min_benchmark_pass_rate": 0.0,
+      "max_avg_drawdown": 15.0,
+      "allowed_deployment_stages": [
+        "active"
+      ]
+    }
+  },
+  "entries": [
+    {
+      "key": "momentum::p0_release_gate_stage1_20260318_live_provider_fixed",
+      "manager_id": "momentum",
+      "manager_config_ref": "p0_release_gate_stage1_20260318_live_provider_fixed",
+      "run_dirs": [
+        "/Users/zhangsan/Desktop/投资进化系统v1.5/outputs/p0_release_gate_stage1_20260318_live_provider_fixed"
+      ],
+      "cycles": 8,
+      "profit_cycles": 3,
+      "profit_rate": 0.375,
+      "avg_return_pct": 0.126605,
+      "avg_sharpe_ratio": -0.525974,
+      "avg_max_drawdown": 2.55489,
+      "avg_excess_return": 2.533375,
+      "avg_strategy_score": 0.64671,
+      "benchmark_pass_rate": 0.25,
+      "dominant_regime": "bull",
+      "regime_breakdown": {
+        "bear": 3,
+        "bull": 4,
+        "oscillation": 1
+      },
+      "latest_cycle_id": 18,
+      "latest_cutoff_date": "20230217",
+      "latest_return_pct": -2.6365220310104487,
+      "score": 8.209204,
+      "deployment_stage": "active",
+      "promotion_gate_status": "not_applicable",
+      "promotion_status": "active_aligned",
+      "sample_gate": {
+        "min_cycles": 3,
+        "observed_cycles": 8,
+        "min_cycles_per_regime": 2,
+        "dominant_regime": "bull",
+        "dominant_regime_cycles": 4
+      },
+      "quality_gate": {
+        "passed": true,
+        "checks": [
+          {
+            "name": "block_negative_score",
+            "passed": true,
+            "actual": 8.209204,
+            "threshold": 0.0
+          },
+          {
+            "name": "min_score",
+            "passed": true,
+            "actual": 8.209204,
+            "threshold": 0.0
+          },
+          {
+            "name": "min_avg_return_pct",
+            "passed": true,
+            "actual": 0.126605,
+            "threshold": 0.0
+          },
+          {
+            "name": "min_avg_strategy_score",
+            "passed": true,
+            "actual": 0.64671,
+            "threshold": 0.0
+          },
+          {
+            "name": "min_benchmark_pass_rate",
+            "passed": true,
+            "actual": 0.25,
+            "threshold": 0.0
+          },
+          {
+            "name": "max_avg_drawdown",
+            "passed": true,
+            "actual": 2.55489,
+            "threshold": 15.0
+          },
+          {
+            "name": "allowed_deployment_stages",
+            "passed": true,
+            "actual": "active",
+            "threshold": [
+              "active"
+            ]
+          }
+        ],
+        "failed_checks": [],
+        "deployment_stage": "active"
+      },
+      "eligible_for_governance": true,
+      "ineligible_reason": "",
+      "style_profile": {
+        "bull": 1.0,
+        "oscillation": 0.45,
+        "bear": 0.1,
+        "unknown": 0.6
+      },
+      "regime_performance": {
+        "bear": {
+          "cycles": 3,
+          "avg_return_pct": 3.671135,
+          "avg_sharpe_ratio": 2.936733,
+          "avg_max_drawdown": 1.722746,
+          "avg_strategy_score": 0.681498,
+          "benchmark_pass_rate": 0.666667,
+          "win_rate": 1.0,
+          "score": 11.301094,
+          "compatibility": 0.1
+        },
+        "bull": {
+          "cycles": 4,
+          "avg_return_pct": -1.841011,
+          "avg_sharpe_ratio": -2.61966,
+          "avg_max_drawdown": 2.689092,
+          "avg_strategy_score": 0.630683,
+          "benchmark_pass_rate": 0.0,
+          "win_rate": 0.0,
+          "score": -17.728741,
+          "compatibility": 1.0
+        },
+        "oscillation": {
+          "cycles": 1,
+          "avg_return_pct": -2.636522,
+          "avg_sharpe_ratio": -2.539348,
+          "avg_max_drawdown": 4.514516,
+          "avg_strategy_score": 0.606456,
+          "benchmark_pass_rate": 0.0,
+          "win_rate": 0.0,
+          "score": -8.23736,
+          "compatibility": 0.45
+        }
+      },
+      "objective_profile": {
+        "benchmark_pass_rate": 0.25,
+        "avg_sharpe_ratio": -0.525974,
+        "avg_return_pct": 0.126605,
+        "avg_max_drawdown": 2.55489
+      },
+      "objective_eligible_after_governance": true,
+      "scoring_mutation_count": 0,
+      "scoring_changed_keys": [],
+      "provisional_rank": 1,
+      "rank": 1
+    },
+    {
+      "key": "momentum::release_shadow_gate_20260320_114407_formal",
+      "manager_id": "momentum",
+      "manager_config_ref": "release_shadow_gate_20260320_114407_formal",
+      "run_dirs": [
+        "/Users/zhangsan/Desktop/投资进化系统v1.5/outputs/release_shadow_gate_20260320_114407_formal"
+      ],
+      "cycles": 3,
+      "profit_cycles": 2,
+      "profit_rate": 0.6666666666666666,
+      "avg_return_pct": 5.098845,
+      "avg_sharpe_ratio": 0.878187,
+      "avg_max_drawdown": 2.205596,
+      "avg_excess_return": 8.11297,
+      "avg_strategy_score": 0.688383,
+      "benchmark_pass_rate": 0.666667,
+      "dominant_regime": "bull",
+      "regime_breakdown": {
+        "bear": 1,
+        "bull": 1,
+        "oscillation": 1
+      },
+      "latest_cycle_id": 3,
+      "latest_cutoff_date": "20230529",
+      "latest_return_pct": -4.910309830032754,
+      "score": 32.861696,
+      "deployment_stage": "override",
+      "promotion_gate_status": "override_pending",
+      "promotion_status": "override_pending",
+      "sample_gate": {
+        "min_cycles": 3,
+        "observed_cycles": 3,
+        "min_cycles_per_regime": 2,
+        "dominant_regime": "bull",
+        "dominant_regime_cycles": 1
+      },
+      "quality_gate": {
+        "passed": false,
+        "checks": [
+          {
+            "name": "block_negative_score",
+            "passed": true,
+            "actual": 32.861696,
+            "threshold": 0.0
+          },
+          {
+            "name": "min_score",
+            "passed": true,
+            "actual": 32.861696,
+            "threshold": 0.0
+          },
+          {
+            "name": "min_avg_return_pct",
+            "passed": true,
+            "actual": 5.098845,
+            "threshold": 0.0
+          },
+          {
+            "name": "min_avg_strategy_score",
+            "passed": true,
+            "actual": 0.688383,
+            "threshold": 0.0
+          },
+          {
+            "name": "min_benchmark_pass_rate",
+            "passed": true,
+            "actual": 0.666667,
+            "threshold": 0.0
+          },
+          {
+            "name": "max_avg_drawdown",
+            "passed": true,
+            "actual": 2.205596,
+            "threshold": 15.0
+          },
+          {
+            "name": "allowed_deployment_stages",
+            "passed": false,
+            "actual": "override",
+            "threshold": [
+              "active"
+            ]
+          }
+        ],
+        "failed_checks": [
+          {
+            "name": "allowed_deployment_stages",
+            "passed": false,
+            "actual": "override",
+            "threshold": [
+              "active"
+            ]
+          }
+        ],
+        "deployment_stage": "override"
+      },
+      "eligible_for_governance": false,
+      "ineligible_reason": "min_regime_cycles",
+      "style_profile": {
+        "bull": 1.0,
+        "oscillation": 0.45,
+        "bear": 0.1,
+        "unknown": 0.6
+      },
+      "regime_performance": {
+        "bull": {
+          "cycles": 1,
+          "avg_return_pct": 14.219037,
+          "avg_sharpe_ratio": 3.454341,
+          "avg_max_drawdown": 0.758459,
+          "avg_strategy_score": 0.730225,
+          "benchmark_pass_rate": 1.0,
+          "win_rate": 1.0,
+          "score": 59.525045,
+          "compatibility": 1.0
+        },
+        "oscillation": {
+          "cycles": 1,
+          "avg_return_pct": 5.987809,
+          "avg_sharpe_ratio": 4.493473,
+          "avg_max_drawdown": 1.11134,
+          "avg_strategy_score": 0.729166,
+          "benchmark_pass_rate": 1.0,
+          "win_rate": 1.0,
+          "score": 29.629099,
+          "compatibility": 0.45
+        },
+        "bear": {
+          "cycles": 1,
+          "avg_return_pct": -4.91031,
+          "avg_sharpe_ratio": -5.313254,
+          "avg_max_drawdown": 4.746989,
+          "avg_strategy_score": 0.605759,
+          "benchmark_pass_rate": 0.0,
+          "win_rate": 0.0,
+          "score": -11.041895,
+          "compatibility": 0.1
+        }
+      },
+      "objective_profile": {
+        "benchmark_pass_rate": 0.666667,
+        "avg_sharpe_ratio": 0.878187,
+        "avg_return_pct": 5.098845,
+        "avg_max_drawdown": 2.205596
+      },
+      "objective_eligible_after_governance": false,
+      "scoring_mutation_count": 0,
+      "scoring_changed_keys": [],
+      "provisional_rank": 2,
+      "rank": 0
+    },
+    {
+      "key": "momentum::phase_v11_validation_20260315_final",
+      "manager_id": "momentum",
+      "manager_config_ref": "phase_v11_validation_20260315_final",
+      "run_dirs": [
+        "/Users/zhangsan/Desktop/投资进化系统v1.5/outputs/phase_v11_validation_20260315_final"
+      ],
+      "cycles": 10,
+      "profit_cycles": 6,
+      "profit_rate": 0.6,
+      "avg_return_pct": 1.353571,
+      "avg_sharpe_ratio": 0.694554,
+      "avg_max_drawdown": 2.397318,
+      "avg_excess_return": -0.068435,
+      "avg_strategy_score": 0.644058,
+      "benchmark_pass_rate": 0.0,
+      "dominant_regime": "bull",
+      "regime_breakdown": {
+        "bear": 1,
+        "bull": 6,
+        "oscillation": 3
+      },
+      "latest_cycle_id": 20,
+      "latest_cutoff_date": "20251020",
+      "latest_return_pct": -0.07575735293450998,
+      "score": 15.923422,
+      "deployment_stage": "override",
+      "promotion_gate_status": "awaiting_gate",
+      "promotion_status": "candidate_generated",
+      "sample_gate": {
+        "min_cycles": 3,
+        "observed_cycles": 10,
+        "min_cycles_per_regime": 2,
+        "dominant_regime": "bull",
+        "dominant_regime_cycles": 6
+      },
+      "quality_gate": {
+        "passed": false,
+        "checks": [
+          {
+            "name": "block_negative_score",
+            "passed": true,
+            "actual": 15.923422,
+            "threshold": 0.0
+          },
+          {
+            "name": "min_score",
+            "passed": true,
+            "actual": 15.923422,
+            "threshold": 0.0
+          },
+          {
+            "name": "min_avg_return_pct",
+            "passed": true,
+            "actual": 1.353571,
+            "threshold": 0.0
+          },
+          {
+            "name": "min_avg_strategy_score",
+            "passed": true,
+            "actual": 0.644058,
+            "threshold": 0.0
+          },
+          {
+            "name": "min_benchmark_pass_rate",
+            "passed": true,
+            "actual": 0.0,
+            "threshold": 0.0
+          },
+          {
+            "name": "max_avg_drawdown",
+            "passed": true,
+            "actual": 2.397318,
+            "threshold": 15.0
+          },
+          {
+            "name": "allowed_deployment_stages",
+            "passed": false,
+            "actual": "override",
+            "threshold": [
+              "active"
+            ]
+          }
+        ],
+        "failed_checks": [
+          {
+            "name": "allowed_deployment_stages",
+            "passed": false,
+            "actual": "override",
+            "threshold": [
+              "active"
+            ]
+          }
+        ],
+        "deployment_stage": "override"
+      },
+      "eligible_for_governance": false,
+      "ineligible_reason": "quality_gate:allowed_deployment_stages",
+      "style_profile": {
+        "bull": 1.0,
+        "oscillation": 0.45,
+        "bear": 0.1,
+        "unknown": 0.6
+      },
+      "regime_performance": {
+        "oscillation": {
+          "cycles": 3,
+          "avg_return_pct": 0.700911,
+          "avg_sharpe_ratio": 0.676339,
+          "avg_max_drawdown": 1.958563,
+          "avg_strategy_score": 0.647458,
+          "benchmark_pass_rate": 0.0,
+          "win_rate": 0.666667,
+          "score": 5.993295,
+          "compatibility": 0.45
+        },
+        "bull": {
+          "cycles": 6,
+          "avg_return_pct": 2.252567,
+          "avg_sharpe_ratio": 1.367074,
+          "avg_max_drawdown": 2.5565,
+          "avg_strategy_score": 0.64983,
+          "benchmark_pass_rate": 0.0,
+          "win_rate": 0.666667,
+          "score": 19.867433,
+          "compatibility": 1.0
+        },
+        "bear": {
+          "cycles": 1,
+          "avg_return_pct": -2.08243,
+          "avg_sharpe_ratio": -3.285923,
+          "avg_max_drawdown": 2.758486,
+          "avg_strategy_score": 0.599225,
+          "benchmark_pass_rate": 0.0,
+          "win_rate": 0.0,
+          "score": -6.053714,
+          "compatibility": 0.1
+        }
+      },
+      "objective_profile": {
+        "benchmark_pass_rate": 0.0,
+        "avg_sharpe_ratio": 0.694554,
+        "avg_return_pct": 1.353571,
+        "avg_max_drawdown": 2.397318
+      },
+      "objective_eligible_after_governance": false,
+      "scoring_mutation_count": 0,
+      "scoring_changed_keys": [],
+      "provisional_rank": 3,
+      "rank": 0
+    },
+    {
+      "key": "momentum::release_shadow_gate_smoke_runtime",
+      "manager_id": "momentum",
+      "manager_config_ref": "release_shadow_gate_smoke_runtime",
+      "run_dirs": [
+        "/Users/zhangsan/Desktop/投资进化系统v1.5/outputs/release_shadow_gate_smoke_runtime"
+      ],
+      "cycles": 1,
+      "profit_cycles": 1,
+      "profit_rate": 1.0,
+      "avg_return_pct": 0.993947,
+      "avg_sharpe_ratio": 0.647801,
+      "avg_max_drawdown": 4.414616,
+      "avg_excess_return": 5.287899,
+      "avg_strategy_score": 0.681756,
+      "benchmark_pass_rate": 0.0,
+      "dominant_regime": "bull",
+      "regime_breakdown": {
+        "bull": 1
+      },
+      "latest_cycle_id": 1,
+      "latest_cutoff_date": "20190625",
+      "latest_return_pct": 0.9939466553957027,
+      "score": 15.809142,
+      "deployment_stage": "override",
+      "promotion_gate_status": "override_pending",
+      "promotion_status": "override_pending",
+      "sample_gate": {
+        "min_cycles": 3,
+        "observed_cycles": 1,
+        "min_cycles_per_regime": 2,
+        "dominant_regime": "bull",
+        "dominant_regime_cycles": 1
+      },
+      "quality_gate": {
+        "passed": false,
+        "checks": [
+          {
+            "name": "block_negative_score",
+            "passed": true,
+            "actual": 15.809142,
+            "threshold": 0.0
+          },
+          {
+            "name": "min_score",
+            "passed": true,
+            "actual": 15.809142,
+            "threshold": 0.0
+          },
+          {
+            "name": "min_avg_return_pct",
+            "passed": true,
+            "actual": 0.993947,
+            "threshold": 0.0
+          },
+          {
+            "name": "min_avg_strategy_score",
+            "passed": true,
+            "actual": 0.681756,
+            "threshold": 0.0
+          },
+          {
+            "name": "min_benchmark_pass_rate",
+            "passed": true,
+            "actual": 0.0,
+            "threshold": 0.0
+          },
+          {
+            "name": "max_avg_drawdown",
+            "passed": true,
+            "actual": 4.414616,
+            "threshold": 15.0
+          },
+          {
+            "name": "allowed_deployment_stages",
+            "passed": false,
+            "actual": "override",
+            "threshold": [
+              "active"
+            ]
+          }
+        ],
+        "failed_checks": [
+          {
+            "name": "allowed_deployment_stages",
+            "passed": false,
+            "actual": "override",
+            "threshold": [
+              "active"
+            ]
+          }
+        ],
+        "deployment_stage": "override"
+      },
+      "eligible_for_governance": false,
+      "ineligible_reason": "min_cycles",
+      "style_profile": {
+        "bull": 1.0,
+        "oscillation": 0.45,
+        "bear": 0.1,
+        "unknown": 0.6
+      },
+      "regime_performance": {
+        "bull": {
+          "cycles": 1,
+          "avg_return_pct": 0.993947,
+          "avg_sharpe_ratio": 0.647801,
+          "avg_max_drawdown": 4.414616,
+          "avg_strategy_score": 0.681756,
+          "benchmark_pass_rate": 0.0,
+          "win_rate": 1.0,
+          "score": 12.593316,
+          "compatibility": 1.0
+        }
+      },
+      "objective_profile": {
+        "benchmark_pass_rate": 0.0,
+        "avg_sharpe_ratio": 0.647801,
+        "avg_return_pct": 0.993947,
+        "avg_max_drawdown": 4.414616
+      },
+      "objective_eligible_after_governance": false,
+      "scoring_mutation_count": 0,
+      "scoring_changed_keys": [],
+      "provisional_rank": 4,
+      "rank": 0
+    },
+    {
+      "key": "defensive_low_vol::phase_v11_validation_20260315",
+      "manager_id": "defensive_low_vol",
+      "manager_config_ref": "phase_v11_validation_20260315",
+      "run_dirs": [
+        "/Users/zhangsan/Desktop/投资进化系统v1.5/outputs/phase_v11_validation_20260315"
+      ],
+      "cycles": 8,
+      "profit_cycles": 4,
+      "profit_rate": 0.5,
+      "avg_return_pct": 0.355832,
+      "avg_sharpe_ratio": -0.040128,
+      "avg_max_drawdown": 2.668251,
+      "avg_excess_return": -0.229365,
+      "avg_strategy_score": 0.669282,
+      "benchmark_pass_rate": 0.25,
+      "dominant_regime": "bear",
+      "regime_breakdown": {
+        "bear": 4,
+        "bull": 2,
+        "oscillation": 2
+      },
+      "latest_cycle_id": 16,
+      "latest_cutoff_date": "20221023",
+      "latest_return_pct": 1.5351473049889466,
+      "score": 13.009574,
+      "deployment_stage": "override",
+      "promotion_gate_status": "not_applicable",
+      "promotion_status": "not_evaluated",
+      "sample_gate": {
+        "min_cycles": 3,
+        "observed_cycles": 8,
+        "min_cycles_per_regime": 2,
+        "dominant_regime": "bear",
+        "dominant_regime_cycles": 4
+      },
+      "quality_gate": {
+        "passed": false,
+        "checks": [
+          {
+            "name": "block_negative_score",
+            "passed": true,
+            "actual": 13.009574,
+            "threshold": 0.0
+          },
+          {
+            "name": "min_score",
+            "passed": true,
+            "actual": 13.009574,
+            "threshold": 0.0
+          },
+          {
+            "name": "min_avg_return_pct",
+            "passed": true,
+            "actual": 0.355832,
+            "threshold": 0.0
+          },
+          {
+            "name": "min_avg_strategy_score",
+            "passed": true,
+            "actual": 0.669282,
+            "threshold": 0.0
+          },
+          {
+            "name": "min_benchmark_pass_rate",
+            "passed": true,
+            "actual": 0.25,
+            "threshold": 0.0
+          },
+          {
+            "name": "max_avg_drawdown",
+            "passed": true,
+            "actual": 2.668251,
+            "threshold": 15.0
+          },
+          {
+            "name": "allowed_deployment_stages",
+            "passed": false,
+            "actual": "override",
+            "threshold": [
+              "active"
+            ]
+          }
+        ],
+        "failed_checks": [
+          {
+            "name": "allowed_deployment_stages",
+            "passed": false,
+            "actual": "override",
+            "threshold": [
+              "active"
+            ]
+          }
+        ],
+        "deployment_stage": "override"
+      },
+      "eligible_for_governance": false,
+      "ineligible_reason": "quality_gate:allowed_deployment_stages",
+      "style_profile": {
+        "bull": 0.35,
+        "oscillation": 0.78,
+        "bear": 1.0,
+        "unknown": 0.65
+      },
+      "regime_performance": {
+        "bear": {
+          "cycles": 4,
+          "avg_return_pct": 0.313714,
+          "avg_sharpe_ratio": -0.230778,
+          "avg_max_drawdown": 2.33758,
+          "avg_strategy_score": 0.673762,
+          "benchmark_pass_rate": 0.25,
+          "win_rate": 0.75,
+          "score": 8.93291,
+          "compatibility": 1.0
+        },
+        "oscillation": {
+          "cycles": 2,
+          "avg_return_pct": 2.583776,
+          "avg_sharpe_ratio": 2.40919,
+          "avg_max_drawdown": 3.168817,
+          "avg_strategy_score": 0.652135,
+          "benchmark_pass_rate": 0.5,
+          "win_rate": 0.5,
+          "score": 28.583194,
+          "compatibility": 0.78
+        },
+        "bull": {
+          "cycles": 2,
+          "avg_return_pct": -1.787875,
+          "avg_sharpe_ratio": -2.108146,
+          "avg_max_drawdown": 2.829028,
+          "avg_strategy_score": 0.677467,
+          "benchmark_pass_rate": 0.0,
+          "win_rate": 0.0,
+          "score": -4.410376,
+          "compatibility": 0.35
+        }
+      },
+      "objective_profile": {
+        "benchmark_pass_rate": 0.25,
+        "avg_sharpe_ratio": -0.040128,
+        "avg_return_pct": 0.355832,
+        "avg_max_drawdown": 2.668251
+      },
+      "objective_eligible_after_governance": false,
+      "scoring_mutation_count": 0,
+      "scoring_changed_keys": [],
+      "provisional_rank": 5,
+      "rank": 0
+    },
+    {
+      "key": "momentum::phase_v11_validation_20260315",
+      "manager_id": "momentum",
+      "manager_config_ref": "phase_v11_validation_20260315",
+      "run_dirs": [
+        "/Users/zhangsan/Desktop/投资进化系统v1.5/outputs/phase_v11_validation_20260315"
+      ],
+      "cycles": 9,
+      "profit_cycles": 5,
+      "profit_rate": 0.5555555555555556,
+      "avg_return_pct": -0.221854,
+      "avg_sharpe_ratio": -0.64399,
+      "avg_max_drawdown": 2.97713,
+      "avg_excess_return": 0.701236,
+      "avg_strategy_score": 0.64718,
+      "benchmark_pass_rate": 0.222222,
+      "dominant_regime": "bull",
+      "regime_breakdown": {
+        "bear": 1,
+        "bull": 7,
+        "oscillation": 1
+      },
+      "latest_cycle_id": 20,
+      "latest_cutoff_date": "20250711",
+      "latest_return_pct": 1.4595612478081748,
+      "score": 5.966714,
+      "deployment_stage": "override",
+      "promotion_gate_status": "awaiting_gate",
+      "promotion_status": "candidate_generated",
+      "sample_gate": {
+        "min_cycles": 3,
+        "observed_cycles": 9,
+        "min_cycles_per_regime": 2,
+        "dominant_regime": "bull",
+        "dominant_regime_cycles": 7
+      },
+      "quality_gate": {
+        "passed": false,
+        "checks": [
+          {
+            "name": "block_negative_score",
+            "passed": true,
+            "actual": 5.966714,
+            "threshold": 0.0
+          },
+          {
+            "name": "min_score",
+            "passed": true,
+            "actual": 5.966714,
+            "threshold": 0.0
+          },
+          {
+            "name": "min_avg_return_pct",
+            "passed": false,
+            "actual": -0.221854,
+            "threshold": 0.0
+          },
+          {
+            "name": "min_avg_strategy_score",
+            "passed": true,
+            "actual": 0.64718,
+            "threshold": 0.0
+          },
+          {
+            "name": "min_benchmark_pass_rate",
+            "passed": true,
+            "actual": 0.222222,
+            "threshold": 0.0
+          },
+          {
+            "name": "max_avg_drawdown",
+            "passed": true,
+            "actual": 2.97713,
+            "threshold": 15.0
+          },
+          {
+            "name": "allowed_deployment_stages",
+            "passed": false,
+            "actual": "override",
+            "threshold": [
+              "active"
+            ]
+          }
+        ],
+        "failed_checks": [
+          {
+            "name": "min_avg_return_pct",
+            "passed": false,
+            "actual": -0.221854,
+            "threshold": 0.0
+          },
+          {
+            "name": "allowed_deployment_stages",
+            "passed": false,
+            "actual": "override",
+            "threshold": [
+              "active"
+            ]
+          }
+        ],
+        "deployment_stage": "override"
+      },
+      "eligible_for_governance": false,
+      "ineligible_reason": "quality_gate:min_avg_return_pct",
+      "style_profile": {
+        "bull": 1.0,
+        "oscillation": 0.45,
+        "bear": 0.1,
+        "unknown": 0.6
+      },
+      "regime_performance": {
+        "bull": {
+          "cycles": 7,
+          "avg_return_pct": -1.348862,
+          "avg_sharpe_ratio": -1.726878,
+          "avg_max_drawdown": 3.564109,
+          "avg_strategy_score": 0.641451,
+          "benchmark_pass_rate": 0.142857,
+          "win_rate": 0.428571,
+          "score": -7.599381,
+          "compatibility": 1.0
+        },
+        "oscillation": {
+          "cycles": 1,
+          "avg_return_pct": 1.518682,
+          "avg_sharpe_ratio": 1.610216,
+          "avg_max_drawdown": 0.708227,
+          "avg_strategy_score": 0.655375,
+          "benchmark_pass_rate": 0.0,
+          "win_rate": 1.0,
+          "score": 10.172114,
+          "compatibility": 0.45
+        },
+        "bear": {
+          "cycles": 1,
+          "avg_return_pct": 5.92667,
+          "avg_sharpe_ratio": 4.682015,
+          "avg_max_drawdown": 1.137181,
+          "avg_strategy_score": 0.679088,
+          "benchmark_pass_rate": 1.0,
+          "win_rate": 1.0,
+          "score": 16.726664,
+          "compatibility": 0.1
+        }
+      },
+      "objective_profile": {
+        "benchmark_pass_rate": 0.222222,
+        "avg_sharpe_ratio": -0.64399,
+        "avg_return_pct": -0.221854,
+        "avg_max_drawdown": 2.97713
+      },
+      "objective_eligible_after_governance": false,
+      "scoring_mutation_count": 0,
+      "scoring_changed_keys": [],
+      "provisional_rank": 6,
+      "rank": 0
+    },
+    {
+      "key": "defensive_low_vol::phase_v11_validation_20260315_final",
+      "manager_id": "defensive_low_vol",
+      "manager_config_ref": "phase_v11_validation_20260315_final",
+      "run_dirs": [
+        "/Users/zhangsan/Desktop/投资进化系统v1.5/outputs/phase_v11_validation_20260315_final"
+      ],
+      "cycles": 5,
+      "profit_cycles": 2,
+      "profit_rate": 0.4,
+      "avg_return_pct": 0.108373,
+      "avg_sharpe_ratio": -1.175654,
+      "avg_max_drawdown": 2.12472,
+      "avg_excess_return": -0.404535,
+      "avg_strategy_score": 0.652751,
+      "benchmark_pass_rate": 0.2,
+      "dominant_regime": "bear",
+      "regime_breakdown": {
+        "bear": 2,
+        "bull": 1,
+        "oscillation": 2
+      },
+      "latest_cycle_id": 15,
+      "latest_cutoff_date": "20231108",
+      "latest_return_pct": 1.3111946835380222,
+      "score": 0.65043,
+      "deployment_stage": "override",
+      "promotion_gate_status": "not_applicable",
+      "promotion_status": "not_evaluated",
+      "sample_gate": {
+        "min_cycles": 3,
+        "observed_cycles": 5,
+        "min_cycles_per_regime": 2,
+        "dominant_regime": "bear",
+        "dominant_regime_cycles": 2
+      },
+      "quality_gate": {
+        "passed": false,
+        "checks": [
+          {
+            "name": "block_negative_score",
+            "passed": true,
+            "actual": 0.65043,
+            "threshold": 0.0
+          },
+          {
+            "name": "min_score",
+            "passed": true,
+            "actual": 0.65043,
+            "threshold": 0.0
+          },
+          {
+            "name": "min_avg_return_pct",
+            "passed": true,
+            "actual": 0.108373,
+            "threshold": 0.0
+          },
+          {
+            "name": "min_avg_strategy_score",
+            "passed": true,
+            "actual": 0.652751,
+            "threshold": 0.0
+          },
+          {
+            "name": "min_benchmark_pass_rate",
+            "passed": true,
+            "actual": 0.2,
+            "threshold": 0.0
+          },
+          {
+            "name": "max_avg_drawdown",
+            "passed": true,
+            "actual": 2.12472,
+            "threshold": 15.0
+          },
+          {
+            "name": "allowed_deployment_stages",
+            "passed": false,
+            "actual": "override",
+            "threshold": [
+              "active"
+            ]
+          }
+        ],
+        "failed_checks": [
+          {
+            "name": "allowed_deployment_stages",
+            "passed": false,
+            "actual": "override",
+            "threshold": [
+              "active"
+            ]
+          }
+        ],
+        "deployment_stage": "override"
+      },
+      "eligible_for_governance": false,
+      "ineligible_reason": "quality_gate:allowed_deployment_stages",
+      "style_profile": {
+        "bull": 0.35,
+        "oscillation": 0.78,
+        "bear": 1.0,
+        "unknown": 0.65
+      },
+      "regime_performance": {
+        "bear": {
+          "cycles": 2,
+          "avg_return_pct": -2.341186,
+          "avg_sharpe_ratio": -4.253911,
+          "avg_max_drawdown": 2.761848,
+          "avg_strategy_score": 0.677601,
+          "benchmark_pass_rate": 0.0,
+          "win_rate": 0.0,
+          "score": -32.078134,
+          "compatibility": 1.0
+        },
+        "bull": {
+          "cycles": 1,
+          "avg_return_pct": -2.75596,
+          "avg_sharpe_ratio": -4.807604,
+          "avg_max_drawdown": 2.725699,
+          "avg_strategy_score": 0.593299,
+          "benchmark_pass_rate": 0.0,
+          "win_rate": 0.0,
+          "score": -13.371303,
+          "compatibility": 0.35
+        },
+        "oscillation": {
+          "cycles": 2,
+          "avg_return_pct": 3.990099,
+          "avg_sharpe_ratio": 3.718579,
+          "avg_max_drawdown": 1.187102,
+          "avg_strategy_score": 0.657626,
+          "benchmark_pass_rate": 0.5,
+          "win_rate": 1.0,
+          "score": 38.828722,
+          "compatibility": 0.78
+        }
+      },
+      "objective_profile": {
+        "benchmark_pass_rate": 0.2,
+        "avg_sharpe_ratio": -1.175654,
+        "avg_return_pct": 0.108373,
+        "avg_max_drawdown": 2.12472
+      },
+      "objective_eligible_after_governance": false,
+      "scoring_mutation_count": 0,
+      "scoring_changed_keys": [],
+      "provisional_rank": 7,
+      "rank": 0
+    },
+    {
+      "key": "unknown::details",
+      "manager_id": "unknown",
+      "manager_config_ref": "details",
+      "run_dirs": [
+        "/Users/zhangsan/Desktop/投资进化系统v1.5/outputs/release_shadow_gate_bounded_smoke/details",
+        "/Users/zhangsan/Desktop/投资进化系统v1.5/outputs/release_shadow_gate_bounded_smoke_v2/details"
+      ],
+      "cycles": 2,
+      "profit_cycles": 0,
+      "profit_rate": 0.0,
+      "avg_return_pct": 0.0,
+      "avg_sharpe_ratio": 0.0,
+      "avg_max_drawdown": 0.0,
+      "avg_excess_return": 0.0,
+      "avg_strategy_score": 0.0,
+      "benchmark_pass_rate": 0.0,
+      "dominant_regime": "unknown",
+      "regime_breakdown": {
+        "unknown": 2
+      },
+      "latest_cycle_id": 1,
+      "latest_cutoff_date": "",
+      "latest_return_pct": 0.0,
+      "score": 0.0,
+      "deployment_stage": "active",
+      "promotion_gate_status": "",
+      "promotion_status": "",
+      "sample_gate": {
+        "min_cycles": 3,
+        "observed_cycles": 2,
+        "min_cycles_per_regime": 2,
+        "dominant_regime": "unknown",
+        "dominant_regime_cycles": 2
+      },
+      "quality_gate": {
+        "passed": true,
+        "checks": [
+          {
+            "name": "block_negative_score",
+            "passed": true,
+            "actual": 0.0,
+            "threshold": 0.0
+          },
+          {
+            "name": "min_score",
+            "passed": true,
+            "actual": 0.0,
+            "threshold": 0.0
+          },
+          {
+            "name": "min_avg_return_pct",
+            "passed": true,
+            "actual": 0.0,
+            "threshold": 0.0
+          },
+          {
+            "name": "min_avg_strategy_score",
+            "passed": true,
+            "actual": 0.0,
+            "threshold": 0.0
+          },
+          {
+            "name": "min_benchmark_pass_rate",
+            "passed": true,
+            "actual": 0.0,
+            "threshold": 0.0
+          },
+          {
+            "name": "max_avg_drawdown",
+            "passed": true,
+            "actual": 0.0,
+            "threshold": 15.0
+          },
+          {
+            "name": "allowed_deployment_stages",
+            "passed": true,
+            "actual": "active",
+            "threshold": [
+              "active"
+            ]
+          }
+        ],
+        "failed_checks": [],
+        "deployment_stage": "active"
+      },
+      "eligible_for_governance": false,
+      "ineligible_reason": "min_cycles",
+      "style_profile": {
+        "bull": 0.55,
+        "oscillation": 0.55,
+        "bear": 0.55,
+        "unknown": 0.55
+      },
+      "regime_performance": {
+        "unknown": {
+          "cycles": 2,
+          "avg_return_pct": 0.0,
+          "avg_sharpe_ratio": 0.0,
+          "avg_max_drawdown": 0.0,
+          "avg_strategy_score": 0.0,
+          "benchmark_pass_rate": 0.0,
+          "win_rate": 0.0,
+          "score": 0.0,
+          "compatibility": 0.55
+        }
+      },
+      "objective_profile": {
+        "benchmark_pass_rate": 0.0,
+        "avg_sharpe_ratio": 0.0,
+        "avg_return_pct": 0.0,
+        "avg_max_drawdown": 0.0
+      },
+      "objective_eligible_after_governance": true,
+      "scoring_mutation_count": 0,
+      "scoring_changed_keys": [],
+      "provisional_rank": 8,
+      "rank": 0
+    },
+    {
+      "key": "momentum::p0_release_gate_stage1_20260318_live_rerun",
+      "manager_id": "momentum",
+      "manager_config_ref": "p0_release_gate_stage1_20260318_live_rerun",
+      "run_dirs": [
+        "/Users/zhangsan/Desktop/投资进化系统v1.5/outputs/p0_release_gate_stage1_20260318_live_rerun"
+      ],
+      "cycles": 1,
+      "profit_cycles": 0,
+      "profit_rate": 0.0,
+      "avg_return_pct": -0.967827,
+      "avg_sharpe_ratio": -0.979688,
+      "avg_max_drawdown": 3.605493,
+      "avg_excess_return": 3.313394,
+      "avg_strategy_score": 0.596684,
+      "benchmark_pass_rate": 0.0,
+      "dominant_regime": "bear",
+      "regime_breakdown": {
+        "bear": 1
+      },
+      "latest_cycle_id": 1,
+      "latest_cutoff_date": "20220918",
+      "latest_return_pct": -0.9678273194325447,
+      "score": -2.262437,
+      "deployment_stage": "candidate",
+      "promotion_gate_status": "rejected",
+      "promotion_status": "candidate_pruned",
+      "sample_gate": {
+        "min_cycles": 3,
+        "observed_cycles": 1,
+        "min_cycles_per_regime": 2,
+        "dominant_regime": "bear",
+        "dominant_regime_cycles": 1
+      },
+      "quality_gate": {
+        "passed": false,
+        "checks": [
+          {
+            "name": "block_negative_score",
+            "passed": false,
+            "actual": -2.262437,
+            "threshold": 0.0
+          },
+          {
+            "name": "min_score",
+            "passed": false,
+            "actual": -2.262437,
+            "threshold": 0.0
+          },
+          {
+            "name": "min_avg_return_pct",
+            "passed": false,
+            "actual": -0.967827,
+            "threshold": 0.0
+          },
+          {
+            "name": "min_avg_strategy_score",
+            "passed": true,
+            "actual": 0.596684,
+            "threshold": 0.0
+          },
+          {
+            "name": "min_benchmark_pass_rate",
+            "passed": true,
+            "actual": 0.0,
+            "threshold": 0.0
+          },
+          {
+            "name": "max_avg_drawdown",
+            "passed": true,
+            "actual": 3.605493,
+            "threshold": 15.0
+          },
+          {
+            "name": "allowed_deployment_stages",
+            "passed": false,
+            "actual": "candidate",
+            "threshold": [
+              "active"
+            ]
+          }
+        ],
+        "failed_checks": [
+          {
+            "name": "block_negative_score",
+            "passed": false,
+            "actual": -2.262437,
+            "threshold": 0.0
+          },
+          {
+            "name": "min_score",
+            "passed": false,
+            "actual": -2.262437,
+            "threshold": 0.0
+          },
+          {
+            "name": "min_avg_return_pct",
+            "passed": false,
+            "actual": -0.967827,
+            "threshold": 0.0
+          },
+          {
+            "name": "allowed_deployment_stages",
+            "passed": false,
+            "actual": "candidate",
+            "threshold": [
+              "active"
+            ]
+          }
+        ],
+        "deployment_stage": "candidate"
+      },
+      "eligible_for_governance": false,
+      "ineligible_reason": "min_cycles",
+      "style_profile": {
+        "bull": 1.0,
+        "oscillation": 0.45,
+        "bear": 0.1,
+        "unknown": 0.6
+      },
+      "regime_performance": {
+        "bear": {
+          "cycles": 1,
+          "avg_return_pct": -0.967827,
+          "avg_sharpe_ratio": -0.979688,
+          "avg_max_drawdown": 3.605493,
+          "avg_strategy_score": 0.596684,
+          "benchmark_pass_rate": 0.0,
+          "win_rate": 0.0,
+          "score": -0.859481,
+          "compatibility": 0.1
+        }
+      },
+      "objective_profile": {
+        "benchmark_pass_rate": 0.0,
+        "avg_sharpe_ratio": -0.979688,
+        "avg_return_pct": -0.967827,
+        "avg_max_drawdown": 3.605493
+      },
+      "objective_eligible_after_governance": false,
+      "scoring_mutation_count": 0,
+      "scoring_changed_keys": [],
+      "provisional_rank": 9,
+      "rank": 0
+    },
+    {
+      "key": "momentum::p0_release_gate_stage1_20260317_live",
+      "manager_id": "momentum",
+      "manager_config_ref": "p0_release_gate_stage1_20260317_live",
+      "run_dirs": [
+        "/Users/zhangsan/Desktop/投资进化系统v1.5/outputs/p0_release_gate_stage1_20260317_live"
+      ],
+      "cycles": 10,
+      "profit_cycles": 3,
+      "profit_rate": 0.3,
+      "avg_return_pct": -0.410842,
+      "avg_sharpe_ratio": -1.453506,
+      "avg_max_drawdown": 2.987616,
+      "avg_excess_return": 2.183008,
+      "avg_strategy_score": 0.647287,
+      "benchmark_pass_rate": 0.2,
+      "dominant_regime": "bull",
+      "regime_breakdown": {
+        "bear": 3,
+        "bull": 4,
+        "oscillation": 3
+      },
+      "latest_cycle_id": 11,
+      "latest_cutoff_date": "20240603",
+      "latest_return_pct": -3.596608620622748,
+      "score": -2.365978,
+      "deployment_stage": "override",
+      "promotion_gate_status": "override_pending",
+      "promotion_status": "override_pending",
+      "sample_gate": {
+        "min_cycles": 3,
+        "observed_cycles": 10,
+        "min_cycles_per_regime": 2,
+        "dominant_regime": "bull",
+        "dominant_regime_cycles": 4
+      },
+      "quality_gate": {
+        "passed": false,
+        "checks": [
+          {
+            "name": "block_negative_score",
+            "passed": false,
+            "actual": -2.365978,
+            "threshold": 0.0
+          },
+          {
+            "name": "min_score",
+            "passed": false,
+            "actual": -2.365978,
+            "threshold": 0.0
+          },
+          {
+            "name": "min_avg_return_pct",
+            "passed": false,
+            "actual": -0.410842,
+            "threshold": 0.0
+          },
+          {
+            "name": "min_avg_strategy_score",
+            "passed": true,
+            "actual": 0.647287,
+            "threshold": 0.0
+          },
+          {
+            "name": "min_benchmark_pass_rate",
+            "passed": true,
+            "actual": 0.2,
+            "threshold": 0.0
+          },
+          {
+            "name": "max_avg_drawdown",
+            "passed": true,
+            "actual": 2.987616,
+            "threshold": 15.0
+          },
+          {
+            "name": "allowed_deployment_stages",
+            "passed": false,
+            "actual": "override",
+            "threshold": [
+              "active"
+            ]
+          }
+        ],
+        "failed_checks": [
+          {
+            "name": "block_negative_score",
+            "passed": false,
+            "actual": -2.365978,
+            "threshold": 0.0
+          },
+          {
+            "name": "min_score",
+            "passed": false,
+            "actual": -2.365978,
+            "threshold": 0.0
+          },
+          {
+            "name": "min_avg_return_pct",
+            "passed": false,
+            "actual": -0.410842,
+            "threshold": 0.0
+          },
+          {
+            "name": "allowed_deployment_stages",
+            "passed": false,
+            "actual": "override",
+            "threshold": [
+              "active"
+            ]
+          }
+        ],
+        "deployment_stage": "override"
+      },
+      "eligible_for_governance": false,
+      "ineligible_reason": "quality_gate:block_negative_score",
+      "style_profile": {
+        "bull": 1.0,
+        "oscillation": 0.45,
+        "bear": 0.1,
+        "unknown": 0.6
+      },
+      "regime_performance": {
+        "bull": {
+          "cycles": 4,
+          "avg_return_pct": 1.844849,
+          "avg_sharpe_ratio": 0.52945,
+          "avg_max_drawdown": 2.743544,
+          "avg_strategy_score": 0.677394,
+          "benchmark_pass_rate": 0.25,
+          "win_rate": 0.5,
+          "score": 16.192063,
+          "compatibility": 1.0
+        },
+        "bear": {
+          "cycles": 3,
+          "avg_return_pct": 0.372965,
+          "avg_sharpe_ratio": -0.306555,
+          "avg_max_drawdown": 2.248694,
+          "avg_strategy_score": 0.646587,
+          "benchmark_pass_rate": 0.333333,
+          "win_rate": 0.333333,
+          "score": 2.307778,
+          "compatibility": 0.1
+        },
+        "oscillation": {
+          "cycles": 3,
+          "avg_return_pct": -4.202236,
+          "avg_sharpe_ratio": -5.244398,
+          "avg_max_drawdown": 4.051968,
+          "avg_strategy_score": 0.607844,
+          "benchmark_pass_rate": 0.0,
+          "win_rate": 0.0,
+          "score": -19.348658,
+          "compatibility": 0.45
+        }
+      },
+      "objective_profile": {
+        "benchmark_pass_rate": 0.2,
+        "avg_sharpe_ratio": -1.453506,
+        "avg_return_pct": -0.410842,
+        "avg_max_drawdown": 2.987616
+      },
+      "objective_eligible_after_governance": false,
+      "scoring_mutation_count": 0,
+      "scoring_changed_keys": [],
+      "provisional_rank": 10,
+      "rank": 0
+    },
+    {
+      "key": "mean_reversion::phase_v11_validation_20260315",
+      "manager_id": "mean_reversion",
+      "manager_config_ref": "phase_v11_validation_20260315",
+      "run_dirs": [
+        "/Users/zhangsan/Desktop/投资进化系统v1.5/outputs/phase_v11_validation_20260315"
+      ],
+      "cycles": 3,
+      "profit_cycles": 1,
+      "profit_rate": 0.3333333333333333,
+      "avg_return_pct": -0.458129,
+      "avg_sharpe_ratio": -1.416582,
+      "avg_max_drawdown": 2.715675,
+      "avg_excess_return": -1.853962,
+      "avg_strategy_score": 0.647377,
+      "benchmark_pass_rate": 0.0,
+      "dominant_regime": "oscillation",
+      "regime_breakdown": {
+        "bear": 1,
+        "oscillation": 2
+      },
+      "latest_cycle_id": 4,
+      "latest_cutoff_date": "20230520",
+      "latest_return_pct": -2.1946666291541477,
+      "score": -6.092748,
+      "deployment_stage": "override",
+      "promotion_gate_status": "awaiting_gate",
+      "promotion_status": "candidate_generated",
+      "sample_gate": {
+        "min_cycles": 3,
+        "observed_cycles": 3,
+        "min_cycles_per_regime": 2,
+        "dominant_regime": "oscillation",
+        "dominant_regime_cycles": 2
+      },
+      "quality_gate": {
+        "passed": false,
+        "checks": [
+          {
+            "name": "block_negative_score",
+            "passed": false,
+            "actual": -6.092748,
+            "threshold": 0.0
+          },
+          {
+            "name": "min_score",
+            "passed": false,
+            "actual": -6.092748,
+            "threshold": 0.0
+          },
+          {
+            "name": "min_avg_return_pct",
+            "passed": false,
+            "actual": -0.458129,
+            "threshold": 0.0
+          },
+          {
+            "name": "min_avg_strategy_score",
+            "passed": true,
+            "actual": 0.647377,
+            "threshold": 0.0
+          },
+          {
+            "name": "min_benchmark_pass_rate",
+            "passed": true,
+            "actual": 0.0,
+            "threshold": 0.0
+          },
+          {
+            "name": "max_avg_drawdown",
+            "passed": true,
+            "actual": 2.715675,
+            "threshold": 15.0
+          },
+          {
+            "name": "allowed_deployment_stages",
+            "passed": false,
+            "actual": "override",
+            "threshold": [
+              "active"
+            ]
+          }
+        ],
+        "failed_checks": [
+          {
+            "name": "block_negative_score",
+            "passed": false,
+            "actual": -6.092748,
+            "threshold": 0.0
+          },
+          {
+            "name": "min_score",
+            "passed": false,
+            "actual": -6.092748,
+            "threshold": 0.0
+          },
+          {
+            "name": "min_avg_return_pct",
+            "passed": false,
+            "actual": -0.458129,
+            "threshold": 0.0
+          },
+          {
+            "name": "allowed_deployment_stages",
+            "passed": false,
+            "actual": "override",
+            "threshold": [
+              "active"
+            ]
+          }
+        ],
+        "deployment_stage": "override"
+      },
+      "eligible_for_governance": false,
+      "ineligible_reason": "quality_gate:block_negative_score",
+      "style_profile": {
+        "bull": 0.2,
+        "oscillation": 1.0,
+        "bear": 0.65,
+        "unknown": 0.6
+      },
+      "regime_performance": {
+        "oscillation": {
+          "cycles": 2,
+          "avg_return_pct": 0.41014,
+          "avg_sharpe_ratio": 0.569401,
+          "avg_max_drawdown": 3.040663,
+          "avg_strategy_score": 0.636148,
+          "benchmark_pass_rate": 0.0,
+          "win_rate": 0.5,
+          "score": 11.685673,
+          "compatibility": 1.0
+        },
+        "bear": {
+          "cycles": 1,
+          "avg_return_pct": -2.194667,
+          "avg_sharpe_ratio": -5.388549,
+          "avg_max_drawdown": 2.065697,
+          "avg_strategy_score": 0.669836,
+          "benchmark_pass_rate": 0.0,
+          "win_rate": 0.0,
+          "score": -27.334663,
+          "compatibility": 0.65
+        }
+      },
+      "objective_profile": {
+        "benchmark_pass_rate": 0.0,
+        "avg_sharpe_ratio": -1.416582,
+        "avg_return_pct": -0.458129,
+        "avg_max_drawdown": 2.715675
+      },
+      "objective_eligible_after_governance": false,
+      "scoring_mutation_count": 0,
+      "scoring_changed_keys": [],
+      "provisional_rank": 11,
+      "rank": 0
+    },
+    {
+      "key": "momentum::phase_v11_validation_20260315_convergence_rerun",
+      "manager_id": "momentum",
+      "manager_config_ref": "phase_v11_validation_20260315_convergence_rerun",
+      "run_dirs": [
+        "/Users/zhangsan/Desktop/投资进化系统v1.5/outputs/phase_v11_validation_20260315_convergence_rerun"
+      ],
+      "cycles": 12,
+      "profit_cycles": 3,
+      "profit_rate": 0.25,
+      "avg_return_pct": -1.111767,
+      "avg_sharpe_ratio": -1.45867,
+      "avg_max_drawdown": 3.29609,
+      "avg_excess_return": -4.296926,
+      "avg_strategy_score": 0.62157,
+      "benchmark_pass_rate": 0.083333,
+      "dominant_regime": "bear",
+      "regime_breakdown": {
+        "bear": 6,
+        "bull": 3,
+        "oscillation": 3
+      },
+      "latest_cycle_id": 20,
+      "latest_cutoff_date": "20190418",
+      "latest_return_pct": -1.7132734946623243,
+      "score": -6.224455,
+      "deployment_stage": "override",
+      "promotion_gate_status": "override_pending",
+      "promotion_status": "override_pending",
+      "sample_gate": {
+        "min_cycles": 3,
+        "observed_cycles": 12,
+        "min_cycles_per_regime": 2,
+        "dominant_regime": "bear",
+        "dominant_regime_cycles": 6
+      },
+      "quality_gate": {
+        "passed": false,
+        "checks": [
+          {
+            "name": "block_negative_score",
+            "passed": false,
+            "actual": -6.224455,
+            "threshold": 0.0
+          },
+          {
+            "name": "min_score",
+            "passed": false,
+            "actual": -6.224455,
+            "threshold": 0.0
+          },
+          {
+            "name": "min_avg_return_pct",
+            "passed": false,
+            "actual": -1.111767,
+            "threshold": 0.0
+          },
+          {
+            "name": "min_avg_strategy_score",
+            "passed": true,
+            "actual": 0.62157,
+            "threshold": 0.0
+          },
+          {
+            "name": "min_benchmark_pass_rate",
+            "passed": true,
+            "actual": 0.083333,
+            "threshold": 0.0
+          },
+          {
+            "name": "max_avg_drawdown",
+            "passed": true,
+            "actual": 3.29609,
+            "threshold": 15.0
+          },
+          {
+            "name": "allowed_deployment_stages",
+            "passed": false,
+            "actual": "override",
+            "threshold": [
+              "active"
+            ]
+          }
+        ],
+        "failed_checks": [
+          {
+            "name": "block_negative_score",
+            "passed": false,
+            "actual": -6.224455,
+            "threshold": 0.0
+          },
+          {
+            "name": "min_score",
+            "passed": false,
+            "actual": -6.224455,
+            "threshold": 0.0
+          },
+          {
+            "name": "min_avg_return_pct",
+            "passed": false,
+            "actual": -1.111767,
+            "threshold": 0.0
+          },
+          {
+            "name": "allowed_deployment_stages",
+            "passed": false,
+            "actual": "override",
+            "threshold": [
+              "active"
+            ]
+          }
+        ],
+        "deployment_stage": "override"
+      },
+      "eligible_for_governance": false,
+      "ineligible_reason": "quality_gate:block_negative_score",
+      "style_profile": {
+        "bull": 1.0,
+        "oscillation": 0.45,
+        "bear": 0.1,
+        "unknown": 0.6
+      },
+      "regime_performance": {
+        "bear": {
+          "cycles": 6,
+          "avg_return_pct": -0.976525,
+          "avg_sharpe_ratio": -1.031925,
+          "avg_max_drawdown": 3.559616,
+          "avg_strategy_score": 0.594738,
+          "benchmark_pass_rate": 0.166667,
+          "win_rate": 0.333333,
+          "score": -0.354025,
+          "compatibility": 0.1
+        },
+        "bull": {
+          "cycles": 3,
+          "avg_return_pct": -2.027504,
+          "avg_sharpe_ratio": -2.80443,
+          "avg_max_drawdown": 3.492603,
+          "avg_strategy_score": 0.647022,
+          "benchmark_pass_rate": 0.0,
+          "win_rate": 0.0,
+          "score": -19.58227,
+          "compatibility": 1.0
+        },
+        "oscillation": {
+          "cycles": 3,
+          "avg_return_pct": -0.466516,
+          "avg_sharpe_ratio": -0.966399,
+          "avg_max_drawdown": 2.572527,
+          "avg_strategy_score": 0.649782,
+          "benchmark_pass_rate": 0.0,
+          "win_rate": 0.333333,
+          "score": -0.941622,
+          "compatibility": 0.45
+        }
+      },
+      "objective_profile": {
+        "benchmark_pass_rate": 0.083333,
+        "avg_sharpe_ratio": -1.45867,
+        "avg_return_pct": -1.111767,
+        "avg_max_drawdown": 3.29609
+      },
+      "objective_eligible_after_governance": false,
+      "scoring_mutation_count": 0,
+      "scoring_changed_keys": [],
+      "provisional_rank": 12,
+      "rank": 0
+    },
+    {
+      "key": "defensive_low_vol::p0_release_gate_stage1_20260318_live_provider_fixed",
+      "manager_id": "defensive_low_vol",
+      "manager_config_ref": "p0_release_gate_stage1_20260318_live_provider_fixed",
+      "run_dirs": [
+        "/Users/zhangsan/Desktop/投资进化系统v1.5/outputs/p0_release_gate_stage1_20260318_live_provider_fixed"
+      ],
+      "cycles": 1,
+      "profit_cycles": 0,
+      "profit_rate": 0.0,
+      "avg_return_pct": -1.492391,
+      "avg_sharpe_ratio": -1.782364,
+      "avg_max_drawdown": 3.583591,
+      "avg_excess_return": 2.000796,
+      "avg_strategy_score": 0.518666,
+      "benchmark_pass_rate": 0.0,
+      "dominant_regime": "bear",
+      "regime_breakdown": {
+        "bear": 1
+      },
+      "latest_cycle_id": 20,
+      "latest_cutoff_date": "20240626",
+      "latest_return_pct": -1.4923909196599705,
+      "score": -11.803863,
+      "deployment_stage": "candidate",
+      "promotion_gate_status": "rejected",
+      "promotion_status": "candidate_pruned",
+      "sample_gate": {
+        "min_cycles": 3,
+        "observed_cycles": 1,
+        "min_cycles_per_regime": 2,
+        "dominant_regime": "bear",
+        "dominant_regime_cycles": 1
+      },
+      "quality_gate": {
+        "passed": false,
+        "checks": [
+          {
+            "name": "block_negative_score",
+            "passed": false,
+            "actual": -11.803863,
+            "threshold": 0.0
+          },
+          {
+            "name": "min_score",
+            "passed": false,
+            "actual": -11.803863,
+            "threshold": 0.0
+          },
+          {
+            "name": "min_avg_return_pct",
+            "passed": false,
+            "actual": -1.492391,
+            "threshold": 0.0
+          },
+          {
+            "name": "min_avg_strategy_score",
+            "passed": true,
+            "actual": 0.518666,
+            "threshold": 0.0
+          },
+          {
+            "name": "min_benchmark_pass_rate",
+            "passed": true,
+            "actual": 0.0,
+            "threshold": 0.0
+          },
+          {
+            "name": "max_avg_drawdown",
+            "passed": true,
+            "actual": 3.583591,
+            "threshold": 15.0
+          },
+          {
+            "name": "allowed_deployment_stages",
+            "passed": false,
+            "actual": "candidate",
+            "threshold": [
+              "active"
+            ]
+          }
+        ],
+        "failed_checks": [
+          {
+            "name": "block_negative_score",
+            "passed": false,
+            "actual": -11.803863,
+            "threshold": 0.0
+          },
+          {
+            "name": "min_score",
+            "passed": false,
+            "actual": -11.803863,
+            "threshold": 0.0
+          },
+          {
+            "name": "min_avg_return_pct",
+            "passed": false,
+            "actual": -1.492391,
+            "threshold": 0.0
+          },
+          {
+            "name": "allowed_deployment_stages",
+            "passed": false,
+            "actual": "candidate",
+            "threshold": [
+              "active"
+            ]
+          }
+        ],
+        "deployment_stage": "candidate"
+      },
+      "eligible_for_governance": false,
+      "ineligible_reason": "min_cycles",
+      "style_profile": {
+        "bull": 0.35,
+        "oscillation": 0.78,
+        "bear": 1.0,
+        "unknown": 0.65
+      },
+      "regime_performance": {
+        "bear": {
+          "cycles": 1,
+          "avg_return_pct": -1.492391,
+          "avg_sharpe_ratio": -1.782364,
+          "avg_max_drawdown": 3.583591,
+          "avg_strategy_score": 0.518666,
+          "benchmark_pass_rate": 0.0,
+          "win_rate": 0.0,
+          "score": -11.773057,
+          "compatibility": 1.0
+        }
+      },
+      "objective_profile": {
+        "benchmark_pass_rate": 0.0,
+        "avg_sharpe_ratio": -1.782364,
+        "avg_return_pct": -1.492391,
+        "avg_max_drawdown": 3.583591
+      },
+      "objective_eligible_after_governance": false,
+      "scoring_mutation_count": 0,
+      "scoring_changed_keys": [],
+      "provisional_rank": 13,
+      "rank": 0
+    },
+    {
+      "key": "momentum::phase_v11_validation_20260315_governance_rerun",
+      "manager_id": "momentum",
+      "manager_config_ref": "phase_v11_validation_20260315_governance_rerun",
+      "run_dirs": [
+        "/Users/zhangsan/Desktop/投资进化系统v1.5/outputs/phase_v11_validation_20260315_governance_rerun"
+      ],
+      "cycles": 20,
+      "profit_cycles": 4,
+      "profit_rate": 0.2,
+      "avg_return_pct": -1.716737,
+      "avg_sharpe_ratio": -2.458864,
+      "avg_max_drawdown": 2.917108,
+      "avg_excess_return": -1.071275,
+      "avg_strategy_score": 0.633749,
+      "benchmark_pass_rate": 0.05,
+      "dominant_regime": "bear",
+      "regime_breakdown": {
+        "bear": 11,
+        "bull": 4,
+        "oscillation": 5
+      },
+      "latest_cycle_id": 20,
+      "latest_cutoff_date": "20250826",
+      "latest_return_pct": -1.5304413636428509,
+      "score": -16.170823,
+      "deployment_stage": "override",
+      "promotion_gate_status": "override_pending",
+      "promotion_status": "override_pending",
+      "sample_gate": {
+        "min_cycles": 3,
+        "observed_cycles": 20,
+        "min_cycles_per_regime": 2,
+        "dominant_regime": "bear",
+        "dominant_regime_cycles": 11
+      },
+      "quality_gate": {
+        "passed": false,
+        "checks": [
+          {
+            "name": "block_negative_score",
+            "passed": false,
+            "actual": -16.170823,
+            "threshold": 0.0
+          },
+          {
+            "name": "min_score",
+            "passed": false,
+            "actual": -16.170823,
+            "threshold": 0.0
+          },
+          {
+            "name": "min_avg_return_pct",
+            "passed": false,
+            "actual": -1.716737,
+            "threshold": 0.0
+          },
+          {
+            "name": "min_avg_strategy_score",
+            "passed": true,
+            "actual": 0.633749,
+            "threshold": 0.0
+          },
+          {
+            "name": "min_benchmark_pass_rate",
+            "passed": true,
+            "actual": 0.05,
+            "threshold": 0.0
+          },
+          {
+            "name": "max_avg_drawdown",
+            "passed": true,
+            "actual": 2.917108,
+            "threshold": 15.0
+          },
+          {
+            "name": "allowed_deployment_stages",
+            "passed": false,
+            "actual": "override",
+            "threshold": [
+              "active"
+            ]
+          }
+        ],
+        "failed_checks": [
+          {
+            "name": "block_negative_score",
+            "passed": false,
+            "actual": -16.170823,
+            "threshold": 0.0
+          },
+          {
+            "name": "min_score",
+            "passed": false,
+            "actual": -16.170823,
+            "threshold": 0.0
+          },
+          {
+            "name": "min_avg_return_pct",
+            "passed": false,
+            "actual": -1.716737,
+            "threshold": 0.0
+          },
+          {
+            "name": "allowed_deployment_stages",
+            "passed": false,
+            "actual": "override",
+            "threshold": [
+              "active"
+            ]
+          }
+        ],
+        "deployment_stage": "override"
+      },
+      "eligible_for_governance": false,
+      "ineligible_reason": "quality_gate:block_negative_score",
+      "style_profile": {
+        "bull": 1.0,
+        "oscillation": 0.45,
+        "bear": 0.1,
+        "unknown": 0.6
+      },
+      "regime_performance": {
+        "bull": {
+          "cycles": 4,
+          "avg_return_pct": -3.09349,
+          "avg_sharpe_ratio": -4.051503,
+          "avg_max_drawdown": 3.502654,
+          "avg_strategy_score": 0.628242,
+          "benchmark_pass_rate": 0.0,
+          "win_rate": 0.0,
+          "score": -31.408406,
+          "compatibility": 1.0
+        },
+        "bear": {
+          "cycles": 11,
+          "avg_return_pct": -1.00754,
+          "avg_sharpe_ratio": -1.823404,
+          "avg_max_drawdown": 2.669615,
+          "avg_strategy_score": 0.638128,
+          "benchmark_pass_rate": 0.090909,
+          "win_rate": 0.272727,
+          "score": -2.202489,
+          "compatibility": 0.1
+        },
+        "oscillation": {
+          "cycles": 5,
+          "avg_return_pct": -2.17557,
+          "avg_sharpe_ratio": -2.582765,
+          "avg_max_drawdown": 2.993155,
+          "avg_strategy_score": 0.628521,
+          "benchmark_pass_rate": 0.0,
+          "win_rate": 0.2,
+          "score": -7.947607,
+          "compatibility": 0.45
+        }
+      },
+      "objective_profile": {
+        "benchmark_pass_rate": 0.05,
+        "avg_sharpe_ratio": -2.458864,
+        "avg_return_pct": -1.716737,
+        "avg_max_drawdown": 2.917108
+      },
+      "objective_eligible_after_governance": false,
+      "scoring_mutation_count": 0,
+      "scoring_changed_keys": [],
+      "provisional_rank": 14,
+      "rank": 0
+    },
+    {
+      "key": "mean_reversion::phase_v11_validation_20260315_final",
+      "manager_id": "mean_reversion",
+      "manager_config_ref": "phase_v11_validation_20260315_final",
+      "run_dirs": [
+        "/Users/zhangsan/Desktop/投资进化系统v1.5/outputs/phase_v11_validation_20260315_final"
+      ],
+      "cycles": 5,
+      "profit_cycles": 0,
+      "profit_rate": 0.0,
+      "avg_return_pct": -2.59938,
+      "avg_sharpe_ratio": -2.499401,
+      "avg_max_drawdown": 3.530449,
+      "avg_excess_return": -0.534627,
+      "avg_strategy_score": 0.637424,
+      "benchmark_pass_rate": 0.0,
+      "dominant_regime": "oscillation",
+      "regime_breakdown": {
+        "bear": 1,
+        "bull": 1,
+        "oscillation": 3
+      },
+      "latest_cycle_id": 6,
+      "latest_cutoff_date": "20221111",
+      "latest_return_pct": -1.4497213618194509,
+      "score": -17.881366,
+      "deployment_stage": "override",
+      "promotion_gate_status": "awaiting_gate",
+      "promotion_status": "candidate_generated",
+      "sample_gate": {
+        "min_cycles": 3,
+        "observed_cycles": 5,
+        "min_cycles_per_regime": 2,
+        "dominant_regime": "oscillation",
+        "dominant_regime_cycles": 3
+      },
+      "quality_gate": {
+        "passed": false,
+        "checks": [
+          {
+            "name": "block_negative_score",
+            "passed": false,
+            "actual": -17.881366,
+            "threshold": 0.0
+          },
+          {
+            "name": "min_score",
+            "passed": false,
+            "actual": -17.881366,
+            "threshold": 0.0
+          },
+          {
+            "name": "min_avg_return_pct",
+            "passed": false,
+            "actual": -2.59938,
+            "threshold": 0.0
+          },
+          {
+            "name": "min_avg_strategy_score",
+            "passed": true,
+            "actual": 0.637424,
+            "threshold": 0.0
+          },
+          {
+            "name": "min_benchmark_pass_rate",
+            "passed": true,
+            "actual": 0.0,
+            "threshold": 0.0
+          },
+          {
+            "name": "max_avg_drawdown",
+            "passed": true,
+            "actual": 3.530449,
+            "threshold": 15.0
+          },
+          {
+            "name": "allowed_deployment_stages",
+            "passed": false,
+            "actual": "override",
+            "threshold": [
+              "active"
+            ]
+          }
+        ],
+        "failed_checks": [
+          {
+            "name": "block_negative_score",
+            "passed": false,
+            "actual": -17.881366,
+            "threshold": 0.0
+          },
+          {
+            "name": "min_score",
+            "passed": false,
+            "actual": -17.881366,
+            "threshold": 0.0
+          },
+          {
+            "name": "min_avg_return_pct",
+            "passed": false,
+            "actual": -2.59938,
+            "threshold": 0.0
+          },
+          {
+            "name": "allowed_deployment_stages",
+            "passed": false,
+            "actual": "override",
+            "threshold": [
+              "active"
+            ]
+          }
+        ],
+        "deployment_stage": "override"
+      },
+      "eligible_for_governance": false,
+      "ineligible_reason": "quality_gate:block_negative_score",
+      "style_profile": {
+        "bull": 0.2,
+        "oscillation": 1.0,
+        "bear": 0.65,
+        "unknown": 0.6
+      },
+      "regime_performance": {
+        "oscillation": {
+          "cycles": 3,
+          "avg_return_pct": -2.080698,
+          "avg_sharpe_ratio": -2.661941,
+          "avg_max_drawdown": 2.846962,
+          "avg_strategy_score": 0.647049,
+          "benchmark_pass_rate": 0.0,
+          "win_rate": 0.0,
+          "score": -18.059908,
+          "compatibility": 1.0
+        },
+        "bull": {
+          "cycles": 1,
+          "avg_return_pct": -0.473198,
+          "avg_sharpe_ratio": -0.463454,
+          "avg_max_drawdown": 2.994192,
+          "avg_strategy_score": 0.636265,
+          "benchmark_pass_rate": 0.0,
+          "win_rate": 0.0,
+          "score": 0.525197,
+          "compatibility": 0.2
+        },
+        "bear": {
+          "cycles": 1,
+          "avg_return_pct": -6.281607,
+          "avg_sharpe_ratio": -4.04773,
+          "avg_max_drawdown": 6.117164,
+          "avg_strategy_score": 0.609707,
+          "benchmark_pass_rate": 0.0,
+          "win_rate": 0.0,
+          "score": -21.943032,
+          "compatibility": 0.65
+        }
+      },
+      "objective_profile": {
+        "benchmark_pass_rate": 0.0,
+        "avg_sharpe_ratio": -2.499401,
+        "avg_return_pct": -2.59938,
+        "avg_max_drawdown": 3.530449
+      },
+      "objective_eligible_after_governance": false,
+      "scoring_mutation_count": 1,
+      "scoring_changed_keys": [
+        "penalties.insufficient_drop_5d",
+        "weights.volume_ratio_bonus"
+      ],
+      "provisional_rank": 15,
+      "rank": 0
+    },
+    {
+      "key": "momentum::release_shadow_gate_bounded_smoke",
+      "manager_id": "momentum",
+      "manager_config_ref": "release_shadow_gate_bounded_smoke",
+      "run_dirs": [
+        "/Users/zhangsan/Desktop/投资进化系统v1.5/outputs/release_shadow_gate_bounded_smoke"
+      ],
+      "cycles": 1,
+      "profit_cycles": 0,
+      "profit_rate": 0.0,
+      "avg_return_pct": -5.03692,
+      "avg_sharpe_ratio": -3.866809,
+      "avg_max_drawdown": 4.869683,
+      "avg_excess_return": 0.306487,
+      "avg_strategy_score": 0.555391,
+      "benchmark_pass_rate": 0.0,
+      "dominant_regime": "oscillation",
+      "regime_breakdown": {
+        "oscillation": 1
+      },
+      "latest_cycle_id": 1,
+      "latest_cutoff_date": "20230712",
+      "latest_return_pct": -5.036919602939918,
+      "score": -33.993686,
+      "deployment_stage": "override",
+      "promotion_gate_status": "override_pending",
+      "promotion_status": "override_pending",
+      "sample_gate": {
+        "min_cycles": 3,
+        "observed_cycles": 1,
+        "min_cycles_per_regime": 2,
+        "dominant_regime": "oscillation",
+        "dominant_regime_cycles": 1
+      },
+      "quality_gate": {
+        "passed": false,
+        "checks": [
+          {
+            "name": "block_negative_score",
+            "passed": false,
+            "actual": -33.993686,
+            "threshold": 0.0
+          },
+          {
+            "name": "min_score",
+            "passed": false,
+            "actual": -33.993686,
+            "threshold": 0.0
+          },
+          {
+            "name": "min_avg_return_pct",
+            "passed": false,
+            "actual": -5.03692,
+            "threshold": 0.0
+          },
+          {
+            "name": "min_avg_strategy_score",
+            "passed": true,
+            "actual": 0.555391,
+            "threshold": 0.0
+          },
+          {
+            "name": "min_benchmark_pass_rate",
+            "passed": true,
+            "actual": 0.0,
+            "threshold": 0.0
+          },
+          {
+            "name": "max_avg_drawdown",
+            "passed": true,
+            "actual": 4.869683,
+            "threshold": 15.0
+          },
+          {
+            "name": "allowed_deployment_stages",
+            "passed": false,
+            "actual": "override",
+            "threshold": [
+              "active"
+            ]
+          }
+        ],
+        "failed_checks": [
+          {
+            "name": "block_negative_score",
+            "passed": false,
+            "actual": -33.993686,
+            "threshold": 0.0
+          },
+          {
+            "name": "min_score",
+            "passed": false,
+            "actual": -33.993686,
+            "threshold": 0.0
+          },
+          {
+            "name": "min_avg_return_pct",
+            "passed": false,
+            "actual": -5.03692,
+            "threshold": 0.0
+          },
+          {
+            "name": "allowed_deployment_stages",
+            "passed": false,
+            "actual": "override",
+            "threshold": [
+              "active"
+            ]
+          }
+        ],
+        "deployment_stage": "override"
+      },
+      "eligible_for_governance": false,
+      "ineligible_reason": "min_cycles",
+      "style_profile": {
+        "bull": 1.0,
+        "oscillation": 0.45,
+        "bear": 0.1,
+        "unknown": 0.6
+      },
+      "regime_performance": {
+        "oscillation": {
+          "cycles": 1,
+          "avg_return_pct": -5.03692,
+          "avg_sharpe_ratio": -3.866809,
+          "avg_max_drawdown": 4.869683,
+          "avg_strategy_score": 0.555391,
+          "benchmark_pass_rate": 0.0,
+          "win_rate": 0.0,
+          "score": -14.331323,
+          "compatibility": 0.45
+        }
+      },
+      "objective_profile": {
+        "benchmark_pass_rate": 0.0,
+        "avg_sharpe_ratio": -3.866809,
+        "avg_return_pct": -5.03692,
+        "avg_max_drawdown": 4.869683
+      },
+      "objective_eligible_after_governance": false,
+      "scoring_mutation_count": 0,
+      "scoring_changed_keys": [],
+      "provisional_rank": 16,
+      "rank": 0
+    },
+    {
+      "key": "momentum::release_shadow_gate_bounded_smoke_v2",
+      "manager_id": "momentum",
+      "manager_config_ref": "release_shadow_gate_bounded_smoke_v2",
+      "run_dirs": [
+        "/Users/zhangsan/Desktop/投资进化系统v1.5/outputs/release_shadow_gate_bounded_smoke_v2"
+      ],
+      "cycles": 1,
+      "profit_cycles": 0,
+      "profit_rate": 0.0,
+      "avg_return_pct": -7.908441,
+      "avg_sharpe_ratio": -3.471243,
+      "avg_max_drawdown": 7.966889,
+      "avg_excess_return": -15.50502,
+      "avg_strategy_score": 0.556099,
+      "benchmark_pass_rate": 0.0,
+      "dominant_regime": "bear",
+      "regime_breakdown": {
+        "bear": 1
+      },
+      "latest_cycle_id": 1,
+      "latest_cutoff_date": "20200331",
+      "latest_return_pct": -7.908441163973228,
+      "score": -34.654324,
+      "deployment_stage": "override",
+      "promotion_gate_status": "override_pending",
+      "promotion_status": "override_pending",
+      "sample_gate": {
+        "min_cycles": 3,
+        "observed_cycles": 1,
+        "min_cycles_per_regime": 2,
+        "dominant_regime": "bear",
+        "dominant_regime_cycles": 1
+      },
+      "quality_gate": {
+        "passed": false,
+        "checks": [
+          {
+            "name": "block_negative_score",
+            "passed": false,
+            "actual": -34.654324,
+            "threshold": 0.0
+          },
+          {
+            "name": "min_score",
+            "passed": false,
+            "actual": -34.654324,
+            "threshold": 0.0
+          },
+          {
+            "name": "min_avg_return_pct",
+            "passed": false,
+            "actual": -7.908441,
+            "threshold": 0.0
+          },
+          {
+            "name": "min_avg_strategy_score",
+            "passed": true,
+            "actual": 0.556099,
+            "threshold": 0.0
+          },
+          {
+            "name": "min_benchmark_pass_rate",
+            "passed": true,
+            "actual": 0.0,
+            "threshold": 0.0
+          },
+          {
+            "name": "max_avg_drawdown",
+            "passed": true,
+            "actual": 7.966889,
+            "threshold": 15.0
+          },
+          {
+            "name": "allowed_deployment_stages",
+            "passed": false,
+            "actual": "override",
+            "threshold": [
+              "active"
+            ]
+          }
+        ],
+        "failed_checks": [
+          {
+            "name": "block_negative_score",
+            "passed": false,
+            "actual": -34.654324,
+            "threshold": 0.0
+          },
+          {
+            "name": "min_score",
+            "passed": false,
+            "actual": -34.654324,
+            "threshold": 0.0
+          },
+          {
+            "name": "min_avg_return_pct",
+            "passed": false,
+            "actual": -7.908441,
+            "threshold": 0.0
+          },
+          {
+            "name": "allowed_deployment_stages",
+            "passed": false,
+            "actual": "override",
+            "threshold": [
+              "active"
+            ]
+          }
+        ],
+        "deployment_stage": "override"
+      },
+      "eligible_for_governance": false,
+      "ineligible_reason": "min_cycles",
+      "style_profile": {
+        "bull": 1.0,
+        "oscillation": 0.45,
+        "bear": 0.1,
+        "unknown": 0.6
+      },
+      "regime_performance": {
+        "bear": {
+          "cycles": 1,
+          "avg_return_pct": -7.908441,
+          "avg_sharpe_ratio": -3.471243,
+          "avg_max_drawdown": 7.966889,
+          "avg_strategy_score": 0.556099,
+          "benchmark_pass_rate": 0.0,
+          "win_rate": 0.0,
+          "score": -7.630676,
+          "compatibility": 0.1
+        }
+      },
+      "objective_profile": {
+        "benchmark_pass_rate": 0.0,
+        "avg_sharpe_ratio": -3.471243,
+        "avg_return_pct": -7.908441,
+        "avg_max_drawdown": 7.966889
+      },
+      "objective_eligible_after_governance": false,
+      "scoring_mutation_count": 0,
+      "scoring_changed_keys": [],
+      "provisional_rank": 17,
+      "rank": 0
+    },
+    {
+      "key": "defensive_low_vol::p0_release_gate_stage1_20260317_live",
+      "manager_id": "defensive_low_vol",
+      "manager_config_ref": "p0_release_gate_stage1_20260317_live",
+      "run_dirs": [
+        "/Users/zhangsan/Desktop/投资进化系统v1.5/outputs/p0_release_gate_stage1_20260317_live"
+      ],
+      "cycles": 1,
+      "profit_cycles": 0,
+      "profit_rate": 0.0,
+      "avg_return_pct": -2.990858,
+      "avg_sharpe_ratio": -6.382669,
+      "avg_max_drawdown": 2.908285,
+      "avg_excess_return": 6.101411,
+      "avg_strategy_score": 0.661683,
+      "benchmark_pass_rate": 0.0,
+      "dominant_regime": "bear",
+      "regime_breakdown": {
+        "bear": 1
+      },
+      "latest_cycle_id": 6,
+      "latest_cutoff_date": "20200216",
+      "latest_return_pct": -2.9908578110671806,
+      "score": -55.192215,
+      "deployment_stage": "candidate",
+      "promotion_gate_status": "awaiting_gate",
+      "promotion_status": "candidate_pending",
+      "sample_gate": {
+        "min_cycles": 3,
+        "observed_cycles": 1,
+        "min_cycles_per_regime": 2,
+        "dominant_regime": "bear",
+        "dominant_regime_cycles": 1
+      },
+      "quality_gate": {
+        "passed": false,
+        "checks": [
+          {
+            "name": "block_negative_score",
+            "passed": false,
+            "actual": -55.192215,
+            "threshold": 0.0
+          },
+          {
+            "name": "min_score",
+            "passed": false,
+            "actual": -55.192215,
+            "threshold": 0.0
+          },
+          {
+            "name": "min_avg_return_pct",
+            "passed": false,
+            "actual": -2.990858,
+            "threshold": 0.0
+          },
+          {
+            "name": "min_avg_strategy_score",
+            "passed": true,
+            "actual": 0.661683,
+            "threshold": 0.0
+          },
+          {
+            "name": "min_benchmark_pass_rate",
+            "passed": true,
+            "actual": 0.0,
+            "threshold": 0.0
+          },
+          {
+            "name": "max_avg_drawdown",
+            "passed": true,
+            "actual": 2.908285,
+            "threshold": 15.0
+          },
+          {
+            "name": "allowed_deployment_stages",
+            "passed": false,
+            "actual": "candidate",
+            "threshold": [
+              "active"
+            ]
+          }
+        ],
+        "failed_checks": [
+          {
+            "name": "block_negative_score",
+            "passed": false,
+            "actual": -55.192215,
+            "threshold": 0.0
+          },
+          {
+            "name": "min_score",
+            "passed": false,
+            "actual": -55.192215,
+            "threshold": 0.0
+          },
+          {
+            "name": "min_avg_return_pct",
+            "passed": false,
+            "actual": -2.990858,
+            "threshold": 0.0
+          },
+          {
+            "name": "allowed_deployment_stages",
+            "passed": false,
+            "actual": "candidate",
+            "threshold": [
+              "active"
+            ]
+          }
+        ],
+        "deployment_stage": "candidate"
+      },
+      "eligible_for_governance": false,
+      "ineligible_reason": "min_cycles",
+      "style_profile": {
+        "bull": 0.35,
+        "oscillation": 0.78,
+        "bear": 1.0,
+        "unknown": 0.65
+      },
+      "regime_performance": {
+        "bear": {
+          "cycles": 1,
+          "avg_return_pct": -2.990858,
+          "avg_sharpe_ratio": -6.382669,
+          "avg_max_drawdown": 2.908285,
+          "avg_strategy_score": 0.661683,
+          "benchmark_pass_rate": 0.0,
+          "win_rate": 0.0,
+          "score": -51.713937,
+          "compatibility": 1.0
+        }
+      },
+      "objective_profile": {
+        "benchmark_pass_rate": 0.0,
+        "avg_sharpe_ratio": -6.382669,
+        "avg_return_pct": -2.990858,
+        "avg_max_drawdown": 2.908285
+      },
+      "objective_eligible_after_governance": false,
+      "scoring_mutation_count": 1,
+      "scoring_changed_keys": [
+        "penalties.bad_rsi",
+        "penalties.bearish_trend",
+        "weights.low_volatility"
+      ],
+      "provisional_rank": 18,
+      "rank": 0
+    }
+  ],
+  "best_entry": {
+    "key": "momentum::p0_release_gate_stage1_20260318_live_provider_fixed",
+    "manager_id": "momentum",
+    "manager_config_ref": "p0_release_gate_stage1_20260318_live_provider_fixed",
+    "run_dirs": [
+      "/Users/zhangsan/Desktop/投资进化系统v1.5/outputs/p0_release_gate_stage1_20260318_live_provider_fixed"
+    ],
+    "cycles": 8,
+    "profit_cycles": 3,
+    "profit_rate": 0.375,
+    "avg_return_pct": 0.126605,
+    "avg_sharpe_ratio": -0.525974,
+    "avg_max_drawdown": 2.55489,
+    "avg_excess_return": 2.533375,
+    "avg_strategy_score": 0.64671,
+    "benchmark_pass_rate": 0.25,
+    "dominant_regime": "bull",
+    "regime_breakdown": {
+      "bear": 3,
+      "bull": 4,
+      "oscillation": 1
+    },
+    "latest_cycle_id": 18,
+    "latest_cutoff_date": "20230217",
+    "latest_return_pct": -2.6365220310104487,
+    "score": 8.209204,
+    "deployment_stage": "active",
+    "promotion_gate_status": "not_applicable",
+    "promotion_status": "active_aligned",
+    "sample_gate": {
+      "min_cycles": 3,
+      "observed_cycles": 8,
+      "min_cycles_per_regime": 2,
+      "dominant_regime": "bull",
+      "dominant_regime_cycles": 4
+    },
+    "quality_gate": {
+      "passed": true,
+      "checks": [
+        {
+          "name": "block_negative_score",
+          "passed": true,
+          "actual": 8.209204,
+          "threshold": 0.0
+        },
+        {
+          "name": "min_score",
+          "passed": true,
+          "actual": 8.209204,
+          "threshold": 0.0
+        },
+        {
+          "name": "min_avg_return_pct",
+          "passed": true,
+          "actual": 0.126605,
+          "threshold": 0.0
+        },
+        {
+          "name": "min_avg_strategy_score",
+          "passed": true,
+          "actual": 0.64671,
+          "threshold": 0.0
+        },
+        {
+          "name": "min_benchmark_pass_rate",
+          "passed": true,
+          "actual": 0.25,
+          "threshold": 0.0
+        },
+        {
+          "name": "max_avg_drawdown",
+          "passed": true,
+          "actual": 2.55489,
+          "threshold": 15.0
+        },
+        {
+          "name": "allowed_deployment_stages",
+          "passed": true,
+          "actual": "active",
+          "threshold": [
+            "active"
+          ]
+        }
+      ],
+      "failed_checks": [],
+      "deployment_stage": "active"
+    },
+    "eligible_for_governance": true,
+    "ineligible_reason": "",
+    "style_profile": {
+      "bull": 1.0,
+      "oscillation": 0.45,
+      "bear": 0.1,
+      "unknown": 0.6
+    },
+    "regime_performance": {
+      "bear": {
+        "cycles": 3,
+        "avg_return_pct": 3.671135,
+        "avg_sharpe_ratio": 2.936733,
+        "avg_max_drawdown": 1.722746,
+        "avg_strategy_score": 0.681498,
+        "benchmark_pass_rate": 0.666667,
+        "win_rate": 1.0,
+        "score": 11.301094,
+        "compatibility": 0.1
+      },
+      "bull": {
+        "cycles": 4,
+        "avg_return_pct": -1.841011,
+        "avg_sharpe_ratio": -2.61966,
+        "avg_max_drawdown": 2.689092,
+        "avg_strategy_score": 0.630683,
+        "benchmark_pass_rate": 0.0,
+        "win_rate": 0.0,
+        "score": -17.728741,
+        "compatibility": 1.0
+      },
+      "oscillation": {
+        "cycles": 1,
+        "avg_return_pct": -2.636522,
+        "avg_sharpe_ratio": -2.539348,
+        "avg_max_drawdown": 4.514516,
+        "avg_strategy_score": 0.606456,
+        "benchmark_pass_rate": 0.0,
+        "win_rate": 0.0,
+        "score": -8.23736,
+        "compatibility": 0.45
+      }
+    },
+    "objective_profile": {
+      "benchmark_pass_rate": 0.25,
+      "avg_sharpe_ratio": -0.525974,
+      "avg_return_pct": 0.126605,
+      "avg_max_drawdown": 2.55489
+    },
+    "objective_eligible_after_governance": true,
+    "scoring_mutation_count": 0,
+    "scoring_changed_keys": [],
+    "provisional_rank": 1,
+    "rank": 1
+  },
+  "regime_leaderboards": {
+    "bear": [
+      {
+        "rank": 1,
+        "manager_id": "momentum",
+        "manager_config_ref": "p0_release_gate_stage1_20260318_live_provider_fixed",
+        "score": 8.209204,
+        "regime_score": 11.301094,
+        "avg_return_pct": 0.126605,
+        "avg_sharpe_ratio": -0.525974,
+        "benchmark_pass_rate": 0.25,
+        "eligible_for_governance": true,
+        "cycles": 3,
+        "compatibility": 0.1,
+        "source": "observed_regime",
+        "scoring_mutation_count": 0
+      }
+    ],
+    "bull": [
+      {
+        "rank": 1,
+        "manager_id": "momentum",
+        "manager_config_ref": "p0_release_gate_stage1_20260318_live_provider_fixed",
+        "score": 8.209204,
+        "regime_score": -17.728741,
+        "avg_return_pct": 0.126605,
+        "avg_sharpe_ratio": -0.525974,
+        "benchmark_pass_rate": 0.25,
+        "eligible_for_governance": true,
+        "cycles": 4,
+        "compatibility": 1.0,
+        "source": "observed_regime",
+        "scoring_mutation_count": 0
+      }
+    ],
+    "oscillation": [
+      {
+        "rank": 1,
+        "manager_id": "momentum",
+        "manager_config_ref": "p0_release_gate_stage1_20260318_live_provider_fixed",
+        "score": 8.209204,
+        "regime_score": -8.23736,
+        "avg_return_pct": 0.126605,
+        "avg_sharpe_ratio": -0.525974,
+        "benchmark_pass_rate": 0.25,
+        "eligible_for_governance": true,
+        "cycles": 1,
+        "compatibility": 0.45,
+        "source": "observed_regime",
+        "scoring_mutation_count": 0
+      }
+    ]
+  }
+}

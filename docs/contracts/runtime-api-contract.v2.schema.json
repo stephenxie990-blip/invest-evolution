@@ -1,0 +1,337 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.local/runtime-api-contract.v2.schema.json",
+  "title": "Runtime API Contract V2",
+  "type": "object",
+  "properties": {
+    "contract_id": {
+      "type": "string",
+      "const": "runtime-v2"
+    },
+    "version": {
+      "type": "string"
+    },
+    "published_at": {
+      "type": "string"
+    },
+    "api_base": {
+      "type": "string"
+    },
+    "runtime_entrypoint": {
+      "type": "string"
+    },
+    "contract_endpoint": {
+      "type": "string"
+    },
+    "goals": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "compatibility": {
+      "type": "object",
+      "additionalProperties": {
+        "type": [
+          "string",
+          "boolean",
+          "number",
+          "null",
+          "object",
+          "array"
+        ]
+      }
+    },
+    "preferred_runtime_flows": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      }
+    },
+    "components": {
+      "type": "object",
+      "properties": {
+        "error_schemas": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object"
+          }
+        },
+        "schemas": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object"
+          }
+        },
+        "sse_schemas": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object"
+          }
+        }
+      },
+      "required": [
+        "error_schemas",
+        "schemas",
+        "sse_schemas"
+      ],
+      "additionalProperties": false
+    },
+    "sse": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "content_type": {
+          "type": "string"
+        },
+        "protocol": {
+          "type": "object",
+          "additionalProperties": true
+        },
+        "event_refs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "path",
+        "content_type",
+        "protocol",
+        "event_refs"
+      ],
+      "additionalProperties": false
+    },
+    "endpoints": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "group": {
+            "type": "string"
+          },
+          "method": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "summary": {
+            "type": "string"
+          },
+          "runtime_required": {
+            "type": "boolean"
+          },
+          "runtime_preferred": {
+            "type": "boolean"
+          },
+          "replacement": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "query_params": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "type": {
+                  "type": "string"
+                },
+                "required": {
+                  "type": "boolean"
+                },
+                "default": {},
+                "enum": {
+                  "type": "array",
+                  "items": {}
+                },
+                "description": {
+                  "type": "string"
+                },
+                "items": {
+                  "type": "object"
+                }
+              },
+              "required": [
+                "name",
+                "type"
+              ],
+              "additionalProperties": true
+            }
+          },
+          "path_params": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "type": {
+                  "type": "string"
+                },
+                "required": {
+                  "type": "boolean"
+                },
+                "default": {},
+                "enum": {
+                  "type": "array",
+                  "items": {}
+                },
+                "description": {
+                  "type": "string"
+                },
+                "items": {
+                  "type": "object"
+                }
+              },
+              "required": [
+                "name",
+                "type"
+              ],
+              "additionalProperties": true
+            }
+          },
+          "request_body": {
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "success": {
+            "type": "object",
+            "properties": {
+              "http_status": {
+                "type": "integer"
+              },
+              "body_ref": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "http_status",
+              "body_ref"
+            ],
+            "additionalProperties": true
+          },
+          "errors": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "http_status": {
+                  "type": "integer"
+                },
+                "body_ref": {
+                  "type": "string"
+                },
+                "cases": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              },
+              "required": [
+                "http_status",
+                "body_ref",
+                "cases"
+              ],
+              "additionalProperties": true
+            }
+          },
+          "latency": {
+            "type": "string"
+          },
+          "pagination": {
+            "type": "string"
+          },
+          "realtime": {
+            "type": "boolean"
+          },
+          "notes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "sse_event_refs": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "id",
+          "group",
+          "method",
+          "path",
+          "summary",
+          "runtime_required",
+          "runtime_preferred",
+          "replacement",
+          "query_params",
+          "path_params",
+          "request_body",
+          "success",
+          "errors",
+          "latency",
+          "pagination",
+          "realtime",
+          "notes"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "transcript_snapshots": {
+      "type": "object",
+      "properties": {
+        "schema_version": {
+          "type": "string"
+        },
+        "examples": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object"
+          }
+        }
+      },
+      "required": [
+        "schema_version",
+        "examples"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "required": [
+    "contract_id",
+    "version",
+    "published_at",
+    "api_base",
+    "runtime_entrypoint",
+    "contract_endpoint",
+    "goals",
+    "compatibility",
+    "preferred_runtime_flows",
+    "components",
+    "sse",
+    "endpoints",
+    "transcript_snapshots"
+  ],
+  "additionalProperties": false
+}

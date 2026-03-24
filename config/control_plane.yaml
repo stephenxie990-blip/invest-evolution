@@ -1,0 +1,35 @@
+llm:
+  providers:
+    default_provider:
+      api_base: https://api.openai.com/v1
+    minimax_provider:
+      api_base: https://api.minimaxi.com/v1
+  models:
+    default_fast:
+      provider: default_provider
+      model: gpt-5-mini
+    default_deep:
+      provider: default_provider
+      model: gpt-5.2
+    minimax_fast:
+      provider: minimax_provider
+      model: openai/MiniMax-M2.5
+  bindings:
+    defaults.fast: default_fast
+    defaults.deep: default_deep
+    controller.main: default_fast
+    agent.MarketRegime: default_deep
+    agent.GovernanceSelector: default_deep
+    agent.TrendHunter: minimax_fast
+    agent.Contrarian: minimax_fast
+    agent.QualityAgent: default_fast
+    agent.DefensiveAgent: default_fast
+    agent.Strategist: default_deep
+    agent.ReviewDecision: default_deep
+    agent.EvoJudge: default_deep
+    optimizer.loss_analysis: default_deep
+    commander.brain: default_fast
+data:
+  runtime_policy:
+    allow_online_fallback: false
+    allow_capital_flow_sync: false

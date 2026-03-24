@@ -1,0 +1,3605 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "投资进化系统 Runtime Contract",
+    "version": "2.0.0",
+    "description": "Derived OpenAPI document generated from docs/contracts/runtime-api-contract.v2.json"
+  },
+  "servers": [
+    {
+      "url": "/",
+      "description": "Project root; paths remain absolute and unversioned."
+    }
+  ],
+  "paths": {
+    "/api/contracts/runtime-v2": {
+      "get": {
+        "operationId": "contracts_runtimeV2",
+        "tags": [
+          "contracts"
+        ],
+        "summary": "Fetch the frozen runtime API contract document.",
+        "description": "Primary handoff contract for API, CLI, and agent clients.",
+        "responses": {
+          "200": {
+            "description": "Fetch the frozen runtime API contract document.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          }
+        },
+        "x-runtime-required": false,
+        "x-runtime-preferred": true,
+        "x-latency": "fast",
+        "x-realtime": false,
+        "x-pagination": "none"
+      }
+    },
+    "/api/contracts/runtime-v2/schema": {
+      "get": {
+        "operationId": "contracts_runtimeV2Schema",
+        "tags": [
+          "contracts"
+        ],
+        "summary": "Fetch the JSON Schema derivative for the frozen runtime API contract.",
+        "description": "Safe to call before runtime initialization.",
+        "responses": {
+          "200": {
+            "description": "Fetch the JSON Schema derivative for the frozen runtime API contract.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          }
+        },
+        "x-runtime-required": false,
+        "x-runtime-preferred": true,
+        "x-latency": "fast",
+        "x-realtime": false,
+        "x-pagination": "none"
+      }
+    },
+    "/api/contracts/runtime-v2/openapi": {
+      "get": {
+        "operationId": "contracts_runtimeV2Openapi",
+        "tags": [
+          "contracts"
+        ],
+        "summary": "Fetch the OpenAPI derivative for the frozen runtime API contract.",
+        "description": "Safe to call before runtime initialization.",
+        "responses": {
+          "200": {
+            "description": "Fetch the OpenAPI derivative for the frozen runtime API contract.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          }
+        },
+        "x-runtime-required": false,
+        "x-runtime-preferred": true,
+        "x-latency": "fast",
+        "x-realtime": false,
+        "x-pagination": "none"
+      }
+    },
+    "/api/status": {
+      "get": {
+        "operationId": "status_full",
+        "tags": [
+          "status"
+        ],
+        "summary": "Get a runtime snapshot with configurable detail.",
+        "description": "Use GET /api/status as the canonical runtime status bootstrap.\nStateless deploys may return a state-backed snapshot when live runtime is absent.",
+        "responses": {
+          "200": {
+            "description": "Get a runtime snapshot with configurable detail.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/runtimeStatus"
+                }
+              }
+            }
+          }
+        },
+        "x-runtime-required": false,
+        "x-runtime-preferred": true,
+        "x-latency": "fast_or_slow",
+        "x-realtime": false,
+        "x-pagination": "none",
+        "parameters": [
+          {
+            "name": "detail",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "fast",
+                "slow"
+              ],
+              "default": "fast"
+            },
+            "description": ""
+          }
+        ]
+      }
+    },
+    "/api/events": {
+      "get": {
+        "operationId": "events_stream",
+        "tags": [
+          "events"
+        ],
+        "summary": "Consume the runtime SSE stream for training and agent observability.",
+        "description": "Server-Sent Events endpoint used by API, CLI, and agent clients for cycle, agent, module log, and meeting speech updates.",
+        "responses": {
+          "200": {
+            "description": "SSE stream established.",
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "x-sse-event-refs": [
+          "#/components/sse_schemas/connected",
+          "#/components/sse_schemas/cycleStart",
+          "#/components/sse_schemas/cycleComplete",
+          "#/components/sse_schemas/cycleSkipped",
+          "#/components/sse_schemas/agentStatus",
+          "#/components/sse_schemas/moduleLog",
+          "#/components/sse_schemas/meetingSpeech",
+          "#/components/sse_schemas/governanceDecision",
+          "#/components/sse_schemas/governanceStarted",
+          "#/components/sse_schemas/regimeClassified",
+          "#/components/sse_schemas/governanceApplied",
+          "#/components/sse_schemas/governanceBlocked"
+        ],
+        "x-sse-protocol": {
+          "initial_event": "connected",
+          "keepalive": "comment frame (: keepalive)",
+          "event_id": "monotonic in-process integer",
+          "resume_behavior": "best-effort only; client should reconnect and refresh status if history gaps occur"
+        },
+        "x-runtime-required": false,
+        "x-runtime-preferred": true,
+        "x-realtime": true
+      }
+    },
+    "/api/events/summary": {
+      "get": {
+        "operationId": "events_summary",
+        "tags": [
+          "events"
+        ],
+        "summary": "Return a pollable recent-event summary with optional human-readable rendering.",
+        "description": "Suitable for polling when SSE consumption is unnecessary.\nStateless deploys may summarize persisted event logs without live runtime.\nJSON responses also include `human_reply` and `display` fields for agent or human relay.",
+        "responses": {
+          "200": {
+            "description": "Return a pollable recent-event summary with optional human-readable rendering.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/eventsSummary"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "limit must be an integer; view must be one of: json, human",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/flatError"
+                }
+              }
+            }
+          }
+        },
+        "x-runtime-required": false,
+        "x-runtime-preferred": true,
+        "x-latency": "fast",
+        "x-realtime": false,
+        "x-pagination": "limit-only",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 50
+            },
+            "description": ""
+          },
+          {
+            "name": "view",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "json",
+                "human"
+              ],
+              "default": "json"
+            },
+            "description": ""
+          }
+        ]
+      }
+    },
+    "/api/chat": {
+      "post": {
+        "operationId": "chat_ask",
+        "tags": [
+          "chat"
+        ],
+        "summary": "Send a natural-language message to Commander.",
+        "description": "Provide session_key/chat_id to continue a multi-turn API conversation; omit them for isolated one-shot requests.",
+        "responses": {
+          "200": {
+            "description": "Send a natural-language message to Commander.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/chatReply"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "message is required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/flatError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Commander runtime is not initialized or background loop is unavailable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/flatError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Unexpected command/runtime error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/flatError"
+                }
+              }
+            }
+          }
+        },
+        "x-runtime-required": true,
+        "x-runtime-preferred": true,
+        "x-latency": "medium",
+        "x-realtime": false,
+        "x-pagination": "none",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "message"
+                ],
+                "properties": {
+                  "message": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "session_key": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "chat_id": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "request_id": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/chat/stream": {
+      "post": {
+        "operationId": "chat_stream",
+        "tags": [
+          "chat"
+        ],
+        "summary": "Open a session-bound SSE stream for runtime events plus the final Commander reply.",
+        "description": "Event sequence is `connected` -> repeated `runtime_event` -> `summary` -> `reply` -> `done`.\nIf the request fails after the stream is opened, `summary` is followed by `error` instead of `reply` and `done`.\nThe `runtime_event` payload contains phase labels, risk hints, confirmation state, artifacts, and human relay text.\nThis is event streaming for runtime state; it does not stream LLM tokens.",
+        "responses": {
+          "200": {
+            "description": "Open a session-bound SSE stream for runtime events plus the final Commander reply.",
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "message is required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/flatError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Commander runtime is not initialized or background loop is unavailable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/flatError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Unexpected command/runtime error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/flatError"
+                }
+              }
+            }
+          }
+        },
+        "x-runtime-required": true,
+        "x-runtime-preferred": true,
+        "x-latency": "medium",
+        "x-realtime": true,
+        "x-pagination": "none",
+        "x-sse-event-refs": [
+          "#/components/schemas/chatStreamConnected",
+          "#/components/schemas/chatStreamRuntimeEvent",
+          "#/components/schemas/chatStreamSummary",
+          "#/components/schemas/chatStreamReply",
+          "#/components/schemas/chatStreamDone",
+          "#/components/schemas/chatStreamError"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "message"
+                ],
+                "properties": {
+                  "message": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "session_key": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "chat_id": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "request_id": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/lab/training/plans": {
+      "post": {
+        "operationId": "trainingPlans_create",
+        "tags": [
+          "training_lab"
+        ],
+        "summary": "Create a structured training plan artifact without executing it.",
+        "description": "Requires live runtime for plan synthesis; stateless deploys do not provide a create fallback.",
+        "responses": {
+          "201": {
+            "description": "Create a structured training plan artifact without executing it.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/trainingPlan"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "rounds must be an integer; mock must be a boolean; detail_mode must be one of: fast, slow; tags must be a list of strings or a comma-separated string",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/flatError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Commander runtime is not initialized or background loop is unavailable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/flatError"
+                }
+              }
+            }
+          }
+        },
+        "x-runtime-required": true,
+        "x-runtime-preferred": true,
+        "x-latency": "fast",
+        "x-realtime": false,
+        "x-pagination": "none",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "rounds": {
+                    "type": "integer",
+                    "default": 1,
+                    "minimum": 1,
+                    "maximum": 100
+                  },
+                  "mock": {
+                    "type": "boolean",
+                    "default": false,
+                    "accepts_bool_like_strings": true
+                  },
+                  "goal": {
+                    "type": "string"
+                  },
+                  "notes": {
+                    "type": "string"
+                  },
+                  "tags": {
+                    "type": [
+                      "array",
+                      "string"
+                    ],
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "detail_mode": {
+                    "type": "string",
+                    "default": "fast",
+                    "enum": [
+                      "fast",
+                      "slow"
+                    ]
+                  },
+                  "protocol": {
+                    "type": "object"
+                  },
+                  "dataset": {
+                    "type": "object"
+                  },
+                  "manager_scope": {
+                    "type": "object"
+                  },
+                  "optimization": {
+                    "type": "object"
+                  },
+                  "llm": {
+                    "type": "object"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "operationId": "trainingPlans_list",
+        "tags": [
+          "training_lab"
+        ],
+        "summary": "List latest training plan artifacts.",
+        "description": "Stateless deploys may list persisted training plan artifacts without live runtime.",
+        "responses": {
+          "200": {
+            "description": "List latest training plan artifacts.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/artifactList"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "limit must be an integer",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/flatError"
+                }
+              }
+            }
+          }
+        },
+        "x-runtime-required": false,
+        "x-runtime-preferred": true,
+        "x-latency": "fast",
+        "x-realtime": false,
+        "x-pagination": "limit-only",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 20
+            },
+            "description": ""
+          }
+        ]
+      }
+    },
+    "/api/lab/training/plans/{plan_id}": {
+      "get": {
+        "operationId": "trainingPlans_get",
+        "tags": [
+          "training_lab"
+        ],
+        "summary": "Fetch a single training plan artifact.",
+        "description": "Stateless deploys may read persisted training plan artifacts without live runtime.",
+        "responses": {
+          "200": {
+            "description": "Fetch a single training plan artifact.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/trainingPlan"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "training plan not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/flatError"
+                }
+              }
+            }
+          }
+        },
+        "x-runtime-required": false,
+        "x-runtime-preferred": true,
+        "x-latency": "fast",
+        "x-realtime": false,
+        "x-pagination": "none",
+        "parameters": [
+          {
+            "name": "plan_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": ""
+          }
+        ]
+      }
+    },
+    "/api/lab/training/plans/{plan_id}/execute": {
+      "post": {
+        "operationId": "trainingPlans_execute",
+        "tags": [
+          "training_lab"
+        ],
+        "summary": "Execute a persisted training plan.",
+        "description": "Requires live runtime and background loop to execute persisted plans; stateless deploys do not provide an execute fallback.",
+        "responses": {
+          "200": {
+            "description": "Execute a persisted training plan.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/trainingExecution"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Commander runtime is not initialized or background loop is unavailable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/flatError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "training plan not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/flatError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Unexpected training plan execution error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/flatError"
+                }
+              }
+            }
+          }
+        },
+        "x-runtime-required": true,
+        "x-runtime-preferred": true,
+        "x-latency": "long",
+        "x-realtime": true,
+        "x-pagination": "none",
+        "parameters": [
+          {
+            "name": "plan_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": ""
+          }
+        ]
+      }
+    },
+    "/api/lab/training/runs": {
+      "get": {
+        "operationId": "trainingRuns_list",
+        "tags": [
+          "training_lab"
+        ],
+        "summary": "List latest training run artifacts.",
+        "description": "Stateless deploys may list persisted training run artifacts without live runtime.",
+        "responses": {
+          "200": {
+            "description": "List latest training run artifacts.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/artifactList"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "limit must be an integer",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/flatError"
+                }
+              }
+            }
+          }
+        },
+        "x-runtime-required": false,
+        "x-runtime-preferred": true,
+        "x-latency": "fast",
+        "x-realtime": false,
+        "x-pagination": "limit-only",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 20
+            },
+            "description": ""
+          }
+        ]
+      }
+    },
+    "/api/lab/training/runs/{run_id}": {
+      "get": {
+        "operationId": "trainingRuns_get",
+        "tags": [
+          "training_lab"
+        ],
+        "summary": "Fetch a single training run artifact.",
+        "description": "Stateless deploys may read persisted training run artifacts without live runtime.",
+        "responses": {
+          "200": {
+            "description": "Fetch a single training run artifact.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/trainingRun"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "training run not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/flatError"
+                }
+              }
+            }
+          }
+        },
+        "x-runtime-required": false,
+        "x-runtime-preferred": true,
+        "x-latency": "fast",
+        "x-realtime": false,
+        "x-pagination": "none",
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": ""
+          }
+        ]
+      }
+    },
+    "/api/lab/training/evaluations": {
+      "get": {
+        "operationId": "trainingEvaluations_list",
+        "tags": [
+          "training_lab"
+        ],
+        "summary": "List latest training evaluation artifacts.",
+        "description": "Stateless deploys may list persisted training evaluation artifacts without live runtime.",
+        "responses": {
+          "200": {
+            "description": "List latest training evaluation artifacts.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/artifactList"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "limit must be an integer",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/flatError"
+                }
+              }
+            }
+          }
+        },
+        "x-runtime-required": false,
+        "x-runtime-preferred": true,
+        "x-latency": "fast",
+        "x-realtime": false,
+        "x-pagination": "limit-only",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 20
+            },
+            "description": ""
+          }
+        ]
+      }
+    },
+    "/api/lab/training/evaluations/{run_id}": {
+      "get": {
+        "operationId": "trainingEvaluations_get",
+        "tags": [
+          "training_lab"
+        ],
+        "summary": "Fetch a single training evaluation artifact.",
+        "description": "Stateless deploys may read persisted training evaluation artifacts without live runtime.",
+        "responses": {
+          "200": {
+            "description": "Fetch a single training evaluation artifact.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/trainingEvaluation"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "training evaluation not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/flatError"
+                }
+              }
+            }
+          }
+        },
+        "x-runtime-required": false,
+        "x-runtime-preferred": true,
+        "x-latency": "fast",
+        "x-realtime": false,
+        "x-pagination": "none",
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": ""
+          }
+        ]
+      }
+    },
+    "/api/agent_prompts": {
+      "get": {
+        "operationId": "agentConfigs_list",
+        "tags": [
+          "config"
+        ],
+        "summary": "List persisted agent prompt records.",
+        "description": "Falls back to persisted agent prompt registry when live runtime is absent.",
+        "responses": {
+          "200": {
+            "description": "List persisted agent prompt records.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/agentConfigList"
+                }
+              }
+            }
+          }
+        },
+        "x-runtime-required": false,
+        "x-runtime-preferred": true,
+        "x-latency": "fast",
+        "x-realtime": false,
+        "x-pagination": "none"
+      },
+      "post": {
+        "operationId": "agentConfigs_update",
+        "tags": [
+          "config"
+        ],
+        "summary": "Persist system_prompt changes for one agent.",
+        "description": "Persists agent prompt overrides even when live runtime is absent; live prompt refresh only occurs when runtime is present.",
+        "responses": {
+          "200": {
+            "description": "Persist system_prompt changes for one agent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/agentConfigMutation"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "name is required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/flatError"
+                }
+              }
+            }
+          }
+        },
+        "x-runtime-required": false,
+        "x-runtime-preferred": true,
+        "x-latency": "fast",
+        "x-realtime": false,
+        "x-pagination": "none",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "name",
+                  "system_prompt"
+                ],
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "system_prompt": {
+                    "type": "string"
+                  }
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/runtime_paths": {
+      "get": {
+        "operationId": "runtimePaths_get",
+        "tags": [
+          "config"
+        ],
+        "summary": "Read editable runtime artifact paths.",
+        "description": "Falls back to persisted runtime path config when live runtime is absent.\nRuntime availability remains an endpoint-level contract concern and is not exposed as a runtime_paths config field.",
+        "responses": {
+          "200": {
+            "description": "Read editable runtime artifact paths.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/runtimePathsWrappedConfig"
+                }
+              }
+            }
+          }
+        },
+        "x-runtime-required": false,
+        "x-runtime-preferred": true,
+        "x-latency": "fast",
+        "x-realtime": false,
+        "x-pagination": "none"
+      },
+      "post": {
+        "operationId": "runtimePaths_update",
+        "tags": [
+          "config"
+        ],
+        "summary": "Update runtime artifact paths without changing CLI usage.",
+        "description": "Persists runtime path config even when live runtime is absent; live path sync only occurs when runtime is present.\nFallback/runtime semantics are conveyed by endpoint contract and behavior rather than a runtime_paths payload flag.",
+        "responses": {
+          "200": {
+            "description": "Update runtime artifact paths without changing CLI usage.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/runtimePathsWrappedConfig"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "runtime_paths public API only accepts training_output_dir and artifact_log_dir; config audit/snapshot paths are internal runtime details",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/statusError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Unexpected runtime path mutation error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/statusError"
+                }
+              }
+            }
+          }
+        },
+        "x-runtime-required": false,
+        "x-runtime-preferred": true,
+        "x-latency": "fast",
+        "x-realtime": false,
+        "x-pagination": "none",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "training_output_dir": {
+                    "type": "string"
+                  },
+                  "artifact_log_dir": {
+                    "type": "string"
+                  }
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/evolution_config": {
+      "get": {
+        "operationId": "evolutionConfig_get",
+        "tags": [
+          "config"
+        ],
+        "summary": "Read evolution training/runtime configuration.",
+        "description": "Falls back to persisted evolution config layers when live runtime is absent.\nPublic response excludes config layer paths, runtime override paths, audit/snapshot locations, and compat/runtime metadata.",
+        "responses": {
+          "200": {
+            "description": "Read evolution training/runtime configuration.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/statusWrappedConfig"
+                }
+              }
+            }
+          }
+        },
+        "x-runtime-required": false,
+        "x-runtime-preferred": true,
+        "x-latency": "fast",
+        "x-realtime": false,
+        "x-pagination": "none"
+      },
+      "post": {
+        "operationId": "evolutionConfig_update",
+        "tags": [
+          "config"
+        ],
+        "summary": "Patch editable evolution training/runtime configuration.",
+        "description": "Security: provider/model/api_key ownership lives in /api/control_plane plus config/control_plane.yaml and config/control_plane.local.yaml; any returned api_key remains masked.\nWeb UI has been removed; agent and CLI workflows should use API, SSE and commander entrypoints.\nPublic response excludes config layer paths, runtime override paths, audit/snapshot locations, and compat/runtime metadata.\nPersists evolution config even when live runtime is absent; live refresh only occurs when runtime is present.",
+        "responses": {
+          "200": {
+            "description": "Patch editable evolution training/runtime configuration.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/statusWrappedConfig"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation error for editable config keys.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/statusError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Unexpected evolution config mutation error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/statusError"
+                }
+              }
+            }
+          }
+        },
+        "x-runtime-required": false,
+        "x-runtime-preferred": true,
+        "x-latency": "fast",
+        "x-realtime": false,
+        "x-pagination": "none",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "description": "Only editable training/runtime keys are applied; LLM keys are rejected and must go through /api/control_plane.",
+                "properties": {
+                  "llm_timeout": {
+                    "type": "integer"
+                  },
+                  "llm_max_retries": {
+                    "type": "integer"
+                  },
+                  "enable_debate": {
+                    "type": "boolean"
+                  },
+                  "max_debate_rounds": {
+                    "type": "integer"
+                  },
+                  "max_risk_discuss_rounds": {
+                    "type": "integer"
+                  },
+                  "data_source": {
+                    "type": "string"
+                  },
+                  "max_stocks": {
+                    "type": "integer"
+                  },
+                  "simulation_days": {
+                    "type": "integer"
+                  },
+                  "min_history_days": {
+                    "type": "integer"
+                  },
+                  "initial_capital": {
+                    "type": "number"
+                  },
+                  "max_positions": {
+                    "type": "integer"
+                  },
+                  "position_size_pct": {
+                    "type": "number"
+                  },
+                  "index_codes": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "default_manager_id": {
+                    "type": "string"
+                  },
+                  "default_manager_config_ref": {
+                    "type": "string"
+                  },
+                  "allocator_enabled": {
+                    "type": "boolean"
+                  },
+                  "allocator_top_n": {
+                    "type": "integer"
+                  },
+                  "stop_on_freeze": {
+                    "type": "boolean"
+                  },
+                  "web_api_require_auth": {
+                    "type": "boolean",
+                    "description": "Whether API authentication is required for non-public endpoints."
+                  },
+                  "web_api_public_read_enabled": {
+                    "type": "boolean",
+                    "description": "Whether selected read-only API endpoints may remain public when auth is enabled."
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/control_plane": {
+      "get": {
+        "operationId": "controlPlane_get",
+        "tags": [
+          "config"
+        ],
+        "summary": "Read canonical control-plane bindings, governance resolution, and masked secret status.",
+        "description": "Returned api_key values remain masked; ownership lives in config/control_plane.yaml and config/control_plane.local.yaml.\nPublic response does not expose local config/audit/snapshot file paths.\nFalls back to persisted control-plane config when live runtime is absent.",
+        "responses": {
+          "200": {
+            "description": "Read canonical control-plane bindings, governance resolution, and masked secret status.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/controlPlaneRead"
+                }
+              }
+            }
+          }
+        },
+        "x-runtime-required": false,
+        "x-runtime-preferred": true,
+        "x-latency": "fast",
+        "x-realtime": false,
+        "x-pagination": "none"
+      },
+      "post": {
+        "operationId": "controlPlane_update",
+        "tags": [
+          "config"
+        ],
+        "summary": "Patch canonical control-plane bindings and persist secrets into local override storage.",
+        "description": "Writes are persisted through control-plane services; masked api_key values do not round-trip from the public payload.\nPublic write contract rejects config metadata, audit/snapshot paths, and runtime-only helper fields.\nPersists control-plane bindings even when live runtime is absent; global effect still requires restart.",
+        "responses": {
+          "200": {
+            "description": "Patch canonical control-plane bindings and persist secrets into local override storage.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/statusWrappedConfig"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "request body must be a JSON object; Public control-plane patch only accepts llm.providers / llm.models / llm.bindings / data.runtime_policy.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/statusError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Unexpected control plane mutation error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/statusError"
+                }
+              }
+            }
+          }
+        },
+        "x-runtime-required": false,
+        "x-runtime-preferred": true,
+        "x-latency": "fast",
+        "x-realtime": false,
+        "x-pagination": "none",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "description": "Public patch payload for control-plane provider, model, binding, and runtime data-policy ownership.",
+                "properties": {
+                  "llm": {
+                    "type": "object",
+                    "properties": {
+                      "providers": {
+                        "type": "object",
+                        "additionalProperties": {
+                          "type": "object",
+                          "properties": {
+                            "api_base": {
+                              "type": "string"
+                            },
+                            "api_key": {
+                              "type": "string"
+                            }
+                          },
+                          "additionalProperties": false
+                        }
+                      },
+                      "models": {
+                        "type": "object",
+                        "additionalProperties": {
+                          "type": "object",
+                          "properties": {
+                            "provider": {
+                              "type": "string"
+                            },
+                            "model": {
+                              "type": "string"
+                            }
+                          },
+                          "additionalProperties": false
+                        }
+                      },
+                      "bindings": {
+                        "type": "object",
+                        "additionalProperties": {
+                          "type": "string"
+                        }
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "data": {
+                    "type": "object",
+                    "properties": {
+                      "runtime_policy": {
+                        "type": "object",
+                        "properties": {
+                          "allow_online_fallback": {
+                            "type": "boolean"
+                          },
+                          "allow_capital_flow_sync": {
+                            "type": "boolean"
+                          }
+                        },
+                        "additionalProperties": false
+                      }
+                    },
+                    "additionalProperties": false
+                  }
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/data/status": {
+      "get": {
+        "operationId": "data_status",
+        "tags": [
+          "data"
+        ],
+        "summary": "Read canonical market-data repository summary and quality audit.",
+        "description": "Falls back to canonical market data repository status when live runtime is absent.",
+        "responses": {
+          "200": {
+            "description": "Read canonical market-data repository summary and quality audit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/dataStatus"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "refresh must be a boolean",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/flatError"
+                }
+              }
+            }
+          }
+        },
+        "x-runtime-required": false,
+        "x-runtime-preferred": true,
+        "x-latency": "fast_or_slow",
+        "x-realtime": false,
+        "x-pagination": "none",
+        "parameters": [
+          {
+            "name": "refresh",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false
+            },
+            "description": ""
+          }
+        ]
+      }
+    },
+    "/api/data/download": {
+      "post": {
+        "operationId": "data_download",
+        "tags": [
+          "data"
+        ],
+        "summary": "Kick off background sync for security master, daily bars, and index bars.",
+        "description": "Returns immediately; progress must be inferred from logs or refreshed data status.\nWhen live runtime is present, confirm=false may return a confirmation workflow; stateless fallback starts a best-effort local background worker.",
+        "responses": {
+          "200": {
+            "description": "Kick off background sync for security master, daily bars, and index bars.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/dataDownload"
+                }
+              }
+            }
+          }
+        },
+        "x-runtime-required": false,
+        "x-runtime-preferred": true,
+        "x-latency": "async",
+        "x-realtime": false,
+        "x-pagination": "none",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "confirm": {
+                    "type": "boolean",
+                    "default": false
+                  }
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "flatError": {
+        "type": "object",
+        "description": "Most current endpoints return a flat error body on non-2xx.",
+        "properties": {
+          "error": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "error"
+        ],
+        "additionalProperties": false
+      },
+      "statusError": {
+        "type": "object",
+        "description": "Config mutation endpoints may return a status-bearing error body.",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "error"
+            ]
+          },
+          "error": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "error"
+        ],
+        "additionalProperties": false
+      },
+      "runtimeStatus": {
+        "type": "object",
+        "description": "Commander runtime snapshot. Frontend should rely on documented top-level sections and ignore unknown fields inside nested diagnostic objects.",
+        "properties": {
+          "ts": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "detail_mode": {
+            "type": "string",
+            "enum": [
+              "fast",
+              "slow"
+            ]
+          },
+          "instance_id": {
+            "type": "string"
+          },
+          "workspace": {
+            "type": "string"
+          },
+          "playbook_dir": {
+            "type": "string"
+          },
+          "model": {
+            "type": "string"
+          },
+          "autopilot_enabled": {
+            "type": "boolean"
+          },
+          "heartbeat_enabled": {
+            "type": "boolean"
+          },
+          "training_interval_sec": {
+            "type": "integer"
+          },
+          "heartbeat_interval_sec": {
+            "type": "integer"
+          },
+          "runtime": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "brain": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "body": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "memory": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "bridge": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "plugins": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "playbooks": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "config": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "data": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "training_lab": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "feedback": {
+            "$ref": "#/components/schemas/responseFeedback"
+          },
+          "next_action": {
+            "$ref": "#/components/schemas/responseNextAction"
+          }
+        },
+        "required": [
+          "ts",
+          "detail_mode",
+          "runtime",
+          "brain",
+          "body",
+          "memory",
+          "bridge",
+          "plugins",
+          "playbooks",
+          "config",
+          "data",
+          "training_lab"
+        ],
+        "additionalProperties": true
+      },
+      "labStatus": {
+        "type": "object",
+        "properties": {
+          "mode": {
+            "type": "string",
+            "enum": [
+              "quick",
+              "deep"
+            ]
+          },
+          "snapshot": {
+            "$ref": "#/components/schemas/runtimeStatus"
+          }
+        },
+        "required": [
+          "mode",
+          "snapshot"
+        ],
+        "additionalProperties": false
+      },
+      "chatReply": {
+        "type": "object",
+        "properties": {
+          "reply": {
+            "type": "string"
+          },
+          "next_action": {
+            "$ref": "#/components/schemas/responseNextAction"
+          },
+          "feedback": {
+            "$ref": "#/components/schemas/responseFeedback"
+          },
+          "message": {
+            "type": "string"
+          },
+          "task_bus": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "session_key": {
+            "type": "string"
+          },
+          "chat_id": {
+            "type": "string"
+          },
+          "request_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "reply"
+        ],
+        "additionalProperties": false
+      },
+      "chatStreamConnected": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "connected"
+            ]
+          },
+          "session_key": {
+            "type": "string"
+          },
+          "chat_id": {
+            "type": "string"
+          },
+          "request_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "session_key",
+          "chat_id",
+          "request_id"
+        ],
+        "additionalProperties": false
+      },
+      "chatStreamRuntimeEvent": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "runtime_event"
+            ]
+          },
+          "id": {
+            "type": "string"
+          },
+          "ts": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "event": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "stream_kind": {
+            "type": "string"
+          },
+          "stream_tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "stage": {
+            "type": "string"
+          },
+          "phase_label": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "detail": {
+            "type": "string"
+          },
+          "broadcast_text": {
+            "type": "string"
+          },
+          "human_reply": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "risk_level": {
+            "type": "string"
+          },
+          "risk_summary": {
+            "type": "string"
+          },
+          "requires_confirmation": {
+            "type": "boolean"
+          },
+          "confirmation_state": {
+            "type": "string"
+          },
+          "confirmation_summary": {
+            "type": "string"
+          },
+          "session_key": {
+            "type": "string"
+          },
+          "chat_id": {
+            "type": "string"
+          },
+          "request_id": {
+            "type": "string"
+          },
+          "channel": {
+            "type": "string"
+          },
+          "agent": {
+            "type": "string"
+          },
+          "module": {
+            "type": "string"
+          },
+          "meeting": {
+            "type": "string"
+          },
+          "artifacts": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "progress_pct": {
+            "type": "integer"
+          },
+          "display_priority": {
+            "type": "integer"
+          },
+          "display_text": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "id",
+          "ts",
+          "event",
+          "source",
+          "kind",
+          "stream_kind",
+          "stream_tags",
+          "stage",
+          "phase_label",
+          "label",
+          "detail",
+          "broadcast_text",
+          "human_reply",
+          "status",
+          "risk_level",
+          "risk_summary",
+          "requires_confirmation",
+          "confirmation_state",
+          "confirmation_summary",
+          "session_key",
+          "chat_id",
+          "request_id",
+          "channel",
+          "agent",
+          "module",
+          "meeting",
+          "artifacts",
+          "display_priority",
+          "display_text"
+        ],
+        "additionalProperties": true
+      },
+      "chatStreamSummary": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "runtime_summary"
+            ]
+          },
+          "stream_kind": {
+            "type": "string",
+            "enum": [
+              "summary"
+            ]
+          },
+          "stream_tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "display_priority": {
+            "type": "integer"
+          },
+          "display_text": {
+            "type": "string"
+          },
+          "human_reply": {
+            "type": "string"
+          },
+          "session_key": {
+            "type": "string"
+          },
+          "chat_id": {
+            "type": "string"
+          },
+          "request_id": {
+            "type": "string"
+          },
+          "event_count": {
+            "type": "integer"
+          },
+          "suppressed_count": {
+            "type": "integer"
+          },
+          "phase_labels": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "highest_risk_level": {
+            "type": "string"
+          },
+          "highest_risk_summary": {
+            "type": "string"
+          },
+          "requires_confirmation": {
+            "type": "boolean"
+          },
+          "confirmation_summary": {
+            "type": "string"
+          },
+          "artifact_names": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "last_display_text": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "stream_kind",
+          "stream_tags",
+          "display_priority",
+          "display_text",
+          "human_reply",
+          "session_key",
+          "chat_id",
+          "request_id",
+          "event_count",
+          "suppressed_count",
+          "phase_labels",
+          "highest_risk_level",
+          "highest_risk_summary",
+          "requires_confirmation",
+          "confirmation_summary",
+          "artifact_names",
+          "last_display_text"
+        ],
+        "additionalProperties": false
+      },
+      "chatStreamReply": {
+        "type": "object",
+        "properties": {
+          "reply": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "session_key": {
+            "type": "string"
+          },
+          "chat_id": {
+            "type": "string"
+          },
+          "request_id": {
+            "type": "string"
+          },
+          "next_action": {
+            "$ref": "#/components/schemas/responseNextAction"
+          },
+          "feedback": {
+            "$ref": "#/components/schemas/responseFeedback"
+          },
+          "task_bus": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "human_readable": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "stream_summary": {
+            "$ref": "#/components/schemas/chatStreamSummary"
+          }
+        },
+        "required": [
+          "reply"
+        ],
+        "additionalProperties": true
+      },
+      "chatStreamDone": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "completed"
+            ]
+          },
+          "request_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "request_id"
+        ],
+        "additionalProperties": false
+      },
+      "chatStreamError": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "string"
+          },
+          "request_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "error",
+          "request_id"
+        ],
+        "additionalProperties": false
+      },
+      "trainingPlan": {
+        "type": "object",
+        "properties": {
+          "plan_id": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "status": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          },
+          "auto_generated": {
+            "type": "boolean"
+          },
+          "spec": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "protocol": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "dataset": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "manager_scope": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "optimization": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "llm": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "objective": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "artifacts": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "last_run_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "last_run_at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "started_at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "feedback": {
+            "$ref": "#/components/schemas/responseFeedback"
+          },
+          "next_action": {
+            "$ref": "#/components/schemas/responseNextAction"
+          }
+        },
+        "required": [
+          "plan_id",
+          "created_at",
+          "status",
+          "source",
+          "spec",
+          "protocol",
+          "dataset",
+          "manager_scope",
+          "optimization",
+          "llm",
+          "objective",
+          "artifacts"
+        ],
+        "additionalProperties": true
+      },
+      "artifactList": {
+        "type": "object",
+        "properties": {
+          "count": {
+            "type": "integer"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          }
+        },
+        "required": [
+          "count",
+          "items"
+        ],
+        "additionalProperties": false
+      },
+      "eventsSummary": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string"
+          },
+          "summary": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          },
+          "feedback": {
+            "$ref": "#/components/schemas/responseFeedback"
+          },
+          "next_action": {
+            "$ref": "#/components/schemas/responseNextAction"
+          }
+        },
+        "required": [
+          "status",
+          "summary",
+          "items"
+        ],
+        "additionalProperties": true
+      },
+      "trainingExecution": {
+        "type": "object",
+        "description": "Result of executing a training plan.",
+        "properties": {
+          "status": {
+            "type": "string"
+          },
+          "rounds": {
+            "type": "integer"
+          },
+          "results": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          },
+          "summary": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "training_lab": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "feedback": {
+            "$ref": "#/components/schemas/responseFeedback"
+          },
+          "next_action": {
+            "$ref": "#/components/schemas/responseNextAction"
+          }
+        },
+        "required": [
+          "status",
+          "results",
+          "summary",
+          "training_lab"
+        ],
+        "additionalProperties": true
+      },
+      "trainingRun": {
+        "type": "object",
+        "properties": {
+          "run_id": {
+            "type": "string"
+          },
+          "plan_id": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "status": {
+            "type": "string"
+          },
+          "error": {
+            "type": "string"
+          },
+          "plan": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "payload": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "feedback": {
+            "$ref": "#/components/schemas/responseFeedback"
+          },
+          "next_action": {
+            "$ref": "#/components/schemas/responseNextAction"
+          }
+        },
+        "required": [
+          "run_id",
+          "plan_id",
+          "created_at",
+          "status",
+          "error",
+          "plan",
+          "payload"
+        ],
+        "additionalProperties": true
+      },
+      "trainingEvaluation": {
+        "type": "object",
+        "properties": {
+          "run_id": {
+            "type": "string"
+          },
+          "plan_id": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "status": {
+            "type": "string"
+          },
+          "objective": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "spec": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "assessment": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "promotion": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "error": {
+            "type": "string"
+          },
+          "artifacts": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "feedback": {
+            "$ref": "#/components/schemas/responseFeedback"
+          },
+          "next_action": {
+            "$ref": "#/components/schemas/responseNextAction"
+          }
+        },
+        "required": [
+          "run_id",
+          "plan_id",
+          "created_at",
+          "status",
+          "objective",
+          "spec",
+          "assessment",
+          "promotion",
+          "error",
+          "artifacts"
+        ],
+        "additionalProperties": true
+      },
+      "agentConfigList": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "ok"
+            ]
+          },
+          "configs": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "role": {
+                  "type": "string"
+                },
+                "system_prompt": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "name",
+                "role",
+                "system_prompt"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "feedback": {
+            "$ref": "#/components/schemas/responseFeedback"
+          },
+          "next_action": {
+            "$ref": "#/components/schemas/responseNextAction"
+          }
+        },
+        "required": [
+          "status",
+          "configs"
+        ],
+        "additionalProperties": true
+      },
+      "agentConfigMutation": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "ok"
+            ]
+          },
+          "updated": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "restart_required": {
+            "type": "boolean"
+          },
+          "feedback": {
+            "$ref": "#/components/schemas/responseFeedback"
+          },
+          "next_action": {
+            "$ref": "#/components/schemas/responseNextAction"
+          }
+        },
+        "required": [
+          "status",
+          "updated",
+          "restart_required"
+        ],
+        "additionalProperties": true
+      },
+      "runtimePathsConfig": {
+        "type": "object",
+        "properties": {
+          "training_output_dir": {
+            "type": "string"
+          },
+          "artifact_log_dir": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "training_output_dir",
+          "artifact_log_dir"
+        ],
+        "additionalProperties": false
+      },
+      "runtimePathsWrappedConfig": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "ok"
+            ]
+          },
+          "updated": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "config": {
+            "$ref": "#/components/schemas/runtimePathsConfig"
+          },
+          "feedback": {
+            "$ref": "#/components/schemas/responseFeedback"
+          },
+          "next_action": {
+            "$ref": "#/components/schemas/responseNextAction"
+          }
+        },
+        "required": [
+          "status",
+          "config"
+        ],
+        "additionalProperties": true
+      },
+      "controlPlaneRead": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "ok"
+            ]
+          },
+          "config": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "restart_required": {
+            "type": "boolean"
+          },
+          "llm_resolution": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "feedback": {
+            "$ref": "#/components/schemas/responseFeedback"
+          },
+          "next_action": {
+            "$ref": "#/components/schemas/responseNextAction"
+          }
+        },
+        "required": [
+          "status",
+          "config",
+          "restart_required",
+          "llm_resolution"
+        ],
+        "additionalProperties": true
+      },
+      "statusWrappedConfig": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "ok"
+            ]
+          },
+          "updated": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "config": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "feedback": {
+            "$ref": "#/components/schemas/responseFeedback"
+          },
+          "next_action": {
+            "$ref": "#/components/schemas/responseNextAction"
+          }
+        },
+        "required": [
+          "status",
+          "config"
+        ],
+        "additionalProperties": true
+      },
+      "dataStatus": {
+        "type": "object",
+        "properties": {
+          "db_path": {
+            "type": "string"
+          },
+          "size_mb": {
+            "type": "number"
+          },
+          "stock_count": {
+            "type": "integer"
+          },
+          "kline_count": {
+            "type": "integer"
+          },
+          "financial_count": {
+            "type": "integer"
+          },
+          "calendar_count": {
+            "type": "integer"
+          },
+          "status_count": {
+            "type": "integer"
+          },
+          "factor_count": {
+            "type": "integer"
+          },
+          "capital_flow_count": {
+            "type": "integer"
+          },
+          "dragon_tiger_count": {
+            "type": "integer"
+          },
+          "intraday_60m_count": {
+            "type": "integer"
+          },
+          "latest_date": {
+            "type": "string"
+          },
+          "index_count": {
+            "type": "integer"
+          },
+          "index_kline_count": {
+            "type": "integer"
+          },
+          "index_latest_date": {
+            "type": "string"
+          },
+          "schema": {
+            "type": "string",
+            "enum": [
+              "canonical_v1"
+            ]
+          },
+          "quality": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "detail_mode": {
+            "type": "string",
+            "enum": [
+              "fast",
+              "slow"
+            ]
+          },
+          "feedback": {
+            "$ref": "#/components/schemas/responseFeedback"
+          },
+          "next_action": {
+            "$ref": "#/components/schemas/responseNextAction"
+          }
+        },
+        "required": [
+          "db_path",
+          "size_mb",
+          "stock_count",
+          "kline_count",
+          "latest_date",
+          "schema",
+          "quality",
+          "detail_mode"
+        ],
+        "additionalProperties": true
+      },
+      "dataDownload": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "started",
+              "running"
+            ]
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "message"
+        ],
+        "additionalProperties": false
+      },
+      "dataSourceUnavailableError": {
+        "type": "object",
+        "description": "Structured 503 payload returned when live training data could not be resolved and mock mode was not explicitly enabled.",
+        "properties": {
+          "error": {
+            "type": "string"
+          },
+          "error_code": {
+            "type": "string",
+            "enum": [
+              "data_source_unavailable"
+            ]
+          },
+          "cutoff_date": {
+            "type": "string"
+          },
+          "stock_count": {
+            "type": "integer"
+          },
+          "min_history_days": {
+            "type": "integer"
+          },
+          "requested_data_mode": {
+            "type": "string"
+          },
+          "available_sources": {
+            "type": "object",
+            "properties": {
+              "offline": {
+                "type": "boolean"
+              },
+              "online": {
+                "type": "boolean"
+              },
+              "mock": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "offline",
+              "online",
+              "mock"
+            ],
+            "additionalProperties": true
+          },
+          "offline_diagnostics": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "online_error": {
+            "type": "string"
+          },
+          "suggestions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "allow_mock_fallback": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "error",
+          "error_code",
+          "cutoff_date",
+          "stock_count",
+          "min_history_days",
+          "requested_data_mode",
+          "available_sources",
+          "offline_diagnostics",
+          "online_error",
+          "suggestions",
+          "allow_mock_fallback"
+        ],
+        "additionalProperties": true
+      },
+      "responseFeedback": {
+        "type": "object",
+        "description": "Standard cross-domain feedback fragment returned by Commander-backed workflows and stock-analysis responses.",
+        "properties": {
+          "message": {
+            "type": "string"
+          },
+          "summary": {
+            "type": "string"
+          },
+          "reason_codes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "reason_texts": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "requires_confirmation": {
+            "type": "boolean"
+          },
+          "decision": {
+            "type": "string"
+          },
+          "coverage": {
+            "type": "object",
+            "properties": {
+              "planned_step_coverage": {
+                "type": "number"
+              },
+              "parameter_coverage": {
+                "type": "number"
+              }
+            },
+            "required": [
+              "planned_step_coverage",
+              "parameter_coverage"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "message",
+          "summary",
+          "reason_codes",
+          "reason_texts",
+          "requires_confirmation",
+          "decision",
+          "coverage"
+        ],
+        "additionalProperties": true
+      },
+      "responseNextAction": {
+        "type": "object",
+        "description": "Standard cross-domain next-action fragment derived from feedback and gate state.",
+        "properties": {
+          "kind": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "requires_confirmation": {
+            "type": "boolean"
+          },
+          "suggested_params": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        },
+        "required": [
+          "kind",
+          "label",
+          "description",
+          "requires_confirmation",
+          "suggested_params"
+        ],
+        "additionalProperties": true
+      },
+      "responseEnvelope": {
+        "type": "object",
+        "description": "Unified response envelope for Commander natural-language and bounded workflow responses.",
+        "properties": {
+          "status": {
+            "type": "string"
+          },
+          "reply": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "feedback": {
+            "$ref": "#/components/schemas/responseFeedback"
+          },
+          "next_action": {
+            "$ref": "#/components/schemas/responseNextAction"
+          },
+          "task_bus": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        },
+        "required": [
+          "status",
+          "reply",
+          "message",
+          "feedback",
+          "next_action"
+        ],
+        "additionalProperties": true
+      },
+      "SseConnectedData": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "connected"
+            ]
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "additionalProperties": false
+      },
+      "SseCycleStartData": {
+        "type": "object",
+        "properties": {
+          "cycle_id": {
+            "type": "integer"
+          },
+          "cutoff_date": {
+            "type": "string"
+          },
+          "phase": {
+            "type": "string"
+          },
+          "timestamp": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "requested_data_mode": {
+            "type": "string"
+          },
+          "llm_mode": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "cycle_id",
+          "cutoff_date",
+          "phase",
+          "requested_data_mode",
+          "llm_mode",
+          "timestamp"
+        ],
+        "additionalProperties": true
+      },
+      "SseCycleCompleteData": {
+        "type": "object",
+        "properties": {
+          "cycle_id": {
+            "type": "integer"
+          },
+          "cutoff_date": {
+            "type": "string"
+          },
+          "return_pct": {
+            "type": "number"
+          },
+          "is_profit": {
+            "type": "boolean"
+          },
+          "selected_count": {
+            "type": "integer"
+          },
+          "selected_stocks": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "trade_count": {
+            "type": "integer"
+          },
+          "final_value": {
+            "type": "number"
+          },
+          "review_applied": {
+            "type": "boolean"
+          },
+          "selection_mode": {
+            "type": "string"
+          },
+          "timestamp": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "requested_data_mode": {
+            "type": "string"
+          },
+          "effective_data_mode": {
+            "type": "string"
+          },
+          "llm_mode": {
+            "type": "string"
+          },
+          "degraded": {
+            "type": "boolean"
+          },
+          "degrade_reason": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "cycle_id",
+          "cutoff_date",
+          "return_pct",
+          "is_profit",
+          "selected_count",
+          "trade_count",
+          "final_value",
+          "review_applied",
+          "selection_mode",
+          "requested_data_mode",
+          "effective_data_mode",
+          "llm_mode",
+          "degraded",
+          "degrade_reason",
+          "timestamp"
+        ],
+        "additionalProperties": true
+      },
+      "SseCycleSkippedData": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "no_data"
+            ]
+          },
+          "cycle_id": {
+            "type": "integer"
+          },
+          "cutoff_date": {
+            "type": "string"
+          },
+          "stage": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "timestamp": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "requested_data_mode": {
+            "type": "string"
+          },
+          "effective_data_mode": {
+            "type": "string"
+          },
+          "llm_mode": {
+            "type": "string"
+          },
+          "degraded": {
+            "type": "boolean"
+          },
+          "degrade_reason": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "cycle_id",
+          "cutoff_date",
+          "stage",
+          "reason",
+          "timestamp"
+        ],
+        "additionalProperties": true
+      },
+      "SseAgentStatusData": {
+        "type": "object",
+        "properties": {
+          "timestamp": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "cycle_id": {
+            "type": "integer"
+          },
+          "cutoff_date": {
+            "type": "string"
+          },
+          "agent": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "stage": {
+            "type": "string"
+          },
+          "progress_pct": {
+            "type": "integer"
+          },
+          "step": {
+            "type": "integer"
+          },
+          "total_steps": {
+            "type": "integer"
+          },
+          "thinking": {
+            "type": "string"
+          },
+          "selected_stocks": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "details": {
+            "type": [
+              "object",
+              "array",
+              "string",
+              "number",
+              "boolean",
+              "null"
+            ],
+            "additionalProperties": true
+          }
+        },
+        "required": [
+          "timestamp",
+          "agent",
+          "status",
+          "message"
+        ],
+        "additionalProperties": true
+      },
+      "SseModuleLogData": {
+        "type": "object",
+        "properties": {
+          "timestamp": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "cycle_id": {
+            "type": "integer"
+          },
+          "cutoff_date": {
+            "type": "string"
+          },
+          "module": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "level": {
+            "type": "string"
+          },
+          "details": {
+            "type": [
+              "object",
+              "array",
+              "string",
+              "number",
+              "boolean",
+              "null"
+            ],
+            "additionalProperties": true
+          },
+          "metrics": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        },
+        "required": [
+          "timestamp",
+          "module",
+          "title",
+          "kind",
+          "level"
+        ],
+        "additionalProperties": true
+      },
+      "SseMeetingSpeechData": {
+        "type": "object",
+        "properties": {
+          "timestamp": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "cycle_id": {
+            "type": "integer"
+          },
+          "cutoff_date": {
+            "type": "string"
+          },
+          "meeting": {
+            "type": "string"
+          },
+          "speaker": {
+            "type": "string"
+          },
+          "speech": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string"
+          },
+          "picks": {
+            "type": "array",
+            "items": {
+              "type": [
+                "object",
+                "string"
+              ],
+              "additionalProperties": true
+            }
+          },
+          "suggestions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "decision": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "confidence": {
+            "type": [
+              "number",
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "timestamp",
+          "meeting",
+          "speaker",
+          "speech"
+        ],
+        "additionalProperties": true
+      },
+      "SseGovernanceStartedData": {
+        "type": "object",
+        "properties": {
+          "cycle_id": {
+            "type": "integer"
+          },
+          "dominant_manager_id": {
+            "type": "string"
+          },
+          "governance_mode": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": true
+      },
+      "SseRegimeClassifiedData": {
+        "type": "object",
+        "properties": {
+          "cycle_id": {
+            "type": "integer"
+          },
+          "regime": {
+            "type": "string"
+          },
+          "confidence": {
+            "type": "number"
+          },
+          "source": {
+            "type": "string"
+          },
+          "reasoning": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "regime"
+        ],
+        "additionalProperties": true
+      },
+      "SseGovernanceDecisionData": {
+        "type": "object",
+        "properties": {
+          "as_of_date": {
+            "type": "string"
+          },
+          "regime": {
+            "type": "string"
+          },
+          "regime_confidence": {
+            "type": "number"
+          },
+          "decision_confidence": {
+            "type": "number"
+          },
+          "active_manager_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "manager_budget_weights": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "number"
+            }
+          },
+          "dominant_manager_id": {
+            "type": "string"
+          },
+          "cash_reserve_hint": {
+            "type": "number"
+          },
+          "portfolio_constraints": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "decision_source": {
+            "type": "string"
+          },
+          "regime_source": {
+            "type": "string"
+          },
+          "reasoning": {
+            "type": "string"
+          },
+          "guardrail_checks": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          },
+          "allocation_plan": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "agent_advice": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "evidence": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "metadata": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        },
+        "required": [
+          "regime",
+          "active_manager_ids",
+          "manager_budget_weights",
+          "dominant_manager_id",
+          "decision_source"
+        ],
+        "additionalProperties": true
+      },
+      "SseGovernanceAppliedData": {
+        "type": "object",
+        "properties": {
+          "cycle_id": {
+            "type": "integer"
+          },
+          "cutoff_date": {
+            "type": "string"
+          },
+          "dominant_manager_id": {
+            "type": "string"
+          },
+          "active_manager_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "manager_budget_weights": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "number"
+            }
+          },
+          "cash_reserve_hint": {
+            "type": "number"
+          },
+          "reasoning": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "dominant_manager_id",
+          "active_manager_ids"
+        ],
+        "additionalProperties": true
+      },
+      "SseGovernanceBlockedData": {
+        "type": "object",
+        "properties": {
+          "cycle_id": {
+            "type": "integer"
+          },
+          "cutoff_date": {
+            "type": "string"
+          },
+          "dominant_manager_id": {
+            "type": "string"
+          },
+          "active_manager_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "manager_budget_weights": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "number"
+            }
+          },
+          "hold_reason": {
+            "type": "string"
+          },
+          "reasoning": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "hold_reason"
+        ],
+        "additionalProperties": true
+      }
+    }
+  },
+  "x-transcript-snapshots": {
+    "schema_version": "transcript_snapshots.v1",
+    "examples": {
+      "runtime_status": {
+        "entrypoint": {
+          "agent_kind": "bounded_runtime_agent",
+          "domain": "runtime",
+          "runtime_tool": "invest_quick_status",
+          "service": null
+        },
+        "orchestration": {
+          "workflow": [
+            "runtime_scope_resolve",
+            "status_read",
+            "finalize"
+          ],
+          "mode": "bounded_readonly_workflow",
+          "policy": {
+            "fixed_boundary": true,
+            "fixed_workflow": true,
+            "writes_state": false,
+            "confirmation_gate": null,
+            "tool_catalog_scope": "runtime_domain",
+            "workflow_mode": null
+          },
+          "step_count": null,
+          "phase_stats": {
+            "detail_mode": "fast",
+            "event_count": 12
+          }
+        },
+        "task_bus": {
+          "schema_version": "task_bus.v2",
+          "intent": "runtime_status",
+          "operation": "status",
+          "mode": "commander_runtime_method",
+          "recommended_tools": [
+            "invest_quick_status",
+            "invest_events_summary",
+            "invest_runtime_diagnostics"
+          ],
+          "used_tools": [
+            "invest_quick_status"
+          ],
+          "requires_confirmation": false,
+          "confirmation_state": "not_applicable"
+        },
+        "protocol": {
+          "schema_version": "bounded_workflow.v2",
+          "task_bus_schema_version": "task_bus.v2",
+          "plan_schema_version": "task_plan.v2",
+          "coverage_schema_version": "task_coverage.v2",
+          "artifact_taxonomy_schema_version": "artifact_taxonomy.v2",
+          "domain": "runtime",
+          "operation": "status"
+        },
+        "feedback": {
+          "summary": "当前任务已完成，计划与参数覆盖满足预期。"
+        },
+        "next_action": {
+          "kind": "continue",
+          "requires_confirmation": false
+        },
+        "status": "ok",
+        "detail_mode": "fast"
+      },
+      "ask_stock": {
+        "entrypoint": {
+          "agent_kind": "bounded_stock_agent",
+          "domain": "stock",
+          "runtime_tool": "invest_ask_stock",
+          "service": "StockAnalysisService"
+        },
+        "orchestration": {
+          "workflow": [
+            "yaml_strategy_loaded",
+            "yaml_plan_execute",
+            "finalize"
+          ],
+          "mode": "yaml_react_like",
+          "policy": {
+            "fixed_boundary": true,
+            "fixed_workflow": true,
+            "writes_state": null,
+            "confirmation_gate": null,
+            "tool_catalog_scope": "strategy_restricted",
+            "workflow_mode": "llm_react_with_yaml_gap_fill"
+          },
+          "step_count": 5,
+          "phase_stats": {
+            "llm_react_steps": 0,
+            "yaml_planned_steps": 5,
+            "total_steps": 5
+          }
+        },
+        "task_bus": {
+          "schema_version": "task_bus.v2",
+          "intent": "stock_analysis",
+          "operation": "ask_stock",
+          "mode": "yaml_react_like",
+          "recommended_tools": [
+            "get_daily_history",
+            "get_indicator_snapshot",
+            "analyze_support_resistance",
+            "get_capital_flow",
+            "get_realtime_quote"
+          ],
+          "used_tools": [
+            "get_daily_history",
+            "get_indicator_snapshot",
+            "analyze_support_resistance",
+            "get_capital_flow",
+            "get_realtime_quote"
+          ],
+          "requires_confirmation": false,
+          "confirmation_state": "not_applicable"
+        },
+        "protocol": {
+          "schema_version": "bounded_workflow.v2",
+          "task_bus_schema_version": "task_bus.v2",
+          "plan_schema_version": "task_plan.v2",
+          "coverage_schema_version": "task_coverage.v2",
+          "artifact_taxonomy_schema_version": "artifact_taxonomy.v2",
+          "domain": "stock",
+          "operation": "ask_stock"
+        },
+        "feedback": {
+          "summary": "当前任务已完成，计划与参数覆盖满足预期。"
+        },
+        "next_action": {
+          "kind": "continue",
+          "requires_confirmation": false
+        },
+        "status": "ok",
+        "strategy": {
+          "name": "chan_theory",
+          "required_tools": [
+            "get_daily_history",
+            "get_indicator_snapshot",
+            "analyze_support_resistance",
+            "get_capital_flow",
+            "get_realtime_quote"
+          ],
+          "analysis_steps": [
+            "获取近60日日线",
+            "识别指标状态",
+            "判断支撑阻力",
+            "观察资金确认",
+            "结合最新价格输出结论"
+          ]
+        },
+        "resolved": {
+          "code": "sh.600001",
+          "name": "FooBank"
+        }
+      },
+      "mutating_confirmation": {
+        "entrypoint": {
+          "agent_kind": "bounded_config_agent",
+          "domain": "config",
+          "runtime_tool": "invest_runtime_paths_update"
+        },
+        "orchestration": {
+          "workflow": [
+            "config_scope_resolve",
+            "gate_confirmation",
+            "finalize"
+          ],
+          "mode": "bounded_mutating_workflow",
+          "policy": {
+            "writes_state": true,
+            "confirmation_gate": true,
+            "fixed_boundary": true,
+            "fixed_workflow": true
+          },
+          "phase_stats": {
+            "pending_key_count": 1,
+            "requires_confirmation": true
+          }
+        },
+        "task_bus": {
+          "schema_version": "task_bus.v2",
+          "intent": "config_runtime_paths_update",
+          "operation": "update_runtime_paths",
+          "mode": "commander_runtime_method",
+          "recommended_tools": [
+            "invest_runtime_paths_get",
+            "invest_runtime_paths_update"
+          ],
+          "used_tools": [],
+          "requires_confirmation": true,
+          "confirmation_state": "pending_confirmation",
+          "recommended_args": [
+            {},
+            {
+              "confirm": false
+            }
+          ],
+          "tool_count": 0,
+          "planned_step_coverage": 0.0,
+          "parameterized_step_count": 1,
+          "covered_parameterized_step_ids": [],
+          "missing_parameterized_step_ids": [
+            "step_02"
+          ],
+          "parameter_coverage": 0.0,
+          "decision": "confirm",
+          "risk_level": "high",
+          "writes_state": true
+        },
+        "protocol": {
+          "schema_version": "bounded_workflow.v2",
+          "task_bus_schema_version": "task_bus.v2",
+          "plan_schema_version": "task_plan.v2",
+          "coverage_schema_version": "task_coverage.v2",
+          "artifact_taxonomy_schema_version": "artifact_taxonomy.v2",
+          "domain": "config",
+          "operation": "update_runtime_paths"
+        },
+        "feedback": {
+          "summary": "当前任务仍需人工确认后才能视为审计闭环完成。"
+        },
+        "next_action": {
+          "kind": "confirm",
+          "requires_confirmation": true
+        },
+        "status": "confirmation_required",
+        "pending": {
+          "patch": {
+            "training_output_dir": "/tmp/train"
+          }
+        }
+      },
+      "runtime_builtin_combo": {
+        "entrypoint": {
+          "agent_kind": "bounded_runtime_agent",
+          "domain": null,
+          "runtime_tool": null,
+          "service": null
+        },
+        "orchestration": {
+          "workflow": [
+            "runtime_scope_resolve",
+            "quick_status_read",
+            "training_lab_read",
+            "finalize"
+          ],
+          "mode": "builtin_bounded_readonly_workflow",
+          "policy": {
+            "fixed_boundary": true,
+            "fixed_workflow": true,
+            "writes_state": false,
+            "confirmation_gate": null,
+            "tool_catalog_scope": "runtime_training_combo",
+            "workflow_mode": null
+          },
+          "step_count": null,
+          "phase_stats": {
+            "section_count": 2
+          }
+        },
+        "task_bus": {
+          "schema_version": "task_bus.v2",
+          "intent": "runtime_status_and_training",
+          "operation": "status_and_recent_training",
+          "mode": "builtin_intent",
+          "recommended_tools": [
+            "invest_quick_status",
+            "invest_training_lab_summary"
+          ],
+          "used_tools": [
+            "invest_quick_status",
+            "invest_training_lab_summary"
+          ],
+          "requires_confirmation": false,
+          "confirmation_state": "not_applicable"
+        },
+        "feedback": {
+          "summary": "当前任务已完成，计划与参数覆盖满足预期。"
+        },
+        "next_action": {
+          "kind": "continue",
+          "requires_confirmation": false
+        },
+        "status": "ok"
+      }
+    }
+  }
+}

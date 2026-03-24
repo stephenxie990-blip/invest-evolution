@@ -1,0 +1,95 @@
+import json
+
+import invest_evolution.interfaces.web.server as web_server
+from invest_evolution.application.commander_main import CommanderConfig, CommanderRuntime
+
+
+def test_managers_api_route_is_removed_from_public_api_surface(tmp_path, monkeypatch):
+    runtime = CommanderRuntime(CommanderConfig(
+        workspace=tmp_path / "workspace",
+        playbook_dir=tmp_path / "strategies",
+        state_file=tmp_path / "state.json",
+        cron_store=tmp_path / "cron.json",
+        memory_store=tmp_path / "memory.jsonl",
+        plugin_dir=tmp_path / "plugins",
+        bridge_inbox=tmp_path / "inbox",
+        bridge_outbox=tmp_path / "outbox",
+        mock_mode=True,
+        autopilot_enabled=False,
+        heartbeat_enabled=False,
+        bridge_enabled=False,
+    ))
+    monkeypatch.setattr(web_server, "_runtime", runtime)
+    client = web_server.app.test_client()
+
+    res = client.get("/api/managers")
+    assert res.status_code == 404
+
+
+def test_leaderboard_route_is_removed_from_public_api_surface(tmp_path, monkeypatch):
+    runtime = CommanderRuntime(CommanderConfig(
+        workspace=tmp_path / "workspace",
+        playbook_dir=tmp_path / "strategies",
+        state_file=tmp_path / "state.json",
+        cron_store=tmp_path / "cron.json",
+        memory_store=tmp_path / "memory.jsonl",
+        plugin_dir=tmp_path / "plugins",
+        bridge_inbox=tmp_path / "inbox",
+        bridge_outbox=tmp_path / "outbox",
+        mock_mode=True,
+        autopilot_enabled=False,
+        heartbeat_enabled=False,
+        bridge_enabled=False,
+    ))
+    training_root = runtime.cfg.training_output_dir.parent
+    run_dir = training_root / "momentum_case"
+    run_dir.mkdir(parents=True, exist_ok=True)
+    (run_dir / "cycle_1.json").write_text(json.dumps({
+        "cycle_id": 1,
+        "cutoff_date": "20250101",
+        "return_pct": 1.0,
+        "is_profit": True,
+        "benchmark_passed": True,
+        "manager_id": "momentum",
+        "manager_config_ref": "momentum_v1",
+        "self_assessment": {"regime": "bull", "sharpe_ratio": 1.1, "max_drawdown": 3.0, "excess_return": 0.5, "benchmark_passed": True},
+    }, ensure_ascii=False), encoding="utf-8")
+    monkeypatch.setattr(web_server, "_runtime", runtime)
+    client = web_server.app.test_client()
+
+    res = client.get("/api/leaderboard")
+    assert res.status_code == 404
+
+def test_allocator_route_is_removed_from_public_api_surface(tmp_path, monkeypatch):
+    runtime = CommanderRuntime(CommanderConfig(
+        workspace=tmp_path / "workspace",
+        playbook_dir=tmp_path / "strategies",
+        state_file=tmp_path / "state.json",
+        cron_store=tmp_path / "cron.json",
+        memory_store=tmp_path / "memory.jsonl",
+        plugin_dir=tmp_path / "plugins",
+        bridge_inbox=tmp_path / "inbox",
+        bridge_outbox=tmp_path / "outbox",
+        mock_mode=True,
+        autopilot_enabled=False,
+        heartbeat_enabled=False,
+        bridge_enabled=False,
+    ))
+    training_root = runtime.cfg.training_output_dir.parent
+    run_dir = training_root / "defensive_case"
+    run_dir.mkdir(parents=True, exist_ok=True)
+    (run_dir / "cycle_1.json").write_text(json.dumps({
+        "cycle_id": 1,
+        "cutoff_date": "20250101",
+        "return_pct": 1.0,
+        "is_profit": True,
+        "benchmark_passed": True,
+        "manager_id": "defensive_low_vol",
+        "manager_config_ref": "defensive_low_vol_v1",
+        "self_assessment": {"regime": "bear", "sharpe_ratio": 1.4, "max_drawdown": 2.0, "excess_return": 0.6, "benchmark_passed": True},
+    }, ensure_ascii=False), encoding="utf-8")
+    monkeypatch.setattr(web_server, "_runtime", runtime)
+    client = web_server.app.test_client()
+
+    res = client.get("/api/allocator?regime=bear&top_n=2")
+    assert res.status_code == 404
