@@ -257,18 +257,50 @@ class ResearchResolutionBasePayload:
 class ResearchResolutionPayloadFactory:
     base_payload: ResearchResolutionBasePayload
 
-    def merge(self, updates: dict[str, Any] | None = None) -> dict[str, Any]:
+    def build(self, updates: dict[str, Any] | None = None) -> dict[str, Any]:
         return {
             **self.base_payload.to_payload(),
             **dict(updates or {}),
+        }
+
+    def build_detail_payloads(
+        self,
+        detail_updates: "ResearchResolutionDetailUpdatesBundle",
+    ) -> "ResearchResolutionDisplayPayloadBundle":
+        return ResearchResolutionDisplayPayloadBundle(
+            research_payload=self.build(
+                detail_updates.research.build_payload(
+                    shared_updates=detail_updates.shared_updates
+                )
+            ),
+            research_bridge_payload=self.build(
+                detail_updates.research_bridge.build_payload(
+                    shared_updates=detail_updates.shared_updates
+                )
+            ),
+        )
+
+
+@dataclass(frozen=True)
+class ResearchResolutionDetailSectionUpdates:
+    payload_updates: dict[str, Any]
+
+    def build_payload(
+        self,
+        *,
+        shared_updates: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        return {
+            **dict(shared_updates or {}),
+            **dict(self.payload_updates),
         }
 
 
 @dataclass(frozen=True)
 class ResearchResolutionDetailUpdatesBundle:
     shared_updates: dict[str, Any]
-    research_updates: dict[str, Any]
-    research_bridge_updates: dict[str, Any]
+    research: ResearchResolutionDetailSectionUpdates
+    research_bridge: ResearchResolutionDetailSectionUpdates
 
 
 @dataclass(frozen=True)
@@ -294,12 +326,17 @@ class ResearchResolutionDisplaySpec:
 
 
 @dataclass(frozen=True)
+class ResearchResolutionDisplayPayloadBundle:
+    research_payload: dict[str, Any]
+    research_bridge_payload: dict[str, Any]
+
+
+@dataclass(frozen=True)
 class ResearchResolutionDisplayBundle:
     context: "ResearchResolutionContext"
     dashboard: dict[str, Any]
     identifiers: ResearchResolutionIdentifiers
-    research_updates: dict[str, Any]
-    research_bridge_updates: dict[str, Any]
+    detail_updates: ResearchResolutionDetailUpdatesBundle
 
 
 @dataclass(frozen=True)
@@ -2933,8 +2970,8 @@ class ResearchResolutionService:
                 "fallback": "canonical_dashboard_fallback",
                 "details": dict(research_bridge.get("details") or {}),
             },
-            research_updates={},
-            research_bridge_updates={},
+            research=ResearchResolutionDetailSectionUpdates(payload_updates={}),
+            research_bridge=ResearchResolutionDetailSectionUpdates(payload_updates={}),
         )
 
     @staticmethod
@@ -2946,15 +2983,17 @@ class ResearchResolutionService:
     ) -> ResearchResolutionDetailUpdatesBundle:
         return ResearchResolutionDetailUpdatesBundle(
             shared_updates={},
-            research_updates=ResearchResolutionService._build_research_detail_updates(
-                snapshot=stages.artifacts.snapshot,
-                policy=stages.artifacts.policy,
-                hypothesis=stages.artifacts.hypothesis,
-                scenario=stages.artifacts.scenario,
-                persistence=stages.persistence.projection,
+            research=ResearchResolutionDetailSectionUpdates(
+                payload_updates=ResearchResolutionService._build_research_detail_updates(
+                    snapshot=stages.artifacts.snapshot,
+                    policy=stages.artifacts.policy,
+                    hypothesis=stages.artifacts.hypothesis,
+                    scenario=stages.artifacts.scenario,
+                    persistence=stages.persistence.projection,
+                )
             ),
-            research_bridge_updates=(
-                ResearchResolutionService._build_research_bridge_detail_updates(
+            research_bridge=ResearchResolutionDetailSectionUpdates(
+                payload_updates=ResearchResolutionService._build_research_bridge_detail_updates(
                     research_bridge=research_bridge,
                     identifiers=identifiers,
                 )
@@ -3003,24 +3042,20 @@ class ResearchResolutionService:
         context: ResearchResolutionContext,
         dashboard: dict[str, Any],
         identifiers: ResearchResolutionIdentifiers | None = None,
-        research_updates: dict[str, Any] | None = None,
-        research_bridge_updates: dict[str, Any] | None = None,
-        shared_updates: dict[str, Any] | None = None,
+        detail_updates: ResearchResolutionDetailUpdatesBundle | None = None,
     ) -> ResearchResolutionDisplayBundle:
-        combined_research_updates = {
-            **dict(shared_updates or {}),
-            **dict(research_updates or {}),
-        }
-        combined_research_bridge_updates = {
-            **dict(shared_updates or {}),
-            **dict(research_bridge_updates or {}),
-        }
         return ResearchResolutionDisplayBundle(
             context=context,
             dashboard=dict(dashboard),
             identifiers=identifiers or self._build_resolution_identifiers(),
-            research_updates=combined_research_updates,
-            research_bridge_updates=combined_research_bridge_updates,
+            detail_updates=detail_updates
+            or ResearchResolutionDetailUpdatesBundle(
+                shared_updates={},
+                research=ResearchResolutionDetailSectionUpdates(payload_updates={}),
+                research_bridge=ResearchResolutionDetailSectionUpdates(
+                    payload_updates={}
+                ),
+            ),
         )
 
     def _build_resolution_display_spec(
@@ -3028,14 +3063,13 @@ class ResearchResolutionService:
         *,
         bundle: ResearchResolutionDisplayBundle,
     ) -> ResearchResolutionDisplaySpec:
+        payload_bundle = bundle.context.payload_factory.build_detail_payloads(
+            bundle.detail_updates,
+        )
         return ResearchResolutionDisplaySpec(
             dashboard=dict(bundle.dashboard),
-            research_payload=bundle.context.payload_factory.merge(
-                bundle.research_updates,
-            ),
-            research_bridge_payload=bundle.context.payload_factory.merge(
-                bundle.research_bridge_updates,
-            ),
+            research_payload=payload_bundle.research_payload,
+            research_bridge_payload=payload_bundle.research_bridge_payload,
             identifiers=bundle.identifiers,
         )
 
@@ -3068,9 +3102,7 @@ class ResearchResolutionService:
         return self._build_resolution_display_bundle(
             context=context,
             dashboard=context.dashboard_projection_factory.build(analysis).render(),
-            shared_updates=detail_updates.shared_updates,
-            research_updates=detail_updates.research_updates,
-            research_bridge_updates=detail_updates.research_bridge_updates,
+            detail_updates=detail_updates,
         )
 
     def persist_research_case_artifacts(
@@ -3526,9 +3558,7 @@ class ResearchResolutionService:
                 stages.analysis
             ).render(),
             identifiers=identifiers,
-            shared_updates=detail_updates.shared_updates,
-            research_updates=detail_updates.research_updates,
-            research_bridge_updates=detail_updates.research_bridge_updates,
+            detail_updates=detail_updates,
         )
 
     def _run_resolution_display_stage(
