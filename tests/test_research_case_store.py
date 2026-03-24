@@ -219,3 +219,130 @@ def test_research_case_store_build_training_feedback_prefers_requested_regime_wh
     assert feedback["overall_feedback"]["sample_count"] == 4
     assert feedback["regime_breakdown"]["bull"]["sample_count"] == 3
     assert feedback["requested_regime_feedback"]["recommendation"]["bias"] == "maintain"
+
+
+def test_research_case_store_feedback_recommendation_uses_model_policy_thresholds(monkeypatch):
+    monkeypatch.setattr(
+        ResearchCaseStore,
+        "_model_research_feedback_policy",
+        staticmethod(
+            lambda model_name, config_name: {
+                "apply_default_horizon_policy": False,
+                "min_sample_count": 8,
+                "blocked_biases": ["tighten_risk", "recalibrate_probability"],
+                "max_brier_like_direction_score": 0.25,
+                "horizons": {
+                    "T+5": {
+                        "min_hit_rate": 0.55,
+                        "max_invalidation_rate": 0.20,
+                        "min_interval_hit_rate": 0.65,
+                    },
+                    "T+20": {
+                        "min_hit_rate": 0.30,
+                        "max_invalidation_rate": 0.33,
+                        "min_interval_hit_rate": 0.70,
+                    },
+                },
+            }
+        ),
+    )
+    feedback = ResearchCaseStore._feedback_recommendation(
+        {
+            "subject": {
+                "model_name": "defensive_low_vol",
+                "config_name": "defensive_low_vol_v1",
+            },
+            "sample_count": 20,
+            "brier_like_direction_score": 0.20,
+            "horizons": {
+                "T+5": {
+                    "hit_rate": 0.50,
+                    "invalidation_rate": 0.10,
+                    "interval_hit_rate": 0.80,
+                },
+                "T+20": {
+                    "hit_rate": 0.35,
+                    "invalidation_rate": 0.30,
+                    "interval_hit_rate": 0.75,
+                },
+            },
+        }
+    )
+
+    assert feedback["recommendation"]["bias"] == "tighten_risk"
+    assert feedback["recommendation"]["reason_codes"] == ["t5_hit_rate_low"]
+
+
+def test_research_case_store_feedback_recommendation_falls_back_to_generic_when_policy_inactive(monkeypatch):
+    monkeypatch.setattr(
+        ResearchCaseStore,
+        "_model_research_feedback_policy",
+        staticmethod(
+            lambda model_name, config_name: {
+                "apply_default_horizon_policy": False,
+                "min_sample_count": 5,
+                "blocked_biases": ["tighten_risk", "recalibrate_probability"],
+                "max_brier_like_direction_score": 0.25,
+                "horizons": {
+                    "T+20": {
+                        "min_hit_rate": 0.30,
+                        "max_invalidation_rate": 0.33,
+                        "min_interval_hit_rate": 0.70,
+                    },
+                },
+            }
+        ),
+    )
+    feedback = ResearchCaseStore._feedback_recommendation(
+        {
+            "subject": {
+                "model_name": "momentum",
+                "config_name": "momentum_v1",
+            },
+            "sample_count": 4,
+            "brier_like_direction_score": 0.20,
+            "horizons": {
+                "T+20": {
+                    "hit_rate": 0.20,
+                    "invalidation_rate": 0.20,
+                    "interval_hit_rate": 0.80,
+                },
+            },
+        }
+    )
+
+    assert feedback["recommendation"]["bias"] == "tighten_risk"
+    assert feedback["recommendation"]["reason_codes"] == ["t20_hit_rate_low"]
+
+
+def test_research_case_store_feedback_recommendation_reads_defensive_low_vol_freeze_gate():
+    feedback = ResearchCaseStore._feedback_recommendation(
+        {
+            "subject": {
+                "model_name": "defensive_low_vol",
+                "config_name": "defensive_low_vol_v1",
+            },
+            "sample_count": 103,
+            "brier_like_direction_score": 0.2108,
+            "horizons": {
+                "T+5": {
+                    "hit_rate": 0.5049,
+                    "invalidation_rate": 0.1068,
+                    "interval_hit_rate": 0.7476,
+                },
+                "T+10": {
+                    "hit_rate": 0.4078,
+                    "invalidation_rate": 0.2136,
+                    "interval_hit_rate": 0.6699,
+                },
+                "T+20": {
+                    "hit_rate": 0.3204,
+                    "invalidation_rate": 0.3107,
+                    "interval_hit_rate": 0.7767,
+                },
+            },
+        }
+    )
+
+    assert feedback["recommendation"]["bias"] == "maintain"
+    assert feedback["recommendation"]["reason_codes"] == []
