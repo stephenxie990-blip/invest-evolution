@@ -355,6 +355,7 @@ class CommanderRuntime:
         self.runtime_state = RUNTIME_STATE_INITIALIZED
         self.current_task: Optional[dict[str, Any]] = None
         self.last_task: Optional[dict[str, Any]] = None
+        self._pending_runtime_tasks: list[dict[str, Any]] = []
         self._task_lock = threading.RLock()
         self._stream_lock = threading.RLock()
         self._event_subscriptions: dict[str, RuntimeEventSubscription] = {}
@@ -1265,22 +1266,54 @@ class CommanderRuntime:
             )
 
     def _begin_task(self, task_type: str, source: str, **metadata: Any) -> None:
-        task = build_started_task(task_type, source, **metadata)
-        self._update_runtime_fields(current_task=task)
+        request_context = self._current_request_event_context()
+        request_id = str(metadata.get("request_id") or request_context.get("request_id") or "").strip()
+        task = build_started_task(
+            task_type,
+            source,
+            task_id=f"task:{uuid.uuid4().hex}",
+            **({"request_id": request_id} if request_id else {}),
+            **metadata,
+        )
+        with self._task_lock:
+            self._pending_runtime_tasks.append(self._copy_runtime_task(task) or {})
+            self.current_task = self._copy_runtime_task(task)
         self._append_runtime_event(EVENT_TASK_STARTED, task, source="runtime")
 
     def _end_task(self, status: str = STATUS_OK, **metadata: Any) -> None:
+        request_context = self._current_request_event_context()
+        request_id = str(metadata.get("request_id") or request_context.get("request_id") or "").strip()
         with self._task_lock:
-            if self.current_task is None:
+            if not self._pending_runtime_tasks and self.current_task is None:
+                return
+            task_index = None
+            if request_id:
+                for index in range(len(self._pending_runtime_tasks) - 1, -1, -1):
+                    pending_request_id = str(self._pending_runtime_tasks[index].get("request_id") or "").strip()
+                    if pending_request_id == request_id:
+                        task_index = index
+                        break
+            if self._pending_runtime_tasks:
+                if task_index is None:
+                    task_index = len(self._pending_runtime_tasks) - 1
+                current_task = self._copy_runtime_task(self._pending_runtime_tasks.pop(task_index))
+            else:
+                current_task = self._copy_runtime_task(self.current_task)
+            if current_task is None:
+                self.current_task = None
                 return
             self.last_task = build_finished_task(
-                self.current_task,
+                current_task,
                 status=status,
                 copy_task=self._copy_runtime_task,
                 **metadata,
             )
             self._append_runtime_event(EVENT_TASK_FINISHED, self.last_task, source="runtime")
-            self.current_task = None
+            self.current_task = (
+                self._copy_runtime_task(self._pending_runtime_tasks[-1])
+                if self._pending_runtime_tasks
+                else None
+            )
 
     def _complete_runtime_task(self, *, status: str = STATUS_OK, state: str | None = None, **metadata: Any) -> None:
         if state is not None:

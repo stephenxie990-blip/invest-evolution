@@ -19,6 +19,7 @@ import hmac
 import json
 import logging
 import os
+from pathlib import Path
 from queue import Full, Queue
 import threading
 from typing import Any
@@ -372,7 +373,7 @@ def _parse_bind_host(bind: str) -> str:
 
 
 def _configured_gunicorn_host() -> str:
-    return _parse_bind_host(os.environ.get("GUNICORN_BIND", "0.0.0.0:8080"))
+    return _parse_bind_host(os.environ.get("GUNICORN_BIND", "127.0.0.1:8080"))
 
 
 def _configured_gunicorn_workers() -> int:
@@ -425,11 +426,15 @@ def _request_requires_auth() -> bool:
         return False
     if path in _PUBLIC_API_PATHS:
         return False
-    if not _web_api_require_auth():
+    if (
+        request.method in {"GET", "HEAD", "OPTIONS"}
+        and path in _OPTIONALLY_PUBLIC_READ_PATHS
+        and (_web_api_public_read_enabled() or not _web_api_require_auth())
+    ):
         return False
-    if request.method in {"GET", "HEAD", "OPTIONS"} and _web_api_public_read_enabled() and path in _OPTIONALLY_PUBLIC_READ_PATHS:
-        return False
-    return True
+    if not _is_loopback_host(_client_identifier()):
+        return True
+    return _web_api_require_auth()
 
 
 def _client_identifier() -> str:
@@ -470,7 +475,11 @@ def _consume_rate_limit() -> tuple[bool, int] | None:
             retry_after = max(1, int(queue[0] + _web_rate_limit_window_sec() - now))
             return False, retry_after
         queue.append(now)
-    return True, 0
+        return True, 0
+
+
+def _default_data_download_lock_file() -> Path:
+    return Path(config_module.PROJECT_ROOT) / "runtime" / "state" / "web_data_download.lock"
 
 
 @app.before_request
@@ -544,6 +553,7 @@ register_runtime_interface_routes(
     serve_contract_document=_serve_runtime_contract_document,
     data_source_unavailable_response=_data_source_unavailable_response,
     logger=logger,
+    data_download_lock_file_getter=_default_data_download_lock_file,
     data_download_lock=_data_download_lock,
     get_data_download_running=lambda: _data_download_running,
     set_data_download_running=lambda value: globals().__setitem__("_data_download_running", bool(value)),
