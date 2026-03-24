@@ -29,6 +29,8 @@
 
 ## Recent Change Notes / 最近变更摘要
 
+- `GOVERNANCE_RECOVERY_CHANGE_SUMMARY_2026-03-24.md`：`v1.5` 针对 `v1.0` 治理主线缺口的恢复摘要、owner map 与验证结果
+- `GOVERNANCE_RECOVERY_BLUEPRINT_2026-03-24.md`：治理恢复实施蓝图、恢复范围、owner 挂载点与质量门
 - `CHANGE_NOTES_2026-03-23_training_contract_rollout.md`：训练 contract rollout 两次连续提交的简短摘要与验证结果
 
 ## Public Docs Policy / 公开文档边界
