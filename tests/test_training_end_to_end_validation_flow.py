@@ -467,6 +467,36 @@ def test_validation_stage_prefers_run_context_manager_projection(monkeypatch):
     assert dict(validation_context.validation_report.get("summary") or {})["status"] == "passed"
 
 
+def test_attach_contract_stage_snapshots_keeps_stage_snapshots_canonical():
+    cycle_result = SimpleNamespace(
+        execution_snapshot={},
+        run_context={},
+        stage_snapshots={
+            "validation": {
+                "stage": "validation",
+                "validation_summary": {"status": "passed"},
+                "judge_report": {"decision": "promote"},
+            }
+        },
+    )
+
+    TrainingExecutionService._attach_contract_stage_snapshots(
+        cycle_result,
+        contract_stage_snapshots={
+            "validation": {
+                "stage": "validation",
+                "validation_summary": {"status": "passed"},
+                "judge_report": {},
+            },
+            "outcome": {"stage": "outcome", "promotion_record": {"status": "candidate_generated"}},
+        },
+    )
+
+    assert cycle_result.execution_snapshot["contract_stage_snapshots"]["validation"]["judge_report"] == {}
+    assert cycle_result.stage_snapshots["validation"]["judge_report"]["decision"] == "promote"
+    assert cycle_result.stage_snapshots["outcome"]["promotion_record"]["status"] == "candidate_generated"
+
+
 def test_apply_optimization_stage_keeps_feedback_state_out_of_cycle_payload(monkeypatch):
     service = TrainingExecutionService()
     triggered = []

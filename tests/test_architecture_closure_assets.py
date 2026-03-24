@@ -1,4 +1,8 @@
+import argparse
+import re
 from pathlib import Path
+
+from invest_evolution.application.commander_main import build_parser
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -87,3 +91,23 @@ def test_readme_and_docs_index_freeze_public_story_and_active_ops_docs() -> None
     assert "RELEASE_READINESS.md" in docs_index
     assert "第一小时阅读路径" in onboarding
     assert "Handoff Checklist / 交接清单" in onboarding
+
+
+def test_readme_commander_examples_track_live_cli_surface() -> None:
+    readme = (PROJECT_ROOT / "README.md").read_text(encoding="utf-8")
+    parser = build_parser()
+    subparser_actions = [
+        action for action in parser._actions if isinstance(action, argparse._SubParsersAction)
+    ]
+    assert len(subparser_actions) == 1
+    live_commands = set(subparser_actions[0].choices.keys())
+    documented_commands = set(
+        re.findall(
+            r"uv run python -m invest_evolution\.interfaces\.cli\.commander\s+([a-z0-9-]+)",
+            readme,
+        )
+    )
+
+    assert {"status", "playbooks", "train-once", "run"} <= documented_commands
+    assert "strategies" not in documented_commands
+    assert documented_commands <= live_commands

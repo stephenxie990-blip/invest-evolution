@@ -2,6 +2,7 @@ import json
 
 import invest_evolution.config as config_module
 import invest_evolution.interfaces.web.server as web_server
+from invest_evolution.interfaces.web.runtime import StateBackedRuntimeFacade
 
 
 def test_status_returns_state_backed_snapshot_when_runtime_not_initialized(monkeypatch, tmp_path):
@@ -78,3 +79,49 @@ def test_evolution_config_patch_reports_effective_runtime_mode(monkeypatch, tmp_
     assert payload["config"]["manager_arch_enabled"] is False
     assert "effective_runtime_mode" not in payload["config"]
     assert "deprecated_flags" not in payload["config"]
+
+
+def test_read_config_bool_treats_false_string_as_false(monkeypatch):
+    monkeypatch.setattr(config_module.config, "web_api_require_auth", "false")
+
+    assert web_server._is_web_api_auth_required() is False
+
+
+def test_read_config_bool_invalid_value_falls_back_to_default(monkeypatch, caplog):
+    monkeypatch.setattr(config_module.config, "web_api_public_read_enabled", "not_bool")
+
+    with caplog.at_level("WARNING"):
+        result = web_server._is_web_api_public_read_enabled()
+
+    assert result is False
+    assert "Invalid web config boolean" in caplog.text
+
+
+def test_status_route_can_use_explicit_runtime_facade_override(monkeypatch, tmp_path):
+    monkeypatch.setattr(config_module, "PROJECT_ROOT", tmp_path)
+    web_server.bind_embedded_runtime_context(runtime=None, loop=None)
+    web_server.set_runtime_facade_override(
+        StateBackedRuntimeFacade(
+            project_root_getter=lambda: tmp_path,
+            state_file_getter=lambda: tmp_path / "runtime" / "outputs" / "commander" / "state.json",
+            runtime_lock_file_getter=lambda: tmp_path / "runtime" / "state" / "commander.lock",
+            training_lock_file_getter=lambda: tmp_path / "runtime" / "state" / "training.lock",
+            runtime_events_path_getter=lambda: tmp_path / "runtime" / "state" / "commander_events.jsonl",
+            data_status_getter=lambda detail: {
+                "status": "ok",
+                "detail": detail,
+                "sources": [],
+            },
+            config_payload_getter=lambda: {"web_api_public_read_enabled": True},
+        )
+    )
+
+    try:
+        client = web_server.app.test_client()
+        res = client.get("/api/status")
+    finally:
+        web_server.set_runtime_facade_override(None)
+
+    assert res.status_code == 200
+    payload = res.get_json()
+    assert payload["runtime"]["state_source"] == "runtime_state"

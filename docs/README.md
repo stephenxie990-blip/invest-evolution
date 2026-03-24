@@ -29,6 +29,7 @@
 
 ## Recent Change Notes / 最近变更摘要
 
+- `V1_5_P1_P2_REPAIR_REPORT_2026-03-24.md`：P1/P2 缺陷修复交付报告，包含根因、验证结果、性能影响与回滚方案
 - `V1_5_NEXT_ROUND_CANDIDATE_CONVERGENCE_2026-03-24.md`：第三阶段完成后，对下一轮候选做收敛；只保留 3 个直接面向 strict readiness 收口的主线项
 - `V1_5_PHASE3_CHANGE_SUMMARY_2026-03-24.md`：第三阶段 3 个 P0 能力的正式变更摘要、落点、验证结果与剩余观察项
 - `V1_5_PHASE3_IMPLEMENTATION_BLUEPRINT_2026-03-24.md`：第三阶段实施蓝图、数据契约、测试矩阵与风险控制

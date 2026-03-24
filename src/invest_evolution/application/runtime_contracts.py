@@ -205,11 +205,7 @@ def _body_ref_schema(body_ref: str, components: dict[str, Any]) -> dict[str, Any
         return {"type": "object", "additionalProperties": True}
     if body_ref in components:
         return {"$ref": f"#/components/schemas/{body_ref}"}
-    return {
-        "type": "object",
-        "additionalProperties": True,
-        "description": f"Unresolved body_ref from contract: {body_ref}",
-    }
+    raise ValueError(f"Unresolved body_ref from contract: {body_ref}")
 
 
 def _parameter_schema(param: dict[str, Any]) -> dict[str, Any]:
@@ -239,6 +235,40 @@ def _normalize_contract_source(source_contract: dict[str, Any]) -> dict[str, Any
     return contract
 
 
+def validate_contract_references(contract: dict[str, Any]) -> None:
+    components = {
+        **deepcopy(contract["components"]["error_schemas"]),
+        **deepcopy(contract["components"]["schemas"]),
+    }
+    allowed_refs = set(components)
+    allowed_refs.add("object")
+    allowed_refs.add("text/event-stream")
+    unresolved_refs = sorted(
+        {
+            str(body_ref)
+            for endpoint in list(contract.get("endpoints") or [])
+            for body_ref in (
+                []
+                if str(dict(endpoint.get("success") or {}).get("content_type") or "application/json")
+                == "text/event-stream"
+                else [dict(endpoint.get("success") or {}).get("body_ref")]
+            )
+            if body_ref not in allowed_refs
+        }
+        | {
+            str(error.get("body_ref"))
+            for endpoint in list(contract.get("endpoints") or [])
+            for error in list(endpoint.get("errors") or [])
+            if dict(error or {}).get("body_ref") not in allowed_refs
+        }
+    )
+    if unresolved_refs:
+        raise ValueError(
+            "Unresolved runtime contract body_ref(s): "
+            + ", ".join(unresolved_refs)
+        )
+
+
 def build_openapi(contract: dict[str, Any]) -> dict[str, Any]:
     components = {
         **deepcopy(contract["components"]["error_schemas"]),
@@ -254,10 +284,11 @@ def build_openapi(contract: dict[str, Any]) -> dict[str, Any]:
         success_content_type = str(
             endpoint["success"].get("content_type") or "application/json"
         )
+        success_body_ref = str(endpoint["success"].get("body_ref") or "")
         success_schema = (
             {"type": "string"}
-            if success_content_type == "text/event-stream"
-            else _body_ref_schema(endpoint["success"]["body_ref"], components)
+            if success_content_type == "text/event-stream" or success_body_ref == "text/event-stream"
+            else _body_ref_schema(success_body_ref, components)
         )
         operation: dict[str, Any] = {
             "operationId": endpoint["id"].replace(".", "_"),
@@ -547,6 +578,7 @@ def build_contract_documents(
     source_contract: dict[str, Any] | None = None,
 ) -> dict[Path, dict[str, Any]]:
     contract = _normalize_contract_source(source_contract or load_contract_source())
+    validate_contract_references(contract)
     contract["transcript_snapshots"] = build_contract_transcript_snapshots()
     schema = build_contract_schema()
     openapi = build_openapi(contract)
