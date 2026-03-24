@@ -49,6 +49,19 @@ from invest_evolution.investment.shared.policy import (
 logger = logging.getLogger(__name__)
 
 
+def _manager_output_identity_field(
+    manager_output: Any | None,
+    attr_name: str,
+) -> str:
+    if manager_output is None:
+        return ""
+    return str(
+        getattr(manager_output, attr_name, "")
+        or getattr(getattr(manager_output, "signal_packet", None), attr_name, "")
+        or ""
+    ).strip()
+
+
 def project_manager_compatibility(*args: Any, **kwargs: Any) -> Any:
     from invest_evolution.application.training.execution import (
         project_manager_compatibility as _project_manager_compatibility,
@@ -145,12 +158,12 @@ class TrainingResearchService:
         if not governance_context:
             governance_context = dict(regime_result or {})
         manager_id_hint = str(
-            getattr(manager_output, "manager_id", "")
+            _manager_output_identity_field(manager_output, "manager_id")
             or governance_context.get("dominant_manager_id")
             or ""
         ).strip()
         manager_config_ref_hint = str(
-            getattr(manager_output, "manager_config_ref", "")
+            _manager_output_identity_field(manager_output, "manager_config_ref")
             or ""
         ).strip()
         manager_projection = project_manager_compatibility(
@@ -1307,13 +1320,19 @@ def load_research_feedback_boundary(
     manager_config_ref: str,
     regime: str = "",
 ) -> dict[str, Any]:
+    history_limit = 200
+    policy = dict(getattr(controller, "research_feedback_policy", {}) or {})
+    try:
+        history_limit = max(1, int(policy.get("history_limit") or history_limit))
+    except (TypeError, ValueError):
+        history_limit = 200
     try:
         feedback = controller.research_case_store.build_training_feedback(
             manager_id=manager_id,
             manager_config_ref=manager_config_ref,
             as_of_date=cutoff_date,
             regime=regime,
-            limit=200,
+            limit=history_limit,
         )
     except Exception:
         logger.debug("research calibration feedback unavailable", exc_info=True)

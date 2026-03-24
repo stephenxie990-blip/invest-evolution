@@ -275,6 +275,47 @@ class ResearchAttributionEngine:
     def __init__(self, repository: MarketDataRepository):
         self.repository = repository
 
+    @staticmethod
+    def _entry_index(lows: pd.Series, *, entry_price: Any) -> int | None:
+        if entry_price in (None, ""):
+            return 0
+        threshold = float(entry_price)
+        for index, low in enumerate(lows.tolist()):
+            if float(low) <= threshold:
+                return index
+        return None
+
+    @staticmethod
+    def _scan_exit_label(
+        highs: pd.Series,
+        lows: pd.Series,
+        *,
+        invalidation_price: Any,
+        de_risk_price: Any,
+    ) -> str | None:
+        invalidation_threshold = (
+            None if invalidation_price in (None, "") else float(invalidation_price)
+        )
+        de_risk_threshold = (
+            None if de_risk_price in (None, "") else float(de_risk_price)
+        )
+        for day_high, day_low in zip(highs.tolist(), lows.tolist()):
+            invalidated_today = (
+                invalidation_threshold is not None
+                and float(day_low) <= invalidation_threshold
+            )
+            de_risk_today = (
+                de_risk_threshold is not None
+                and float(day_high) >= de_risk_threshold
+            )
+            # Same-bar collisions stay conservative because we cannot infer
+            # which side of the bar traded first from daily candles.
+            if invalidated_today:
+                return "invalidated"
+            if de_risk_today:
+                return "hit"
+        return None
+
     def evaluate_case(self, case_record: Dict[str, Any]) -> OutcomeAttribution:
         snapshot = dict(case_record.get("snapshot") or {})
         hypothesis = dict(case_record.get("hypothesis") or {})
@@ -341,19 +382,52 @@ class ResearchAttributionEngine:
                 else closes
             )
             last_close = float(closes.iloc[-1])
-            max_high = float(highs.max()) if not highs.empty else last_close
-            min_low = float(lows.min()) if not lows.empty else last_close
-            entry_triggered = True
-            if entry_price not in (None, ""):
-                entry_triggered = bool(min_low <= float(entry_price))
-            invalidation_triggered = False if invalidation_price in (None, "") else bool(min_low <= float(invalidation_price))
-            de_risk_triggered = False if de_risk_price in (None, "") else bool(max_high >= float(de_risk_price))
+            entry_index = self._entry_index(lows, entry_price=entry_price)
+            entry_triggered = entry_index is not None
+            active_highs = highs.iloc[entry_index:] if entry_triggered else highs.iloc[0:0]
+            active_lows = lows.iloc[entry_index:] if entry_triggered else lows.iloc[0:0]
+            max_high = (
+                float(active_highs.max())
+                if entry_triggered and not active_highs.empty
+                else last_close
+            )
+            min_low = (
+                float(active_lows.min())
+                if entry_triggered and not active_lows.empty
+                else last_close
+            )
+            invalidation_triggered = (
+                False
+                if invalidation_price in (None, "")
+                or not entry_triggered
+                or active_lows.empty
+                else bool(active_lows.le(float(invalidation_price)).any())
+            )
+            de_risk_triggered = (
+                False
+                if de_risk_price in (None, "")
+                or not entry_triggered
+                or active_highs.empty
+                else bool(active_highs.ge(float(de_risk_price)).any())
+            )
             effective_entry = float(entry_price) if entry_triggered and entry_price not in (None, "") else base_close
             return_pct = round((last_close / effective_entry - 1.0) * 100.0, 4) if effective_entry > 0 else None
+            exit_label = (
+                self._scan_exit_label(
+                    active_highs,
+                    active_lows,
+                    invalidation_price=invalidation_price,
+                    de_risk_price=de_risk_price,
+                )
+                if entry_triggered
+                else None
+            )
             if not entry_triggered:
                 label = "not_triggered"
-            elif invalidation_triggered:
+            elif exit_label == "invalidated":
                 label = "invalidated"
+            elif exit_label == "hit":
+                label = "hit"
             elif return_pct is not None and return_pct > 0:
                 label = "hit"
             else:

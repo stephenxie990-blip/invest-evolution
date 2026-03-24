@@ -114,6 +114,29 @@ train:
   freeze_profit_required: 7
   max_losses_before_optimize: 3
   auto_apply_mutation: false
+  research_feedback:
+    history_limit: 28
+    optimization:
+      apply_default_horizon_policy: false
+      min_sample_count: 8
+      cooldown_cycles: 3
+      blocked_biases: [tighten_risk, recalibrate_probability]
+      max_brier_like_direction_score: 0.32
+      horizons:
+        T+5:
+          min_hit_rate: 0.34
+          max_invalidation_rate: 0.36
+          min_interval_hit_rate: 0.55
+    freeze_gate:
+      apply_default_horizon_policy: false
+      min_sample_count: 8
+      blocked_biases: [tighten_risk, recalibrate_probability]
+      max_brier_like_direction_score: 0.32
+      horizons:
+        T+5:
+          min_hit_rate: 0.34
+          max_invalidation_rate: 0.36
+          min_interval_hit_rate: 0.55
   promotion_gate:
     min_samples: 3
     research_feedback:
@@ -150,6 +173,16 @@ train:
     avg_sharpe_gte: 0.8
     avg_max_drawdown_lt: 15.0
     benchmark_pass_rate_gte: 0.60
+    research_feedback:
+      apply_default_horizon_policy: false
+      min_sample_count: 8
+      blocked_biases: [tighten_risk, recalibrate_probability]
+      max_brier_like_direction_score: 0.32
+      horizons:
+        T+5:
+          min_hit_rate: 0.34
+          max_invalidation_rate: 0.36
+          min_interval_hit_rate: 0.55
     governance:
       max_candidate_pending_count: 0
       max_override_pending_count: 0

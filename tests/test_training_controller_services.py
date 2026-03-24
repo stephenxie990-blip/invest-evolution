@@ -2843,6 +2843,77 @@ def test_training_research_service_prefers_manager_output_identity_over_default_
     assert payload['saved_case_count'] == 1
 
 
+def test_training_research_service_uses_signal_packet_identity_when_manager_output_fields_are_blank(
+    monkeypatch,
+):
+    service = TrainingResearchService()
+    captured = {}
+
+    monkeypatch.setattr(
+        'invest_evolution.application.training.research.resolve_policy_snapshot',
+        lambda **kwargs: captured.update(
+            {
+                'manager_id': kwargs['manager_id'],
+                'metadata': dict(kwargs['metadata']),
+            }
+        )
+        or SimpleNamespace(policy_id='policy-signal-packet'),
+    )
+    monkeypatch.setattr(
+        'invest_evolution.application.training.research.build_research_snapshot',
+        lambda **kwargs: SimpleNamespace(cross_section_context={}),
+    )
+    monkeypatch.setattr(
+        'invest_evolution.application.training.research.build_research_hypothesis',
+        lambda **kwargs: {'summary': 'ok'},
+    )
+
+    controller = SimpleNamespace(
+        session_state=TrainingSessionState(
+            last_governance_decision={'regime': 'bear', 'dominant_manager_id': 'momentum'},
+            default_manager_id='momentum',
+            default_manager_config_ref='configs/momentum.yaml',
+        ),
+        last_governance_decision={'regime': 'bull', 'dominant_manager_id': 'momentum'},
+        manager_runtime=None,
+        experiment_min_history_days=120,
+        experiment_simulation_days=20,
+        research_case_store=SimpleNamespace(
+            save_case=lambda **kwargs: {'research_case_id': 'case-signal-packet'},
+            write_calibration_report=lambda policy_id: {'path': f'/tmp/{policy_id}.json'},
+        ),
+        research_scenario_engine=SimpleNamespace(estimate=lambda **kwargs: {'stance': 'watch'}),
+        research_attribution_engine=SimpleNamespace(
+            evaluate_case=lambda _case_record: SimpleNamespace(
+                to_dict=lambda: {'horizon_results': {'T+20': {'label': 'timeout'}}}
+            )
+        ),
+        research_market_repository=None,
+    )
+
+    payload = service.persist_cycle_research_artifacts(
+        controller,
+        cycle_id=7,
+        cutoff_date='20240201',
+        manager_output=SimpleNamespace(
+            manager_id='',
+            manager_config_ref='',
+            signal_packet=SimpleNamespace(
+                manager_id='defensive_low_vol',
+                manager_config_ref='configs/defensive_low_vol.yaml',
+            ),
+        ),
+        stock_data={'sh.600519': SimpleNamespace(empty=True, columns=[])},
+        selected=['sh.600519'],
+        regime_result={'regime': 'oscillation'},
+        selection_mode='manager_portfolio',
+    )
+
+    assert captured['manager_id'] == 'defensive_low_vol'
+    assert captured['metadata']['manager_config_ref'] == 'configs/defensive_low_vol.yaml'
+    assert payload['saved_case_count'] == 1
+
+
 def test_training_governance_service_refreshes_controller_coordinator():
     service = TrainingGovernanceService()
 
@@ -2941,6 +3012,7 @@ def test_training_feedback_service_loads_and_caches_research_feedback():
             }
         ),
         last_research_feedback={},
+        research_feedback_policy={},
     )
 
     payload = service.load_research_feedback(
@@ -2955,6 +3027,33 @@ def test_training_feedback_service_loads_and_caches_research_feedback():
     assert controller.last_research_feedback['recommendation']['bias'] == 'tighten_risk'
     assert calls[0]['manager_id'] == 'value_quality'
     assert calls[0]['manager_config_ref'] == 'configs/value_quality.yaml'
+    assert calls[0]['limit'] == 200
+
+
+def test_training_feedback_service_loads_research_feedback_with_history_limit_from_policy():
+    service = TrainingFeedbackService()
+    calls = []
+    controller = SimpleNamespace(
+        research_case_store=SimpleNamespace(
+            build_training_feedback=lambda **kwargs: calls.append(dict(kwargs)) or {
+                'sample_count': 11,
+                'recommendation': {'bias': 'maintain'},
+            }
+        ),
+        last_research_feedback={},
+        research_feedback_policy={'history_limit': 28},
+    )
+
+    payload = service.load_research_feedback(
+        controller,
+        cutoff_date='20240201',
+        manager_id='momentum',
+        manager_config_ref='src/invest_evolution/investment/runtimes/configs/momentum_v1.yaml',
+        regime='bull',
+    )
+
+    assert payload['sample_count'] == 11
+    assert calls[0]['limit'] == 28
 
 
 def test_training_feedback_service_builds_plan_via_boundary_sanitize(monkeypatch):
@@ -3614,6 +3713,89 @@ def test_training_policy_service_loads_promotion_and_quality_gate_defaults():
     assert controller.quality_gate_matrix['promotion']['max_pending_cycles'] == 2
     assert controller.freeze_gate_policy['governance']['max_candidate_pending_count'] == 0
     assert controller.freeze_gate_policy['governance']['max_override_pending_count'] == 0
+
+
+def test_training_policy_service_sync_runtime_policy_loads_research_feedback_sections():
+    class DummyManagerRuntime:
+        @staticmethod
+        def config_section(name, default=None):
+            mapping = {
+                'params': {},
+                'execution': {},
+                'risk_policy': {},
+                'evaluation_policy': {},
+                'review_policy': {},
+                'benchmark': {},
+                'train': {
+                    'freeze_gate': {
+                        'avg_sharpe_gte': 0.8,
+                    },
+                    'research_feedback': {
+                        'history_limit': 28,
+                        'optimization': {
+                            'apply_default_horizon_policy': False,
+                            'min_sample_count': 8,
+                            'horizons': {
+                                'T+5': {
+                                    'min_hit_rate': 0.34,
+                                    'max_invalidation_rate': 0.36,
+                                    'min_interval_hit_rate': 0.55,
+                                }
+                            },
+                        },
+                        'freeze_gate': {
+                            'apply_default_horizon_policy': False,
+                            'min_sample_count': 8,
+                            'horizons': {
+                                'T+5': {
+                                    'min_hit_rate': 0.34,
+                                    'max_invalidation_rate': 0.36,
+                                    'min_interval_hit_rate': 0.55,
+                                }
+                            },
+                        },
+                    },
+                },
+                'agent_weights': {},
+            }
+            return mapping.get(name, default or {})
+
+        @staticmethod
+        def update_runtime_overrides(_overrides):
+            return None
+
+    controller = SimpleNamespace(
+        manager_runtime=DummyManagerRuntime(),
+        DEFAULT_PARAMS={},
+        current_params={},
+        execution_policy={},
+        risk_policy={},
+        evaluation_policy={},
+        review_policy={},
+        strategy_evaluator=SimpleNamespace(set_policy=lambda _policy: None),
+        benchmark_evaluator=None,
+        train_policy={},
+        freeze_total_cycles=10,
+        freeze_profit_required=7,
+        max_losses_before_optimize=3,
+        freeze_gate_policy={},
+        promotion_gate_policy={},
+        experiment_promotion_policy={},
+        quality_gate_matrix={},
+        auto_apply_mutation=False,
+        research_feedback_policy={},
+        research_feedback_optimization_policy={},
+        research_feedback_freeze_policy={},
+        selection_agent_weights={},
+    )
+
+    TrainingPolicyService().sync_runtime_policy(controller)
+
+    assert controller.research_feedback_policy['history_limit'] == 28
+    assert controller.research_feedback_optimization_policy['apply_default_horizon_policy'] is False
+    assert controller.research_feedback_optimization_policy['horizons']['T+5']['min_hit_rate'] == 0.34
+    assert controller.research_feedback_freeze_policy['horizons']['T+5']['max_invalidation_rate'] == 0.36
+    assert controller.freeze_gate_policy['research_feedback']['apply_default_horizon_policy'] is False
 
 
 def test_training_policy_service_sync_runtime_policy_prefers_session_state():

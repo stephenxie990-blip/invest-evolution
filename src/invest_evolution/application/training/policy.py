@@ -36,6 +36,7 @@ from invest_evolution.investment.managers import (
 from invest_evolution.investment.runtimes import create_manager_runtime
 from invest_evolution.investment.runtimes.catalog import COMMON_BENCHMARK_DEFAULTS
 from invest_evolution.investment.shared.policy import (
+    deep_merge,
     normalize_freeze_gate_policy,
     normalize_promotion_gate_policy,
     resolve_governance_matrix,
@@ -539,11 +540,10 @@ class TrainingPolicyService:
             or controller.freeze_gate_policy.get("research_feedback", {})
             or {}
         )
-        if controller.research_feedback_freeze_policy and not controller.freeze_gate_policy.get(
-            "research_feedback"
-        ):
-            controller.freeze_gate_policy["research_feedback"] = dict(
-                controller.research_feedback_freeze_policy
+        if controller.research_feedback_freeze_policy:
+            controller.freeze_gate_policy["research_feedback"] = deep_merge(
+                dict(controller.freeze_gate_policy.get("research_feedback", {}) or {}),
+                controller.research_feedback_freeze_policy,
             )
 
         agent_weights = manager_runtime.config_section("agent_weights", {}) or {}
