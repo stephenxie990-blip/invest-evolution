@@ -11,6 +11,7 @@ from invest_evolution.agent_runtime.runtime import enforce_path_within_root
 from invest_evolution.config import PROJECT_ROOT, normalize_date
 from invest_evolution.investment.runtimes import create_manager_runtime
 from invest_evolution.investment.shared.research_feedback_gate import (
+    DEFAULT_RESEARCH_FEEDBACK_GATE,
     evaluate_research_feedback_gate,
 )
 
@@ -78,6 +79,28 @@ class ResearchCaseStore:
         return str(security.get("code") or snapshot.get("metadata", {}).get("query_code") or "")
 
     @staticmethod
+    def _case_regime(snapshot: Dict[str, Any]) -> str:
+        market_context = dict(snapshot.get("market_context") or {})
+        governance_context = dict(market_context.get("governance_context") or {})
+        governance_regime = str(governance_context.get("regime") or "").strip()
+        market_regime = str(market_context.get("regime") or "").strip()
+        if governance_regime and governance_regime.lower() != "unknown":
+            return governance_regime
+        return market_regime
+
+    @staticmethod
+    def _case_manager_id(snapshot: Dict[str, Any]) -> str:
+        market_context = dict(snapshot.get("market_context") or {})
+        return str(market_context.get("manager_id") or "").strip()
+
+    @staticmethod
+    def _case_manager_config_ref(snapshot: Dict[str, Any]) -> str:
+        market_context = dict(snapshot.get("market_context") or {})
+        return ResearchCaseStore._canonical_manager_config_ref(
+            market_context.get("manager_config_ref") or ""
+        )
+
+    @staticmethod
     def _canonical_manager_config_ref(value: str) -> str:
         text = str(value or "").strip()
         if not text:
@@ -127,6 +150,26 @@ class ResearchCaseStore:
             return feedback_policy
         promotion_gate = dict(train_config.get("promotion_gate") or {})
         return dict(promotion_gate.get("research_feedback") or {})
+
+    @classmethod
+    def _training_feedback_min_sample_count(
+        cls,
+        manager_id: str,
+        manager_config_ref: str,
+    ) -> int:
+        policy = cls._manager_research_feedback_policy(
+            manager_id,
+            manager_config_ref,
+        )
+        value = policy.get("min_sample_count")
+        if value in (None, ""):
+            value = DEFAULT_RESEARCH_FEEDBACK_GATE.get("min_sample_count")
+        if value is None:
+            return 3
+        try:
+            return max(1, int(value))
+        except (TypeError, ValueError):
+            return 3
 
     @staticmethod
     def _unavailable_requested_regime_feedback(
@@ -184,14 +227,20 @@ class ResearchCaseStore:
             hypothesis = dict(case.get("hypothesis") or {})
             case_symbol = self._case_symbol(snapshot)
             case_as_of = str(snapshot.get("as_of_date") or "")
-            case_regime = str((snapshot.get("market_context") or {}).get("regime") or "")
+            case_regime = self._case_regime(snapshot)
             case_stance = str(hypothesis.get("stance") or "")
             if normalized_policy and str(policy.get("policy_id") or "") != normalized_policy:
                 continue
             if normalized_manager and str(policy.get("manager_id") or "") != normalized_manager:
                 continue
+            snapshot_manager_id = self._case_manager_id(snapshot)
+            if normalized_manager and snapshot_manager_id and snapshot_manager_id != normalized_manager:
+                continue
             case_config_ref = self._canonical_manager_config_ref(policy.get("manager_config_ref") or "")
             if normalized_config_ref and case_config_ref != normalized_config_ref:
+                continue
+            snapshot_config_ref = self._case_manager_config_ref(snapshot)
+            if normalized_config_ref and snapshot_config_ref and snapshot_config_ref != normalized_config_ref:
                 continue
             if normalized_symbol and case_symbol != normalized_symbol:
                 continue
@@ -212,6 +261,65 @@ class ResearchCaseStore:
                 "attribution_item": attribution_item,
                 "attribution": dict((attribution_item or {}).get("attribution") or {}),
             }
+
+    def _training_feedback_observation_key(
+        self,
+        item: Dict[str, Any],
+    ) -> tuple[Any, ...]:
+        snapshot = dict(item.get("snapshot") or {})
+        hypothesis = dict(item.get("hypothesis") or {})
+        symbol = self._case_symbol(snapshot)
+        as_of_date = normalize_date(snapshot.get("as_of_date") or "")
+        regime = self._case_regime(snapshot) or "unknown"
+        stance = str(hypothesis.get("stance") or "").strip()
+        snapshot_manager_id = self._case_manager_id(snapshot) or "unknown"
+        snapshot_config_ref = self._case_manager_config_ref(snapshot) or "unknown"
+        if symbol and as_of_date:
+            return (
+                "observation",
+                snapshot_manager_id,
+                snapshot_config_ref,
+                regime,
+                symbol,
+                as_of_date,
+                stance,
+            )
+        case = dict(item.get("case") or {})
+        return (
+            "case",
+            str(case.get("research_case_id") or ""),
+            str(hypothesis.get("hypothesis_id") or ""),
+        )
+
+    @staticmethod
+    def _training_feedback_record_rank(item: Dict[str, Any]) -> tuple[Any, ...]:
+        case = dict(item.get("case") or {})
+        hypothesis = dict(item.get("hypothesis") or {})
+        attribution = dict(item.get("attribution") or {})
+        return (
+            1 if attribution else 0,
+            len(dict(attribution.get("horizon_results") or {})),
+            len(dict((hypothesis.get("scenario_distribution") or {}).get("horizons") or {})),
+            str(case.get("created_at") or ""),
+            str(case.get("research_case_id") or ""),
+        )
+
+    def _dedupe_training_feedback_records(
+        self,
+        records: List[Dict[str, Any]],
+    ) -> List[Dict[str, Any]]:
+        unique_records: Dict[tuple[Any, ...], Dict[str, Any]] = {}
+        key_order: List[tuple[Any, ...]] = []
+        for item in records:
+            key = self._training_feedback_observation_key(item)
+            existing = unique_records.get(key)
+            if existing is None:
+                unique_records[key] = item
+                key_order.append(key)
+                continue
+            if self._training_feedback_record_rank(item) >= self._training_feedback_record_rank(existing):
+                unique_records[key] = item
+        return [unique_records[key] for key in key_order]
 
     def find_cases(
         self,
@@ -362,11 +470,15 @@ class ResearchCaseStore:
         brier = summary.get("brier_like_direction_score")
         reason_codes: list[str] = []
         bias = "maintain"
+        min_sample_count = ResearchCaseStore._training_feedback_min_sample_count(
+            manager_id,
+            manager_config_ref,
+        )
         feedback_policy = ResearchCaseStore._manager_research_feedback_policy(
             manager_id,
             manager_config_ref,
         )
-        if int(summary.get("sample_count") or 0) < 3:
+        if int(summary.get("sample_count") or 0) < min_sample_count:
             bias = "insufficient_samples"
             reason_codes.append("insufficient_samples")
         elif feedback_policy:
@@ -461,8 +573,13 @@ class ResearchCaseStore:
                 as_of_date=normalized_as_of,
             )
         )
+        records = self._dedupe_training_feedback_records(records)
         if limit is not None:
             records = records[-int(limit):]
+        min_sample_count = self._training_feedback_min_sample_count(
+            normalized_manager,
+            normalized_config_ref,
+        )
         overall_summary = self._feedback_recommendation(
             self._summarize_records(
                 records,
@@ -475,10 +592,7 @@ class ResearchCaseStore:
         )
         regime_groups: dict[str, list[Dict[str, Any]]] = defaultdict(list)
         for item in records:
-            regime_key = str(
-                dict(item.get("snapshot") or {}).get("market_context", {}).get("regime")
-                or "unknown"
-            )
+            regime_key = self._case_regime(dict(item.get("snapshot") or {})) or "unknown"
             regime_groups[regime_key].append(item)
         regime_breakdown = {
             regime_key: self._feedback_recommendation(
@@ -501,7 +615,7 @@ class ResearchCaseStore:
         unavailable_reason = ""
         if normalized_regime:
             requested_sample_count = int(requested_regime_feedback.get("sample_count") or 0)
-            if requested_sample_count >= 3:
+            if requested_sample_count >= min_sample_count:
                 effective_feedback = dict(requested_regime_feedback)
                 effective_scope = "regime"
             elif requested_sample_count > 0:
