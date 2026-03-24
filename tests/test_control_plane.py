@@ -87,6 +87,12 @@ def test_control_plane_service_writes_api_keys_to_local_override(tmp_path):
     local_text = (tmp_path / 'config' / 'control_plane.local.yaml').read_text(encoding='utf-8')
     assert 'write-secret' not in public_text
     assert 'write-secret' in local_text
+    snapshot_dir = tmp_path / 'runtime' / 'state' / 'control_plane_snapshots'
+    snapshots = sorted(snapshot_dir.glob('control_plane_*.json'))
+    assert snapshots
+    snapshot_text = snapshots[-1].read_text(encoding='utf-8')
+    assert 'write-secret' not in snapshot_text
+    assert 'cret' in snapshot_text
     masked = service.get_masked_payload()
     assert masked['llm']['providers']['provider_b']['api_key'].endswith('cret')
 
@@ -122,7 +128,8 @@ def test_default_llm_caller_uses_control_plane_defaults(monkeypatch, tmp_path):
     assert caller.api_key == 'local-key'
 
 
-def test_default_llm_status_reports_missing_provider_secret(tmp_path):
+def test_default_llm_status_reports_missing_provider_secret(monkeypatch, tmp_path):
+    monkeypatch.setattr('config.config.llm_api_key', '')
     cfg_dir = tmp_path / 'config'
     cfg_dir.mkdir(parents=True)
     (cfg_dir / 'control_plane.yaml').write_text(
@@ -152,6 +159,7 @@ def test_default_llm_status_reports_missing_provider_secret(tmp_path):
 
 
 def test_default_llm_caller_surfaces_control_plane_missing_key_message(monkeypatch, tmp_path):
+    monkeypatch.setattr('config.config.llm_api_key', '')
     cfg_dir = tmp_path / 'config'
     cfg_dir.mkdir(parents=True)
     (cfg_dir / 'control_plane.yaml').write_text(

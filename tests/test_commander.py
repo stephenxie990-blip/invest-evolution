@@ -1054,6 +1054,47 @@ def test_reload_strategies_resets_runtime_to_idle_and_persists_last_task(tmp_pat
     assert payload["runtime"]["last_task"]["gene_count"] == out["count"]
 
 
+def test_commander_runtime_tracks_overlapping_request_tasks(tmp_path):
+    cfg = CommanderConfig(
+        workspace=tmp_path / "workspace",
+        strategy_dir=tmp_path / "strategies",
+        state_file=tmp_path / "state" / "state.json",
+        cron_store=tmp_path / "state" / "cron.json",
+        memory_store=tmp_path / "memory" / "memory.jsonl",
+        plugin_dir=tmp_path / "plugins",
+        bridge_inbox=tmp_path / "inbox",
+        bridge_outbox=tmp_path / "outbox",
+        mock_mode=True,
+        autopilot_enabled=False,
+        heartbeat_enabled=False,
+        bridge_enabled=False,
+    )
+    runtime = CommanderRuntime(cfg)
+
+    with runtime._request_event_context(request_id="req-a"):
+        runtime._begin_task("ask", "api", detail="alpha")
+    with runtime._request_event_context(request_id="req-b"):
+        runtime._begin_task("ask", "api", detail="beta")
+
+    assert runtime.current_task is not None
+    assert runtime.current_task["request_id"] == "req-b"
+
+    with runtime._request_event_context(request_id="req-b"):
+        runtime._end_task(status="ok")
+
+    assert runtime.last_task is not None
+    assert runtime.last_task["request_id"] == "req-b"
+    assert runtime.current_task is not None
+    assert runtime.current_task["request_id"] == "req-a"
+
+    with runtime._request_event_context(request_id="req-a"):
+        runtime._end_task(status="ok")
+
+    assert runtime.current_task is None
+    assert runtime.last_task is not None
+    assert runtime.last_task["request_id"] == "req-a"
+
+
 def test_runtime_restores_persisted_runtime_and_body_state(tmp_path):
     cfg = CommanderConfig(
         workspace=tmp_path / "workspace",

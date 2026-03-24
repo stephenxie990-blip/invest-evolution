@@ -1,4 +1,5 @@
 from datetime import datetime
+import json
 from typing import cast
 
 import pytest
@@ -141,7 +142,7 @@ def test_web_data_status_reads_canonical_repository(tmp_path, monkeypatch):
     assert payload["stock_count"] == 1
 
 
-def test_web_data_download_uses_unified_ingestion_service(monkeypatch):
+def test_web_data_download_uses_unified_ingestion_service(tmp_path, monkeypatch):
     calls = []
 
     class InlineThread:
@@ -163,6 +164,7 @@ def test_web_data_download_uses_unified_ingestion_service(monkeypatch):
         calls.append("index")
         return {"row_count": 1}
 
+    monkeypatch.setattr(web_server.config_module, "PROJECT_ROOT", tmp_path)
     monkeypatch.setattr(web_server.threading, "Thread", InlineThread)
     monkeypatch.setattr(web_server, "_data_download_running", False)
     monkeypatch.setattr(DataIngestionService, "sync_security_master", _sync_security)
@@ -170,14 +172,18 @@ def test_web_data_download_uses_unified_ingestion_service(monkeypatch):
     monkeypatch.setattr(DataIngestionService, "sync_index_bars", _sync_index)
 
     client = web_server.app.test_client()
-    res = client.post("/api/data/download")
+    res = client.post(
+        "/api/data/download",
+        data=json.dumps({"confirm": True}),
+        content_type="application/json",
+    )
 
     assert res.status_code == 200
     assert res.get_json()["status"] == "started"
     assert calls == ["security", "daily", "index"]
 
 
-def test_web_data_download_deduplicates_running_job(monkeypatch):
+def test_web_data_download_deduplicates_running_job(tmp_path, monkeypatch):
     started_threads = []
 
     class DeferredThread:
@@ -188,18 +194,31 @@ def test_web_data_download_deduplicates_running_job(monkeypatch):
         def start(self):
             return None
 
+    monkeypatch.setattr(web_server.config_module, "PROJECT_ROOT", tmp_path)
     monkeypatch.setattr(web_server.threading, "Thread", DeferredThread)
     monkeypatch.setattr(web_server, "_data_download_running", False)
 
     client = web_server.app.test_client()
-    first = client.post("/api/data/download")
-    second = client.post("/api/data/download")
+    payload = json.dumps({"confirm": True})
+    first = client.post("/api/data/download", data=payload, content_type="application/json")
+    second = client.post("/api/data/download", data=payload, content_type="application/json")
 
     assert first.status_code == 200
     assert first.get_json()["status"] == "started"
     assert second.status_code == 200
     assert second.get_json()["status"] == "running"
     assert len(started_threads) == 1
+
+
+def test_web_data_download_requires_confirmation_without_runtime(tmp_path, monkeypatch):
+    monkeypatch.setattr(web_server.config_module, "PROJECT_ROOT", tmp_path)
+    monkeypatch.setattr(web_server, "_data_download_running", False)
+
+    client = web_server.app.test_client()
+    res = client.post("/api/data/download", data=json.dumps({}), content_type="application/json")
+
+    assert res.status_code == 400
+    assert res.get_json()["error"] == "confirm=true is required when live runtime is unavailable"
 
 
 def test_data_manager_diagnose_training_data_reports_empty_repository(tmp_path):
