@@ -63,6 +63,8 @@ from invest_evolution.investment.shared.policy import normalize_config_ref
 
 logger = logging.getLogger(__name__)
 
+EXECUTABLE_MAX_SINGLE_POSITION = 0.20
+
 
 _TRAINING_MODULE_IMPORTS = {
     "controller": "invest_evolution.application.training.controller",
@@ -5062,16 +5064,20 @@ class TrainingABService:
         default_weight: float,
         default_reason: str,
     ) -> PositionPlan:
+        hinted_weight = _clamp_pct(
+            getattr(signal, "weight_hint", None),
+            default=default_weight,
+        )
+        resolved_weight = min(
+            available_weight,
+            default_weight,
+            EXECUTABLE_MAX_SINGLE_POSITION,
+            hinted_weight,
+        )
         return PositionPlan(
             code=code,
             priority=rank,
-            weight=min(
-                available_weight,
-                _clamp_pct(
-                    getattr(signal, "weight_hint", None),
-                    default=default_weight,
-                ),
-            ),
+            weight=resolved_weight,
             entry_method="market",
             stop_loss_pct=cls._position_risk_value(
                 signal,
@@ -5146,10 +5152,20 @@ class TrainingABService:
             )
             for rank, code in enumerate(selected_codes, start=1)
         ]
+        effective_cash_reserve = max(
+            cash_reserve,
+            round(
+                max(
+                    0.0,
+                    1.0 - sum(float(position.weight or 0.0) for position in positions),
+                ),
+                8,
+            ),
+        )
         return TradingPlan(
             date=str(getattr(signal_packet, "as_of_date", "") or ""),
             positions=positions,
-            cash_reserve=cash_reserve,
+            cash_reserve=effective_cash_reserve,
             max_positions=max(
                 1,
                 int(

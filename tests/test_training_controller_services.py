@@ -2563,6 +2563,41 @@ def test_training_ab_service_build_trader_prefers_session_state():
     assert captured['runtime_owner'].current_params['position_size'] == 0.4
 
 
+def test_training_ab_service_derive_trading_plan_caps_weight_hint_by_position_size_and_execution_limit():
+    service = TrainingABService()
+    manager_output = SimpleNamespace(
+        manager_id='momentum',
+        signal_packet=SimpleNamespace(
+            selected_codes=['AAA', 'BBB', 'CCC'],
+            max_positions=3,
+            as_of_date='20240201',
+            reasoning='bull picks',
+            params={
+                'position_size': 0.06,
+                'max_hold_days': 24,
+                'stop_loss_pct': 0.05,
+                'take_profit_pct': 0.15,
+                'trailing_pct': 0.08,
+            },
+            signals=[
+                SimpleNamespace(code='AAA', weight_hint=0.25),
+                SimpleNamespace(code='BBB', weight_hint=0.25),
+                SimpleNamespace(code='CCC', weight_hint=0.25),
+            ],
+            cash_reserve=0.393,
+        ),
+        agent_context=SimpleNamespace(summary='momentum summary'),
+    )
+
+    trading_plan = service._derive_trading_plan(manager_output)
+
+    assert trading_plan.max_positions == 3
+    assert [position.code for position in trading_plan.positions] == ['AAA', 'BBB', 'CCC']
+    assert all(position.weight <= 0.20 for position in trading_plan.positions)
+    assert all(abs(position.weight - 0.06) < 1e-9 for position in trading_plan.positions)
+    assert abs(trading_plan.cash_reserve - 0.82) < 1e-9
+
+
 def test_training_ab_service_evaluate_arm_projects_runtime_scope_when_output_lacks_identity(
     monkeypatch,
 ):

@@ -20,11 +20,13 @@ from invest_evolution.investment.foundation.risk import (
 )
 from invest_evolution.investment.runtimes.ops import ScoringService, ScreeningService
 
+EXECUTABLE_MAX_SINGLE_POSITION = 0.20
+
 
 @dataclass
 class PortfolioAssemblyConfig:
     max_positions: int = 8
-    max_single_position: float = 0.25
+    max_single_position: float = EXECUTABLE_MAX_SINGLE_POSITION
 
 
 class RiskCheckService:
@@ -37,18 +39,24 @@ class RiskCheckService:
         max_single_position: float | None = None,
     ) -> ManagerPlan:
         exposure_target = max(0.0, 1.0 - float(manager_plan.cash_reserve or 0.0))
+        resolved_max_single_position = self._resolve_max_single_position(max_single_position)
         positions = [
-            self._sanitize_manager_position(position, max_single_position=max_single_position)
+            self._sanitize_manager_position(
+                position,
+                max_single_position=resolved_max_single_position,
+            )
             for position in list(manager_plan.positions or [])
         ]
         positions = self._normalize_manager_positions(
             positions,
             exposure_target=exposure_target,
             max_positions=manager_plan.max_positions or len(positions),
+            max_single_position=resolved_max_single_position,
         )
         return replace(
             manager_plan,
             positions=positions,
+            cash_reserve=self._residual_cash_reserve(positions),
             max_positions=manager_plan.max_positions or len(positions),
         )
 
@@ -60,15 +68,19 @@ class RiskCheckService:
         max_single_position: float | None = None,
         max_positions: int | None = None,
     ) -> List[PortfolioPlanPosition]:
+        resolved_max_single_position = self._resolve_max_single_position(max_single_position)
         clean = [
-            self._sanitize_portfolio_position(position, max_single_position=max_single_position)
+            self._sanitize_portfolio_position(
+                position,
+                max_single_position=resolved_max_single_position,
+            )
             for position in list(positions or [])
         ]
         ordered = sorted(clean, key=lambda item: item.target_weight, reverse=True)
         if max_positions and max_positions > 0:
             ordered = ordered[:max_positions]
         total = sum(item.target_weight for item in ordered)
-        scale = exposure_target / total if total > 0 and exposure_target >= 0 else 0.0
+        scale = self._down_only_scale(total=total, exposure_target=exposure_target)
         normalized: List[PortfolioPlanPosition] = []
         for index, position in enumerate(ordered, start=1):
             normalized.append(
@@ -86,7 +98,7 @@ class RiskCheckService:
         *,
         max_single_position: float | None = None,
     ) -> ManagerPlanPosition:
-        upper = max_single_position if max_single_position is not None else 0.30
+        upper = self._resolve_max_single_position(max_single_position)
         return replace(
             position,
             target_weight=clamp_position_size(position.target_weight, upper=upper),
@@ -100,7 +112,7 @@ class RiskCheckService:
         *,
         max_single_position: float | None = None,
     ) -> PortfolioPlanPosition:
-        upper = max_single_position if max_single_position is not None else 0.30
+        upper = self._resolve_max_single_position(max_single_position)
         return replace(
             position,
             target_weight=clamp_position_size(position.target_weight, upper=upper),
@@ -114,22 +126,57 @@ class RiskCheckService:
         *,
         exposure_target: float,
         max_positions: int,
+        max_single_position: float,
     ) -> List[ManagerPlanPosition]:
         ordered = sorted(positions, key=lambda item: item.target_weight, reverse=True)
         if max_positions > 0:
             ordered = ordered[:max_positions]
         total = sum(item.target_weight for item in ordered)
-        scale = exposure_target / total if total > 0 and exposure_target >= 0 else 0.0
+        scale = RiskCheckService._down_only_scale(total=total, exposure_target=exposure_target)
         normalized: List[ManagerPlanPosition] = []
         for index, position in enumerate(ordered, start=1):
             normalized.append(
                 replace(
                     position,
                     rank=index,
-                    target_weight=round(max(0.0, position.target_weight * scale), 8),
+                    target_weight=round(
+                        max(
+                            0.0,
+                            min(
+                                max_single_position,
+                                position.target_weight * scale,
+                            ),
+                        ),
+                        8,
+                    ),
                 )
             )
         return normalized
+
+    @staticmethod
+    def _resolve_max_single_position(max_single_position: float | None) -> float:
+        try:
+            resolved = float(
+                EXECUTABLE_MAX_SINGLE_POSITION
+                if max_single_position is None
+                else max_single_position
+            )
+        except (TypeError, ValueError):
+            resolved = EXECUTABLE_MAX_SINGLE_POSITION
+        return max(0.0, min(EXECUTABLE_MAX_SINGLE_POSITION, resolved))
+
+    @staticmethod
+    def _down_only_scale(*, total: float, exposure_target: float) -> float:
+        if total <= 0 or exposure_target <= 0:
+            return 0.0
+        return min(1.0, exposure_target / total)
+
+    @staticmethod
+    def _residual_cash_reserve(
+        positions: List[ManagerPlanPosition] | List[PortfolioPlanPosition],
+    ) -> float:
+        invested = sum(float(position.target_weight or 0.0) for position in list(positions or []))
+        return round(max(0.0, 1.0 - invested), 8)
 
 
 class PlanAssemblyService:
@@ -340,11 +387,12 @@ class PortfolioAssembler:
             max_single_position=self.config.max_single_position,
             max_positions=self.config.max_positions,
         )
+        effective_cash_reserve = self.risk_check_service._residual_cash_reserve(clean_positions)
         return PortfolioPlan(
             as_of_date=as_of_date or plans[0].as_of_date,
             regime=regime or plans[0].regime,
             positions=clean_positions,
-            cash_reserve=cash_reserve,
+            cash_reserve=effective_cash_reserve,
             active_manager_ids=list(weights.keys()),
             manager_weights=weights,
             confidence=round(weighted_confidence, 8),

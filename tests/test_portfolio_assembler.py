@@ -1,5 +1,5 @@
 from invest_evolution.investment.contracts import ManagerPlan, ManagerPlanPosition
-from invest_evolution.investment.governance import PortfolioAssembler
+from invest_evolution.investment.governance import PortfolioAssembler, RiskCheckService
 
 
 def test_portfolio_assembler_merges_duplicate_holdings():
@@ -77,3 +77,56 @@ def test_portfolio_assembler_default_caps_portfolio_width_to_eight_holdings():
 
     assert assembler.config.max_positions == 8
     assert len(portfolio.positions) == 8
+
+
+def test_risk_check_service_preserves_residual_cash_when_single_position_cap_blocks_full_exposure():
+    service = RiskCheckService()
+    manager_plan = ManagerPlan(
+        manager_id="momentum",
+        manager_name="Momentum Manager",
+        as_of_date="20260318",
+        regime="bull",
+        positions=[
+            ManagerPlanPosition(code="AAA", rank=1, target_weight=0.40, thesis="trend"),
+            ManagerPlanPosition(code="BBB", rank=2, target_weight=0.35, thesis="follow through"),
+            ManagerPlanPosition(code="CCC", rank=3, target_weight=0.25, thesis="breadth"),
+        ],
+        cash_reserve=0.0,
+        max_positions=3,
+        budget_weight=1.0,
+        confidence=0.8,
+    )
+
+    clean_plan = service.sanitize_manager_plan(manager_plan, max_single_position=0.20)
+
+    assert len(clean_plan.positions) == 3
+    assert all(position.target_weight <= 0.20 for position in clean_plan.positions)
+    assert abs(sum(position.target_weight for position in clean_plan.positions) - 0.60) < 1e-6
+    assert abs(clean_plan.cash_reserve - 0.40) < 1e-6
+
+
+def test_portfolio_assembler_leaves_residual_cash_when_single_position_cap_blocks_full_exposure():
+    assembler = PortfolioAssembler()
+    plan_a = ManagerPlan(
+        manager_id="momentum",
+        manager_name="Momentum Manager",
+        as_of_date="20260318",
+        regime="bull",
+        positions=[
+            ManagerPlanPosition(code="AAA", rank=1, target_weight=0.40, thesis="trend"),
+            ManagerPlanPosition(code="BBB", rank=2, target_weight=0.35, thesis="follow through"),
+            ManagerPlanPosition(code="CCC", rank=3, target_weight=0.25, thesis="breadth"),
+        ],
+        cash_reserve=0.0,
+        max_positions=3,
+        budget_weight=1.0,
+        confidence=0.8,
+    )
+
+    portfolio = assembler.assemble([plan_a], manager_weights={"momentum": 1.0})
+
+    assert assembler.config.max_single_position == 0.20
+    assert len(portfolio.positions) == 3
+    assert all(position.target_weight <= 0.20 for position in portfolio.positions)
+    assert abs(sum(position.target_weight for position in portfolio.positions) - 0.60) < 1e-6
+    assert abs(portfolio.cash_reserve - 0.40) < 1e-6
