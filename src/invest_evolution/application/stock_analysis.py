@@ -478,10 +478,10 @@ class ResearchResolutionDashboardProjectionFactory:
 
 @dataclass(frozen=True)
 class AskStockResponseRequestHeader:
-    request: dict[str, Any]
+    request: "AskStockRequestProjection"
 
     def to_payload(self) -> dict[str, Any]:
-        request = dict(self.request)
+        request = self.request.to_payload()
         return {
             "question": str(request["question"]),
             "query": str(request["query"]),
@@ -494,11 +494,11 @@ class AskStockResponseRequestHeader:
 
 @dataclass(frozen=True)
 class AskStockResponseResolutionHeader:
-    identifiers: dict[str, str]
+    identifiers: "AskStockIdentifiersProjection"
     security: dict[str, Any]
 
     def to_payload(self) -> dict[str, Any]:
-        identifiers = dict(self.identifiers)
+        identifiers = self.identifiers.to_payload()
         security = dict(self.security)
         return {
             "policy_id": str(identifiers.get("policy_id") or ""),
@@ -601,14 +601,6 @@ class AskStockResearchBundle:
 
 
 @dataclass(frozen=True)
-class AskStockPresentationBundle:
-    request_context: "AskStockRequestContext"
-    identifiers: AskStockIdentifiersProjection
-    presentation_spec: "AskStockPresentationSpec"
-    orchestration_bundle: "AskStockOrchestrationBundle"
-
-
-@dataclass(frozen=True)
 class AskStockRequestContext:
     question: str
     query: str
@@ -619,14 +611,24 @@ class AskStockRequestContext:
     strategy: "StockAnalysisStrategy"
     strategy_source: str
     days: int
-    request_payload: dict[str, Any]
 
 
 @dataclass(frozen=True)
-class AskStockAssemblyContext:
-    request_context: AskStockRequestContext
-    execution_bundle: "AskStockExecutionRunBundle"
-    research_bundle: "AskStockResearchBundle"
+class AskStockRequestProjection:
+    question: str
+    query: str
+    normalized_query: str
+    requested_as_of_date: str
+    as_of_date: str
+
+    def to_payload(self) -> dict[str, Any]:
+        return {
+            "question": self.question,
+            "query": self.query,
+            "normalized_query": self.normalized_query,
+            "requested_as_of_date": self.requested_as_of_date,
+            "as_of_date": self.as_of_date,
+        }
 
 
 @dataclass(frozen=True)
@@ -641,57 +643,6 @@ class AskStockIdentifiersProjection:
             "research_case_id": self.research_case_id,
             "attribution_id": self.attribution_id,
         }
-
-
-@dataclass(frozen=True)
-class AskStockOrchestrationExtraProjection:
-    required_tools: list[str]
-    recommended_plan: list[dict[str, Any]]
-    tool_plan: list[dict[str, Any]]
-    tool_calls: list[dict[str, Any]]
-    step_count: int
-    llm_reasoning: str
-    fallback_used: bool
-    gap_fill: dict[str, Any]
-    coverage: dict[str, Any]
-
-    def to_payload(self) -> dict[str, Any]:
-        return {
-            "required_tools": list(self.required_tools),
-            "recommended_plan": list(self.recommended_plan),
-            "tool_plan": list(self.tool_plan),
-            "tool_calls": list(self.tool_calls),
-            "step_count": self.step_count,
-            "llm_reasoning": self.llm_reasoning,
-            "fallback_used": self.fallback_used,
-            "gap_fill": dict(self.gap_fill),
-            "coverage": dict(self.coverage),
-        }
-
-
-@dataclass(frozen=True)
-class AskStockSectionPayloadFactory:
-    execution: dict[str, Any]
-    derived: dict[str, Any]
-    research_bundle: "AskStockResearchBundle"
-    identifiers: dict[str, str]
-
-    def analysis_payload(self) -> dict[str, Any]:
-        return {
-            "tool_results": self.execution["results"],
-            "result_sequence": self.execution["result_sequence"],
-            "derived_signals": self.derived,
-            "research_bridge": StockAnalysisService._with_identifiers(
-                dict(self.research_bundle.research_bridge_payload),
-                self.identifiers,
-            ),
-        }
-
-    def research_payload(self) -> dict[str, Any]:
-        return StockAnalysisService._with_identifiers(
-            dict(self.research_bundle.research_payload),
-            self.identifiers,
-        )
 
 
 @dataclass(frozen=True)
@@ -761,40 +712,6 @@ class AskStockPresentationSpec:
 
 
 @dataclass(frozen=True)
-class AskStockProtocolBundle:
-    protocol: dict[str, Any]
-    artifacts: dict[str, Any]
-    coverage: dict[str, Any]
-    artifact_taxonomy: dict[str, Any]
-
-    def to_execution_surface_spec(
-        self,
-        *,
-        task_bus: dict[str, Any],
-        orchestration_extra: dict[str, Any],
-    ) -> AskStockExecutionSurfaceSpec:
-        return AskStockExecutionSurfaceSpec(
-            task_bus=dict(task_bus),
-            protocol=dict(self.protocol),
-            artifacts=dict(self.artifacts),
-            coverage=dict(self.coverage),
-            artifact_taxonomy=dict(self.artifact_taxonomy),
-            orchestration_extra=dict(orchestration_extra),
-        )
-
-
-@dataclass(frozen=True)
-class AskStockFinalResponseBundle:
-    payload: dict[str, Any]
-    task_bus: dict[str, Any]
-    protocol: dict[str, Any]
-    artifacts: dict[str, Any]
-    coverage: dict[str, Any]
-    artifact_taxonomy: dict[str, Any]
-    default_reply: str = "已完成问股分析。"
-
-
-@dataclass(frozen=True)
 class AskStockResponseAssemblySpec:
     header_factory: AskStockResponseHeaderFactory
     presentation_spec: AskStockPresentationSpec
@@ -812,25 +729,16 @@ class AskStockResponseAssemblySpec:
             "dashboard": dict(self.dashboard),
         }
 
-    def build_final_response_bundle(self) -> AskStockFinalResponseBundle:
-        return AskStockFinalResponseBundle(
+    def render_protocol_response(self) -> dict[str, Any]:
+        return build_protocol_response(
             payload=self.build_payload(),
-            task_bus=dict(self.presentation_spec.task_bus),
             protocol=dict(self.presentation_spec.protocol),
+            task_bus=dict(self.presentation_spec.task_bus),
             artifacts=dict(self.presentation_spec.artifacts),
             coverage=dict(self.presentation_spec.coverage),
             artifact_taxonomy=dict(self.presentation_spec.artifact_taxonomy),
+            default_reply="已完成问股分析。",
         )
-
-
-@dataclass(frozen=True)
-class AskStockOrchestrationBundle:
-    mode: str
-    available_tools: list[str]
-    allowed_tools: list[str]
-    workflow: list[dict[str, Any]]
-    phase_stats: dict[str, Any]
-    extra: dict[str, Any]
 
 
 @dataclass(frozen=True)
@@ -4768,21 +4676,44 @@ class StockAnalysisService(StockAnalysisExecutionMixin):
             execution_bundle=execution_bundle,
         )
         research_bundle = self._build_ask_stock_research_bundle(research_resolution)
-        assembly_context = AskStockAssemblyContext(
+        identifiers = self._build_ask_stock_identifiers_projection(
+            policy_id=research_bundle.policy_id,
+            research_case_id=research_bundle.research_case_id,
+            attribution_id=research_bundle.attribution_id,
+        )
+        execution_projection = self._build_ask_stock_execution_projection(
+            execution=execution_bundle.execution,
+            recommended_plan=execution_bundle.recommended_plan,
+            coverage=execution_bundle.coverage,
+            task_bus_artifacts=self._build_ask_stock_task_artifacts(
+                code=request_context.code,
+                strategy_name=request_context.strategy.name,
+                strategy_source=request_context.strategy_source,
+                derived=execution_bundle.derived,
+                execution=execution_bundle.execution,
+            ),
+        )
+        execution_surface_spec = self._build_ask_stock_execution_surface_spec(
             request_context=request_context,
+            execution_projection=execution_projection,
+            identifiers=identifiers,
+        )
+        presentation_spec = self._build_ask_stock_presentation_spec(
             execution_bundle=execution_bundle,
             research_bundle=research_bundle,
-        )
-        presentation_bundle = self._build_ask_stock_presentation_bundle(
-            assembly_context=assembly_context,
+            execution_surface_spec=execution_surface_spec,
+            identifiers=identifiers,
         )
         response_assembly_spec = self._build_ask_stock_response_assembly_spec(
-            assembly_context=assembly_context,
-            presentation_bundle=presentation_bundle,
+            request_context=request_context,
+            research_bundle=research_bundle,
+            identifiers=identifiers,
+            execution_projection=execution_projection,
+            allowed_tools=execution_bundle.allowed_tools,
+            presentation_spec=presentation_spec,
+            orchestration_extra=execution_surface_spec.orchestration_extra,
         )
-        return self._render_ask_stock_final_response(
-            bundle=response_assembly_spec.build_final_response_bundle(),
-        )
+        return response_assembly_spec.render_protocol_response()
 
     def _build_ask_stock_request_context(
         self,
@@ -4813,13 +4744,6 @@ class StockAnalysisService(StockAnalysisExecutionMixin):
             strategy=resolved_strategy,
             strategy_source=strategy_source,
             days=resolved_days,
-            request_payload=self._build_ask_stock_request(
-                question=question,
-                query=query,
-                code=code,
-                as_of_date=as_of_date,
-                effective_as_of_date=effective_as_of_date,
-            ),
         )
 
     def _run_ask_stock_execution_stage(
@@ -4930,60 +4854,39 @@ class StockAnalysisService(StockAnalysisExecutionMixin):
             status="ok",
         )
 
-    @staticmethod
-    def _build_ask_stock_context_artifacts(
-        *,
-        execution_projection: AskStockExecutionProjection,
-        policy_id: str,
-        research_case_id: str,
-        attribution_id: str,
-    ) -> dict[str, Any]:
-        return {
-            **dict(execution_projection.task_bus_artifacts),
-            "policy_id": policy_id,
-            "research_case_id": research_case_id,
-            "attribution_id": attribution_id,
-        }
-
     def _build_ask_stock_bounded_context(
         self,
         *,
         execution_projection: AskStockExecutionProjection,
-        policy_id: str,
-        research_case_id: str,
-        attribution_id: str,
+        identifiers: AskStockIdentifiersProjection,
     ) -> dict[str, Any]:
         return build_bounded_response_context(
             schema_version=BOUNDED_WORKFLOW_SCHEMA_VERSION,
             domain="stock",
             operation="ask_stock",
-            artifacts=self._build_ask_stock_context_artifacts(
-                execution_projection=execution_projection,
-                policy_id=policy_id,
-                research_case_id=research_case_id,
-                attribution_id=attribution_id,
-            ),
+            artifacts={
+                **dict(execution_projection.task_bus_artifacts),
+                **identifiers.to_payload(),
+            },
             workflow=cast(list[str], list(execution_projection.workflow)),
             phase_stats=dict(execution_projection.phase_stats),
             coverage=dict(execution_projection.coverage),
         )
 
-    def _build_ask_stock_request(
+    def _build_ask_stock_request_projection(
         self,
         *,
-        question: str,
-        query: str,
-        code: str,
-        as_of_date: str,
-        effective_as_of_date: str,
-    ) -> dict[str, Any]:
-        return {
-            "question": question,
-            "query": query,
-            "normalized_query": code,
-            "requested_as_of_date": self._normalize_as_of_date(as_of_date),
-            "as_of_date": effective_as_of_date,
-        }
+        request_context: AskStockRequestContext,
+    ) -> AskStockRequestProjection:
+        return AskStockRequestProjection(
+            question=request_context.question,
+            query=request_context.query,
+            normalized_query=request_context.code,
+            requested_as_of_date=self._normalize_as_of_date(
+                request_context.requested_as_of_date
+            ),
+            as_of_date=request_context.effective_as_of_date,
+        )
 
     @staticmethod
     def _build_ask_stock_entrypoint() -> dict[str, Any]:
@@ -5004,107 +4907,92 @@ class StockAnalysisService(StockAnalysisExecutionMixin):
         *,
         strategy: StockAnalysisStrategy,
         execution_projection: AskStockExecutionProjection,
-    ) -> AskStockOrchestrationExtraProjection:
-        return AskStockOrchestrationExtraProjection(
-            required_tools=list(strategy.required_tools),
-            recommended_plan=list(execution_projection.recommended_plan),
-            tool_plan=list(execution_projection.tool_plan),
-            tool_calls=list(execution_projection.tool_calls),
-            step_count=len(execution_projection.tool_calls),
-            llm_reasoning=execution_projection.llm_reasoning,
-            fallback_used=execution_projection.fallback_used,
-            gap_fill=dict(execution_projection.gap_fill),
-            coverage=dict(execution_projection.coverage),
-        )
+    ) -> dict[str, Any]:
+        return {
+            "required_tools": list(strategy.required_tools),
+            "recommended_plan": list(execution_projection.recommended_plan),
+            "tool_plan": list(execution_projection.tool_plan),
+            "tool_calls": list(execution_projection.tool_calls),
+            "step_count": len(execution_projection.tool_calls),
+            "llm_reasoning": execution_projection.llm_reasoning,
+            "fallback_used": execution_projection.fallback_used,
+            "gap_fill": dict(execution_projection.gap_fill),
+            "coverage": dict(execution_projection.coverage),
+        }
 
     @staticmethod
     def _with_identifiers(
-        payload: dict[str, Any], identifiers: dict[str, str]
+        payload: dict[str, Any],
+        identifiers: AskStockIdentifiersProjection,
     ) -> dict[str, Any]:
-        return {**dict(payload), "identifiers": dict(identifiers)}
-
-    @staticmethod
-    def _build_ask_stock_protocol_bundle(
-        bounded_context: dict[str, Any],
-    ) -> AskStockProtocolBundle:
-        return AskStockProtocolBundle(
-            protocol=dict(bounded_context["protocol"]),
-            artifacts=dict(bounded_context["artifacts"]),
-            coverage=dict(bounded_context["coverage"]),
-            artifact_taxonomy=dict(bounded_context["artifact_taxonomy"]),
-        )
+        return {**dict(payload), "identifiers": identifiers.to_payload()}
 
     def _build_ask_stock_execution_surface_spec(
         self,
         *,
-        assembly_context: AskStockAssemblyContext,
+        request_context: AskStockRequestContext,
         execution_projection: AskStockExecutionProjection,
         identifiers: AskStockIdentifiersProjection,
     ) -> AskStockExecutionSurfaceSpec:
         task_bus = self._build_ask_stock_task_bus(
-            question=assembly_context.request_context.question,
-            query=assembly_context.request_context.query,
+            question=request_context.question,
+            query=request_context.query,
             execution_projection=execution_projection,
         )
         bounded_context = self._build_ask_stock_bounded_context(
             execution_projection=execution_projection,
-            policy_id=identifiers.policy_id,
-            research_case_id=identifiers.research_case_id,
-            attribution_id=identifiers.attribution_id,
+            identifiers=identifiers,
         )
-        protocol_bundle = self._build_ask_stock_protocol_bundle(bounded_context)
         orchestration_extra = self._build_ask_stock_orchestration_extra_projection(
-            strategy=assembly_context.request_context.strategy,
+            strategy=request_context.strategy,
             execution_projection=execution_projection,
-        ).to_payload()
-        return protocol_bundle.to_execution_surface_spec(
+        )
+        return AskStockExecutionSurfaceSpec(
             task_bus=task_bus,
+            protocol=dict(bounded_context["protocol"]),
+            artifacts=dict(bounded_context["artifacts"]),
+            coverage=dict(bounded_context["coverage"]),
+            artifact_taxonomy=dict(bounded_context["artifact_taxonomy"]),
             orchestration_extra=orchestration_extra,
         )
 
     def _build_ask_stock_presentation_spec(
         self,
         *,
-        assembly_context: AskStockAssemblyContext,
+        execution_bundle: AskStockExecutionRunBundle,
+        research_bundle: AskStockResearchBundle,
         execution_surface_spec: AskStockExecutionSurfaceSpec,
-        identifiers: dict[str, str],
+        identifiers: AskStockIdentifiersProjection,
     ) -> AskStockPresentationSpec:
-        section_payload_factory = AskStockSectionPayloadFactory(
-            execution=assembly_context.execution_bundle.execution,
-            derived=assembly_context.execution_bundle.derived,
-            research_bundle=assembly_context.research_bundle,
-            identifiers=identifiers,
-        )
         return execution_surface_spec.to_presentation_spec(
             sections=self._build_ask_stock_sections_bundle(
-                factory=section_payload_factory,
+                execution_bundle=execution_bundle,
+                research_bundle=research_bundle,
+                identifiers=identifiers,
             ),
         )
 
-    def _build_ask_stock_orchestration_bundle(
+    def _build_ask_stock_sections_bundle(
         self,
         *,
-        execution_projection: AskStockExecutionProjection,
-        allowed_tools: list[str],
-        execution_surface_spec: AskStockExecutionSurfaceSpec,
-    ) -> AskStockOrchestrationBundle:
-        return AskStockOrchestrationBundle(
-            mode=execution_projection.mode,
-            available_tools=list(execution_projection.available_tools),
-            allowed_tools=list(allowed_tools),
-            workflow=list(execution_projection.workflow),
-            phase_stats=dict(execution_projection.phase_stats),
-            extra=dict(execution_surface_spec.orchestration_extra),
-        )
-
-    @staticmethod
-    def _build_ask_stock_sections_bundle(
-        *,
-        factory: AskStockSectionPayloadFactory,
+        execution_bundle: AskStockExecutionRunBundle,
+        research_bundle: AskStockResearchBundle,
+        identifiers: AskStockIdentifiersProjection,
     ) -> AskStockSectionsBundle:
         return AskStockSectionsBundle(
-            analysis=factory.analysis_payload(),
-            research=factory.research_payload(),
+            analysis={
+                "tool_results": execution_bundle.execution["results"],
+                "result_sequence": execution_bundle.execution["result_sequence"],
+                "derived_signals": execution_bundle.derived,
+                "research_bridge": self._with_identifiers(
+                    dict(research_bundle.research_bridge_payload),
+                    identifiers,
+                ),
+            },
+            research=self._with_identifiers(
+                dict(research_bundle.research_payload),
+                identifiers,
+            ),
         )
 
     @staticmethod
@@ -5120,63 +5008,20 @@ class StockAnalysisService(StockAnalysisExecutionMixin):
             attribution_id=str(research_resolution.get("attribution_id") or ""),
         )
 
-    def _build_ask_stock_presentation_bundle(
-        self,
-        *,
-        assembly_context: AskStockAssemblyContext,
-    ) -> AskStockPresentationBundle:
-        task_bus_artifacts = self._build_ask_stock_task_artifacts(
-            code=assembly_context.request_context.code,
-            strategy_name=assembly_context.request_context.strategy.name,
-            strategy_source=assembly_context.request_context.strategy_source,
-            derived=assembly_context.execution_bundle.derived,
-            execution=assembly_context.execution_bundle.execution,
-        )
-        execution_projection = self._build_ask_stock_execution_projection(
-            execution=assembly_context.execution_bundle.execution,
-            recommended_plan=assembly_context.execution_bundle.recommended_plan,
-            coverage=assembly_context.execution_bundle.coverage,
-            task_bus_artifacts=task_bus_artifacts,
-        )
-        identifiers_projection = self._build_ask_stock_identifiers_projection(
-            policy_id=assembly_context.research_bundle.policy_id,
-            research_case_id=assembly_context.research_bundle.research_case_id,
-            attribution_id=assembly_context.research_bundle.attribution_id,
-        )
-        identifiers = identifiers_projection.to_payload()
-        execution_surface_spec = self._build_ask_stock_execution_surface_spec(
-            assembly_context=assembly_context,
-            execution_projection=execution_projection,
-            identifiers=identifiers_projection,
-        )
-        presentation_spec = self._build_ask_stock_presentation_spec(
-            assembly_context=assembly_context,
-            execution_surface_spec=execution_surface_spec,
-            identifiers=identifiers,
-        )
-        return AskStockPresentationBundle(
-            request_context=assembly_context.request_context,
-            identifiers=identifiers_projection,
-            presentation_spec=presentation_spec,
-            orchestration_bundle=self._build_ask_stock_orchestration_bundle(
-                execution_projection=execution_projection,
-                allowed_tools=assembly_context.execution_bundle.allowed_tools,
-                execution_surface_spec=execution_surface_spec,
-            ),
-        )
-
     def _build_ask_stock_orchestration_payload(
         self,
         *,
         strategy: StockAnalysisStrategy,
-        orchestration_bundle: AskStockOrchestrationBundle,
+        execution_projection: AskStockExecutionProjection,
+        allowed_tools: list[str],
+        orchestration_extra: dict[str, Any],
     ) -> dict[str, Any]:
         return build_bounded_orchestration(
-            mode=orchestration_bundle.mode,
-            available_tools=list(orchestration_bundle.available_tools),
-            allowed_tools=list(orchestration_bundle.allowed_tools),
-            workflow=cast(list[str], list(orchestration_bundle.workflow)),
-            phase_stats=dict(orchestration_bundle.phase_stats),
+            mode=execution_projection.mode,
+            available_tools=list(execution_projection.available_tools),
+            allowed_tools=list(allowed_tools),
+            workflow=cast(list[str], list(execution_projection.workflow)),
+            phase_stats=dict(execution_projection.phase_stats),
             policy=build_bounded_policy(
                 source="yaml_strategy",
                 agent_kind="bounded_stock_agent",
@@ -5186,14 +5031,14 @@ class StockAnalysisService(StockAnalysisExecutionMixin):
                 fixed_boundary=True,
                 fixed_workflow=True,
             ),
-            extra=dict(orchestration_bundle.extra),
+            extra=dict(orchestration_extra),
         )
 
     def _build_ask_stock_response_header_factory(
         self,
         *,
-        request: dict[str, Any],
-        identifiers: dict[str, str],
+        request: AskStockRequestProjection,
+        identifiers: AskStockIdentifiersProjection,
         security: dict[str, Any],
         strategy: StockAnalysisStrategy,
         strategy_source: str,
@@ -5202,10 +5047,10 @@ class StockAnalysisService(StockAnalysisExecutionMixin):
         return AskStockResponseHeaderFactory(
             spec=AskStockResponseHeaderSpec(
                 request=AskStockResponseRequestHeader(
-                    request=dict(request),
+                    request=request,
                 ),
                 resolution=AskStockResponseResolutionHeader(
-                    identifiers=dict(identifiers),
+                    identifiers=identifiers,
                     security=dict(security),
                 ),
                 strategy=AskStockResponseStrategyHeader(
@@ -5220,39 +5065,33 @@ class StockAnalysisService(StockAnalysisExecutionMixin):
     def _build_ask_stock_response_assembly_spec(
         self,
         *,
-        assembly_context: AskStockAssemblyContext,
-        presentation_bundle: AskStockPresentationBundle,
+        request_context: AskStockRequestContext,
+        research_bundle: AskStockResearchBundle,
+        identifiers: AskStockIdentifiersProjection,
+        execution_projection: AskStockExecutionProjection,
+        allowed_tools: list[str],
+        presentation_spec: AskStockPresentationSpec,
+        orchestration_extra: dict[str, Any],
     ) -> AskStockResponseAssemblySpec:
         return AskStockResponseAssemblySpec(
             header_factory=self._build_ask_stock_response_header_factory(
-                request=presentation_bundle.request_context.request_payload,
-                identifiers=presentation_bundle.identifiers.to_payload(),
-                security=assembly_context.request_context.security,
-                strategy=assembly_context.request_context.strategy,
-                strategy_source=assembly_context.request_context.strategy_source,
-                days=assembly_context.request_context.days,
+                request=self._build_ask_stock_request_projection(
+                    request_context=request_context
+                ),
+                identifiers=identifiers,
+                security=request_context.security,
+                strategy=request_context.strategy,
+                strategy_source=request_context.strategy_source,
+                days=request_context.days,
             ),
-            presentation_spec=presentation_bundle.presentation_spec,
+            presentation_spec=presentation_spec,
             orchestration=self._build_ask_stock_orchestration_payload(
-                strategy=assembly_context.request_context.strategy,
-                orchestration_bundle=presentation_bundle.orchestration_bundle,
+                strategy=request_context.strategy,
+                execution_projection=execution_projection,
+                allowed_tools=allowed_tools,
+                orchestration_extra=orchestration_extra,
             ),
-            dashboard=dict(assembly_context.research_bundle.dashboard),
-        )
-
-    @staticmethod
-    def _render_ask_stock_final_response(
-        *,
-        bundle: AskStockFinalResponseBundle,
-    ) -> dict[str, Any]:
-        return build_protocol_response(
-            payload=dict(bundle.payload),
-            protocol=dict(bundle.protocol),
-            task_bus=dict(bundle.task_bus),
-            artifacts=dict(bundle.artifacts),
-            coverage=dict(bundle.coverage),
-            artifact_taxonomy=dict(bundle.artifact_taxonomy),
-            default_reply=bundle.default_reply,
+            dashboard=dict(research_bundle.dashboard),
         )
 
     def _resolve_ask_stock_research_outputs(
