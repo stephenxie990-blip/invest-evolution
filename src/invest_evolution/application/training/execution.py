@@ -339,6 +339,7 @@ def runtime_manager_config_ref(manager_runtime: Any, *, fallback: Any = "") -> s
 def manager_output_manager_id(manager_output: Any, *, fallback: Any = "") -> str:
     return str(
         getattr(manager_output, "manager_id", "")
+        or getattr(getattr(manager_output, "signal_packet", None), "manager_id", "")
         or fallback
         or ""
     ).strip()
@@ -347,6 +348,7 @@ def manager_output_manager_id(manager_output: Any, *, fallback: Any = "") -> str
 def manager_output_manager_config_ref(manager_output: Any, *, fallback: Any = "") -> str:
     return str(
         getattr(manager_output, "manager_config_ref", "")
+        or getattr(getattr(manager_output, "signal_packet", None), "manager_config_ref", "")
         or fallback
         or ""
     ).strip()
