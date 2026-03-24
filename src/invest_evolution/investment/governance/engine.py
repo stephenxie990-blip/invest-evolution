@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import logging
+import os
+import tempfile
 from collections import defaultdict
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
@@ -118,6 +120,31 @@ def _filter_known_manager_ids(manager_ids: Iterable[Any]) -> List[str]:
     return normalized_ids
 
 
+def _write_json_atomic(target: Path, payload: Dict[str, Any]) -> None:
+    serialized = json.dumps(payload, ensure_ascii=False, indent=2)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    temp_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            "w",
+            encoding="utf-8",
+            dir=target.parent,
+            prefix=f".{target.name}.",
+            suffix=".tmp",
+            delete=False,
+        ) as handle:
+            handle.write(serialized)
+            handle.flush()
+            temp_path = Path(handle.name)
+        os.replace(temp_path, target)
+    except Exception:
+        if temp_path is not None:
+            try:
+                temp_path.unlink(missing_ok=True)
+            except OSError:
+                pass
+        raise
+
 
 def load_leaderboard(path: str | Path) -> Dict[str, Any]:
     return json.loads(Path(path).read_text(encoding="utf-8"))
@@ -126,7 +153,11 @@ def load_leaderboard(path: str | Path) -> Dict[str, Any]:
 class ModelAllocator:
     """Rule + leaderboard driven manager allocator. LLM is optional explanation layer only."""
 
-    def __init__(self, priors: Optional[Dict[str, Dict[str, float]]] = None, cash_policy: Optional[Dict[str, float]] = None):
+    def __init__(
+        self,
+        priors: Optional[Dict[str, Dict[str, float]]] = None,
+        cash_policy: Optional[Dict[str, float]] = None,
+    ):
         self.priors = priors or DEFAULT_REGIME_PRIORS
         self.cash_policy = cash_policy or DEFAULT_CASH_RESERVE
         self.weight_caps = REGIME_WEIGHT_CAPS
@@ -140,7 +171,9 @@ class ModelAllocator:
         top_n: int = 3,
     ) -> AllocationPlan:
         normalized_regime = regime if regime in self.priors else "unknown"
-        candidates, used_provisional = self._rank_candidates(normalized_regime, leaderboard)
+        candidates, used_provisional = self._rank_candidates(
+            normalized_regime, leaderboard
+        )
         weights = self._blend_weights(normalized_regime, candidates, top_n=top_n)
         selected_manager_config_refs = {
             item.manager_id: item.manager_config_ref
@@ -148,7 +181,11 @@ class ModelAllocator:
             if item.manager_id in weights
         }
         active_manager_ids = [
-            name for name, weight in sorted(weights.items(), key=lambda pair: pair[1], reverse=True) if weight > 0
+            name
+            for name, weight in sorted(
+                weights.items(), key=lambda pair: pair[1], reverse=True
+            )
+            if weight > 0
         ]
         confidence = self._confidence(candidates)
         if used_provisional:
@@ -180,7 +217,9 @@ class ModelAllocator:
                         "manager_id": _entry_manager_id(item),
                         "ineligible_reason": str(item.get("ineligible_reason") or ""),
                         "deployment_stage": str(item.get("deployment_stage") or ""),
-                        "failed_regime_names": list(item.get("failed_regime_names") or []),
+                        "failed_regime_names": list(
+                            item.get("failed_regime_names") or []
+                        ),
                         "regime_hard_fail": dict(item.get("regime_hard_fail") or {}),
                     }
                     for item in list(leaderboard.get("entries") or [])
@@ -197,8 +236,12 @@ class ModelAllocator:
             if bool(entry.get("eligible_for_governance", True))
         ]
 
-    def _rank_candidates(self, regime: str, leaderboard: Dict[str, Any]) -> tuple[List[ManagerScore], bool]:
-        regime_board = list((leaderboard.get("regime_leaderboards") or {}).get(regime, []))
+    def _rank_candidates(
+        self, regime: str, leaderboard: Dict[str, Any]
+    ) -> tuple[List[ManagerScore], bool]:
+        regime_board = list(
+            (leaderboard.get("regime_leaderboards") or {}).get(regime, [])
+        )
         entries = list(leaderboard.get("entries") or [])
         filtered_entries = self._eligible_entries(entries)
         used_provisional = False
@@ -220,23 +263,42 @@ class ModelAllocator:
                     or entry.get("style_profile", {}).get(regime)
                     or manager_regime_compatibility(manager_id, regime)
                 )
-                chosen.append(ManagerScore(
-                    manager_id=manager_id,
-                    manager_config_ref=_entry_manager_config_ref(entry),
-                    score=float(entry.get("score", 0.0) or 0.0),
-                    avg_return_pct=float(entry.get("avg_return_pct", 0.0) or 0.0),
-                    avg_sharpe_ratio=float(entry.get("avg_sharpe_ratio", 0.0) or 0.0),
-                    avg_max_drawdown=float(entry.get("avg_max_drawdown", 0.0) or 0.0),
-                    benchmark_pass_rate=float(entry.get("benchmark_pass_rate", 0.0) or 0.0),
-                    avg_strategy_score=float(entry.get("avg_strategy_score", 0.0) or 0.0),
-                    rank=int(regime_map[manager_id].get("rank", 0) or 0),
-                    regime_score=float(regime_map[manager_id].get("regime_score", entry.get("score", 0.0)) or 0.0),
-                    regime_compatibility=compatibility,
-                    regime_cycles=int(regime_map[manager_id].get("cycles", 0) or 0),
-                    regime_source=str(regime_map[manager_id].get("source") or "leaderboard"),
-                ))
+                chosen.append(
+                    ManagerScore(
+                        manager_id=manager_id,
+                        manager_config_ref=_entry_manager_config_ref(entry),
+                        score=float(entry.get("score", 0.0) or 0.0),
+                        avg_return_pct=float(entry.get("avg_return_pct", 0.0) or 0.0),
+                        avg_sharpe_ratio=float(
+                            entry.get("avg_sharpe_ratio", 0.0) or 0.0
+                        ),
+                        avg_max_drawdown=float(
+                            entry.get("avg_max_drawdown", 0.0) or 0.0
+                        ),
+                        benchmark_pass_rate=float(
+                            entry.get("benchmark_pass_rate", 0.0) or 0.0
+                        ),
+                        avg_strategy_score=float(
+                            entry.get("avg_strategy_score", 0.0) or 0.0
+                        ),
+                        rank=int(regime_map[manager_id].get("rank", 0) or 0),
+                        regime_score=float(
+                            regime_map[manager_id].get(
+                                "regime_score", entry.get("score", 0.0)
+                            )
+                            or 0.0
+                        ),
+                        regime_compatibility=compatibility,
+                        regime_cycles=int(regime_map[manager_id].get("cycles", 0) or 0),
+                        regime_source=str(
+                            regime_map[manager_id].get("source") or "leaderboard"
+                        ),
+                    )
+                )
             if chosen:
-                return self._dedupe_by_manager(self._apply_style_filter(regime, chosen)), used_provisional
+                return self._dedupe_by_manager(
+                    self._apply_style_filter(regime, chosen)
+                ), used_provisional
         fallback = [
             ManagerScore(
                 manager_id=_entry_manager_id(entry),
@@ -248,16 +310,28 @@ class ModelAllocator:
                 benchmark_pass_rate=float(entry.get("benchmark_pass_rate", 0.0) or 0.0),
                 avg_strategy_score=float(entry.get("avg_strategy_score", 0.0) or 0.0),
                 rank=int(entry.get("rank", 0) or 0),
-                regime_score=float(entry.get("score", 0.0) or 0.0) * manager_regime_compatibility(_entry_manager_id(entry), regime),
-                regime_compatibility=manager_regime_compatibility(_entry_manager_id(entry), regime),
-                regime_cycles=int(dict(entry.get("regime_performance") or {}).get(regime, {}).get("cycles", 0) or 0),
+                regime_score=float(entry.get("score", 0.0) or 0.0)
+                * manager_regime_compatibility(_entry_manager_id(entry), regime),
+                regime_compatibility=manager_regime_compatibility(
+                    _entry_manager_id(entry), regime
+                ),
+                regime_cycles=int(
+                    dict(entry.get("regime_performance") or {})
+                    .get(regime, {})
+                    .get("cycles", 0)
+                    or 0
+                ),
                 regime_source="fallback",
             )
             for entry in filtered_entries
         ]
-        return self._dedupe_by_manager(self._apply_style_filter(regime, fallback)), used_provisional
+        return self._dedupe_by_manager(
+            self._apply_style_filter(regime, fallback)
+        ), used_provisional
 
-    def _apply_style_filter(self, regime: str, items: List[ManagerScore]) -> List[ManagerScore]:
+    def _apply_style_filter(
+        self, regime: str, items: List[ManagerScore]
+    ) -> List[ManagerScore]:
         if regime == "unknown":
             return items
         compatible = [
@@ -286,19 +360,26 @@ class ModelAllocator:
             reverse=True,
         )
 
-    def _blend_weights(self, regime: str, candidates: List[ManagerScore], *, top_n: int) -> Dict[str, float]:
+    def _blend_weights(
+        self, regime: str, candidates: List[ManagerScore], *, top_n: int
+    ) -> Dict[str, float]:
         if not candidates:
             return {}
-        selected = candidates[:max(1, top_n)]
+        selected = candidates[: max(1, top_n)]
         if not selected:
             return {}
         regime_priors = dict(self.priors.get(regime, self.priors["unknown"]))
         selected_ids = [item.manager_id for item in selected]
-        priors = {manager_id: float(regime_priors.get(manager_id, 0.0) or 0.0) for manager_id in selected_ids}
+        priors = {
+            manager_id: float(regime_priors.get(manager_id, 0.0) or 0.0)
+            for manager_id in selected_ids
+        }
         if sum(priors.values()) <= 0:
             uniform_prior = 1.0 / max(len(selected_ids), 1)
             priors = {manager_id: uniform_prior for manager_id in selected_ids}
-        bonus_scores: Dict[str, float] = {manager_id: 0.0 for manager_id in selected_ids}
+        bonus_scores: Dict[str, float] = {
+            manager_id: 0.0 for manager_id in selected_ids
+        }
         if selected:
             max_score = max(max(item.regime_score, 0.0) for item in selected) or 1.0
             for item in selected:
@@ -313,19 +394,36 @@ class ModelAllocator:
         for item in selected:
             manager_id = item.manager_id
             prior = float(priors.get(manager_id, 0.0) or 0.0)
-            compatibility = float(item.regime_compatibility or manager_regime_compatibility(manager_id, regime))
+            compatibility = float(
+                item.regime_compatibility
+                or manager_regime_compatibility(manager_id, regime)
+            )
             combined[manager_id] = max(
                 0.0,
-                (prior * 0.65 + bonus_scores.get(manager_id, 0.0) * 0.35) * max(0.25, compatibility),
+                (prior * 0.65 + bonus_scores.get(manager_id, 0.0) * 0.35)
+                * max(0.25, compatibility),
             )
         total = sum(combined.values()) or 1.0
-        normalized = {name: round(value / total, 4) for name, value in combined.items() if value > 0}
+        normalized = {
+            name: round(value / total, 4)
+            for name, value in combined.items()
+            if value > 0
+        }
         normalized = self._apply_regime_caps(regime, normalized)
-        normalized = {name: weight for name, weight in normalized.items() if weight >= 0.01}
+        normalized = {
+            name: weight for name, weight in normalized.items() if weight >= 0.01
+        }
         total = sum(normalized.values()) or 1.0
-        return {name: round(weight / total, 4) for name, weight in sorted(normalized.items(), key=lambda pair: pair[1], reverse=True)}
+        return {
+            name: round(weight / total, 4)
+            for name, weight in sorted(
+                normalized.items(), key=lambda pair: pair[1], reverse=True
+            )
+        }
 
-    def _apply_regime_caps(self, regime: str, weights: Dict[str, float]) -> Dict[str, float]:
+    def _apply_regime_caps(
+        self, regime: str, weights: Dict[str, float]
+    ) -> Dict[str, float]:
         capped = dict(weights)
         caps = dict(self.weight_caps.get(regime, {}))
         if not caps:
@@ -368,16 +466,22 @@ class ModelAllocator:
         if not active_manager_ids:
             failed_brief = next(
                 (
-                    item for item in failed_entries
+                    item
+                    for item in failed_entries
                     if str(item.get("ineligible_reason") or "").strip()
                 ),
                 {},
             )
-            reason = str(failed_brief.get("ineligible_reason") or "no_qualified_governance_candidates")
+            reason = str(
+                failed_brief.get("ineligible_reason")
+                or "no_qualified_governance_candidates"
+            )
             return f"当前 regime={regime}，榜单中没有通过质量门的正式候选，保持当前 active，不启用 provisional 候选；首个阻断原因为 {reason}。"
         leading = active_manager_ids[0]
         lead_weight = weights.get(leading, 0.0)
-        top_score = next((item for item in candidates if item.manager_id == leading), None)
+        top_score = next(
+            (item for item in candidates if item.manager_id == leading), None
+        )
         if top_score is None:
             return f"当前 regime={regime}，按先验规则优先启用 {leading}。"
         provisional_note = " 当前为 provisional 分配。" if used_provisional else ""
@@ -447,8 +551,10 @@ class MarketObservation:
 
 class MarketObservationService:
     def __init__(self, governance_policy: Optional[Dict[str, Any]] = None):
-        self.governance_policy = dict(DEFAULT_GOVERNANCE_POLICY)
-        self.governance_policy.update(dict(governance_policy or {}))
+        self.governance_policy = {
+            **dict(DEFAULT_GOVERNANCE_POLICY),
+            **dict(governance_policy or {}),
+        }
 
     def observe(
         self,
@@ -457,7 +563,9 @@ class MarketObservationService:
         *,
         data_manager: Any = None,
     ) -> MarketObservation:
-        stats = compute_market_stats(stock_data, cutoff_date, regime_policy=self.governance_policy)
+        stats = compute_market_stats(
+            stock_data, cutoff_date, regime_policy=self.governance_policy
+        )
         evidence: Dict[str, Any] = {
             "stock_universe_size": len(stock_data or {}),
             "valid_stocks": int(stats.get("valid_stocks", 0) or 0),
@@ -465,8 +573,15 @@ class MarketObservationService:
         index_frame = pd.DataFrame()
         if data_manager is not None and hasattr(data_manager, "get_market_index_frame"):
             try:
-                index_frame = data_manager.get_market_index_frame(index_code="sh.000300")
+                index_frame = data_manager.get_market_index_frame(
+                    index_code="sh.000300"
+                )
             except Exception:
+                logger.warning(
+                    "Failed to load governance market index frame: cutoff_date=%s",
+                    cutoff_date,
+                    exc_info=True,
+                )
                 index_frame = pd.DataFrame()
         if not index_frame.empty:
             enriched = self._summarize_index_frame(index_frame, cutoff_date)
@@ -476,7 +591,9 @@ class MarketObservationService:
         return MarketObservation(as_of_date=cutoff_date, stats=stats, evidence=evidence)
 
     @staticmethod
-    def _summarize_index_frame(index_frame: pd.DataFrame, cutoff_date: str) -> Dict[str, Any]:
+    def _summarize_index_frame(
+        index_frame: pd.DataFrame, cutoff_date: str
+    ) -> Dict[str, Any]:
         frame = index_frame.copy()
         if "trade_date" not in frame.columns or "close" not in frame.columns:
             return {}
@@ -497,20 +614,28 @@ class MarketObservationService:
         latest = float(close.iloc[-1])
         prev20 = float(close.iloc[-21]) if len(close) >= 21 else float(close.iloc[0])
         ma20 = float(close.iloc[-20:].mean())
-        index_change_20d = 0.0 if prev20 == 0 else round((latest / prev20 - 1.0) * 100.0, 4)
+        index_change_20d = (
+            0.0 if prev20 == 0 else round((latest / prev20 - 1.0) * 100.0, 4)
+        )
         return {
             "index_change_20d": index_change_20d,
             "index_above_ma20": latest > ma20,
-            "index_ma20_gap_pct": round((latest / ma20 - 1.0) * 100.0, 4) if ma20 else 0.0,
+            "index_ma20_gap_pct": round((latest / ma20 - 1.0) * 100.0, 4)
+            if ma20
+            else 0.0,
         }
 
 
 class RegimeClassifier:
     def __init__(self, governance_policy: Optional[Dict[str, Any]] = None):
-        self.governance_policy = dict(DEFAULT_GOVERNANCE_POLICY)
-        self.governance_policy.update(dict(governance_policy or {}))
+        self.governance_policy = {
+            **dict(DEFAULT_GOVERNANCE_POLICY),
+            **dict(governance_policy or {}),
+        }
 
-    def classify(self, observation: MarketObservation, *, agent: Any = None, mode: str = "rule") -> Dict[str, Any]:
+    def classify(
+        self, observation: MarketObservation, *, agent: Any = None, mode: str = "rule"
+    ) -> Dict[str, Any]:
         rule_result = self._rule_based(observation.stats)
         if mode not in {"hybrid", "agent"} or agent is None:
             return {**rule_result, "rule_result": rule_result, "agent_result": {}}
@@ -518,19 +643,37 @@ class RegimeClassifier:
         final = dict(rule_result)
         agent_confidence = float(agent_result.get("confidence", 0.0) or 0.0)
         if mode == "agent" and agent_result.get("regime"):
-            final.update({
-                "regime": str(agent_result.get("regime") or rule_result["regime"]),
-                "confidence": max(rule_result["confidence"], agent_confidence),
-                "reasoning": str(agent_result.get("reasoning") or rule_result["reasoning"]),
-                "suggested_exposure": float(agent_result.get("suggested_exposure", rule_result["suggested_exposure"])),
-                "source": str(agent_result.get("source") or "agent"),
-            })
-        elif mode == "hybrid" and agent_result.get("regime") == rule_result.get("regime"):
-            final.update({
-                "confidence": round(min(0.95, max(rule_result["confidence"], agent_confidence) + 0.05), 4),
-                "reasoning": f"{rule_result['reasoning']} Agent 校验一致。",
-                "source": "hybrid_consensus",
-            })
+            final.update(
+                {
+                    "regime": str(agent_result.get("regime") or rule_result["regime"]),
+                    "confidence": max(rule_result["confidence"], agent_confidence),
+                    "reasoning": str(
+                        agent_result.get("reasoning") or rule_result["reasoning"]
+                    ),
+                    "suggested_exposure": float(
+                        agent_result.get(
+                            "suggested_exposure", rule_result["suggested_exposure"]
+                        )
+                    ),
+                    "source": str(agent_result.get("source") or "agent"),
+                }
+            )
+        elif mode == "hybrid" and agent_result.get("regime") == rule_result.get(
+            "regime"
+        ):
+            final.update(
+                {
+                    "confidence": round(
+                        min(
+                            0.95,
+                            max(rule_result["confidence"], agent_confidence) + 0.05,
+                        ),
+                        4,
+                    ),
+                    "reasoning": f"{rule_result['reasoning']} Agent 校验一致。",
+                    "source": "hybrid_consensus",
+                }
+            )
         return {**final, "rule_result": rule_result, "agent_result": agent_result}
 
     def _rule_based(self, stats: Dict[str, Any]) -> Dict[str, Any]:
@@ -539,24 +682,44 @@ class RegimeClassifier:
         avg_volatility = float(stats.get("avg_volatility", 0.0) or 0.0)
         market_breadth = float(stats.get("market_breadth", 0.5) or 0.5)
         index_change_20d = float(stats.get("index_change_20d", 0.0) or 0.0)
-        bull = avg_change_20d >= float(self.governance_policy["bull_avg_change_20d"]) and above_ma20_ratio >= float(self.governance_policy["bull_above_ma20_ratio"]) and market_breadth >= float(self.governance_policy["strong_breadth_threshold"])
-        bear = avg_change_20d <= float(self.governance_policy["bear_avg_change_20d"]) and above_ma20_ratio <= float(self.governance_policy["bear_above_ma20_ratio"]) and market_breadth <= float(self.governance_policy["weak_breadth_threshold"])
+        bull = (
+            avg_change_20d >= float(self.governance_policy["bull_avg_change_20d"])
+            and above_ma20_ratio
+            >= float(self.governance_policy["bull_above_ma20_ratio"])
+            and market_breadth
+            >= float(self.governance_policy["strong_breadth_threshold"])
+        )
+        bear = (
+            avg_change_20d <= float(self.governance_policy["bear_avg_change_20d"])
+            and above_ma20_ratio
+            <= float(self.governance_policy["bear_above_ma20_ratio"])
+            and market_breadth
+            <= float(self.governance_policy["weak_breadth_threshold"])
+        )
         regime = str(self.governance_policy.get("default_regime", "oscillation"))
         confidence = 0.58
         reasoning = "市场特征分布接近震荡区间，维持均衡模型选择。"
-        if bull or index_change_20d >= float(self.governance_policy["index_bull_change_20d"]):
+        if bull or index_change_20d >= float(
+            self.governance_policy["index_bull_change_20d"]
+        ):
             regime = "bull"
             confidence = 0.72 + min(0.18, max(0.0, above_ma20_ratio - 0.55))
             reasoning = "市场涨幅、广度和均线占优，趋势延续特征更明显。"
-        elif bear or index_change_20d <= float(self.governance_policy["index_bear_change_20d"]):
+        elif bear or index_change_20d <= float(
+            self.governance_policy["index_bear_change_20d"]
+        ):
             regime = "bear"
             confidence = 0.74 + min(0.16, max(0.0, 0.45 - above_ma20_ratio))
             reasoning = "市场回撤、广度与均线结构偏弱，防御模型更合适。"
-        elif avg_volatility >= float(self.governance_policy["high_volatility_threshold"]):
+        elif avg_volatility >= float(
+            self.governance_policy["high_volatility_threshold"]
+        ):
             regime = "bear"
             confidence = 0.63
             reasoning = "波动显著抬升，优先采用防御式模型降低回撤。"
-        suggested_exposure = {"bull": 0.85, "oscillation": 0.55, "bear": 0.25}.get(regime, 0.5)
+        suggested_exposure = {"bull": 0.85, "oscillation": 0.55, "bear": 0.25}.get(
+            regime, 0.5
+        )
         return {
             "regime": regime,
             "confidence": round(max(0.0, min(0.95, confidence)), 4),
@@ -576,8 +739,10 @@ class GovernanceCoordinator:
         hysteresis_margin: float = 0.08,
         agent_override_max_gap: float = 0.18,
     ):
-        self.governance_policy = dict(DEFAULT_GOVERNANCE_POLICY)
-        self.governance_policy.update(dict(governance_policy or {}))
+        self.governance_policy = {
+            **dict(DEFAULT_GOVERNANCE_POLICY),
+            **dict(governance_policy or {}),
+        }
         self.observer = MarketObservationService(self.governance_policy)
         self.classifier = RegimeClassifier(self.governance_policy)
         self.min_confidence = float(min_confidence)
@@ -607,15 +772,40 @@ class GovernanceCoordinator:
         decision_confidence: float,
     ) -> Dict[str, Any]:
         if candidate_manager_id == current_manager_id:
-            return {"applied": False, "reason": "", "details": {}}
+            return {
+                "applied": False,
+                "reason": "same_manager",
+                "details": {
+                    "current_manager_id": current_manager_id,
+                    "candidate_manager_id": candidate_manager_id,
+                },
+            }
         try:
             leaderboard = load_leaderboard(leaderboard_path)
-        except Exception:
-            return {"applied": False, "reason": "", "details": {}}
+        except Exception as exc:
+            return {
+                "applied": False,
+                "reason": "leaderboard_unavailable",
+                "details": {
+                    "leaderboard_path": str(leaderboard_path),
+                    "error": str(exc),
+                },
+            }
         current_entry = self._lookup_leaderboard_entry(leaderboard, current_manager_id)
-        candidate_entry = self._lookup_leaderboard_entry(leaderboard, candidate_manager_id)
+        candidate_entry = self._lookup_leaderboard_entry(
+            leaderboard, candidate_manager_id
+        )
         if not current_entry or not candidate_entry:
-            return {"applied": False, "reason": "", "details": {}}
+            return {
+                "applied": False,
+                "reason": "leaderboard_entries_missing",
+                "details": {
+                    "current_manager_id": current_manager_id,
+                    "candidate_manager_id": candidate_manager_id,
+                    "current_entry_found": bool(current_entry),
+                    "candidate_entry_found": bool(candidate_entry),
+                },
+            }
 
         weight_gap = round(candidate_weight - current_weight, 4)
         benchmark_gap = round(
@@ -630,53 +820,84 @@ class GovernanceCoordinator:
         )
         current_benchmark = float(current_entry.get("benchmark_pass_rate", 0.0) or 0.0)
         current_return = float(current_entry.get("avg_return_pct", 0.0) or 0.0)
+        min_current_benchmark = float(
+            self.governance_policy[
+                "cooldown_exception_current_benchmark_pass_rate_max"
+            ]
+        )
+        min_current_return = float(
+            self.governance_policy["cooldown_exception_current_avg_return_pct_max"]
+        )
+        min_confidence = float(
+            self.governance_policy["cooldown_exception_min_confidence"]
+        )
+        min_weight_gap = float(
+            self.governance_policy["cooldown_exception_min_candidate_weight_gap"]
+        )
+        min_benchmark_gap = float(
+            self.governance_policy["cooldown_exception_min_benchmark_gap"]
+        )
+        min_return_gap = float(
+            self.governance_policy["cooldown_exception_min_return_gap"]
+        )
 
         current_is_weak = (
-            current_benchmark
-            <= float(self.governance_policy["cooldown_exception_current_benchmark_pass_rate_max"])
-            or current_return
-            <= float(self.governance_policy["cooldown_exception_current_avg_return_pct_max"])
+            current_benchmark <= min_current_benchmark
+            or current_return <= min_current_return
         )
         candidate_is_strong = (
-            decision_confidence
-            >= float(self.governance_policy["cooldown_exception_min_confidence"])
-            and weight_gap
-            >= float(self.governance_policy["cooldown_exception_min_candidate_weight_gap"])
-            and (
-                benchmark_gap
-                >= float(self.governance_policy["cooldown_exception_min_benchmark_gap"])
-                or return_gap
-                >= float(self.governance_policy["cooldown_exception_min_return_gap"])
-            )
+            decision_confidence >= min_confidence
+            and weight_gap >= min_weight_gap
+            and (benchmark_gap >= min_benchmark_gap or return_gap >= min_return_gap)
         )
+        details = {
+            "current_benchmark_pass_rate": current_benchmark,
+            "candidate_benchmark_pass_rate": float(
+                candidate_entry.get("benchmark_pass_rate", 0.0) or 0.0
+            ),
+            "benchmark_gap": benchmark_gap,
+            "current_avg_return_pct": current_return,
+            "candidate_avg_return_pct": float(
+                candidate_entry.get("avg_return_pct", 0.0) or 0.0
+            ),
+            "return_gap": return_gap,
+            "weight_gap": weight_gap,
+            "decision_confidence": decision_confidence,
+            "thresholds": {
+                "current_benchmark_pass_rate_max": min_current_benchmark,
+                "current_avg_return_pct_max": min_current_return,
+                "min_confidence": min_confidence,
+                "min_candidate_weight_gap": min_weight_gap,
+                "min_benchmark_gap": min_benchmark_gap,
+                "min_return_gap": min_return_gap,
+            },
+            "checks": {
+                "current_benchmark_is_weak": current_benchmark <= min_current_benchmark,
+                "current_return_is_weak": current_return <= min_current_return,
+                "candidate_confidence_ok": decision_confidence >= min_confidence,
+                "candidate_weight_gap_ok": weight_gap >= min_weight_gap,
+                "candidate_benchmark_gap_ok": benchmark_gap >= min_benchmark_gap,
+                "candidate_return_gap_ok": return_gap >= min_return_gap,
+            },
+        }
         if not (current_is_weak and candidate_is_strong):
+            if not current_is_weak:
+                reason = "current_manager_not_weak"
+            elif decision_confidence < min_confidence:
+                reason = "candidate_confidence_too_low"
+            elif weight_gap < min_weight_gap:
+                reason = "candidate_weight_gap_too_small"
+            else:
+                reason = "candidate_performance_gap_too_small"
             return {
                 "applied": False,
-                "reason": "",
-                "details": {
-                    "current_benchmark_pass_rate": current_benchmark,
-                    "candidate_benchmark_pass_rate": float(candidate_entry.get("benchmark_pass_rate", 0.0) or 0.0),
-                    "benchmark_gap": benchmark_gap,
-                    "current_avg_return_pct": current_return,
-                    "candidate_avg_return_pct": float(candidate_entry.get("avg_return_pct", 0.0) or 0.0),
-                    "return_gap": return_gap,
-                    "weight_gap": weight_gap,
-                    "decision_confidence": decision_confidence,
-                },
+                "reason": reason,
+                "details": details,
             }
         return {
             "applied": True,
             "reason": "candidate_outperforms_weak_current",
-            "details": {
-                "current_benchmark_pass_rate": current_benchmark,
-                "candidate_benchmark_pass_rate": float(candidate_entry.get("benchmark_pass_rate", 0.0) or 0.0),
-                "benchmark_gap": benchmark_gap,
-                "current_avg_return_pct": current_return,
-                "candidate_avg_return_pct": float(candidate_entry.get("avg_return_pct", 0.0) or 0.0),
-                "return_gap": return_gap,
-                "weight_gap": weight_gap,
-                "decision_confidence": decision_confidence,
-            },
+            "details": details,
         }
 
     def _build_shadow_provisional_allocation(
@@ -687,9 +908,7 @@ class GovernanceCoordinator:
         allowed_manager_ids: List[str],
         allocator_top_n: int,
     ) -> AllocationPlan:
-        normalized_regime = (
-            regime if regime in DEFAULT_REGIME_PRIORS else "unknown"
-        )
+        normalized_regime = regime if regime in DEFAULT_REGIME_PRIORS else "unknown"
         priors = dict(
             DEFAULT_REGIME_PRIORS.get(
                 normalized_regime,
@@ -743,10 +962,12 @@ class GovernanceCoordinator:
         ][: max(1, int(allocator_top_n or 1))]
         if not ordered_candidates:
             ordered_candidates = candidate_manager_ids[:1]
-        selected_total = sum(
-            capped_weights.get(manager_id, 0.0)
-            for manager_id in ordered_candidates
-        ) or 1.0
+        selected_total = (
+            sum(
+                capped_weights.get(manager_id, 0.0) for manager_id in ordered_candidates
+            )
+            or 1.0
+        )
         selected_weights = {
             manager_id: round(
                 capped_weights.get(manager_id, 0.0) / selected_total,
@@ -764,9 +985,7 @@ class GovernanceCoordinator:
                 0.62,
                 min(
                     0.78,
-                    0.56
-                    + leading_weight * 0.18
-                    + leading_compatibility * 0.08,
+                    0.56 + leading_weight * 0.18 + leading_compatibility * 0.08,
                 ),
             ),
             4,
@@ -834,9 +1053,7 @@ class GovernanceCoordinator:
         explicit_allowlist = allowed_manager_ids is not None
         requested_allowed_manager_ids = [
             str(item).strip()
-            for item in (
-                allowed_manager_ids or DEFAULT_GOVERNANCE_ALLOWED_MANAGER_IDS
-            )
+            for item in (allowed_manager_ids or DEFAULT_GOVERNANCE_ALLOWED_MANAGER_IDS)
             if str(item).strip()
         ]
         valid_requested_allowed_manager_ids = _filter_known_manager_ids(
@@ -876,15 +1093,23 @@ class GovernanceCoordinator:
             )
         if current_manager_id not in allowed:
             allowed.insert(0, current_manager_id)
-        observation = self.observer.observe(stock_data, cutoff_date, data_manager=data_manager)
-        regime_payload = self.classifier.classify(observation, agent=regime_agent, mode="hybrid" if governance_mode in {"hybrid", "agent"} else "rule")
+        observation = self.observer.observe(
+            stock_data, cutoff_date, data_manager=data_manager
+        )
+        regime_payload = self.classifier.classify(
+            observation,
+            agent=regime_agent,
+            mode="hybrid" if governance_mode in {"hybrid", "agent"} else "rule",
+        )
         allocation = build_allocation_plan(
             str(regime_payload.get("regime") or "unknown"),
             leaderboard_path,
             as_of_date=cutoff_date,
             top_n=max(1, int(allocator_top_n)),
         )
-        filtered_manager_ids = [name for name in allocation.active_manager_ids if name in allowed]
+        filtered_manager_ids = [
+            name for name in allocation.active_manager_ids if name in allowed
+        ]
         filtered_weights = {
             name: weight
             for name, weight in allocation.manager_budget_weights.items()
@@ -923,7 +1148,9 @@ class GovernanceCoordinator:
                     shadow_provisional_applied = True
         if not filtered_weights and filtered_manager_ids:
             filtered_weights = {filtered_manager_ids[0]: 1.0}
-        rule_selected_manager_id = filtered_manager_ids[0] if filtered_manager_ids else current_manager_id
+        rule_selected_manager_id = (
+            filtered_manager_ids[0] if filtered_manager_ids else current_manager_id
+        )
         agent_advice: Dict[str, Any] = {}
         candidate_manager_id = rule_selected_manager_id
         decision_source = (
@@ -935,34 +1162,41 @@ class GovernanceCoordinator:
             and governance_mode in {"hybrid", "agent"}
             and selector_agent is not None
         ):
-            agent_advice = selector_agent.analyze({
-                "regime": regime_payload.get("regime"),
-                "dominant_manager_id": current_manager_id,
-                "current_manager_id": current_manager_id,
-                "active_manager_ids": filtered_manager_ids,
-                "allowed_manager_ids": allowed,
-                "candidate_manager_ids": filtered_manager_ids,
-                "candidate_weights": filtered_weights,
-                "market_stats": observation.stats,
-            })
-            advised = str(
-                agent_advice.get("dominant_manager_id")
-                or ""
-            ).strip()
+            agent_advice = selector_agent.analyze(
+                {
+                    "regime": regime_payload.get("regime"),
+                    "dominant_manager_id": current_manager_id,
+                    "current_manager_id": current_manager_id,
+                    "active_manager_ids": filtered_manager_ids,
+                    "allowed_manager_ids": allowed,
+                    "candidate_manager_ids": filtered_manager_ids,
+                    "candidate_weights": filtered_weights,
+                    "market_stats": observation.stats,
+                }
+            )
+            advised = str(agent_advice.get("dominant_manager_id") or "").strip()
             if advised and advised in allowed:
-                rule_weight = float(filtered_weights.get(rule_selected_manager_id, 0.0) or 0.0)
+                rule_weight = float(
+                    filtered_weights.get(rule_selected_manager_id, 0.0) or 0.0
+                )
                 advised_weight = float(filtered_weights.get(advised, 0.0) or 0.0)
                 gap = abs(rule_weight - advised_weight)
                 if governance_mode == "agent" or gap <= self.agent_override_max_gap:
                     candidate_manager_id = advised
-                    decision_source = "hybrid_agent" if advised != rule_selected_manager_id else "hybrid_consensus"
+                    decision_source = (
+                        "hybrid_agent"
+                        if advised != rule_selected_manager_id
+                        else "hybrid_consensus"
+                    )
         current_weight = float(filtered_weights.get(current_manager_id, 0.0) or 0.0)
         candidate_weight = float(filtered_weights.get(candidate_manager_id, 0.0) or 0.0)
         hold_current = False
         hold_reason = ""
         guardrail_checks: List[Dict[str, Any]] = []
         regime_confidence = float(regime_payload.get("confidence", 0.0) or 0.0)
-        decision_confidence = round(max(regime_confidence, float(allocation.confidence or 0.0)), 4)
+        decision_confidence = round(
+            max(regime_confidence, float(allocation.confidence or 0.0)), 4
+        )
         cooldown_exception = {"applied": False, "reason": "", "details": {}}
         if no_qualified_candidates:
             hold_current = True
@@ -974,7 +1208,8 @@ class GovernanceCoordinator:
             filtered_weights = {current_manager_id: 1.0}
         elif candidate_manager_id != current_manager_id:
             min_style_compatibility = float(
-                self.governance_policy.get("min_regime_style_compatibility", 0.40) or 0.40
+                self.governance_policy.get("min_regime_style_compatibility", 0.40)
+                or 0.40
             )
             candidate_style_compatibility = manager_regime_compatibility(
                 candidate_manager_id,
@@ -996,7 +1231,12 @@ class GovernanceCoordinator:
             elif (candidate_weight - current_weight) < self.hysteresis_margin:
                 hold_current = True
                 hold_reason = "governance_hysteresis_hold"
-            elif current_cycle_id is not None and last_governance_change_cycle_id is not None and (current_cycle_id - last_governance_change_cycle_id) <= self.cooldown_cycles:
+            elif (
+                current_cycle_id is not None
+                and last_governance_change_cycle_id is not None
+                and (current_cycle_id - last_governance_change_cycle_id)
+                <= self.cooldown_cycles
+            ):
                 cooldown_exception = self._evaluate_cooldown_exception(
                     leaderboard_path=leaderboard_path,
                     current_manager_id=current_manager_id,
@@ -1010,23 +1250,67 @@ class GovernanceCoordinator:
                 else:
                     hold_current = True
                     hold_reason = "governance_cooldown_active"
-        guardrail_checks.append({"name": "qualified_candidates_available", "passed": not no_qualified_candidates, "actual": 0 if no_qualified_candidates else len(filtered_manager_ids), "threshold": 1})
-        guardrail_checks.append({"name": "min_confidence", "passed": decision_confidence >= self.min_confidence, "actual": decision_confidence, "threshold": self.min_confidence})
-        guardrail_checks.append({"name": "hysteresis_margin", "passed": (candidate_weight - current_weight) >= self.hysteresis_margin or candidate_manager_id == current_manager_id, "actual": round(candidate_weight - current_weight, 4), "threshold": self.hysteresis_margin})
+        guardrail_checks.append(
+            {
+                "name": "qualified_candidates_available",
+                "passed": not no_qualified_candidates,
+                "actual": 0 if no_qualified_candidates else len(filtered_manager_ids),
+                "threshold": 1,
+            }
+        )
+        guardrail_checks.append(
+            {
+                "name": "min_confidence",
+                "passed": decision_confidence >= self.min_confidence,
+                "actual": decision_confidence,
+                "threshold": self.min_confidence,
+            }
+        )
+        guardrail_checks.append(
+            {
+                "name": "hysteresis_margin",
+                "passed": (candidate_weight - current_weight) >= self.hysteresis_margin
+                or candidate_manager_id == current_manager_id,
+                "actual": round(candidate_weight - current_weight, 4),
+                "threshold": self.hysteresis_margin,
+            }
+        )
         guardrail_checks.append(
             {
                 "name": "regime_compatibility",
-                "passed": manager_regime_compatibility(candidate_manager_id, str(regime_payload.get("regime") or "unknown"))
-                >= float(self.governance_policy.get("min_regime_style_compatibility", 0.40) or 0.40)
+                "passed": manager_regime_compatibility(
+                    candidate_manager_id, str(regime_payload.get("regime") or "unknown")
+                )
+                >= float(
+                    self.governance_policy.get("min_regime_style_compatibility", 0.40)
+                    or 0.40
+                )
                 or candidate_manager_id == current_manager_id,
-                "actual": manager_regime_compatibility(candidate_manager_id, str(regime_payload.get("regime") or "unknown")),
-                "threshold": float(self.governance_policy.get("min_regime_style_compatibility", 0.40) or 0.40),
+                "actual": manager_regime_compatibility(
+                    candidate_manager_id, str(regime_payload.get("regime") or "unknown")
+                ),
+                "threshold": float(
+                    self.governance_policy.get("min_regime_style_compatibility", 0.40)
+                    or 0.40
+                ),
             }
         )
         if current_cycle_id is not None and last_governance_change_cycle_id is not None:
             cycles_since_switch = current_cycle_id - last_governance_change_cycle_id
-            guardrail_checks.append({"name": "cooldown_cycles", "passed": cycles_since_switch > self.cooldown_cycles or candidate_manager_id == current_manager_id or bool(cooldown_exception.get("applied")), "actual": cycles_since_switch, "threshold": self.cooldown_cycles, "exception_applied": bool(cooldown_exception.get("applied"))})
-        dominant_manager_id = current_manager_id if hold_current else candidate_manager_id
+            guardrail_checks.append(
+                {
+                    "name": "cooldown_cycles",
+                    "passed": cycles_since_switch > self.cooldown_cycles
+                    or candidate_manager_id == current_manager_id
+                    or bool(cooldown_exception.get("applied")),
+                    "actual": cycles_since_switch,
+                    "threshold": self.cooldown_cycles,
+                    "exception_applied": bool(cooldown_exception.get("applied")),
+                }
+            )
+        dominant_manager_id = (
+            current_manager_id if hold_current else candidate_manager_id
+        )
         if hold_current and shadow_provisional_applied:
             decision_source = "guardrail_hold"
         dominant_manager_config = resolve_manager_config_ref(dominant_manager_id)
@@ -1073,18 +1357,19 @@ class GovernanceCoordinator:
                     if shadow_provisional_applied
                     else ""
                 ),
-                "source": (
-                    "shadow_regime_prior" if shadow_provisional_applied else ""
-                ),
+                "source": ("shadow_regime_prior" if shadow_provisional_applied else ""),
             },
             "historical": {
                 "previous_dominant_manager_id": current_manager_id,
                 "guardrail_hold": hold_current,
                 "guardrail_hold_reason": hold_reason,
                 "governance_applied": bool(
-                    list(previous_payload.get("active_manager_ids") or []) != list(active_manager_ids)
-                    or dict(previous_payload.get("manager_budget_weights") or {}) != dict(manager_budget_weights)
-                    or str(previous_payload.get("dominant_manager_id") or "") != str(dominant_manager_id or "")
+                    list(previous_payload.get("active_manager_ids") or [])
+                    != list(active_manager_ids)
+                    or dict(previous_payload.get("manager_budget_weights") or {})
+                    != dict(manager_budget_weights)
+                    or str(previous_payload.get("dominant_manager_id") or "")
+                    != str(dominant_manager_id or "")
                 ),
             },
         }
@@ -1110,9 +1395,15 @@ class GovernanceCoordinator:
                 "rule_result": dict(regime_payload.get("rule_result") or {}),
                 "agent_result": dict(regime_payload.get("agent_result") or {}),
                 "allocator_quality": {
-                    "qualified_candidate_count": int(allocation.metadata.get("qualified_candidate_count", 0) or 0),
-                    "failed_quality_entries": list(allocation.metadata.get("failed_quality_entries") or []),
-                    "top_candidates": list(allocation.metadata.get("top_candidates") or []),
+                    "qualified_candidate_count": int(
+                        allocation.metadata.get("qualified_candidate_count", 0) or 0
+                    ),
+                    "failed_quality_entries": list(
+                        allocation.metadata.get("failed_quality_entries") or []
+                    ),
+                    "top_candidates": list(
+                        allocation.metadata.get("top_candidates") or []
+                    ),
                     "current_manager_id_compatibility": manager_regime_compatibility(
                         current_manager_id,
                         str(regime_payload.get("regime") or "unknown"),
@@ -1149,7 +1440,9 @@ class GovernanceCoordinator:
             return f"检测到 regime={regime}，维持当前主导经理 {current_manager_id}。{regime_reasoning} {allocation_reasoning}".strip()
         agent_reason = str(agent_advice.get("reasoning") or "").strip()
         tail = f" Agent 建议：{agent_reason}" if agent_reason else ""
-        manager_scope = ", ".join(active_manager_ids) if active_manager_ids else dominant_manager_id
+        manager_scope = (
+            ", ".join(active_manager_ids) if active_manager_ids else dominant_manager_id
+        )
         return f"检测到 regime={regime}，激活经理 {manager_scope}，主导经理从 {current_manager_id} 调整为 {dominant_manager_id}。{regime_reasoning} {allocation_reasoning}{tail}".strip()
 
 
@@ -1201,9 +1494,17 @@ def _infer_manager_id(payload: Dict[str, Any], path: Path) -> str:
     params = dict(payload.get("params") or {})
     if "min_defensive_score" in params or "max_volatility" in params:
         return "defensive_low_vol"
-    if "min_value_quality_score" in params or "max_pe_ttm" in params or "min_roe" in params:
+    if (
+        "min_value_quality_score" in params
+        or "max_pe_ttm" in params
+        or "min_roe" in params
+    ):
         return "value_quality"
-    if "min_reversion_score" in params or "oversold_rsi" in params or "max_5d_drop" in params:
+    if (
+        "min_reversion_score" in params
+        or "oversold_rsi" in params
+        or "max_5d_drop" in params
+    ):
         return "mean_reversion"
     if any(key in params for key in ("signal_threshold", "ma_short", "ma_long")):
         inferred = "momentum"
@@ -1216,13 +1517,15 @@ def _infer_manager_id(payload: Dict[str, Any], path: Path) -> str:
     return inferred
 
 
-def _normalize_manager_config_ref(payload: Dict[str, Any], path: Path, manager_id: str) -> str:
+def _normalize_manager_config_ref(
+    payload: Dict[str, Any], path: Path, manager_id: str
+) -> str:
     raw = str(payload.get("manager_config_ref") or "").strip()
-    if raw.endswith('.yaml'):
+    if raw.endswith(".yaml"):
         return Path(raw).stem
-    if 'config_snapshots' in raw:
+    if "config_snapshots" in raw:
         return f"{manager_id}_runtime"
-    if raw and raw != 'unknown':
+    if raw and raw != "unknown":
         return raw
     run_name = path.parent.name.strip()
     if run_name:
@@ -1237,8 +1540,14 @@ def load_cycle_record(path: str | Path) -> Dict[str, Any]:
     payload["_dir"] = str(path.parent)
     manager_id = _infer_manager_id(payload, path)
     payload["manager_id"] = manager_id
-    payload["manager_config_ref"] = _normalize_manager_config_ref(payload, path, manager_id)
-    payload["regime"] = str((payload.get("self_assessment") or {}).get("regime") or payload.get("regime") or "unknown")
+    payload["manager_config_ref"] = _normalize_manager_config_ref(
+        payload, path, manager_id
+    )
+    payload["regime"] = str(
+        (payload.get("self_assessment") or {}).get("regime")
+        or payload.get("regime")
+        or "unknown"
+    )
     return payload
 
 
@@ -1287,16 +1596,14 @@ def _resolved_train_policy_payload(
             dict(payload.get("freeze_gate") or {})
         ),
         "quality_gate_matrix": resolve_governance_matrix(
-            dict(
-                quality_gate_matrix
-                or payload.get("quality_gate_matrix")
-                or {}
-            )
+            dict(quality_gate_matrix or payload.get("quality_gate_matrix") or {})
         ),
     }
 
 
-def _load_train_policy_from_runtime_config_ref(runtime_config_ref: str) -> Dict[str, Any] | None:
+def _load_train_policy_from_runtime_config_ref(
+    runtime_config_ref: str,
+) -> Dict[str, Any] | None:
     text = str(runtime_config_ref or "").strip()
     if not text:
         return None
@@ -1312,7 +1619,9 @@ def _load_train_policy_from_runtime_config_ref(runtime_config_ref: str) -> Dict[
     try:
         payload = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
     except Exception as exc:
-        logger.warning("Failed to load train policy from %s: %s", path, exc, exc_info=True)
+        logger.warning(
+            "Failed to load train policy from %s: %s", path, exc, exc_info=True
+        )
         return None
     if not isinstance(payload, dict):
         logger.warning(
@@ -1383,7 +1692,9 @@ def _resolve_runtime_train_policy(
         run_context.get("candidate_runtime_config_ref"),
         latest_record.get("manager_config_ref"),
     ):
-        train_policy = _load_train_policy_from_runtime_config_ref(str(runtime_config_ref or ""))
+        train_policy = _load_train_policy_from_runtime_config_ref(
+            str(runtime_config_ref or "")
+        )
         if train_policy is not None:
             return _resolved_train_policy_payload(
                 train_policy=train_policy,
@@ -1398,9 +1709,7 @@ def _resolve_runtime_train_policy(
     return _resolved_train_policy_payload(
         train_policy={},
         quality_gate_matrix=dict(
-            run_context.get("quality_gate_matrix")
-            or governance_matrix
-            or {}
+            run_context.get("quality_gate_matrix") or governance_matrix or {}
         ),
     )
 
@@ -1440,28 +1749,40 @@ def _eligibility_for_entry(
     min_cycles_per_regime = max(1, int(policy.get("min_cycles_per_regime", 1) or 1))
     dominant_regime_cycles = int(regimes.get(dominant_regime, 0) or 0)
     if cycle_count < min_cycles:
-        return False, "min_cycles", {
-            "min_cycles": min_cycles,
-            "observed_cycles": cycle_count,
-            "min_cycles_per_regime": min_cycles_per_regime,
-            "dominant_regime": dominant_regime,
-            "dominant_regime_cycles": dominant_regime_cycles,
-        }
+        return (
+            False,
+            "min_cycles",
+            {
+                "min_cycles": min_cycles,
+                "observed_cycles": cycle_count,
+                "min_cycles_per_regime": min_cycles_per_regime,
+                "dominant_regime": dominant_regime,
+                "dominant_regime_cycles": dominant_regime_cycles,
+            },
+        )
     if dominant_regime_cycles < min_cycles_per_regime:
-        return False, "min_regime_cycles", {
+        return (
+            False,
+            "min_regime_cycles",
+            {
+                "min_cycles": min_cycles,
+                "observed_cycles": cycle_count,
+                "min_cycles_per_regime": min_cycles_per_regime,
+                "dominant_regime": dominant_regime,
+                "dominant_regime_cycles": dominant_regime_cycles,
+            },
+        )
+    return (
+        True,
+        "",
+        {
             "min_cycles": min_cycles,
             "observed_cycles": cycle_count,
             "min_cycles_per_regime": min_cycles_per_regime,
             "dominant_regime": dominant_regime,
             "dominant_regime_cycles": dominant_regime_cycles,
-        }
-    return True, "", {
-        "min_cycles": min_cycles,
-        "observed_cycles": cycle_count,
-        "min_cycles_per_regime": min_cycles_per_regime,
-        "dominant_regime": dominant_regime,
-        "dominant_regime_cycles": dominant_regime_cycles,
-    }
+        },
+    )
 
 
 def _build_regime_performance(
@@ -1495,12 +1816,14 @@ def _build_regime_performance(
             for item in regime_items
         ]
         benchmark_pass_rate = (
-            sum(1 for item in regime_items if bool(item.get("benchmark_passed", False))) / len(regime_items)
+            sum(1 for item in regime_items if bool(item.get("benchmark_passed", False)))
+            / len(regime_items)
             if regime_items
             else 0.0
         )
         win_rate = (
-            sum(1 for item in regime_items if bool(item.get("is_profit", False))) / len(regime_items)
+            sum(1 for item in regime_items if bool(item.get("is_profit", False)))
+            / len(regime_items)
             if regime_items
             else 0.0
         )
@@ -1537,7 +1860,9 @@ def _string_list(values: Any) -> List[str]:
 def _extract_regime_hard_fail_summary(quality_gate: Dict[str, Any]) -> Dict[str, Any]:
     payload = dict(quality_gate or {})
     regime_hard_fail = dict(payload.get("regime_hard_fail") or {})
-    failed_regime_names = _string_list(regime_hard_fail.get("failed_regime_names") or [])
+    failed_regime_names = _string_list(
+        regime_hard_fail.get("failed_regime_names") or []
+    )
 
     if not failed_regime_names:
         prefix = "regime_hard_fail."
@@ -1545,7 +1870,7 @@ def _extract_regime_hard_fail_summary(quality_gate: Dict[str, Any]) -> Dict[str,
             check_name = str(dict(check or {}).get("name") or "").strip()
             if not check_name.startswith(prefix):
                 continue
-            regime_name = check_name[len(prefix):].strip()
+            regime_name = check_name[len(prefix) :].strip()
             if regime_name and regime_name not in failed_regime_names:
                 failed_regime_names.append(regime_name)
 
@@ -1566,9 +1891,13 @@ def _extract_regime_hard_fail_summary(quality_gate: Dict[str, Any]) -> Dict[str,
     }
 
 
-def build_leaderboard(records: List[Dict[str, Any]], policy: Dict[str, Any] | None = None) -> Dict[str, Any]:
-    resolved_policy = dict(DEFAULT_LEADERBOARD_POLICY)
-    resolved_policy.update(dict(policy or {}))
+def build_leaderboard(
+    records: List[Dict[str, Any]], policy: Dict[str, Any] | None = None
+) -> Dict[str, Any]:
+    resolved_policy = {
+        **dict(DEFAULT_LEADERBOARD_POLICY),
+        **dict(policy or {}),
+    }
     governance_matrix = resolve_governance_matrix(
         dict(
             resolved_policy.get("quality_gate_matrix")
@@ -1591,21 +1920,45 @@ def build_leaderboard(records: List[Dict[str, Any]], policy: Dict[str, Any] | No
     for key, items in grouped.items():
         items = sorted(items, key=lambda item: int(item.get("cycle_id", 0)))
         returns = [float(item.get("return_pct", 0.0) or 0.0) for item in items]
-        sharpes = [float((item.get("self_assessment") or {}).get("sharpe_ratio", 0.0) or 0.0) for item in items]
-        drawdowns = [float((item.get("self_assessment") or {}).get("max_drawdown", 0.0) or 0.0) for item in items]
-        excess_returns = [float((item.get("self_assessment") or {}).get("excess_return", 0.0) or 0.0) for item in items]
-        strategy_scores = [float((item.get("self_assessment") or {}).get("overall_score", (item.get("strategy_scores") or {}).get("overall_score", 0.0)) or 0.0) for item in items]
+        sharpes = [
+            float((item.get("self_assessment") or {}).get("sharpe_ratio", 0.0) or 0.0)
+            for item in items
+        ]
+        drawdowns = [
+            float((item.get("self_assessment") or {}).get("max_drawdown", 0.0) or 0.0)
+            for item in items
+        ]
+        excess_returns = [
+            float((item.get("self_assessment") or {}).get("excess_return", 0.0) or 0.0)
+            for item in items
+        ]
+        strategy_scores = [
+            float(
+                (item.get("self_assessment") or {}).get(
+                    "overall_score",
+                    (item.get("strategy_scores") or {}).get("overall_score", 0.0),
+                )
+                or 0.0
+            )
+            for item in items
+        ]
         wins = sum(1 for item in items if bool(item.get("is_profit", False)))
-        benchmark_passes = sum(1 for item in items if bool(item.get("benchmark_passed", False)))
+        benchmark_passes = sum(
+            1 for item in items if bool(item.get("benchmark_passed", False))
+        )
         regimes: Dict[str, int] = defaultdict(int)
         for item in items:
             regimes[str(item.get("regime", "unknown"))] += 1
-        dominant_regime = max(regimes.items(), key=lambda pair: pair[1])[0] if regimes else "unknown"
-        eligible_for_governance, ineligible_reason, sample_gate = _eligibility_for_entry(
-            cycle_count=len(items),
-            dominant_regime=dominant_regime,
-            regimes=regimes,
-            policy=resolved_policy,
+        dominant_regime = (
+            max(regimes.items(), key=lambda pair: pair[1])[0] if regimes else "unknown"
+        )
+        eligible_for_governance, ineligible_reason, sample_gate = (
+            _eligibility_for_entry(
+                cycle_count=len(items),
+                dominant_regime=dominant_regime,
+                regimes=regimes,
+                policy=resolved_policy,
+            )
         )
         latest_item = items[-1]
         latest_run_context = dict(latest_item.get("run_context") or {})
@@ -1631,7 +1984,9 @@ def build_leaderboard(records: List[Dict[str, Any]], policy: Dict[str, Any] | No
         )
         scoring_summaries = [_extract_scoring_change_summary(item) for item in items]
         objective_profile = {
-            "benchmark_pass_rate": round(benchmark_passes / len(items), 6) if items else 0.0,
+            "benchmark_pass_rate": round(benchmark_passes / len(items), 6)
+            if items
+            else 0.0,
             "avg_sharpe_ratio": round(_safe_avg(sharpes), 6),
             "avg_return_pct": round(_safe_avg(returns), 6),
             "avg_max_drawdown": round(_safe_avg(drawdowns), 6),
@@ -1649,7 +2004,9 @@ def build_leaderboard(records: List[Dict[str, Any]], policy: Dict[str, Any] | No
             "avg_max_drawdown": round(_safe_avg(drawdowns), 6),
             "avg_excess_return": round(_safe_avg(excess_returns), 6),
             "avg_strategy_score": round(_safe_avg(strategy_scores), 6),
-            "benchmark_pass_rate": round(benchmark_passes / len(items), 6) if items else 0.0,
+            "benchmark_pass_rate": round(benchmark_passes / len(items), 6)
+            if items
+            else 0.0,
             "dominant_regime": dominant_regime,
             "regime_breakdown": dict(sorted(regimes.items())),
             "latest_cycle_id": int(items[-1].get("cycle_id", 0) or 0),
@@ -1657,21 +2014,33 @@ def build_leaderboard(records: List[Dict[str, Any]], policy: Dict[str, Any] | No
             "latest_return_pct": float(items[-1].get("return_pct", 0.0) or 0.0),
             "score": round(composite_score, 6),
             "deployment_stage": deployment_stage,
-            "promotion_gate_status": str(latest_promotion_record.get("gate_status") or ""),
+            "promotion_gate_status": str(
+                latest_promotion_record.get("gate_status") or ""
+            ),
             "promotion_status": str(latest_promotion_record.get("status") or ""),
             "sample_gate": sample_gate,
             "quality_gate": {},
             "eligible_for_governance": False,
             "ineligible_reason": ineligible_reason,
-            "style_profile": get_manager_style_profile(str(items[0].get("manager_id", "unknown"))),
+            "style_profile": get_manager_style_profile(
+                str(items[0].get("manager_id", "unknown"))
+            ),
             "regime_performance": _build_regime_performance(
                 items,
                 manager_id=str(items[0].get("manager_id", "unknown")),
             ),
             "objective_profile": objective_profile,
             "objective_eligible_after_governance": False,
-            "scoring_mutation_count": sum(item.get("scoring_mutation_count", 0) for item in scoring_summaries),
-            "scoring_changed_keys": sorted({key for item in scoring_summaries for key in item.get("scoring_changed_keys", [])}),
+            "scoring_mutation_count": sum(
+                item.get("scoring_mutation_count", 0) for item in scoring_summaries
+            ),
+            "scoring_changed_keys": sorted(
+                {
+                    key
+                    for item in scoring_summaries
+                    for key in item.get("scoring_changed_keys", [])
+                }
+            ),
         }
         quality_gate = evaluate_governance_quality_gate(
             entry,
@@ -1679,9 +2048,15 @@ def build_leaderboard(records: List[Dict[str, Any]], policy: Dict[str, Any] | No
         )
         regime_hard_fail_summary = _extract_regime_hard_fail_summary(quality_gate)
         entry["quality_gate"] = quality_gate
-        entry["regime_hard_fail"] = dict(regime_hard_fail_summary.get("regime_hard_fail") or {})
-        entry["failed_regime_names"] = list(regime_hard_fail_summary.get("failed_regime_names") or [])
-        entry["objective_eligible_after_governance"] = bool(quality_gate.get("passed", False))
+        entry["regime_hard_fail"] = dict(
+            regime_hard_fail_summary.get("regime_hard_fail") or {}
+        )
+        entry["failed_regime_names"] = list(
+            regime_hard_fail_summary.get("failed_regime_names") or []
+        )
+        entry["objective_eligible_after_governance"] = bool(
+            quality_gate.get("passed", False)
+        )
         if eligible_for_governance and quality_gate.get("passed", False):
             entry["eligible_for_governance"] = True
             entry["ineligible_reason"] = ""
@@ -1692,19 +2067,32 @@ def build_leaderboard(records: List[Dict[str, Any]], policy: Dict[str, Any] | No
                 if failed_checks
                 else "quality_gate"
             )
-            if entry["ineligible_reason"] == "quality_gate" and entry["failed_regime_names"]:
+            if (
+                entry["ineligible_reason"] == "quality_gate"
+                and entry["failed_regime_names"]
+            ):
                 entry["ineligible_reason"] = (
                     f"quality_gate:regime_hard_fail.{entry['failed_regime_names'][0]}"
                 )
         entries.append(entry)
         if entry["eligible_for_governance"]:
-            regime_performance = dict(entry.get("regime_performance") or {})
+            raw_regime_performance = entry.get("regime_performance")
+            regime_performance = (
+                raw_regime_performance
+                if isinstance(raw_regime_performance, dict)
+                else {}
+            )
             for regime_name, performance in regime_performance.items():
-                if int(dict(performance or {}).get("cycles", 0) or 0) <= 0:
+                performance_payload = (
+                    performance if isinstance(performance, dict) else {}
+                )
+                if int(performance_payload.get("cycles", 0) or 0) <= 0:
                     continue
                 enriched = dict(entry)
                 enriched["_regime_name"] = regime_name
-                enriched["_regime_score"] = float(dict(performance or {}).get("score", 0.0) or 0.0)
+                enriched["_regime_score"] = float(
+                    performance_payload.get("score", 0.0) or 0.0
+                )
                 regime_groups[regime_name].append(enriched)
 
     entries.sort(
@@ -1731,7 +2119,12 @@ def build_leaderboard(records: List[Dict[str, Any]], policy: Dict[str, Any] | No
             items,
             key=lambda item: (
                 float(item.get("_regime_score", item["score"]) or 0.0),
-                float(dict(item.get("regime_performance") or {}).get(regime, {}).get("compatibility", 0.0) or 0.0),
+                float(
+                    dict(item.get("regime_performance") or {})
+                    .get(regime, {})
+                    .get("compatibility", 0.0)
+                    or 0.0
+                ),
                 item["score"],
                 item["avg_return_pct"],
             ),
@@ -1748,9 +2141,17 @@ def build_leaderboard(records: List[Dict[str, Any]], policy: Dict[str, Any] | No
                 "avg_sharpe_ratio": item["avg_sharpe_ratio"],
                 "benchmark_pass_rate": item["benchmark_pass_rate"],
                 "eligible_for_governance": True,
-                "cycles": int(dict(item.get("regime_performance") or {}).get(regime, {}).get("cycles", 0) or 0),
+                "cycles": int(
+                    dict(item.get("regime_performance") or {})
+                    .get(regime, {})
+                    .get("cycles", 0)
+                    or 0
+                ),
                 "compatibility": float(
-                    dict(item.get("regime_performance") or {}).get(regime, {}).get("compatibility", 0.0) or 0.0
+                    dict(item.get("regime_performance") or {})
+                    .get(regime, {})
+                    .get("compatibility", 0.0)
+                    or 0.0
                 ),
                 "source": "observed_regime",
                 "scoring_mutation_count": item["scoring_mutation_count"],
@@ -1758,7 +2159,9 @@ def build_leaderboard(records: List[Dict[str, Any]], policy: Dict[str, Any] | No
             for idx, item in enumerate(ranked, start=1)
         ]
 
-    best_entry = next((entry for entry in entries if entry.get("eligible_for_governance")), None)
+    best_entry = next(
+        (entry for entry in entries if entry.get("eligible_for_governance")), None
+    )
     if best_entry is None:
         best_entry = entries[0] if entries else None
 
@@ -1766,7 +2169,9 @@ def build_leaderboard(records: List[Dict[str, Any]], policy: Dict[str, Any] | No
         "generated_at": __import__("datetime").datetime.now().isoformat(),
         "total_records": len(records),
         "total_managers": len(entries),
-        "eligible_managers": sum(1 for entry in entries if entry.get("eligible_for_governance")),
+        "eligible_managers": sum(
+            1 for entry in entries if entry.get("eligible_for_governance")
+        ),
         "policy": policy_payload,
         "quality_gate_matrix": governance_matrix,
         "entries": entries,
@@ -1793,9 +2198,11 @@ def write_leaderboard(
 ) -> Dict[str, Any]:
     root_path = Path(root_dir)
     leaderboard = build_leaderboard_payload(root_path, policy=policy)
-    target = Path(output_path) if output_path is not None else root_path / "leaderboard.json"
-    target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(json.dumps(leaderboard, ensure_ascii=False, indent=2), encoding="utf-8")
+    target = (
+        Path(output_path) if output_path is not None else root_path / "leaderboard.json"
+    )
+    _write_json_atomic(target, leaderboard)
     return leaderboard
 
-__all__ = [name for name in globals() if not name.startswith('_')]
+
+__all__ = [name for name in globals() if not name.startswith("_")]

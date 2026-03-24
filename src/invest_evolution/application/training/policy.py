@@ -29,12 +29,13 @@ from invest_evolution.config import (
 )
 from invest_evolution.investment.foundation.metrics import BenchmarkEvaluator
 from invest_evolution.investment.foundation.risk import sanitize_risk_params
-from invest_evolution.investment.governance import GovernanceCoordinator, write_leaderboard
-from invest_evolution.investment.managers import (
-    resolve_manager_config_ref as resolve_registry_manager_config_ref,
+from invest_evolution.investment.governance import (
+    GovernanceCoordinator,
+    write_leaderboard,
 )
 from invest_evolution.investment.managers.registry import (
     canonical_manager_config_ref as canonical_registry_manager_config_ref,
+    looks_like_manager_config_ref,
     normalize_manager_config_ref,
 )
 from invest_evolution.investment.runtimes import create_manager_runtime
@@ -45,6 +46,7 @@ from invest_evolution.investment.shared.policy import (
     normalize_promotion_gate_policy,
     resolve_governance_matrix,
 )
+
 logger = logging.getLogger(__name__)
 
 _DEFAULT_RUNTIME_MANAGER_ID = "momentum"
@@ -62,6 +64,9 @@ def resolve_manager_config_ref(
     manager_id: Any,
     manager_config_ref: Any = None,
 ) -> str:
+    manager_ref = str(manager_config_ref or "").strip()
+    if manager_ref and looks_like_manager_config_ref(manager_ref):
+        return manager_ref
     return canonical_registry_manager_config_ref(
         normalize_manager_id(manager_id),
         manager_config_ref,
@@ -154,8 +159,7 @@ def _default_runtime_manager_projection(owner: Any | None) -> dict[str, str]:
     )
     return {
         "default_manager_id": str(
-            getattr(config, "default_manager_id", owner_manager_id)
-            or owner_manager_id
+            getattr(config, "default_manager_id", owner_manager_id) or owner_manager_id
         ),
         "default_manager_config_ref": str(
             getattr(config, "default_manager_config_ref", owner_manager_config_ref)
@@ -303,18 +307,27 @@ def normalize_cutoff_policy(value: dict[str, Any] | None = None) -> dict[str, An
         "mode": mode,
         "date": normalize_date(fixed_date) if fixed_date else "",
         "anchor_date": normalize_date(anchor_date) if anchor_date else "",
-        "step_days": max(1, _optional_int(payload.get("step_days") or payload.get("window_days")) or 30),
+        "step_days": max(
+            1,
+            _optional_int(payload.get("step_days") or payload.get("window_days")) or 30,
+        ),
         "dates": dates,
     }
     if mode == "regime_balanced":
-        fallback_mode = str(payload.get("fallback_mode") or "random").strip().lower() or "random"
+        fallback_mode = (
+            str(payload.get("fallback_mode") or "random").strip().lower() or "random"
+        )
         if fallback_mode not in {"random", "rolling", "sequence", "fixed"}:
             fallback_mode = "random"
         normalized.update(
             {
                 "probe_count": max(3, _optional_int(payload.get("probe_count")) or 9),
-                "min_regime_samples": max(0, _optional_int(payload.get("min_regime_samples")) or 0),
-                "target_regimes": _normalize_regime_targets(payload.get("target_regimes") or []),
+                "min_regime_samples": max(
+                    0, _optional_int(payload.get("min_regime_samples")) or 0
+                ),
+                "target_regimes": _normalize_regime_targets(
+                    payload.get("target_regimes") or []
+                ),
                 "fallback_mode": fallback_mode,
             }
         )
@@ -326,7 +339,9 @@ class ExperimentSpec:
     payload: dict[str, Any] = field(default_factory=dict)
     seed: int | None = None
     llm_mode: str = "live"
-    review_window: dict[str, Any] = field(default_factory=lambda: {"mode": "single_cycle", "size": 1})
+    review_window: dict[str, Any] = field(
+        default_factory=lambda: {"mode": "single_cycle", "size": 1}
+    )
     cutoff_policy: dict[str, Any] = field(
         default_factory=lambda: {
             "mode": "random",
@@ -350,14 +365,20 @@ class ExperimentSpec:
 
         date_range = dict(protocol.get("date_range") or {})
         normalized_seed = _optional_int(protocol.get("seed"))
-        normalized_review_window = normalize_review_window(dict(protocol.get("review_window") or {}))
-        normalized_cutoff_policy = normalize_cutoff_policy(dict(protocol.get("cutoff_policy") or {}))
-        normalized_promotion_policy = dict(
-            protocol.get("promotion_policy")
-            or optimization.get("promotion_gate")
-            or {}
+        normalized_review_window = normalize_review_window(
+            dict(protocol.get("review_window") or {})
         )
-        llm_mode = "dry_run" if bool(llm.get("dry_run")) else str(llm.get("mode") or "live").strip() or "live"
+        normalized_cutoff_policy = normalize_cutoff_policy(
+            dict(protocol.get("cutoff_policy") or {})
+        )
+        normalized_promotion_policy = dict(
+            protocol.get("promotion_policy") or optimization.get("promotion_gate") or {}
+        )
+        llm_mode = (
+            "dry_run"
+            if bool(llm.get("dry_run"))
+            else str(llm.get("mode") or "live").strip() or "live"
+        )
 
         normalized_payload = {
             "spec": deepcopy(spec),
@@ -365,8 +386,12 @@ class ExperimentSpec:
                 **protocol,
                 "seed": normalized_seed,
                 "date_range": {
-                    "min": _optional_normalized_date(date_range.get("min") or protocol.get("min_date")),
-                    "max": _optional_normalized_date(date_range.get("max") or protocol.get("max_date")),
+                    "min": _optional_normalized_date(
+                        date_range.get("min") or protocol.get("min_date")
+                    ),
+                    "max": _optional_normalized_date(
+                        date_range.get("max") or protocol.get("max_date")
+                    ),
                 },
                 "review_window": normalized_review_window,
                 "cutoff_policy": normalized_cutoff_policy,
@@ -408,7 +433,7 @@ class TrainingPolicyService:
     @staticmethod
     def policy_lookup(policy: dict[str, Any] | None, path: str, default: Any) -> Any:
         current: Any = dict(policy or {})
-        for key in path.split('.'):
+        for key in path.split("."):
             if not isinstance(current, dict) or key not in current:
                 return default
             current = current[key]
@@ -423,31 +448,49 @@ class TrainingPolicyService:
         risk_like = {
             key: float(value)
             for key, value in normalized.items()
-            if key in {"stop_loss_pct", "take_profit_pct", "position_size"} and value is not None
+            if key in {"stop_loss_pct", "take_profit_pct", "position_size"}
+            and value is not None
         }
         clean = sanitize_risk_params(risk_like, policy=controller.risk_policy)
-        clamp_policy = dict(self.policy_lookup(controller.review_policy, "param_clamps", {}) or {})
-        cash_bounds = dict(clamp_policy.get("cash_reserve") or {"min": 0.0, "max": 0.80})
-        trailing_bounds = dict(clamp_policy.get("trailing_pct") or {"min": 0.03, "max": 0.20})
-        max_hold_bounds = dict(clamp_policy.get("max_hold_days") or {"min": 5, "max": 60})
+        clamp_policy = dict(
+            self.policy_lookup(controller.review_policy, "param_clamps", {}) or {}
+        )
+        cash_bounds = dict(
+            clamp_policy.get("cash_reserve") or {"min": 0.0, "max": 0.80}
+        )
+        trailing_bounds = dict(
+            clamp_policy.get("trailing_pct") or {"min": 0.03, "max": 0.20}
+        )
+        max_hold_bounds = dict(
+            clamp_policy.get("max_hold_days") or {"min": 5, "max": 60}
+        )
         signal_threshold_bounds = dict(
             clamp_policy.get("signal_threshold") or {"min": 0.30, "max": 0.95}
         )
         if normalized.get("cash_reserve") is not None:
             clean["cash_reserve"] = max(
                 float(cash_bounds.get("min", 0.0)),
-                min(float(cash_bounds.get("max", 0.80)), float(normalized["cash_reserve"])),
+                min(
+                    float(cash_bounds.get("max", 0.80)),
+                    float(normalized["cash_reserve"]),
+                ),
             )
         if normalized.get("trailing_pct") is not None:
             clean["trailing_pct"] = max(
                 float(trailing_bounds.get("min", 0.03)),
-                min(float(trailing_bounds.get("max", 0.20)), float(normalized["trailing_pct"])),
+                min(
+                    float(trailing_bounds.get("max", 0.20)),
+                    float(normalized["trailing_pct"]),
+                ),
             )
         if normalized.get("max_hold_days") is not None:
             clean["max_hold_days"] = int(
                 max(
                     int(max_hold_bounds.get("min", 5)),
-                    min(int(max_hold_bounds.get("max", 60)), int(round(float(normalized["max_hold_days"])))),
+                    min(
+                        int(max_hold_bounds.get("max", 60)),
+                        int(round(float(normalized["max_hold_days"]))),
+                    ),
                 )
             )
         if normalized.get("signal_threshold") is not None:
@@ -475,21 +518,30 @@ class TrainingPolicyService:
         explicit_overrides = {
             key: value
             for key, value in current_params.items()
-            if key not in controller.DEFAULT_PARAMS or value != controller.DEFAULT_PARAMS.get(key)
+            if key not in controller.DEFAULT_PARAMS
+            or value != controller.DEFAULT_PARAMS.get(key)
         }
         merged_params.update(explicit_overrides)
         manager_runtime.update_runtime_overrides(
             set_session_current_params(controller, merged_params)
         )
 
-        controller.execution_policy = manager_runtime.config_section("execution", {}) or {}
+        controller.execution_policy = (
+            manager_runtime.config_section("execution", {}) or {}
+        )
         controller.risk_policy = manager_runtime.config_section("risk_policy", {}) or {}
-        controller.evaluation_policy = manager_runtime.config_section("evaluation_policy", {}) or {}
-        controller.review_policy = manager_runtime.config_section("review_policy", {}) or {}
+        controller.evaluation_policy = (
+            manager_runtime.config_section("evaluation_policy", {}) or {}
+        )
+        controller.review_policy = (
+            manager_runtime.config_section("review_policy", {}) or {}
+        )
         controller.strategy_evaluator.set_policy(controller.evaluation_policy)
 
         raw_benchmark_policy = manager_runtime.config_section("benchmark", {})
-        benchmark_policy = raw_benchmark_policy if isinstance(raw_benchmark_policy, dict) else {}
+        benchmark_policy = (
+            raw_benchmark_policy if isinstance(raw_benchmark_policy, dict) else {}
+        )
         default_criteria = COMMON_BENCHMARK_DEFAULTS.get("criteria")
         benchmark_criteria = _normalize_benchmark_criteria(
             benchmark_policy.get("criteria"),
@@ -505,11 +557,15 @@ class TrainingPolicyService:
 
         controller.train_policy = manager_runtime.config_section("train", {}) or {}
         controller.freeze_total_cycles = int(
-            controller.train_policy.get("freeze_total_cycles", controller.freeze_total_cycles)
+            controller.train_policy.get(
+                "freeze_total_cycles", controller.freeze_total_cycles
+            )
             or controller.freeze_total_cycles
         )
         controller.freeze_profit_required = int(
-            controller.train_policy.get("freeze_profit_required", controller.freeze_profit_required)
+            controller.train_policy.get(
+                "freeze_profit_required", controller.freeze_profit_required
+            )
             or controller.freeze_profit_required
         )
         controller.max_losses_before_optimize = int(
@@ -529,8 +585,12 @@ class TrainingPolicyService:
             dict(controller.train_policy.get("quality_gate_matrix") or {})
         )
         if not dict(getattr(controller, "experiment_promotion_policy", {}) or {}):
-            controller.experiment_promotion_policy = dict(controller.promotion_gate_policy)
-        controller.auto_apply_mutation = bool(controller.train_policy.get("auto_apply_mutation", False))
+            controller.experiment_promotion_policy = dict(
+                controller.promotion_gate_policy
+            )
+        controller.auto_apply_mutation = bool(
+            controller.train_policy.get("auto_apply_mutation", False)
+        )
         controller.research_feedback_policy = dict(
             controller.train_policy.get("research_feedback", {}) or {}
         )
@@ -555,7 +615,10 @@ class TrainingPolicyService:
                 "contrarian": float(agent_weights.get("contrarian", 1.0) or 1.0),
             }
 
-def runtime_config_projection_from_live_config(current: Any | None = None) -> dict[str, Any]:
+
+def runtime_config_projection_from_live_config(
+    current: Any | None = None,
+) -> dict[str, Any]:
     owner = current
     projection = _default_runtime_manager_projection(owner)
     allocator_enabled = _bool_projection_value(owner, "allocator_enabled")
@@ -565,17 +628,26 @@ def runtime_config_projection_from_live_config(current: Any | None = None) -> di
         "allocator_top_n": _int_projection_value(owner, "allocator_top_n", 3),
         "manager_arch_enabled": _bool_projection_value(owner, "manager_arch_enabled"),
         "manager_shadow_mode": _bool_projection_value(owner, "manager_shadow_mode"),
-        "manager_allocator_enabled": _bool_projection_value(owner, "manager_allocator_enabled"),
-        "portfolio_assembly_enabled": _bool_projection_value(owner, "portfolio_assembly_enabled"),
+        "manager_allocator_enabled": _bool_projection_value(
+            owner, "manager_allocator_enabled"
+        ),
+        "portfolio_assembly_enabled": _bool_projection_value(
+            owner, "portfolio_assembly_enabled"
+        ),
         "dual_review_enabled": _bool_projection_value(owner, "dual_review_enabled"),
-        "manager_persistence_enabled": _bool_projection_value(owner, "manager_persistence_enabled"),
-        "manager_active_ids": _manager_ids_projection_value(owner, "manager_active_ids"),
+        "manager_persistence_enabled": _bool_projection_value(
+            owner, "manager_persistence_enabled"
+        ),
+        "manager_active_ids": _manager_ids_projection_value(
+            owner, "manager_active_ids"
+        ),
         "manager_budget_weights": _budget_weights_projection_value(owner),
         "governance_enabled": bool(
-            _bool_projection_value(owner, "governance_enabled")
-            or allocator_enabled
+            _bool_projection_value(owner, "governance_enabled") or allocator_enabled
         ),
-        "governance_mode": _string_projection_value(owner, "governance_mode", "rule").strip().lower(),
+        "governance_mode": _string_projection_value(owner, "governance_mode", "rule")
+        .strip()
+        .lower(),
         "governance_allowed_manager_ids": _manager_ids_projection_value(
             owner,
             "governance_allowed_manager_ids",
@@ -633,9 +705,13 @@ class TrainingGovernanceService:
         previous_manager_id = controller_default_manager_id(controller)
         previous_manager_config_ref = controller_default_manager_config_ref(controller)
         projection = runtime_config_projection_from_live_config(controller)
-        next_manager_id = str(projection["default_manager_id"] or controller_default_manager_id(controller))
+        next_manager_id = str(
+            projection["default_manager_id"]
+            or controller_default_manager_id(controller)
+        )
         next_manager_config_ref = str(
-            projection["default_manager_config_ref"] or controller_default_manager_config_ref(controller)
+            projection["default_manager_config_ref"]
+            or controller_default_manager_config_ref(controller)
         )
         set_session_default_manager(
             controller,
@@ -653,7 +729,9 @@ class TrainingGovernanceService:
             set_session_current_params(controller, {})
             self.reload_manager_runtime(controller, next_manager_config_ref)
 
-    def reload_manager_runtime(self, controller: Any, runtime_config_ref: str | None = None) -> None:
+    def reload_manager_runtime(
+        self, controller: Any, runtime_config_ref: str | None = None
+    ) -> None:
         if runtime_config_ref:
             set_session_default_manager(
                 controller,
@@ -670,10 +748,16 @@ class TrainingGovernanceService:
     def build_governance_coordinator(self, owner: Any) -> GovernanceCoordinator:
         return GovernanceCoordinator(
             governance_policy=dict(getattr(owner, "governance_policy", {}) or {}),
-            min_confidence=float(getattr(owner, "governance_min_confidence", 0.60) or 0.60),
+            min_confidence=float(
+                getattr(owner, "governance_min_confidence", 0.60) or 0.60
+            ),
             cooldown_cycles=int(getattr(owner, "governance_cooldown_cycles", 2) or 2),
-            hysteresis_margin=float(getattr(owner, "governance_hysteresis_margin", 0.08) or 0.08),
-            agent_override_max_gap=float(getattr(owner, "governance_agent_override_max_gap", 0.18) or 0.18),
+            hysteresis_margin=float(
+                getattr(owner, "governance_hysteresis_margin", 0.08) or 0.08
+            ),
+            agent_override_max_gap=float(
+                getattr(owner, "governance_agent_override_max_gap", 0.18) or 0.18
+            ),
         )
 
     def refresh_governance_coordinator(self, owner: Any) -> GovernanceCoordinator:
@@ -681,7 +765,9 @@ class TrainingGovernanceService:
         owner.governance_coordinator = coordinator
         return coordinator
 
-    def prepare_leaderboard(self, *, output_dir: str | Path | None, safe: bool = False) -> Path:
+    def prepare_leaderboard(
+        self, *, output_dir: str | Path | None, safe: bool = False
+    ) -> Path:
         leaderboard_root = Path(output_dir or OUTPUT_DIR)
         if leaderboard_root.name == "training":
             leaderboard_root = leaderboard_root.parent
@@ -710,9 +796,15 @@ class TrainingGovernanceService:
         min_history_days: int | None = None,
         allowed_manager_ids: list[str] | None = None,
     ) -> dict[str, Any]:
-        preview_cutoff = normalize_date(cutoff_date or controller.data_manager.random_cutoff_date())
-        preview_stock_count = max(1, int(stock_count or getattr(config, "max_stocks", 50) or 50))
-        preview_min_history = max(30, int(min_history_days or getattr(config, "min_history_days", 200) or 200))
+        preview_cutoff = normalize_date(
+            cutoff_date or controller.data_manager.random_cutoff_date()
+        )
+        preview_stock_count = max(
+            1, int(stock_count or getattr(config, "max_stocks", 50) or 50)
+        )
+        preview_min_history = max(
+            30, int(min_history_days or getattr(config, "min_history_days", 200) or 200)
+        )
         stock_data = controller.data_manager.load_stock_data(
             cutoff_date=preview_cutoff,
             stock_count=preview_stock_count,
@@ -776,7 +868,8 @@ class TrainingGovernanceService:
             ),
             data_manager=controller.data_manager,
             output_dir=controller.output_dir,
-            allowed_manager_ids=controller.experiment_allowed_manager_ids or controller.governance_allowed_manager_ids,
+            allowed_manager_ids=controller.experiment_allowed_manager_ids
+            or controller.governance_allowed_manager_ids,
             current_cycle_id=cycle_id,
         )
         governance_payload = normalize_governance_decision(decision.to_dict())
@@ -809,11 +902,15 @@ class TrainingGovernanceService:
         controller.governance_history.append(dict(governance_payload))
         controller.last_allocation_plan = dict(decision.allocation_plan or {})
         active_manager_ids = list(governance_payload.get("active_manager_ids") or [])
-        manager_budget_weights = dict(governance_payload.get("manager_budget_weights") or {})
+        raw_manager_budget_weights = governance_payload.get("manager_budget_weights")
+        manager_budget_weights = (
+            dict(raw_manager_budget_weights)
+            if isinstance(raw_manager_budget_weights, dict)
+            else {}
+        )
         controller.manager_active_ids = active_manager_ids
         normalized_budget_weights = {
-            str(key): float(value)
-            for key, value in manager_budget_weights.items()
+            str(key): float(value) for key, value in manager_budget_weights.items()
         }
         set_session_manager_budget_weights(controller, normalized_budget_weights)
         controller.portfolio_assembly_enabled = bool(manager_arch_enabled)
@@ -824,9 +921,9 @@ class TrainingGovernanceService:
                 "regime": decision.regime,
                 "confidence": decision.regime_confidence,
                 "source": decision.regime_source,
-                "reasoning": (
-                    decision.evidence.get("rule_result") or {}
-                ).get("reasoning")
+                "reasoning": (decision.evidence.get("rule_result") or {}).get(
+                    "reasoning"
+                )
                 or decision.reasoning,
             },
         )
@@ -842,12 +939,16 @@ class TrainingGovernanceService:
                 "manager_budget_weights": dict(manager_budget_weights),
                 "dominant_manager_id": dominant_manager,
                 "cash_reserve_hint": decision.cash_reserve_hint,
-                "portfolio_constraints": dict(getattr(decision, "portfolio_constraints", {}) or {}),
+                "portfolio_constraints": dict(
+                    getattr(decision, "portfolio_constraints", {}) or {}
+                ),
                 "reasoning": decision.reasoning,
                 "guardrail_checks": decision.guardrail_checks,
             },
         )
-        historical = dict(getattr(decision, "metadata", {}) or {}).get("historical") or {}
+        historical = (
+            dict(getattr(decision, "metadata", {}) or {}).get("historical") or {}
+        )
         if bool(historical.get("guardrail_hold", False)):
             event_emitter(
                 "governance_blocked",
@@ -912,13 +1013,29 @@ class TrainingGovernanceService:
         safe_leaderboard_refresh: bool = False,
     ) -> Any:
         governance_enabled = bool(
-            getattr(owner, "governance_enabled", getattr(config, "governance_enabled", True))
+            getattr(
+                owner, "governance_enabled", getattr(config, "governance_enabled", True)
+            )
         )
-        governance_mode = str(
-            getattr(owner, "governance_mode", getattr(config, "governance_mode", "rule")) or "rule"
-        ).strip().lower()
-        allocator_top_n = int(getattr(owner, "allocator_top_n", getattr(config, "allocator_top_n", 3)) or 3)
-        coordinator = getattr(owner, "governance_coordinator", None) if owner is not None else None
+        governance_mode = (
+            str(
+                getattr(
+                    owner, "governance_mode", getattr(config, "governance_mode", "rule")
+                )
+                or "rule"
+            )
+            .strip()
+            .lower()
+        )
+        allocator_top_n = int(
+            getattr(owner, "allocator_top_n", getattr(config, "allocator_top_n", 3))
+            or 3
+        )
+        coordinator = (
+            getattr(owner, "governance_coordinator", None)
+            if owner is not None
+            else None
+        )
         if coordinator is None:
             coordinator = self.build_governance_coordinator(owner or config)
             if owner is not None:
@@ -940,9 +1057,14 @@ class TrainingGovernanceService:
                 safe=(safe_leaderboard_refresh or owner is None),
             ),
             allocator_top_n=allocator_top_n,
-            allowed_manager_ids=self._resolve_allowed_manager_ids(owner, allowed_manager_ids) or None,
+            allowed_manager_ids=self._resolve_allowed_manager_ids(
+                owner, allowed_manager_ids
+            )
+            or None,
             governance_mode=governance_mode if governance_enabled else "off",
-            regime_agent=agents.get("market_regime") if governance_mode in {"hybrid", "agent"} else None,
+            regime_agent=agents.get("market_regime")
+            if governance_mode in {"hybrid", "agent"}
+            else None,
             selector_agent=(
                 agents.get("governance_selector")
                 if selector_enabled and governance_mode in {"hybrid", "agent"}
@@ -950,13 +1072,17 @@ class TrainingGovernanceService:
             ),
             previous_decision=governance_from_controller(owner),
             current_cycle_id=current_cycle_id,
-            last_governance_change_cycle_id=getattr(owner, "last_governance_change_cycle_id", None),
+            last_governance_change_cycle_id=getattr(
+                owner, "last_governance_change_cycle_id", None
+            ),
             data_manager=data_manager,
             shadow_mode=self._resolve_shadow_mode(owner),
         )
         return decision
 
-    def _resolve_allowed_manager_ids(self, owner: Any | None, override: list[str] | None) -> list[str]:
+    def _resolve_allowed_manager_ids(
+        self, owner: Any | None, override: list[str] | None
+    ) -> list[str]:
         candidates = (
             override
             or getattr(owner, "experiment_allowed_manager_ids", None)
@@ -965,8 +1091,6 @@ class TrainingGovernanceService:
             or []
         )
         return [str(item).strip() for item in candidates if str(item).strip()]
-
-
 
 
 def _to_float(value: Any, default: float = 0.0) -> float:
@@ -995,15 +1119,11 @@ def normalize_governance_decision(
     if not routing:
         return {}
 
-    dominant = str(
-        routing.get("dominant_manager_id")
-        or ""
-    ).strip()
+    dominant = str(routing.get("dominant_manager_id") or "").strip()
     active_manager_ids = [
         str(item).strip()
         for item in list(
-            routing.get("active_manager_ids")
-            or ([dominant] if dominant else [])
+            routing.get("active_manager_ids") or ([dominant] if dominant else [])
         )
         if str(item).strip()
     ]
@@ -1024,30 +1144,42 @@ def normalize_governance_decision(
     return {
         "as_of_date": str(routing.get("as_of_date") or ""),
         "regime": str(routing.get("regime") or "unknown"),
-        "regime_confidence": _to_float(routing.get("regime_confidence", routing.get("confidence", 0.0))),
-        "decision_confidence": _to_float(routing.get("decision_confidence", routing.get("confidence", 0.0))),
+        "regime_confidence": _to_float(
+            routing.get("regime_confidence", routing.get("confidence", 0.0))
+        ),
+        "decision_confidence": _to_float(
+            routing.get("decision_confidence", routing.get("confidence", 0.0))
+        ),
         "active_manager_ids": active_manager_ids,
         "manager_budget_weights": manager_budget_weights,
         "dominant_manager_id": dominant,
         "cash_reserve_hint": _to_float(routing.get("cash_reserve_hint", 0.0)),
         "portfolio_constraints": dict(routing.get("portfolio_constraints") or {}),
         "decision_source": str(routing.get("decision_source") or "compatibility"),
-        "regime_source": str(routing.get("regime_source") or routing.get("source") or "compatibility"),
+        "regime_source": str(
+            routing.get("regime_source") or routing.get("source") or "compatibility"
+        ),
         "reasoning": str(routing.get("reasoning") or ""),
         "evidence": dict(routing.get("evidence") or {}),
         "agent_advice": dict(routing.get("agent_advice") or {}),
         "allocation_plan": dict(routing.get("allocation_plan") or {}),
-        "guardrail_checks": [dict(item) for item in list(routing.get("guardrail_checks") or [])],
+        "guardrail_checks": [
+            dict(item) for item in list(routing.get("guardrail_checks") or [])
+        ],
         "metadata": metadata,
     }
 
 
 def governance_from_controller(controller: Any) -> dict[str, Any]:
-    return normalize_governance_decision(dict(session_last_governance_decision(controller) or {}))
+    return normalize_governance_decision(
+        dict(session_last_governance_decision(controller) or {})
+    )
 
 
 def governance_from_item(item: Any) -> dict[str, Any]:
-    return normalize_governance_decision(dict(_item_field(item, "governance_decision", {}) or {}))
+    return normalize_governance_decision(
+        dict(_item_field(item, "governance_decision", {}) or {})
+    )
 
 
 def governance_regime(
@@ -1089,9 +1221,13 @@ def dominant_manager_config_ref(
     fallback_payload = dict(fallback or {})
 
     allocation_plan = dict(governance.get("allocation_plan") or {})
-    selected_manager_config_refs = dict(allocation_plan.get("selected_manager_config_refs") or {})
+    selected_manager_config_refs = dict(
+        allocation_plan.get("selected_manager_config_refs") or {}
+    )
     if dominant:
-        manager_config_ref = str(selected_manager_config_refs.get(dominant) or "").strip()
+        manager_config_ref = str(
+            selected_manager_config_refs.get(dominant) or ""
+        ).strip()
         if manager_config_ref:
             return manager_config_ref
 
@@ -1120,15 +1256,16 @@ def dominant_manager_config_ref(
             return manager_config_ref
 
     portfolio_meta = dict(portfolio.get("metadata") or {})
-    portfolio_selected_refs = dict(portfolio_meta.get("selected_manager_config_refs") or {})
+    portfolio_selected_refs = dict(
+        portfolio_meta.get("selected_manager_config_refs") or {}
+    )
     if dominant:
         manager_config_ref = str(portfolio_selected_refs.get(dominant) or "").strip()
         if manager_config_ref:
             return manager_config_ref
 
     return str(
-        dict(governance.get("metadata") or {}).get("dominant_manager_config")
-        or ""
+        dict(governance.get("metadata") or {}).get("dominant_manager_config") or ""
     ).strip()
 
 
@@ -1181,7 +1318,9 @@ def resolve_training_scope(
 ) -> TrainingScopeResolution:
     fallback_payload = dict(fallback or {})
     if controller is not None:
-        fallback_payload.setdefault("default_manager_id", controller_default_manager_id(controller))
+        fallback_payload.setdefault(
+            "default_manager_id", controller_default_manager_id(controller)
+        )
         fallback_payload.setdefault(
             "default_manager_config_ref",
             controller_default_manager_config_ref(controller),
@@ -1198,9 +1337,13 @@ def resolve_training_scope(
     ).strip()
     resolved_fallback = dict(fallback_payload)
     if dominant_manager_id_hint:
-        resolved_fallback.setdefault("dominant_manager_id", str(dominant_manager_id_hint))
+        resolved_fallback.setdefault(
+            "dominant_manager_id", str(dominant_manager_id_hint)
+        )
     if active_runtime_config_ref:
-        resolved_fallback.setdefault("default_manager_config_ref", active_runtime_config_ref)
+        resolved_fallback.setdefault(
+            "default_manager_config_ref", active_runtime_config_ref
+        )
     resolved_dominant_manager_id = str(
         dominant_manager_id(
             resolved_governance,
@@ -1268,12 +1411,18 @@ def resolve_training_scope(
         manager_config_ref=resolved_manager_config_ref,
         active_runtime_config_ref=active_runtime_config_ref,
         execution_defaults=resolved_execution_defaults,
-        subject_type="manager_portfolio" if dict(portfolio_plan or {}) else "single_manager",
+        subject_type="manager_portfolio"
+        if dict(portfolio_plan or {})
+        else "single_manager",
     )
+
+
 class TrainingExperimentService:
     """Applies experiment protocol, dataset, manager-scope, and LLM overrides."""
 
-    def configure_experiment(self, controller: Any, spec: Dict[str, Any] | None = None) -> None:
+    def configure_experiment(
+        self, controller: Any, spec: Dict[str, Any] | None = None
+    ) -> None:
         normalized_spec = ExperimentSpec.from_payload(spec)
         payload = normalized_spec.to_payload()
         projection = build_experiment_runtime_projection(
@@ -1317,7 +1466,9 @@ def reload_manager_runtime_boundary(
         return
 
     routing_service = getattr(controller, "training_governance_service", None)
-    if routing_service is not None and hasattr(routing_service, "reload_manager_runtime"):
+    if routing_service is not None and hasattr(
+        routing_service, "reload_manager_runtime"
+    ):
         routing_service.reload_manager_runtime(controller, runtime_config_ref)
 
 
@@ -1369,8 +1520,16 @@ def build_experiment_runtime_projection(
         max_date=str(date_range.get("max") or "") or None,
         min_history_days=dataset.get("min_history_days"),
         simulation_days=dataset.get("simulation_days"),
-        cutoff_policy=dict(protocol.get("cutoff_policy") or getattr(normalized_spec, "cutoff_policy", {}) or {}),
-        review_window=dict(protocol.get("review_window") or getattr(normalized_spec, "review_window", {}) or {}),
+        cutoff_policy=dict(
+            protocol.get("cutoff_policy")
+            or getattr(normalized_spec, "cutoff_policy", {})
+            or {}
+        ),
+        review_window=dict(
+            protocol.get("review_window")
+            or getattr(normalized_spec, "review_window", {})
+            or {}
+        ),
         promotion_policy=dict(
             protocol.get("promotion_policy")
             or getattr(normalized_spec, "promotion_policy", {})
@@ -1378,7 +1537,9 @@ def build_experiment_runtime_projection(
             or {}
         ),
         allowed_manager_ids=[
-            str(name) for name in list(manager_scope.get("allowed_manager_ids") or []) if str(name).strip()
+            str(name)
+            for name in list(manager_scope.get("allowed_manager_ids") or [])
+            if str(name).strip()
         ],
         llm=dict(llm or {}),
         allocator_enabled=(
@@ -1392,7 +1553,8 @@ def build_experiment_runtime_projection(
             else None
         ),
         governance_mode=(
-            str(manager_scope.get("governance_mode") or "rule").strip().lower() or "rule"
+            str(manager_scope.get("governance_mode") or "rule").strip().lower()
+            or "rule"
             if manager_scope.get("governance_mode") is not None
             else None
         ),
@@ -1438,7 +1600,9 @@ def apply_experiment_runtime_projection(
     controller.experiment_cutoff_policy = dict(projection.cutoff_policy or {})
     controller.experiment_review_window = dict(projection.review_window or {})
     controller.experiment_promotion_policy = dict(projection.promotion_policy or {})
-    controller.experiment_allowed_manager_ids = list(projection.allowed_manager_ids or [])
+    controller.experiment_allowed_manager_ids = list(
+        projection.allowed_manager_ids or []
+    )
     controller.experiment_llm = dict(projection.llm or {})
     controller._apply_experiment_llm_overrides(dict(projection.llm or {}))
 
@@ -1452,15 +1616,25 @@ def apply_experiment_runtime_projection(
     if projection.allowed_manager_ids:
         controller.governance_allowed_manager_ids = list(projection.allowed_manager_ids)
     if projection.governance_cooldown_cycles is not None:
-        controller.governance_cooldown_cycles = int(projection.governance_cooldown_cycles)
+        controller.governance_cooldown_cycles = int(
+            projection.governance_cooldown_cycles
+        )
     if projection.governance_min_confidence is not None:
-        controller.governance_min_confidence = float(projection.governance_min_confidence)
+        controller.governance_min_confidence = float(
+            projection.governance_min_confidence
+        )
     if projection.governance_hysteresis_margin is not None:
-        controller.governance_hysteresis_margin = float(projection.governance_hysteresis_margin)
+        controller.governance_hysteresis_margin = float(
+            projection.governance_hysteresis_margin
+        )
     if projection.governance_agent_override_enabled is not None:
-        controller.governance_agent_override_enabled = bool(projection.governance_agent_override_enabled)
+        controller.governance_agent_override_enabled = bool(
+            projection.governance_agent_override_enabled
+        )
     if projection.governance_agent_override_max_gap is not None:
-        controller.governance_agent_override_max_gap = float(projection.governance_agent_override_max_gap)
+        controller.governance_agent_override_max_gap = float(
+            projection.governance_agent_override_max_gap
+        )
 
     controller._refresh_governance_coordinator()
     enforce_allowed_manager_scope_boundary(

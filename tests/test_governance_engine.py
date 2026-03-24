@@ -1,4 +1,5 @@
 import json
+import logging
 
 import invest_evolution.investment.governance.engine as governance_engine
 from invest_evolution.investment.agents.specialists import GovernanceSelectorAgent
@@ -563,6 +564,95 @@ def test_governance_coordinator_marks_shadow_fallback_hold_as_guardrail_hold(tmp
     assert decision.decision_source == 'guardrail_hold'
 
 
+def test_governance_coordinator_records_cooldown_exception_reason_when_current_is_not_weak(tmp_path, monkeypatch):
+    coordinator = GovernanceCoordinator(cooldown_cycles=2, hysteresis_margin=0.01, min_confidence=0.5)
+    monkeypatch.setattr(
+        coordinator.observer,
+        'observe',
+        lambda *args, **kwargs: MarketObservation(
+            as_of_date='20260310',
+            stats={'avg_change_20d': 0.3, 'above_ma20_ratio': 0.49, 'market_breadth': 0.5, 'avg_volatility': 0.018},
+        ),
+    )
+    monkeypatch.setattr(
+        coordinator.classifier,
+        'classify',
+        lambda *args, **kwargs: {
+            'regime': 'oscillation',
+            'confidence': 0.84,
+            'reasoning': '震荡切换增强',
+            'suggested_exposure': 0.45,
+            'source': 'rule',
+            'rule_result': {},
+            'agent_result': {},
+        },
+    )
+    leaderboard_path = _write_leaderboard(
+        tmp_path,
+        {
+            'generated_at': '2026-03-10T00:00:00',
+            'entries': [
+                {
+                    'manager_id': 'momentum',
+                    'manager_config_ref': 'momentum_v1',
+                    'score': 11.0,
+                    'avg_return_pct': 1.2,
+                    'avg_sharpe_ratio': 1.0,
+                    'avg_max_drawdown': 5.0,
+                    'benchmark_pass_rate': 0.72,
+                    'avg_strategy_score': 0.55,
+                    'rank': 2,
+                    'eligible_for_governance': True,
+                },
+                {
+                    'manager_id': 'defensive_low_vol',
+                    'manager_config_ref': 'defensive_low_vol_v1',
+                    'score': 14.0,
+                    'avg_return_pct': 1.9,
+                    'avg_sharpe_ratio': 1.3,
+                    'avg_max_drawdown': 3.8,
+                    'benchmark_pass_rate': 0.82,
+                    'avg_strategy_score': 0.76,
+                    'rank': 1,
+                    'eligible_for_governance': True,
+                },
+            ],
+            'regime_leaderboards': {
+                'oscillation': [
+                    {
+                        'manager_id': 'defensive_low_vol',
+                        'rank': 1,
+                        'eligible_for_governance': True,
+                    },
+                    {
+                        'manager_id': 'momentum',
+                        'rank': 2,
+                        'eligible_for_governance': True,
+                    },
+                ],
+            },
+        },
+    )
+
+    decision = coordinator.decide(
+        stock_data={},
+        cutoff_date='20260310',
+        current_manager_id='momentum',
+        leaderboard_path=leaderboard_path,
+        allocator_top_n=3,
+        allowed_manager_ids=['momentum', 'defensive_low_vol'],
+        governance_mode='rule',
+        current_cycle_id=5,
+        last_governance_change_cycle_id=4,
+    )
+
+    assert decision.dominant_manager_id == 'momentum'
+    assert decision.hold_reason == 'governance_cooldown_active'
+    assert decision.metadata['cooldown_exception']['applied'] is False
+    assert decision.metadata['cooldown_exception']['reason'] == 'current_manager_not_weak'
+    assert decision.metadata['cooldown_exception']['details']['checks']['current_benchmark_is_weak'] is False
+
+
 def test_governance_coordinator_blocks_switch_when_candidate_has_style_mismatch(tmp_path, monkeypatch):
     coordinator = GovernanceCoordinator(cooldown_cycles=0, hysteresis_margin=0.01, min_confidence=0.5)
     monkeypatch.setattr(
@@ -622,3 +712,23 @@ def test_governance_coordinator_blocks_switch_when_candidate_has_style_mismatch(
         item['name'] == 'regime_compatibility' and item['passed'] is False
         for item in decision.guardrail_checks
     )
+
+
+def test_market_observation_logs_index_frame_load_failure(caplog):
+    service = governance_engine.MarketObservationService()
+
+    class BrokenDataManager:
+        @staticmethod
+        def get_market_index_frame(index_code):
+            assert index_code == 'sh.000300'
+            raise RuntimeError('boom')
+
+    with caplog.at_level(logging.WARNING):
+        observation = service.observe(
+            stock_data={},
+            cutoff_date='20260310',
+            data_manager=BrokenDataManager(),
+        )
+
+    assert observation.stats['observation_source'] == 'market_observer'
+    assert 'Failed to load governance market index frame: cutoff_date=20260310' in caplog.text

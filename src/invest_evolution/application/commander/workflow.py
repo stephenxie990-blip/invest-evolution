@@ -1394,6 +1394,21 @@ def record_ask_activity(runtime: Any, event: str, **kwargs: Any) -> None:
 
 
 async def start_runtime(runtime: Any) -> None:
+    def _handle_background_task_failure(
+        task_name: str, exc: BaseException
+    ) -> None:
+        runtime._set_runtime_state("error")
+        runtime._append_runtime_event(
+            "runtime_background_task_failed",
+            {
+                "task_name": task_name,
+                "error": str(exc),
+                "error_type": type(exc).__name__,
+            },
+            source="runtime",
+        )
+        runtime._persist_state()
+
     await _commander_runtime_module().start_runtime_flow(
         is_started=runtime._started,
         logger=logger,
@@ -1415,6 +1430,8 @@ async def start_runtime(runtime: Any) -> None:
             autopilot_enabled=runtime.cfg.autopilot_enabled,
             autopilot_loop=runtime.body.autopilot_loop,
             training_interval_sec=runtime.cfg.training_interval_sec,
+            logger=logger,
+            task_error_handler=_handle_background_task_failure,
         ),
         mark_started=runtime._set_started_flag,
         set_background_tasks=runtime._set_background_tasks,
@@ -1432,6 +1449,7 @@ async def start_runtime(runtime: Any) -> None:
 async def stop_runtime(runtime: Any) -> None:
     await _commander_runtime_module().stop_runtime_flow(
         is_started=runtime._started,
+        logger=logger,
         begin_task=runtime._begin_task,
         set_runtime_state=runtime._set_runtime_state,
         stop_background_services=lambda: _commander_runtime_module().stop_runtime_background_services(
@@ -1442,13 +1460,17 @@ async def stop_runtime(runtime: Any) -> None:
             heartbeat=runtime.heartbeat,
             cron=runtime.cron,
             brain=runtime.brain,
+            logger=logger,
         ),
         mark_started=runtime._set_started_flag,
         release_runtime_lock=runtime._release_runtime_lock,
         complete_runtime_task=runtime._complete_runtime_task,
+        persist_state=runtime._persist_state,
         stopping_state="stopping",
         stopped_state="stopped",
+        error_state="error",
         ok_status="ok",
+        error_status="error",
     )
 
 

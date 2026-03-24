@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import sys
 import threading
 from dataclasses import dataclass
@@ -53,6 +54,8 @@ from invest_evolution.investment.governance.engine import (
 )
 from invest_evolution.investment.runtimes import list_manager_runtime_ids
 from invest_evolution.market_data.manager import MarketDataGateway, MarketQueryService
+
+logger = logging.getLogger(__name__)
 
 DOMAIN_TOOL_CATALOG: dict[str, tuple[str, ...]] = {
     "config": (
@@ -417,6 +420,7 @@ def trigger_data_download() -> dict[str, Any]:
             _DATA_DOWNLOAD_JOB.status = "error"
             _DATA_DOWNLOAD_JOB.error = str(exc)
             _DATA_DOWNLOAD_JOB.finished_at = datetime.now().isoformat()
+            logger.exception("Commander data download worker failed")
 
     with _DATA_DOWNLOAD_LOCK:
         if _DATA_DOWNLOAD_JOB.status == "running":

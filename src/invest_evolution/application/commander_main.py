@@ -1065,6 +1065,30 @@ async def run_async(
     raise ValueError(f"Unknown command: {args.cmd}")
 
 
+def _cli_error_code_for_exception(exc: Exception) -> str:
+    if isinstance(exc, ValueError):
+        return "CMD_VALIDATION"
+    if isinstance(exc, RuntimeError):
+        return "CMD_RUNTIME"
+    return "CMD_UNHANDLED"
+
+
+def _cli_exit_code_for_exception(exc: Exception) -> int:
+    if isinstance(exc, ValueError):
+        return 2
+    return 1
+
+
+def _emit_cli_error_payload(exc: Exception, *, cmd: str) -> None:
+    payload = {
+        "status": "error",
+        "error": str(exc),
+        "error_code": _cli_error_code_for_exception(exc),
+        "command": str(cmd or ""),
+    }
+    sys.stderr.write(json.dumps(payload, ensure_ascii=False) + "\n")
+
+
 def run_cli_main(
     *,
     config_cls: Any,
@@ -1083,3 +1107,11 @@ def run_cli_main(
         return asyncio.run(run_async(args, config_cls=config_cls, runtime_cls=runtime_cls))
     except KeyboardInterrupt:
         return 130
+    except Exception as exc:
+        logger.exception(
+            "Commander CLI execution failed: cmd=%s error_type=%s",
+            getattr(args, "cmd", ""),
+            type(exc).__name__,
+        )
+        _emit_cli_error_payload(exc, cmd=str(getattr(args, "cmd", "") or ""))
+        return _cli_exit_code_for_exception(exc)

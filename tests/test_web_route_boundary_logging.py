@@ -11,6 +11,7 @@ import invest_evolution.interfaces.web.server as web_server
 import invest_evolution.interfaces.web.routes as web_routes
 from invest_evolution.application.commander_main import CommanderConfig, CommanderRuntime
 from invest_evolution.interfaces.web.routes import (
+    _start_chat_stream_worker,
     _execute_config_update,
     _respond_config_surface_read,
 )
@@ -114,6 +115,57 @@ def test_api_training_plan_execute_logs_route_context_on_unexpected_error(
     assert response.status_code == 500
     assert response.get_json()["error"] == "boom"
     assert "Training plan execution route failed: plan_id=plan_demo" in caplog.text
+
+
+def test_api_events_summary_uses_global_json_boundary_for_unhandled_error(
+    monkeypatch, caplog
+) -> None:
+    client = web_server.app.test_client()
+    monkeypatch.setattr(
+        web_server._state_backed_runtime_facade.__class__,
+        "events_summary_snapshot",
+        lambda self, **kwargs: (_ for _ in ()).throw(RuntimeError("boom")),
+    )
+
+    with caplog.at_level(logging.ERROR):
+        response = client.get("/api/events/summary?view=json&limit=5")
+
+    payload = response.get_json()
+    assert response.status_code == 500
+    assert payload["error"] == "internal server error"
+    assert payload["status"] == "error"
+    assert payload["error_code"] == "WEB_UNHANDLED"
+    assert payload["trace_id"]
+    assert response.headers["X-Trace-Id"] == payload["trace_id"]
+    assert (
+        "Unhandled web route error: method=GET path=/api/events/summary"
+        in caplog.text
+    )
+
+
+def test_chat_stream_worker_captures_unexpected_exception(caplog) -> None:
+    class FakeRuntime:
+        @staticmethod
+        def ask(*args, **kwargs):
+            return object()
+
+    with caplog.at_level(logging.ERROR):
+        result_holder, completed = _start_chat_stream_worker(
+            runtime=cast(Any, FakeRuntime()),
+            message="hello world",
+            session_key="api:chat:test",
+            chat_id="chat:test",
+            request_id="req:test",
+            run_async=lambda coro: (_ for _ in ()).throw(ZeroDivisionError("boom")),
+            logger=logging.getLogger("tests.web_route_boundary_logging"),
+        )
+        assert completed.wait(timeout=1.0) is True
+
+    assert result_holder["error"] == "boom"
+    assert (
+        "Chat stream worker crashed: session_key=api:chat:test chat_id=chat:test request_id=req:test message_length=11"
+        in caplog.text
+    )
 
 
 def test_execute_config_update_logs_payload_keys_on_failure(caplog) -> None:

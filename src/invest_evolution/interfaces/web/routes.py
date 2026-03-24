@@ -456,7 +456,7 @@ def _respond_fallback_data_download(
             fd = os.open(
                 lock_file_path,
                 os.O_CREAT | os.O_EXCL | os.O_WRONLY,
-                0o644,
+                0o600,
             )
         except FileExistsError:
             return False
@@ -797,6 +797,15 @@ def _start_chat_stream_worker(
         except _WEB_ROUTE_WORKER_EXCEPTIONS as exc:
             logger.exception(
                 "Chat stream route failed: session_key=%s chat_id=%s request_id=%s message_length=%s",
+                session_key,
+                chat_id,
+                request_id,
+                len(message),
+            )
+            result_holder["error"] = str(exc)
+        except Exception as exc:
+            logger.exception(
+                "Chat stream worker crashed: session_key=%s chat_id=%s request_id=%s message_length=%s",
                 session_key,
                 chat_id,
                 request_id,
@@ -1146,11 +1155,7 @@ def _respond_config_surface_update(
         try:
             spec.validate_payload(parsed_request)
         except ConfigSurfaceValidationError as exc:
-            extra = (
-                {"invalid_keys": list(exc.invalid_keys)}
-                if exc.invalid_keys
-                else {}
-            )
+            extra = {"invalid_keys": list(exc.invalid_keys)} if exc.invalid_keys else {}
             return build_json_status_error_response(str(exc), 400, **extra)
     return _execute_config_update(
         runtime_facade=runtime_facade,

@@ -1,10 +1,16 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 
 import pytest
 
-from invest_evolution.application.commander.runtime import load_persisted_runtime_state, start_runtime_flow
+from invest_evolution.application.commander.runtime import (
+    create_supervised_task,
+    load_persisted_runtime_state,
+    start_runtime_flow,
+    stop_runtime_flow,
+)
 
 
 def test_load_persisted_runtime_state_logs_invalid_json(tmp_path, caplog):
@@ -70,3 +76,65 @@ async def test_start_runtime_flow_logs_failure_and_rolls_back(caplog):
     assert ("release_runtime_lock", None) in events
     assert ("persist_state", None) in events
     assert "Commander runtime start failed during bootstrap sequence" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_stop_runtime_flow_logs_failure_and_persists(caplog):
+    events: list[tuple[str, object]] = []
+
+    async def fail_stop_background_services():
+        raise RuntimeError("stop boom")
+
+    with caplog.at_level(logging.ERROR):
+        with pytest.raises(RuntimeError, match="stop boom"):
+            await stop_runtime_flow(
+                is_started=True,
+                logger=logging.getLogger("test"),
+                begin_task=lambda task, source: events.append(("begin_task", (task, source))),
+                set_runtime_state=lambda state: events.append(("set_runtime_state", state)),
+                stop_background_services=fail_stop_background_services,
+                mark_started=lambda value: events.append(("mark_started", value)),
+                release_runtime_lock=lambda: events.append(("release_runtime_lock", None)),
+                complete_runtime_task=lambda **kwargs: events.append(("complete_runtime_task", kwargs)),
+                persist_state=lambda: events.append(("persist_state", None)),
+                stopping_state="stopping",
+                stopped_state="stopped",
+                error_state="error",
+                ok_status="ok",
+                error_status="error",
+            )
+
+    assert ("set_runtime_state", "stopping") in events
+    assert ("mark_started", False) in events
+    assert ("set_runtime_state", "error") in events
+    assert ("release_runtime_lock", None) in events
+    assert ("persist_state", None) in events
+    assert (
+        "complete_runtime_task",
+        {"state": "error", "status": "error"},
+    ) in events
+    assert "Commander runtime stop failed during shutdown sequence" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_create_supervised_task_reports_background_failure(caplog):
+    failures: list[tuple[str, str]] = []
+
+    async def fail():
+        raise RuntimeError("background boom")
+
+    with caplog.at_level(logging.ERROR):
+        task = create_supervised_task(
+            fail(),
+            task_name="runtime-autopilot",
+            logger=logging.getLogger("test"),
+            task_error_handler=lambda task_name, exc: failures.append(
+                (task_name, str(exc))
+            ),
+        )
+        with pytest.raises(RuntimeError, match="background boom"):
+            await task
+        await asyncio.sleep(0)
+
+    assert failures == [("runtime-autopilot", "background boom")]
+    assert "Commander runtime background task failed: task=runtime-autopilot" in caplog.text

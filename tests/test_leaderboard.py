@@ -60,6 +60,28 @@ def test_write_leaderboard_outputs_json_file(tmp_path):
     assert data["eligible_managers"] == 1
 
 
+def test_write_leaderboard_cleans_temp_file_when_atomic_replace_fails(tmp_path, monkeypatch):
+    import invest_evolution.investment.governance.engine as engine_module
+
+    _write_cycle(tmp_path / "value_run", 1, "value_quality", "value_quality_v1", 1.0, 0.9, 4.0, "oscillation")
+    output = tmp_path / "leaderboard.json"
+
+    def _raise_replace(src, dst):
+        raise RuntimeError("replace failed")
+
+    monkeypatch.setattr(engine_module.os, "replace", _raise_replace)
+
+    try:
+        write_leaderboard(tmp_path, output)
+    except RuntimeError as exc:
+        assert "replace failed" in str(exc)
+    else:
+        raise AssertionError("expected atomic replace failure")
+
+    assert not output.exists()
+    assert list(tmp_path.glob(".leaderboard.json.*.tmp")) == []
+
+
 def test_build_leaderboard_payload_does_not_create_json_file(tmp_path):
     _write_cycle(tmp_path / "value_run", 1, "value_quality", "value_quality_v1", 1.0, 0.9, 4.0, "oscillation")
     _write_cycle(tmp_path / "value_run", 2, "value_quality", "value_quality_v1", 0.8, 0.8, 3.5, "oscillation")

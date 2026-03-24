@@ -214,3 +214,44 @@ async def test_cli_run_async_streams_events_before_final_reply(capsys):
     assert "本次共播报 1 条事件" in captured.out
     assert "流式过程摘要：" in captured.out
     assert "结论：系统可用" in captured.out
+
+
+def test_run_cli_main_emits_structured_error_payload(monkeypatch, capsys):
+    from invest_evolution.application import commander_main
+
+    args = argparse.Namespace(cmd="ask", message="你好")
+
+    class FakeParser:
+        @staticmethod
+        def parse_args():
+            return args
+
+    monkeypatch.setattr(commander_main, "build_parser", lambda: FakeParser())
+    monkeypatch.setattr(
+        commander_main, "_ensure_commander_cli_environment", lambda parsed: None
+    )
+
+    def _fail_run(coro):
+        coro.close()
+        raise RuntimeError("cli boom")
+
+    monkeypatch.setattr(
+        commander_main.asyncio,
+        "run",
+        _fail_run,
+    )
+
+    exit_code = commander_main.run_cli_main(
+        config_cls=object(),
+        runtime_cls=object(),
+    )
+
+    captured = capsys.readouterr()
+    payload = json.loads(captured.err.strip().splitlines()[-1])
+    assert exit_code == 1
+    assert payload == {
+        "status": "error",
+        "error": "cli boom",
+        "error_code": "CMD_RUNTIME",
+        "command": "ask",
+    }

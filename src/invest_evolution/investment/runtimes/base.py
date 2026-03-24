@@ -9,8 +9,18 @@ import yaml
 
 from invest_evolution.agent_runtime.runtime import enforce_path_within_root
 from invest_evolution.config import PROJECT_ROOT
-from invest_evolution.investment.contracts import AgentContext, ManagerOutput, SignalPacket, StockSummaryView
-from .catalog import COMMON_BENCHMARK_DEFAULTS, COMMON_EXECUTION_DEFAULTS, COMMON_PARAM_DEFAULTS, COMMON_RISK_DEFAULTS
+from invest_evolution.investment.contracts import (
+    AgentContext,
+    ManagerOutput,
+    SignalPacket,
+    StockSummaryView,
+)
+from .catalog import (
+    COMMON_BENCHMARK_DEFAULTS,
+    COMMON_EXECUTION_DEFAULTS,
+    COMMON_PARAM_DEFAULTS,
+    COMMON_RISK_DEFAULTS,
+)
 from .ops import validate_runtime_config
 
 
@@ -33,7 +43,11 @@ class ManagerRuntime(ABC):
     runtime_id = "base"
     default_config_relpath: Optional[str] = None
 
-    def __init__(self, runtime_config_ref: Optional[str | Path] = None, runtime_overrides: Optional[Dict[str, Any]] = None):
+    def __init__(
+        self,
+        runtime_config_ref: Optional[str | Path] = None,
+        runtime_overrides: Optional[Dict[str, Any]] = None,
+    ):
         self.config = self.load_runtime_config(runtime_config_ref)
         self.runtime_overrides = dict(runtime_overrides or {})
 
@@ -49,7 +63,9 @@ class ManagerRuntime(ABC):
         return None
 
     @classmethod
-    def resolve_runtime_config_ref(cls, runtime_config_ref: Optional[str | Path]) -> Path:
+    def resolve_runtime_config_ref(
+        cls, runtime_config_ref: Optional[str | Path]
+    ) -> Path:
         if runtime_config_ref is None:
             if not cls.default_config_relpath:
                 raise ValueError(f"{cls.__name__} requires runtime_config_ref")
@@ -72,10 +88,14 @@ class ManagerRuntime(ABC):
         try:
             return enforce_path_within_root(PROJECT_ROOT, path)
         except ValueError as exc:
-            raise ValueError(f"{cls.__name__} runtime config ref escapes project root") from exc
+            raise ValueError(
+                f"{cls.__name__} runtime config ref escapes project root"
+            ) from exc
 
     @classmethod
-    def load_runtime_config(cls, runtime_config_ref: Optional[str | Path]) -> RuntimeConfig:
+    def load_runtime_config(
+        cls, runtime_config_ref: Optional[str | Path]
+    ) -> RuntimeConfig:
         path = cls.resolve_runtime_config_ref(runtime_config_ref)
         data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
         validate_runtime_config(data)
@@ -88,7 +108,10 @@ class ManagerRuntime(ABC):
         return merged
 
     def update_runtime_overrides(self, params: Dict[str, Any]) -> None:
-        self.runtime_overrides.update(params or {})
+        self.runtime_overrides = {
+            **self.runtime_overrides,
+            **dict(params or {}),
+        }
 
     def config_section(self, key: str, default: Any = None) -> Any:
         value = self.config.data.get(key, default)
@@ -100,9 +123,7 @@ class ManagerRuntime(ABC):
 
     def runtime_config_ref(self) -> str:
         return str(
-            getattr(self.config, "path", "")
-            or getattr(self.config, "name", "")
-            or ""
+            getattr(self.config, "path", "") or getattr(self.config, "name", "") or ""
         ).strip()
 
     def param(self, key: str, default: Any = None) -> Any:
@@ -156,7 +177,9 @@ class ManagerRuntime(ABC):
             "params": dict(profile.get("params") or {}),
             "risk": dict(profile.get("risk") or {}),
             "filters": dict(profile.get("filters") or {}),
-            "source": "regime_profiles" if profile else self.regime_profile_source(normalized_regime),
+            "source": "regime_profiles"
+            if profile
+            else self.regime_profile_source(normalized_regime),
         }
 
     def regime_profile_source(self, regime: str) -> str:
@@ -170,13 +193,17 @@ class ManagerRuntime(ABC):
         params = self.config.data.get("params", {}) or {}
         if any(str(key).startswith(legacy_prefix) for key in params.keys()):
             return "legacy_prefix"
-        if any(str(key).startswith(legacy_prefix) for key in self.runtime_overrides.keys()):
+        if any(
+            str(key).startswith(legacy_prefix) for key in self.runtime_overrides.keys()
+        ):
             return "legacy_prefix_override"
         return "default"
 
     def regime_param(self, regime: str, key: str, default: Any = None) -> Any:
         normalized_regime = str(regime or "").strip()
-        profile_params = dict(self.regime_profile(normalized_regime).get("params") or {})
+        profile_params = dict(
+            self.regime_profile(normalized_regime).get("params") or {}
+        )
         if key in profile_params:
             return profile_params[key]
         if normalized_regime:
@@ -200,7 +227,9 @@ class ManagerRuntime(ABC):
 
     def regime_filter(self, regime: str, key: str, default: Any = None) -> Any:
         normalized_regime = str(regime or "").strip()
-        profile_filters = dict(self.regime_profile(normalized_regime).get("filters") or {})
+        profile_filters = dict(
+            self.regime_profile(normalized_regime).get("filters") or {}
+        )
         if key in profile_filters:
             return profile_filters[key]
         if normalized_regime:
@@ -211,23 +240,34 @@ class ManagerRuntime(ABC):
         return self.param(key, default)
 
     @staticmethod
-    def build_stock_summary_views(items: Iterable[Dict[str, Any] | StockSummaryView]) -> list[StockSummaryView]:
+    def build_stock_summary_views(
+        items: Iterable[Dict[str, Any] | StockSummaryView],
+    ) -> list[StockSummaryView]:
         return [StockSummaryView.from_mapping(item) for item in list(items or [])]
 
     @staticmethod
     def estimate_context_confidence(signal_packet: SignalPacket) -> float:
-        scores = [float(item.score) for item in list(signal_packet.signals or [])[: max(1, signal_packet.max_positions or 3)]]
+        scores = [
+            float(item.score)
+            for item in list(signal_packet.signals or [])[
+                : max(1, signal_packet.max_positions or 3)
+            ]
+        ]
         if not scores:
             return 0.5
         average = sum(scores) / len(scores)
         return round(max(0.5, min(0.95, average)), 4)
 
     @abstractmethod
-    def build_signal_packet(self, stock_data: Dict[str, Any], cutoff_date: str) -> SignalPacket:
+    def build_signal_packet(
+        self, stock_data: Dict[str, Any], cutoff_date: str
+    ) -> SignalPacket:
         raise NotImplementedError
 
     @abstractmethod
-    def build_agent_context(self, stock_data: Dict[str, Any], cutoff_date: str, signal_packet: SignalPacket) -> AgentContext:
+    def build_agent_context(
+        self, stock_data: Dict[str, Any], cutoff_date: str, signal_packet: SignalPacket
+    ) -> AgentContext:
         raise NotImplementedError
 
     def process(self, stock_data: Dict[str, Any], cutoff_date: str) -> ManagerOutput:

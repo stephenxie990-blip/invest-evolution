@@ -1012,6 +1012,83 @@ async def drain_runtime_notifications(
             logger.info("%s", preview[:300])
 
 
+def _emit_background_task_failure(
+    *,
+    task_name: str,
+    exc: BaseException,
+    logger: Any,
+    task_error_handler: Callable[[str, BaseException], None] | None = None,
+) -> None:
+    logger.error(
+        "Commander runtime background task failed: task=%s error_type=%s error=%s",
+        task_name,
+        type(exc).__name__,
+        exc,
+        exc_info=(type(exc), exc, exc.__traceback__),
+    )
+    if task_error_handler is None:
+        return
+    try:
+        task_error_handler(task_name, exc)
+    except Exception:
+        logger.exception(
+            "Commander runtime background task error hook failed: task=%s",
+            task_name,
+        )
+
+
+def create_supervised_task(
+    coro: Coroutine[Any, Any, None],
+    *,
+    task_name: str,
+    logger: Any,
+    task_error_handler: Callable[[str, BaseException], None] | None = None,
+) -> asyncio.Task[None]:
+    task = asyncio.create_task(coro, name=task_name)
+
+    def _on_done(done_task: asyncio.Task[None]) -> None:
+        if done_task.cancelled():
+            return
+        try:
+            exc = done_task.exception()
+        except asyncio.CancelledError:
+            return
+        if exc is None:
+            return
+        _emit_background_task_failure(
+            task_name=task_name,
+            exc=exc,
+            logger=logger,
+            task_error_handler=task_error_handler,
+        )
+
+    task.add_done_callback(_on_done)
+    return task
+
+
+async def _await_cancelled_task(
+    task: asyncio.Task[None],
+    *,
+    task_name: str,
+    logger: Any,
+) -> None:
+    task.cancel()
+    results = await asyncio.gather(task, return_exceptions=True)
+    if not results:
+        return
+    result = results[0]
+    if isinstance(result, BaseException) and not isinstance(
+        result, asyncio.CancelledError
+    ):
+        logger.error(
+            "Commander runtime background task stopped with error: task=%s error_type=%s error=%s",
+            task_name,
+            type(result).__name__,
+            result,
+            exc_info=(type(result), result, result.__traceback__),
+        )
+
+
 ensure_runtime_storage = cast(Callable[..., None], _bootstrap_proxy("ensure_runtime_storage"))
 persist_runtime_state = cast(Callable[..., None], _bootstrap_proxy("persist_runtime_state_payload"))
 load_persisted_runtime_state = cast(
@@ -1041,6 +1118,8 @@ async def start_runtime_background_services(
     autopilot_enabled: bool,
     autopilot_loop: Callable[[int], Coroutine[Any, Any, None]],
     training_interval_sec: int,
+    logger: Any,
+    task_error_handler: Callable[[str, BaseException], None] | None = None,
 ) -> tuple[asyncio.Task[None], asyncio.Task[None] | None]:
     await cron.start()
     if heartbeat_enabled:
@@ -1048,10 +1127,20 @@ async def start_runtime_background_services(
     if bridge_enabled:
         await bridge.start()
 
-    notify_task = asyncio.create_task(drain_notifications())
+    notify_task = create_supervised_task(
+        drain_notifications(),
+        task_name="runtime-notifications",
+        logger=logger,
+        task_error_handler=task_error_handler,
+    )
     autopilot_task: asyncio.Task[None] | None = None
     if autopilot_enabled:
-        autopilot_task = asyncio.create_task(autopilot_loop(training_interval_sec))
+        autopilot_task = create_supervised_task(
+            autopilot_loop(training_interval_sec),
+            task_name="runtime-autopilot",
+            logger=logger,
+            task_error_handler=task_error_handler,
+        )
     return notify_task, autopilot_task
 
 
@@ -1112,14 +1201,21 @@ async def stop_runtime_background_services(
     heartbeat: Any,
     cron: Any,
     brain: Any,
+    logger: Any,
 ) -> tuple[None, None]:
     body.stop()
     if autopilot_task:
-        autopilot_task.cancel()
-        await asyncio.gather(autopilot_task, return_exceptions=True)
+        await _await_cancelled_task(
+            autopilot_task,
+            task_name="runtime-autopilot",
+            logger=logger,
+        )
     if notify_task:
-        notify_task.cancel()
-        await asyncio.gather(notify_task, return_exceptions=True)
+        await _await_cancelled_task(
+            notify_task,
+            task_name="runtime-notifications",
+            logger=logger,
+        )
 
     bridge.stop()
     heartbeat.stop()
@@ -1131,21 +1227,36 @@ async def stop_runtime_background_services(
 async def stop_runtime_flow(
     *,
     is_started: bool,
+    logger: Any | None = None,
     begin_task: Callable[..., None],
     set_runtime_state: Callable[[str], None],
     stop_background_services: Callable[[], Awaitable[tuple[None, None]]],
     mark_started: Callable[[bool], None],
     release_runtime_lock: Callable[[], None],
     complete_runtime_task: Callable[..., None],
+    persist_state: Callable[[], None] | None = None,
     stopping_state: str,
     stopped_state: str,
+    error_state: str = "error",
     ok_status: str,
+    error_status: str = "error",
 ) -> None:
     if not is_started:
         return
     begin_task("stop", "system")
     set_runtime_state(stopping_state)
-    await stop_background_services()
+    try:
+        await stop_background_services()
+    except Exception:
+        if logger is not None:
+            logger.exception("Commander runtime stop failed during shutdown sequence")
+        mark_started(False)
+        set_runtime_state(error_state)
+        release_runtime_lock()
+        complete_runtime_task(state=error_state, status=error_status)
+        if persist_state is not None:
+            persist_state()
+        raise
     mark_started(False)
     release_runtime_lock()
     complete_runtime_task(state=stopped_state, status=ok_status)
