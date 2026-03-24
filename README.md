@@ -141,7 +141,7 @@ uv run python -m invest_evolution.interfaces.cli.market_data --source baostock -
 ```bash
 # 推荐先走真实数据 / 离线库路径
 uv run python -m invest_evolution.interfaces.cli.commander status --detail fast
-uv run python -m invest_evolution.interfaces.cli.commander strategies --reload
+uv run python -m invest_evolution.interfaces.cli.commander playbooks --reload
 uv run python -m invest_evolution.interfaces.cli.commander train-once --rounds 1
 uv run python -m invest_evolution.interfaces.cli.commander run --interactive
 

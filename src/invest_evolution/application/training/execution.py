@@ -4791,6 +4791,27 @@ class TrainingExecutionService:
         snapshots_payload = dict(contract_stage_snapshots or {})
         cycle_result.execution_snapshot["contract_stage_snapshots"] = snapshots_payload
         cycle_result.run_context["contract_stage_snapshots"] = dict(snapshots_payload)
+        existing_stage_snapshots = dict(getattr(cycle_result, "stage_snapshots", {}) or {})
+        merged_stage_snapshots: dict[str, Any] = dict(existing_stage_snapshots)
+        for stage_name, stage_payload in snapshots_payload.items():
+            existing_stage_payload = existing_stage_snapshots.get(stage_name)
+            if isinstance(existing_stage_payload, dict) and isinstance(stage_payload, dict):
+                merged_stage_payload = dict(existing_stage_payload)
+                for field_name, field_value in dict(stage_payload).items():
+                    existing_field_value = merged_stage_payload.get(field_name)
+                    if isinstance(existing_field_value, dict) and isinstance(field_value, dict):
+                        merged_stage_payload[field_name] = {
+                            **existing_field_value,
+                            **field_value,
+                        }
+                        continue
+                    merged_stage_payload[field_name] = field_value
+                merged_stage_snapshots[stage_name] = merged_stage_payload
+                continue
+            merged_stage_snapshots[stage_name] = (
+                dict(stage_payload) if isinstance(stage_payload, dict) else stage_payload
+            )
+        cycle_result.stage_snapshots = merged_stage_snapshots
 
     @staticmethod
     def _apply_validation_context_to_cycle_result(

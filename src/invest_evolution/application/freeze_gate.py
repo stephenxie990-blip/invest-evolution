@@ -60,10 +60,12 @@ CRITICAL_PYRIGHT_TARGETS = [
 
 FOCUSED_PROTOCOL_TESTS = [
     'tests/test_schema_contracts.py',
+    'tests/test_architecture_closure_assets.py',
     'tests/test_commander_transcript_golden.py',
     'tests/test_commander_mutating_workflow_golden.py',
     'tests/test_commander_direct_planner_golden.py',
     'tests/test_runtime_api_contract.py',
+    'tests/test_structure_guards.py',
     'tests/test_v2_contracts.py',
     'tests/test_structured_output_adapter.py',
     'tests/test_brain_runtime.py',

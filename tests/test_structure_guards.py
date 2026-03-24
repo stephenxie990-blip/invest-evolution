@@ -15,6 +15,23 @@ RETIRED_ROOT_ENTRYPOINTS = (
 )
 
 
+def _assert_python_surface(
+    directory: Path,
+    *,
+    required: set[str],
+    allowed_extras: set[str] | None = None,
+    max_unexpected: int = 0,
+) -> None:
+    actual = {path.name for path in directory.glob("*.py")}
+    allowed = set(allowed_extras or set())
+    missing = required - actual
+    unexpected = actual - required - allowed
+    assert not missing, f"missing canonical modules in {directory}: {sorted(missing)}"
+    assert len(unexpected) <= max_unexpected, (
+        f"unexpected python modules in {directory}: {sorted(unexpected)}"
+    )
+
+
 def test_root_python_surface_is_clean():
     root_python = {path.name for path in PROJECT_ROOT.glob("*.py")}
     assert root_python == {"gunicorn.conf.py"}
@@ -80,17 +97,21 @@ def test_fixture_and_archive_roots_exist():
 
 def test_training_canonical_shape_matches_final_collapse():
     training_dir = SRC_ROOT / "application" / "training"
-    assert {path.name for path in training_dir.glob("*.py")} == {
-        "__init__.py",
-        "bootstrap.py",
-        "controller.py",
-        "execution.py",
-        "observability.py",
-        "persistence.py",
-        "policy.py",
-        "research.py",
-        "review.py",
-    }
+    _assert_python_surface(
+        training_dir,
+        required={
+            "__init__.py",
+            "bootstrap.py",
+            "controller.py",
+            "execution.py",
+            "observability.py",
+            "persistence.py",
+            "policy.py",
+            "research.py",
+            "review.py",
+        },
+        allowed_extras={"isolated_experiments.py"},
+    )
 
 
 def test_training_retired_fragment_modules_are_removed():
@@ -141,15 +162,18 @@ def test_controller_owns_session_and_cycle_context_after_collapse():
 
 def test_commander_canonical_shape_matches_final_collapse():
     commander_dir = SRC_ROOT / "application" / "commander"
-    assert {path.name for path in commander_dir.glob("*.py")} == {
-        "__init__.py",
-        "bootstrap.py",
-        "ops.py",
-        "presentation.py",
-        "runtime.py",
-        "status.py",
-        "workflow.py",
-    }
+    _assert_python_surface(
+        commander_dir,
+        required={
+            "__init__.py",
+            "bootstrap.py",
+            "ops.py",
+            "presentation.py",
+            "runtime.py",
+            "status.py",
+            "workflow.py",
+        },
+    )
 
 
 def test_commander_retired_fragment_modules_are_removed():
