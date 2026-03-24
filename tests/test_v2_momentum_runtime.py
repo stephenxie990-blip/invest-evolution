@@ -28,7 +28,13 @@ def _make_stock_data(n=8, days=120):
 
 
 def test_momentum_runtime_process_outputs_dual_channel():
-    runtime = MomentumRuntime(runtime_overrides={"top_n": 4, "max_positions": 3})
+    runtime = MomentumRuntime(
+        runtime_overrides={
+            "top_n": 4,
+            "max_positions": 3,
+            "signal_threshold": 0.0,
+        }
+    )
     out = runtime.process(_make_stock_data(), "20230601")
 
     assert out.manager_id == "momentum"
@@ -44,7 +50,13 @@ def test_momentum_runtime_process_outputs_dual_channel():
 
 
 def test_momentum_runtime_uses_stock_batch_summary_main_path(monkeypatch):
-    runtime = MomentumRuntime(runtime_overrides={"top_n": 2, "max_positions": 2})
+    runtime = MomentumRuntime(
+        runtime_overrides={
+            "top_n": 2,
+            "max_positions": 2,
+            "signal_threshold": 0.0,
+        }
+    )
     stock_data = _make_stock_data(n=3, days=80)
     calls = {"count": 0}
 

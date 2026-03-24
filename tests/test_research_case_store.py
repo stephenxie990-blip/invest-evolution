@@ -555,6 +555,111 @@ def test_research_case_store_build_training_feedback_dedupes_replayed_observatio
     assert feedback["scope"]["unavailable_reason"] == "requested_regime_insufficient_samples"
 
 
+def test_research_case_store_build_training_feedback_prefers_requested_regime_recent_window_over_overall_tail(
+    tmp_path: Path,
+):
+    store = ResearchCaseStore(tmp_path)
+
+    def seed_case(
+        *,
+        index: int,
+        as_of_date: str,
+        regime: str,
+        label: str,
+        return_pct: float,
+    ) -> None:
+        snapshot = ResearchSnapshot(
+            snapshot_id=f"snapshot_window_pref_{index}",
+            as_of_date=as_of_date,
+            scope="single_security",
+            security={"code": f"sh.607{index:03d}", "name": f"Window{index}"},
+            market_context={"regime": regime},
+            cross_section_context={"rank": index, "percentile": 0.7, "selected_by_policy": True},
+        )
+        policy = PolicySnapshot(
+            policy_id=f"policy_window_pref_{index}",
+            manager_id="momentum",
+            manager_config_ref="momentum_v1",
+            version_hash=f"version_window_pref_{index}",
+            signature={"manager_id": "momentum", "manager_config_ref": "momentum_v1"},
+        )
+        hypothesis = ResearchHypothesis(
+            hypothesis_id=f"hypothesis_window_pref_{index}",
+            snapshot_id=snapshot.snapshot_id,
+            policy_id=policy.policy_id,
+            stance="候选买入",
+            score=80.0,
+            scenario_distribution={
+                "horizons": {
+                    "T+20": {
+                        "positive_return_probability": 0.60,
+                        "interval": {"p25": -1.0, "p50": 2.0, "p75": 5.0},
+                    }
+                }
+            },
+            evaluation_protocol={"clock": ["T+20"]},
+        )
+        store.save_case(snapshot=snapshot, policy=policy, hypothesis=hypothesis)
+        store.save_attribution(
+            OutcomeAttribution(
+                attribution_id=f"attribution_window_pref_{index}",
+                hypothesis_id=hypothesis.hypothesis_id,
+                thesis_result=label,
+                horizon_results={
+                    "T+20": {
+                        "label": label,
+                        "return_pct": return_pct,
+                        "entry_triggered": True,
+                        "invalidation_triggered": label == "invalidated",
+                        "de_risk_triggered": False,
+                    }
+                },
+                calibration_metrics={"positive_return_brier": 0.10},
+            )
+        )
+
+    # Older bull records are enough to pass minimum regime sample count.
+    for index in range(1, 9):
+        seed_case(
+            index=index,
+            as_of_date=f"202401{index:02d}",
+            regime="bull",
+            label="hit",
+            return_pct=3.0,
+        )
+
+    # Newer bear records dominate the global recent tail window.
+    for index in range(9, 23):
+        day = index - 8
+        seed_case(
+            index=index,
+            as_of_date=f"202402{day:02d}",
+            regime="bear",
+            label="invalidated",
+            return_pct=-4.0,
+        )
+
+    feedback = store.build_training_feedback(
+        manager_id="momentum",
+        manager_config_ref="momentum_v1",
+        as_of_date="20240228",
+        regime="bull",
+        limit=5,
+        max_history_limit=40,
+    )
+
+    # Overall recent tail is still bear-dominated.
+    assert feedback["overall_feedback"]["sample_count"] == 5
+    # Requested bull regime uses its own recent window and is not diluted by overall tail.
+    assert feedback["requested_regime_feedback"]["sample_count"] == 8
+    assert feedback["sample_count"] == 8
+    assert feedback["scope"]["effective_scope"] == "regime"
+    assert "bull" in feedback["scope"]["covered_regimes"]
+    assert feedback["scope"]["window"]["overall_effective_history_limit"] == 5
+    assert feedback["scope"]["window"]["requested_regime_effective_history_limit"] >= 8
+    assert feedback["scope"]["window"]["requested_regime_expanded"] is True
+
+
 def test_research_case_store_build_training_feedback_ignores_snapshot_manager_mismatches(
     tmp_path: Path,
 ):

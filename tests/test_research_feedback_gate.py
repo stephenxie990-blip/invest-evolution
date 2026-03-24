@@ -175,7 +175,7 @@ def test_feedback_recommendation_falls_back_to_generic_heuristics_when_policy_is
             "manager_id": "momentum",
             "manager_config_ref": "momentum_v1",
         },
-        "sample_count": 4,
+        "sample_count": 5,
         "brier_like_direction_score": 0.20,
         "horizons": {
             "T+20": {

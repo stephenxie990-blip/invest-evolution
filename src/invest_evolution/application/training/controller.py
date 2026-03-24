@@ -11,7 +11,7 @@ from typing import Any, TYPE_CHECKING
 
 import numpy as np
 
-from invest_evolution.config import EFFECTIVE_RUNTIME_MODE, config, normalize_date
+from invest_evolution.config import config, normalize_date
 
 
 def _policy_module():
@@ -839,10 +839,6 @@ class TrainingLifecycleService:
         freeze_gate_evaluation = controller.freeze_gate_service.evaluate_freeze_gate(
             controller
         )
-        effective_runtime_mode = str(
-            getattr(controller, "effective_runtime_mode", EFFECTIVE_RUNTIME_MODE)
-            or EFFECTIVE_RUNTIME_MODE
-        ).strip()
         portfolio_plan = dict(getattr(cycle_result, "portfolio_plan", {}) or {})
         subject_type = str(
             dict(getattr(cycle_result, "run_context", {}) or {}).get("subject_type")
@@ -850,7 +846,6 @@ class TrainingLifecycleService:
                 "manager_portfolio"
                 if (
                     selection_mode == "manager_portfolio"
-                    or effective_runtime_mode == EFFECTIVE_RUNTIME_MODE
                     or portfolio_plan
                 )
                 else "single_manager"
@@ -1046,6 +1041,9 @@ class TrainingLifecycleService:
             if controller.freeze_gate_service.should_freeze(controller):
                 break
             successful_before = len(cycle_history)
+            previous_research_feedback = dict(
+                getattr(controller, "last_research_feedback", {}) or {}
+            )
             result = controller.run_training_cycle()
             attempt_index += 1
             controller.total_cycle_attempts = starting_attempts + attempt_index
@@ -1054,6 +1052,8 @@ class TrainingLifecycleService:
             if result is None and successful_after <= successful_before:
                 skipped_in_run += 1
                 controller.skipped_cycle_count = starting_skips + skipped_in_run
+                if previous_research_feedback:
+                    controller.last_research_feedback = previous_research_feedback
 
         freeze_gate_service = controller.freeze_gate_service
         if hasattr(freeze_gate_service, "build_final_report"):

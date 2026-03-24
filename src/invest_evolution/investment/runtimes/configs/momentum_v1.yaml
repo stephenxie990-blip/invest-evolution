@@ -115,7 +115,11 @@ train:
   max_losses_before_optimize: 3
   auto_apply_mutation: false
   research_feedback:
-    history_limit: 28
+    history_limit: 40
+    # Sampling-only guardrails: keep gates strict but avoid starving bull regime evidence
+    # when the recent window is dominated by non-bull periods.
+    min_regime_history_limit: 120
+    max_history_limit: 360
     optimization:
       apply_default_horizon_policy: false
       min_sample_count: 8

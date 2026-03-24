@@ -124,6 +124,9 @@ def test_build_cycle_result_persistence_payload_summarizes_scoring_and_self_asse
     assert payload["execution_snapshot"]["runtime_overrides"] == {"position_size": 0.08}
     assert payload["execution_snapshot"]["manager_results"]["count"] == 0
     assert payload["run_context"]["basis_stage"] == "post_cycle_result"
+    assert payload["manager_id"] == "momentum"
+    assert payload["manager_config_ref"] == "configs/active.yaml"
+    assert payload["active_runtime_config_ref"] == "configs/active.yaml"
     assert payload["run_context"]["runtime_overrides"] == {"position_size": 0.08}
     assert payload["run_context"]["review_basis_window"] == {"mode": "rolling", "size": 2}
     assert payload["run_context"]["fitness_source_cycles"] == [2, 3]

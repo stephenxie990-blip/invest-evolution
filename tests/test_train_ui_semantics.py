@@ -513,6 +513,62 @@ def test_run_continuous_report_counts_skipped_cycles(tmp_path):
     assert report['loss_cycles'] == 0
 
 
+def test_run_continuous_preserves_last_non_empty_research_feedback_across_terminal_skip(tmp_path):
+    from invest_evolution.application.train import TrainingResult
+
+    controller = SelfLearningController(
+        output_dir=str(tmp_path / 'training'),
+        artifact_log_dir=str(tmp_path / 'artifacts'),
+        config_audit_log_path=str(tmp_path / 'audit' / 'changes.jsonl'),
+        config_snapshot_dir=str(tmp_path / 'snapshots'),
+    )
+
+    ok_result = TrainingResult(
+        cycle_id=1,
+        cutoff_date='20240101',
+        selected_stocks=['sh.600000'],
+        initial_capital=100000,
+        final_value=101000,
+        return_pct=1.0,
+        is_profit=True,
+        trade_history=[],
+        params={},
+    )
+
+    state = {'calls': 0}
+
+    def _side_effect():
+        calls = int(state['calls'])
+        state['calls'] = calls + 1
+        if calls == 0:
+            controller.last_research_feedback = {
+                'sample_count': 13,
+                'recommendation': {'bias': 'tighten_risk'},
+            }
+            controller.cycle_history.append(ok_result)
+            controller.current_cycle_id = 1
+            return ok_result
+        controller.last_research_feedback = {}
+        controller.last_cycle_meta = {
+            'status': 'no_data',
+            'cycle_id': 2,
+            'cutoff_date': '20240229',
+            'stage': 'simulation',
+            'reason': '交易日不足',
+            'timestamp': '2026-03-24T00:00:00',
+        }
+        return None
+
+    controller.run_training_cycle = MagicMock(side_effect=_side_effect)
+
+    report = controller.run_continuous(max_cycles=2)
+
+    assert report['status'] == 'completed_with_skips'
+    assert report['research_feedback']['sample_count'] == 13
+    assert report['freeze_gate_evaluation']['research_feedback_gate']['sample_count'] == 13
+    assert controller.last_research_feedback['sample_count'] == 13
+
+
 def test_run_continuous_report_no_data_counts_attempts(tmp_path):
     controller = SelfLearningController(
         output_dir=str(tmp_path / 'training'),

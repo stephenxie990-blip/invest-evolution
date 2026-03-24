@@ -497,10 +497,10 @@ def test_training_outcome_and_persistence_write_manager_portfolio_fields(tmp_pat
     assert cycle_result.portfolio_plan["active_manager_ids"] == ["momentum", "value_quality"]
     assert cycle_result.portfolio_attribution["sh.600519"] == 0.32
     assert cycle_result.governance_decision["dominant_manager_id"] == "momentum"
-    assert cycle_result.execution_defaults == {
-        "default_manager_id": "momentum",
-        "default_manager_config_ref": "configs/active.yaml",
-    }
+    assert cycle_result.execution_defaults["default_manager_id"] == "momentum"
+    assert cycle_result.execution_defaults["default_manager_config_ref"].endswith(
+        "configs/active.yaml"
+    )
     assert cycle_result.manager_review_report["summary"]["manager_count"] == 2
     assert cycle_result.allocation_review_report["subject_type"] == "allocation_review"
     assert cycle_result.run_context["subject_type"] == "manager_portfolio"

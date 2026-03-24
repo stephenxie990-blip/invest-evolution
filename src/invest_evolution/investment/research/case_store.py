@@ -62,15 +62,37 @@ class ResearchCaseStore:
         return payload
 
     def list_cases(self, *, limit: int | None = None) -> List[Dict[str, Any]]:
-        items = [json.loads(path.read_text(encoding="utf-8")) | {"path": str(path)} for path in sorted(self.case_dir.glob("case_*.json"))]
+        items = [
+            json.loads(path.read_text(encoding="utf-8")) | {"path": str(path)}
+            for path in self.case_dir.glob("case_*.json")
+        ]
+
+        # IMPORTANT: "history_limit" must reflect a time-ordered window.
+        # Case ids are stable hashes and do not sort chronologically.
+        def sort_key(item: Dict[str, Any]) -> tuple[str, str, str]:
+            snapshot = dict(item.get("snapshot") or {})
+            as_of = normalize_date(snapshot.get("as_of_date") or "") if snapshot.get("as_of_date") else ""
+            created_at = str(item.get("created_at") or "")
+            return (as_of or "", created_at or "", str(item.get("path") or ""))
+
+        items.sort(key=sort_key)
         if limit is not None:
-            return items[-int(limit):]
+            return items[-max(1, int(limit)) :]
         return items
 
     def list_attributions(self, *, limit: int | None = None) -> List[Dict[str, Any]]:
-        items = [json.loads(path.read_text(encoding="utf-8")) | {"path": str(path)} for path in sorted(self.attribution_dir.glob("attribution_*.json"))]
+        items = [
+            json.loads(path.read_text(encoding="utf-8")) | {"path": str(path)}
+            for path in self.attribution_dir.glob("attribution_*.json")
+        ]
+
+        def sort_key(item: Dict[str, Any]) -> tuple[str, str]:
+            created_at = str(item.get("created_at") or "")
+            return (created_at or "", str(item.get("path") or ""))
+
+        items.sort(key=sort_key)
         if limit is not None:
-            return items[-int(limit):]
+            return items[-max(1, int(limit)) :]
         return items
 
     @staticmethod
@@ -321,6 +343,18 @@ class ResearchCaseStore:
                 unique_records[key] = item
         return [unique_records[key] for key in key_order]
 
+    @staticmethod
+    def _training_feedback_record_sort_key(
+        item: Dict[str, Any],
+    ) -> tuple[str, str, str]:
+        snapshot = dict(item.get("snapshot") or {})
+        case = dict(item.get("case") or {})
+        return (
+            normalize_date(snapshot.get("as_of_date") or ""),
+            str(case.get("created_at") or ""),
+            str(case.get("research_case_id") or ""),
+        )
+
     def find_cases(
         self,
         *,
@@ -561,6 +595,7 @@ class ResearchCaseStore:
         as_of_date: str = "",
         regime: str = "",
         limit: int | None = 200,
+        max_history_limit: int | None = None,
     ) -> Dict[str, Any]:
         normalized_manager = str(manager_id or "").strip()
         normalized_config_ref = self._canonical_manager_config_ref(manager_config_ref)
@@ -574,15 +609,58 @@ class ResearchCaseStore:
             )
         )
         records = self._dedupe_training_feedback_records(records)
-        if limit is not None:
-            records = records[-int(limit):]
+        records = sorted(records, key=self._training_feedback_record_sort_key)
+
+        # Window selection strategy:
+        # 1) Keep overall feedback based on the recent global window (`limit`).
+        # 2) For requested regime, use its own recent regime window first instead of
+        #    slicing overall then re-grouping, so rare regimes are not diluted by
+        #    dominant recent regimes.
+        # 3) If requested regime is still under-sampled, expand only the requested
+        #    regime window up to max_history_limit.
+        #
+        # NOTE: This changes evidence sampling only; gate thresholds remain unchanged.
         min_sample_count = self._training_feedback_min_sample_count(
             normalized_manager,
             normalized_config_ref,
         )
+
+        base_limit = None
+        if limit is not None:
+            try:
+                base_limit = max(1, int(limit))
+            except (TypeError, ValueError):
+                base_limit = 200
+        hard_cap = None
+        if max_history_limit not in (None, ""):
+            try:
+                hard_cap = max(1, int(max_history_limit))
+            except (TypeError, ValueError):
+                hard_cap = None
+        if hard_cap is not None and base_limit is not None:
+            base_limit = min(base_limit, hard_cap)
+        if hard_cap is not None:
+            hard_cap = min(hard_cap, len(records))
+
+        def _tail_window(
+            source: List[Dict[str, Any]],
+            requested_limit: int | None,
+        ) -> tuple[List[Dict[str, Any]], int]:
+            if not source:
+                return [], 0
+            if requested_limit is None:
+                return list(source), len(source)
+            bounded_limit = max(1, int(requested_limit))
+            bounded_limit = min(bounded_limit, len(source))
+            return list(source[-bounded_limit:]), bounded_limit
+
+        def _attributed_sample_count(source: List[Dict[str, Any]]) -> int:
+            return sum(1 for item in source if item.get("attribution"))
+
+        overall_window_records, overall_effective_limit = _tail_window(records, base_limit)
         overall_summary = self._feedback_recommendation(
             self._summarize_records(
-                records,
+                overall_window_records,
                 subject={
                     "manager_id": normalized_manager,
                     "manager_config_ref": normalized_config_ref,
@@ -590,8 +668,9 @@ class ResearchCaseStore:
                 },
             )
         )
+
         regime_groups: dict[str, list[Dict[str, Any]]] = defaultdict(list)
-        for item in records:
+        for item in overall_window_records:
             regime_key = self._case_regime(dict(item.get("snapshot") or {})) or "unknown"
             regime_groups[regime_key].append(item)
         regime_breakdown = {
@@ -608,7 +687,54 @@ class ResearchCaseStore:
             )
             for regime_key, group_records in sorted(regime_groups.items())
         }
-        requested_regime_feedback = dict(regime_breakdown.get(normalized_regime) or {})
+
+        requested_regime_feedback: Dict[str, Any] = {}
+        requested_regime_effective_limit = 0
+        requested_regime_expanded = False
+        if normalized_regime:
+            regime_records = [
+                item
+                for item in records
+                if (self._case_regime(dict(item.get("snapshot") or {})) or "unknown")
+                == normalized_regime
+            ]
+            regime_window_records, requested_regime_effective_limit = _tail_window(
+                regime_records,
+                base_limit,
+            )
+            current_sample_count = _attributed_sample_count(regime_window_records)
+            regime_cap = len(regime_records)
+            if hard_cap is not None:
+                regime_cap = min(regime_cap, hard_cap)
+            if current_sample_count < min_sample_count and requested_regime_effective_limit < regime_cap:
+                requested_regime_expanded = True
+                while current_sample_count < min_sample_count and requested_regime_effective_limit < regime_cap:
+                    next_limit = min(
+                        regime_cap,
+                        max(
+                            requested_regime_effective_limit * 2,
+                            requested_regime_effective_limit + 1,
+                        ),
+                    )
+                    regime_window_records, requested_regime_effective_limit = _tail_window(
+                        regime_records,
+                        next_limit,
+                    )
+                    current_sample_count = _attributed_sample_count(regime_window_records)
+            if regime_window_records:
+                requested_regime_feedback = self._feedback_recommendation(
+                    self._summarize_records(
+                        regime_window_records,
+                        subject={
+                            "manager_id": normalized_manager,
+                            "manager_config_ref": normalized_config_ref,
+                            "as_of_date": normalized_as_of,
+                            "regime": normalized_regime,
+                        },
+                    )
+                )
+                regime_breakdown[normalized_regime] = dict(requested_regime_feedback)
+
         effective_feedback = dict(overall_summary)
         effective_scope = "overall"
         scope_actionable = True
@@ -648,6 +774,15 @@ class ResearchCaseStore:
                 "covered_regimes": sorted(regime_breakdown.keys()),
                 "actionable": scope_actionable,
                 "unavailable_reason": unavailable_reason,
+                "window": {
+                    "base_history_limit": int(base_limit or 0),
+                    "overall_effective_history_limit": int(overall_effective_limit or 0),
+                    "requested_regime_effective_history_limit": int(
+                        requested_regime_effective_limit or 0
+                    ),
+                    "max_history_limit": int(hard_cap or 0),
+                    "requested_regime_expanded": bool(requested_regime_expanded),
+                },
             },
             "overall_feedback": overall_summary,
             "requested_regime_feedback": requested_regime_feedback,

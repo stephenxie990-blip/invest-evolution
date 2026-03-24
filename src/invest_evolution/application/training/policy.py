@@ -222,10 +222,47 @@ def _normalize_config_ref(value: Any) -> str:
     )
     if not looks_like_path:
         return text
+    # Preserve bare filenames like "executed.yaml" for tests and legacy payloads.
+    # We only resolve paths that include a directory component.
+    if "/" not in text and "\\" not in text:
+        return text
     try:
         return str(path.resolve(strict=False))
     except Exception:
         return text
+
+
+def _looks_like_runtime_config_path(value: Any) -> bool:
+    text = str(value or "").strip()
+    if not text:
+        return False
+    path = Path(text).expanduser()
+    return (
+        path.is_absolute()
+        or path.suffix.lower() in {".yaml", ".yml", ".json"}
+        or any(separator in text for separator in ("/", "\\"))
+    )
+
+
+def _canonical_manager_config_ref_for_manager(
+    manager_id: str,
+    manager_config_ref: Any,
+) -> str:
+    """
+    Canonicalize manager config refs to avoid "manager_id=X but config_ref=Y" drift.
+
+    Rules:
+    - If the ref already looks like a path (.yaml/.yml/.json or contains a slash), keep it (but normalize later).
+    - If the ref looks like an alias (e.g. "momentum_v1"), treat it as non-canonical and use the registry ref.
+    - If empty, use the registry ref.
+    """
+    normalized_manager_id = str(manager_id or "").strip()
+    raw = str(manager_config_ref or "").strip()
+    if not normalized_manager_id:
+        return _normalize_config_ref(raw)
+    if raw and _looks_like_runtime_config_path(raw):
+        return _normalize_config_ref(raw)
+    return _normalize_config_ref(str(resolve_registry_manager_config_ref(normalized_manager_id)))
 
 
 def _finite_float(value: Any) -> float | None:
@@ -778,19 +815,43 @@ class TrainingGovernanceService:
             current_cycle_id=cycle_id,
         )
         governance_payload = normalize_governance_decision(decision.to_dict())
+
+        # Default to multi-manager semantics unless the controller explicitly disables them.
+        manager_arch_enabled = bool(getattr(controller, "manager_arch_enabled", True))
+        dominant_manager = dominant_manager_id(governance_payload)
+
+        # If multi-manager architecture is disabled, clamp the governance payload itself
+        # to a single canonical subject. This prevents "single_manager" runs from
+        # silently executing portfolio mixing due to governance defaults.
+        if not manager_arch_enabled:
+            single = dominant_manager or controller_default_manager_id(controller)
+            governance_payload = {
+                **dict(governance_payload),
+                "active_manager_ids": [single] if single else [],
+                "manager_budget_weights": ({single: 1.0} if single else {}),
+                "dominant_manager_id": single,
+                "metadata": {
+                    **dict(governance_payload.get("metadata") or {}),
+                    "subject_type": "single_manager",
+                    "clamped": True,
+                    "clamped_reason": "manager_arch_disabled",
+                },
+            }
+            dominant_manager = single
+
+        # Persist the normalized (and possibly clamped) governance decision.
         set_session_last_governance_decision(controller, governance_payload)
         controller.governance_history.append(dict(governance_payload))
         controller.last_allocation_plan = dict(decision.allocation_plan or {})
         active_manager_ids = list(governance_payload.get("active_manager_ids") or [])
         manager_budget_weights = dict(governance_payload.get("manager_budget_weights") or {})
-        dominant_manager = dominant_manager_id(governance_payload)
         controller.manager_active_ids = active_manager_ids
         normalized_budget_weights = {
             str(key): float(value)
             for key, value in manager_budget_weights.items()
         }
         set_session_manager_budget_weights(controller, normalized_budget_weights)
-        controller.portfolio_assembly_enabled = True
+        controller.portfolio_assembly_enabled = bool(manager_arch_enabled)
         event_emitter(
             "regime_classified",
             {
@@ -1222,6 +1283,20 @@ def resolve_training_scope(
             or "",
         },
     )
+
+    # Enforce a single canonical subject identity: dominant manager id must map to the
+    # active/default/runtime config ref used for the cycle.
+    canonical_manager_config_ref = _canonical_manager_config_ref_for_manager(
+        resolved_dominant_manager_id,
+        active_runtime_config_ref or resolved_manager_config_ref,
+    )
+    resolved_manager_config_ref = canonical_manager_config_ref
+    active_runtime_config_ref = canonical_manager_config_ref
+    resolved_execution_defaults = {
+        **dict(resolved_execution_defaults or {}),
+        "default_manager_id": resolved_dominant_manager_id,
+        "default_manager_config_ref": canonical_manager_config_ref,
+    }
     return TrainingScopeResolution(
         governance_decision=resolved_governance,
         dominant_manager_id=resolved_dominant_manager_id,

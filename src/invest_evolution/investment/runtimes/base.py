@@ -98,6 +98,13 @@ class ManagerRuntime(ABC):
             return list(value)
         return value
 
+    def runtime_config_ref(self) -> str:
+        return str(
+            getattr(self.config, "path", "")
+            or getattr(self.config, "name", "")
+            or ""
+        ).strip()
+
     def param(self, key: str, default: Any = None) -> Any:
         if key in self.runtime_overrides:
             return self.runtime_overrides[key]
@@ -166,7 +173,7 @@ class ManagerRuntime(ABC):
         agent_context = self.build_agent_context(stock_data, cutoff_date, signal_packet)
         return ManagerOutput(
             manager_id=self.runtime_id,
-            manager_config_ref=self.config.name,
+            manager_config_ref=self.runtime_config_ref(),
             signal_packet=signal_packet,
             agent_context=agent_context,
         )

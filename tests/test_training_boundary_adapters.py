@@ -1,11 +1,14 @@
+from pathlib import Path
 from types import SimpleNamespace
 
 from invest_evolution.application.training.execution import (
     ManagerCompatibilityProjection,
+    SelectionStageContext,
     build_manager_compatibility_fields,
     project_cycle_payload_manager_compatibility,
     project_manager_compatibility,
     resolve_payload_manager_identity,
+    runtime_manager_config_ref,
 )
 from invest_evolution.application.training.observability import (
     _resolve_cycle_payload_boundary,
@@ -14,6 +17,7 @@ from invest_evolution.application.training.observability import (
     build_selection_boundary_projection,
 )
 from invest_evolution.application.training.controller import TrainingSessionState
+from invest_evolution.investment.runtimes import create_manager_runtime
 
 
 def test_project_manager_compatibility_prefers_canonical_scope_snapshot():
@@ -43,11 +47,11 @@ def test_project_manager_compatibility_prefers_canonical_scope_snapshot():
     )
 
     assert projection.manager_id == "value_quality"
-    assert projection.manager_config_ref == "configs/executed.yaml"
-    assert projection.active_runtime_config_ref == "configs/executed.yaml"
+    assert projection.manager_config_ref.endswith("configs/executed.yaml")
+    assert projection.active_runtime_config_ref.endswith("configs/executed.yaml")
     assert projection.execution_defaults == {
         "default_manager_id": "value_quality",
-        "default_manager_config_ref": "configs/executed.yaml",
+        "default_manager_config_ref": projection.manager_config_ref,
     }
     assert projection.subject_type == "manager_portfolio"
 
@@ -98,7 +102,27 @@ def test_resolve_payload_manager_identity_prefers_payload_then_controller_defaul
     )
 
     assert manager_id == "value_quality"
-    assert manager_config_ref == "configs/value.yaml"
+    assert manager_config_ref.endswith("configs/value.yaml")
+
+
+def test_runtime_manager_config_ref_prefers_runtime_config_path():
+    runtime = SimpleNamespace(
+        config=SimpleNamespace(
+            path=Path("/tmp/runtime-configs/momentum_v1.yaml"),
+            name="momentum_v1",
+        )
+    )
+
+    assert runtime_manager_config_ref(runtime) == "/tmp/runtime-configs/momentum_v1.yaml"
+
+
+def test_runtime_process_emits_path_based_manager_config_ref_consistently():
+    runtime = create_manager_runtime("momentum")
+    output = runtime.process({}, "20240131")
+
+    assert output.manager_config_ref.endswith("configs/momentum_v1.yaml")
+    assert output.signal_packet.manager_config_ref == output.manager_config_ref
+    assert output.agent_context.manager_config_ref == output.manager_config_ref
 
 
 def test_project_cycle_payload_manager_compatibility_prefers_cycle_snapshot_over_controller_defaults():
@@ -127,11 +151,11 @@ def test_project_cycle_payload_manager_compatibility_prefers_cycle_snapshot_over
     )
 
     assert projection.manager_id == "momentum"
-    assert projection.active_runtime_config_ref == "configs/momentum.generated.yaml"
-    assert projection.manager_config_ref == "configs/momentum.generated.yaml"
+    assert projection.active_runtime_config_ref.endswith("configs/momentum.generated.yaml")
+    assert projection.manager_config_ref.endswith("configs/momentum.generated.yaml")
     assert projection.execution_defaults == {
         "default_manager_id": "momentum",
-        "default_manager_config_ref": "configs/momentum.generated.yaml",
+        "default_manager_config_ref": projection.manager_config_ref,
     }
 
 
@@ -278,7 +302,9 @@ def test_build_outcome_execution_boundary_projection_prefers_explicit_execution_
     )
 
     assert projection.execution_snapshot["basis_stage"] == "simulation_envelope"
-    assert projection.execution_snapshot["active_runtime_config_ref"] == "configs/envelope.yaml"
+    assert projection.execution_snapshot["active_runtime_config_ref"].endswith(
+        "configs/envelope.yaml"
+    )
 
 
 def test_build_review_eval_projection_boundary_projects_manager_identity_and_metadata():
@@ -303,14 +329,14 @@ def test_build_review_eval_projection_boundary_projects_manager_identity_and_met
     )
 
     assert projection.manager_id == "value_quality"
-    assert projection.manager_config_ref == "configs/value_quality.yaml"
+    assert projection.manager_config_ref.endswith("configs/value_quality.yaml")
     assert projection.subject_type == "manager_portfolio"
     assert projection.compatibility_fields == {
         "derived": True,
         "source": "dominant_manager",
         "field_role": "derived_compatibility",
         "manager_id": "value_quality",
-        "manager_config_ref": "configs/value_quality.yaml",
+        "manager_config_ref": projection.manager_config_ref,
     }
 
 
@@ -365,3 +391,190 @@ def test_resolve_payload_manager_identity_repairs_metadata_config_mismatch():
 
     assert manager_id == "momentum"
     assert manager_config_ref.endswith("momentum_v1.yaml")
+
+
+def test_project_manager_compatibility_canonicalizes_alias_ref_to_runtime_config_path():
+    controller = SimpleNamespace(
+        session_state=TrainingSessionState(
+            default_manager_id="momentum",
+            default_manager_config_ref="configs/momentum_v1.yaml",
+            last_governance_decision={
+                "dominant_manager_id": "momentum",
+                "active_manager_ids": ["momentum", "value_quality"],
+                "manager_budget_weights": {"momentum": 0.7, "value_quality": 0.3},
+                "regime": "bull",
+            },
+        )
+    )
+
+    projection = project_manager_compatibility(
+        controller,
+        manager_output=SimpleNamespace(
+            manager_id="momentum",
+            manager_config_ref="momentum_v1",
+        ),
+        execution_snapshot={
+            "dominant_manager_id": "momentum",
+            "active_runtime_config_ref": "momentum_v1",
+            "manager_config_ref": "momentum_v1",
+            "execution_defaults": {
+                "default_manager_id": "momentum",
+                "default_manager_config_ref": "momentum_v1",
+            },
+        },
+        dominant_manager_id_hint="momentum",
+    )
+
+    assert projection.manager_id == "momentum"
+    assert projection.manager_config_ref.endswith("configs/momentum_v1.yaml")
+    assert projection.active_runtime_config_ref.endswith("configs/momentum_v1.yaml")
+    assert projection.execution_defaults["default_manager_config_ref"].endswith(
+        "configs/momentum_v1.yaml"
+    )
+
+
+def test_project_manager_compatibility_prefers_portfolio_subject_when_snapshot_was_trimmed():
+    controller = SimpleNamespace(
+        session_state=TrainingSessionState(
+            default_manager_id="momentum",
+            default_manager_config_ref="configs/momentum_v1.yaml",
+            last_governance_decision={
+                "dominant_manager_id": "momentum",
+                "active_manager_ids": ["momentum", "value_quality"],
+                "manager_budget_weights": {"momentum": 0.6, "value_quality": 0.4},
+                "regime": "bull",
+            },
+        ),
+    )
+
+    projection = project_manager_compatibility(
+        controller,
+        execution_snapshot={
+            "subject_type": "single_manager",
+            "selection_mode": "manager_portfolio",
+            "manager_results": [
+                {"manager_id": "momentum"},
+                {"manager_id": "value_quality"},
+            ],
+            "active_runtime_config_ref": "momentum_v1",
+            "manager_config_ref": "momentum_v1",
+            "dominant_manager_id": "momentum",
+        },
+        dominant_manager_id_hint="momentum",
+    )
+
+    assert projection.subject_type == "manager_portfolio"
+    assert projection.manager_id == "momentum"
+    assert projection.manager_config_ref.endswith("configs/momentum_v1.yaml")
+
+
+def test_selection_stage_context_preserves_minimal_identity_when_manager_persistence_disabled():
+    context = SelectionStageContext(
+        selection_result=None,
+        manager_output=None,
+        regime_result={"regime": "bull"},
+        trading_plan=SimpleNamespace(),
+        selected=["sh.600519"],
+        selected_data={},
+        selection_mode="manager_portfolio",
+        agent_used=False,
+        manager_bundle=None,
+        manager_results_payload=[
+            {"manager_id": "momentum", "manager_config_ref": "configs/momentum_v1.yaml"},
+            {"manager_id": "value_quality", "manager_config_ref": "configs/value_quality_v1.yaml"},
+        ],
+        portfolio_plan_payload={"active_manager_ids": ["momentum", "value_quality"]},
+        dominant_manager_id="momentum",
+        portfolio_attribution_payload={"sh.600519": {"momentum": 0.7}},
+        compatibility_fields={},
+    )
+
+    payload = context.outcome_persistence_inputs(persistence_enabled=False)
+
+    assert payload["dominant_manager_id"] == "momentum"
+    assert payload["portfolio_plan"]["active_manager_ids"] == ["momentum", "value_quality"]
+    assert payload["portfolio_plan"]["manager_count"] == 2
+    assert payload["manager_results"] == [
+        {"manager_id": "momentum", "manager_config_ref": "configs/momentum_v1.yaml"},
+        {"manager_id": "value_quality", "manager_config_ref": "configs/value_quality_v1.yaml"},
+    ]
+
+
+def test_selection_stage_context_does_not_synthesize_portfolio_shape_for_single_manager_subject():
+    context = SelectionStageContext(
+        selection_result=None,
+        manager_output=None,
+        regime_result={"regime": "bear"},
+        trading_plan=SimpleNamespace(),
+        selected=["sh.600519"],
+        selected_data={},
+        selection_mode="single_manager",
+        agent_used=False,
+        manager_bundle=None,
+        manager_results_payload=[
+            {"manager_id": "defensive_low_vol", "manager_config_ref": "configs/defensive_low_vol_v1.yaml"},
+        ],
+        portfolio_plan_payload={"active_manager_ids": ["defensive_low_vol"]},
+        dominant_manager_id="defensive_low_vol",
+        portfolio_attribution_payload={},
+        compatibility_fields={},
+    )
+
+    payload = context.outcome_persistence_inputs(persistence_enabled=False)
+
+    assert payload["dominant_manager_id"] == "defensive_low_vol"
+    assert payload["manager_results"] == [
+        {
+            "manager_id": "defensive_low_vol",
+            "manager_config_ref": "configs/defensive_low_vol_v1.yaml",
+        }
+    ]
+    assert payload["portfolio_plan"] == {}
+
+
+def test_build_outcome_execution_boundary_projection_rewrites_subject_fields_without_full_portfolio_payload():
+    controller = SimpleNamespace(
+        session_state=TrainingSessionState(
+            default_manager_id="momentum",
+            default_manager_config_ref="configs/active.yaml",
+            current_params={"position_size": 0.12},
+            last_governance_decision={
+                "dominant_manager_id": "momentum",
+                "active_manager_ids": ["momentum", "value_quality"],
+                "manager_budget_weights": {"momentum": 0.6, "value_quality": 0.4},
+                "regime": "bull",
+            },
+        ),
+    )
+
+    projection = build_outcome_execution_boundary_projection(
+        controller,
+        cycle_id=6,
+        execution_snapshot={
+            "subject_type": "single_manager",
+            "selection_mode": "manager_portfolio",
+            "dominant_manager_id": "momentum",
+        },
+        governance_decision={
+            "dominant_manager_id": "momentum",
+            "active_manager_ids": ["momentum", "value_quality"],
+            "manager_budget_weights": {"momentum": 0.6, "value_quality": 0.4},
+            "regime": "bull",
+        },
+        manager_output=SimpleNamespace(
+            manager_id="momentum",
+            manager_config_ref="configs/active.yaml",
+        ),
+        selection_mode="manager_portfolio",
+        benchmark_passed=True,
+        manager_results_payload=[
+            {"manager_id": "momentum"},
+            {"manager_id": "value_quality"},
+        ],
+        portfolio_payload={},
+        dominant_manager_id="momentum",
+    )
+
+    assert projection.execution_snapshot["subject_type"] == "manager_portfolio"
+    assert projection.execution_snapshot["manager_id"] == "momentum"
+    assert projection.execution_snapshot["dominant_manager_id"] == "momentum"

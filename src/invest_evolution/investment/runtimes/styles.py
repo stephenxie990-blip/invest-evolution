@@ -70,7 +70,7 @@ class MomentumRuntime(ManagerRuntime):
         return SignalPacket(
             as_of_date=cutoff_date,
             manager_id=self.runtime_id,
-            manager_config_ref=self.config.name,
+            manager_config_ref=self.runtime_config_ref(),
             regime=regime,
             signals=signals,
             selected_codes=[item.code for item in signals[:max_positions]],
@@ -98,7 +98,7 @@ class MomentumRuntime(ManagerRuntime):
         return AgentContext(
             as_of_date=cutoff_date,
             manager_id=self.runtime_id,
-            manager_config_ref=self.config.name,
+            manager_config_ref=self.runtime_config_ref(),
             summary=summary,
             narrative=narrative,
             regime=signal_packet.regime,
@@ -197,7 +197,7 @@ class MeanReversionRuntime(ManagerRuntime):
         return SignalPacket(
             as_of_date=cutoff_date,
             manager_id=self.runtime_id,
-            manager_config_ref=self.config.name,
+            manager_config_ref=self.runtime_config_ref(),
             regime=regime,
             signals=signals,
             selected_codes=[item.code for item in signals[:max_positions]],
@@ -229,7 +229,7 @@ class MeanReversionRuntime(ManagerRuntime):
         return AgentContext(
             as_of_date=cutoff_date,
             manager_id=self.runtime_id,
-            manager_config_ref=self.config.name,
+            manager_config_ref=self.runtime_config_ref(),
             summary=summary,
             narrative=narrative,
             regime=signal_packet.regime,
@@ -333,7 +333,7 @@ class DefensiveLowVolRuntime(ManagerRuntime):
         return SignalPacket(
             as_of_date=cutoff_date,
             manager_id=self.runtime_id,
-            manager_config_ref=self.config.name,
+            manager_config_ref=self.runtime_config_ref(),
             regime=regime,
             signals=signals,
             selected_codes=[item.code for item in signals[:max_positions]],
@@ -365,7 +365,7 @@ class DefensiveLowVolRuntime(ManagerRuntime):
         return AgentContext(
             as_of_date=cutoff_date,
             manager_id=self.runtime_id,
-            manager_config_ref=self.config.name,
+            manager_config_ref=self.runtime_config_ref(),
             summary=summary,
             narrative=narrative,
             regime=signal_packet.regime,
@@ -488,7 +488,7 @@ class ValueQualityRuntime(ManagerRuntime):
         return SignalPacket(
             as_of_date=cutoff_date,
             manager_id=self.runtime_id,
-            manager_config_ref=self.config.name,
+            manager_config_ref=self.runtime_config_ref(),
             regime=regime,
             signals=signals,
             selected_codes=[item.code for item in signals[:max_positions]],
@@ -520,7 +520,7 @@ class ValueQualityRuntime(ManagerRuntime):
         return AgentContext(
             as_of_date=cutoff_date,
             manager_id=self.runtime_id,
-            manager_config_ref=self.config.name,
+            manager_config_ref=self.runtime_config_ref(),
             summary=summary,
             narrative=narrative,
             regime=signal_packet.regime,
