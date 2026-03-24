@@ -604,17 +604,8 @@ class AskStockResearchBundle:
 class AskStockPresentationBundle:
     request: dict[str, Any]
     identifiers: dict[str, str]
-    task_bus: dict[str, Any]
-    protocol_bundle: "AskStockProtocolBundle"
+    presentation_spec: "AskStockPresentationSpec"
     orchestration_bundle: "AskStockOrchestrationBundle"
-    sections: "AskStockSectionsBundle"
-
-
-@dataclass(frozen=True)
-class AskStockPresentationAssemblyBundle:
-    task_bus: dict[str, Any]
-    protocol_bundle: "AskStockProtocolBundle"
-    sections: "AskStockSectionsBundle"
 
 
 @dataclass(frozen=True)
@@ -725,11 +716,47 @@ class AskStockExecutionProjection:
 
 
 @dataclass(frozen=True)
+class AskStockPresentationSpec:
+    task_bus: dict[str, Any]
+    protocol: dict[str, Any]
+    artifacts: dict[str, Any]
+    coverage: dict[str, Any]
+    artifact_taxonomy: dict[str, Any]
+    sections: "AskStockSectionsBundle"
+
+
+@dataclass(frozen=True)
 class AskStockProtocolBundle:
     protocol: dict[str, Any]
     artifacts: dict[str, Any]
     coverage: dict[str, Any]
     artifact_taxonomy: dict[str, Any]
+
+    def to_presentation_spec(
+        self,
+        *,
+        task_bus: dict[str, Any],
+        sections: "AskStockSectionsBundle",
+    ) -> AskStockPresentationSpec:
+        return AskStockPresentationSpec(
+            task_bus=dict(task_bus),
+            protocol=dict(self.protocol),
+            artifacts=dict(self.artifacts),
+            coverage=dict(self.coverage),
+            artifact_taxonomy=dict(self.artifact_taxonomy),
+            sections=sections,
+        )
+
+
+@dataclass(frozen=True)
+class AskStockFinalResponseBundle:
+    payload: dict[str, Any]
+    task_bus: dict[str, Any]
+    protocol: dict[str, Any]
+    artifacts: dict[str, Any]
+    coverage: dict[str, Any]
+    artifact_taxonomy: dict[str, Any]
+    default_reply: str = "已完成问股分析。"
 
 
 @dataclass(frozen=True)
@@ -4714,14 +4741,11 @@ class StockAnalysisService(StockAnalysisExecutionMixin):
         payload = self._build_ask_stock_payload(
             payload_bundle=payload_bundle,
         )
-        return build_protocol_response(
-            payload=payload,
-            protocol=presentation_bundle.protocol_bundle.protocol,
-            task_bus=presentation_bundle.task_bus,
-            artifacts=presentation_bundle.protocol_bundle.artifacts,
-            coverage=presentation_bundle.protocol_bundle.coverage,
-            artifact_taxonomy=presentation_bundle.protocol_bundle.artifact_taxonomy,
-            default_reply="已完成问股分析。",
+        return self._render_ask_stock_final_response(
+            bundle=self._build_ask_stock_final_response_bundle(
+                payload=payload,
+                presentation_bundle=presentation_bundle,
+            ),
         )
 
     def _run_ask_stock_execution_stage(
@@ -4940,7 +4964,7 @@ class StockAnalysisService(StockAnalysisExecutionMixin):
             artifact_taxonomy=dict(bounded_context["artifact_taxonomy"]),
         )
 
-    def _build_ask_stock_presentation_assembly_bundle(
+    def _build_ask_stock_presentation_spec(
         self,
         *,
         question: str,
@@ -4950,7 +4974,7 @@ class StockAnalysisService(StockAnalysisExecutionMixin):
         execution_projection: AskStockExecutionProjection,
         research_bundle: AskStockResearchBundle,
         identifiers: dict[str, str],
-    ) -> AskStockPresentationAssemblyBundle:
+    ) -> AskStockPresentationSpec:
         section_payload_factory = AskStockSectionPayloadFactory(
             execution=execution,
             derived=derived,
@@ -4968,9 +4992,9 @@ class StockAnalysisService(StockAnalysisExecutionMixin):
             research_case_id=research_bundle.research_case_id,
             attribution_id=research_bundle.attribution_id,
         )
-        return AskStockPresentationAssemblyBundle(
+        protocol_bundle = self._build_ask_stock_protocol_bundle(bounded_context)
+        return protocol_bundle.to_presentation_spec(
             task_bus=task_bus,
-            protocol_bundle=self._build_ask_stock_protocol_bundle(bounded_context),
             sections=self._build_ask_stock_sections_bundle(
                 factory=section_payload_factory,
             ),
@@ -5058,7 +5082,7 @@ class StockAnalysisService(StockAnalysisExecutionMixin):
             attribution_id=research_bundle.attribution_id,
         )
         identifiers = identifiers_projection.to_payload()
-        assembly_bundle = self._build_ask_stock_presentation_assembly_bundle(
+        presentation_spec = self._build_ask_stock_presentation_spec(
             question=question,
             query=query,
             execution=execution_bundle.execution,
@@ -5070,14 +5094,12 @@ class StockAnalysisService(StockAnalysisExecutionMixin):
         return AskStockPresentationBundle(
             request=request,
             identifiers=identifiers,
-            task_bus=assembly_bundle.task_bus,
-            protocol_bundle=assembly_bundle.protocol_bundle,
+            presentation_spec=presentation_spec,
             orchestration_bundle=self._build_ask_stock_orchestration_bundle(
                 strategy=strategy,
                 execution_projection=execution_projection,
                 allowed_tools=execution_bundle.allowed_tools,
             ),
-            sections=assembly_bundle.sections,
         )
 
     def _build_ask_stock_orchestration_payload(
@@ -5152,13 +5174,13 @@ class StockAnalysisService(StockAnalysisExecutionMixin):
                 strategy_source=strategy_source,
                 days=days,
             ),
-            task_bus=dict(presentation_bundle.task_bus),
+            task_bus=dict(presentation_bundle.presentation_spec.task_bus),
             orchestration=self._build_ask_stock_orchestration_payload(
                 strategy=strategy,
                 orchestration_bundle=orchestration_bundle,
             ),
-            analysis=dict(presentation_bundle.sections.analysis),
-            research=dict(presentation_bundle.sections.research),
+            analysis=dict(presentation_bundle.presentation_spec.sections.analysis),
+            research=dict(presentation_bundle.presentation_spec.sections.research),
             dashboard=dict(research_bundle.dashboard),
         )
 
@@ -5176,6 +5198,37 @@ class StockAnalysisService(StockAnalysisExecutionMixin):
             "research": dict(payload_bundle.research),
             "dashboard": dict(payload_bundle.dashboard),
         }
+
+    @staticmethod
+    def _build_ask_stock_final_response_bundle(
+        *,
+        payload: dict[str, Any],
+        presentation_bundle: AskStockPresentationBundle,
+    ) -> AskStockFinalResponseBundle:
+        presentation_spec = presentation_bundle.presentation_spec
+        return AskStockFinalResponseBundle(
+            payload=dict(payload),
+            task_bus=dict(presentation_spec.task_bus),
+            protocol=dict(presentation_spec.protocol),
+            artifacts=dict(presentation_spec.artifacts),
+            coverage=dict(presentation_spec.coverage),
+            artifact_taxonomy=dict(presentation_spec.artifact_taxonomy),
+        )
+
+    @staticmethod
+    def _render_ask_stock_final_response(
+        *,
+        bundle: AskStockFinalResponseBundle,
+    ) -> dict[str, Any]:
+        return build_protocol_response(
+            payload=dict(bundle.payload),
+            protocol=dict(bundle.protocol),
+            task_bus=dict(bundle.task_bus),
+            artifacts=dict(bundle.artifacts),
+            coverage=dict(bundle.coverage),
+            artifact_taxonomy=dict(bundle.artifact_taxonomy),
+            default_reply=bundle.default_reply,
+        )
 
     def _resolve_ask_stock_research_outputs(
         self,
