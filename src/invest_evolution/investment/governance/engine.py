@@ -40,9 +40,9 @@ DEFAULT_REGIME_PRIORS: Dict[str, Dict[str, float]] = {
         "mean_reversion": 0.15,
     },
     "oscillation": {
-        "mean_reversion": 0.40,
-        "value_quality": 0.25,
-        "defensive_low_vol": 0.25,
+        "defensive_low_vol": 0.38,
+        "value_quality": 0.34,
+        "mean_reversion": 0.18,
         "momentum": 0.10,
     },
     "bear": {
@@ -61,7 +61,7 @@ DEFAULT_REGIME_PRIORS: Dict[str, Dict[str, float]] = {
 
 REGIME_WEIGHT_CAPS: Dict[str, Dict[str, float]] = {
     "bull": {"momentum": 0.70},
-    "oscillation": {"momentum": 0.25, "mean_reversion": 0.50},
+    "oscillation": {"momentum": 0.20, "mean_reversion": 0.20},
     "bear": {"momentum": 0.20, "defensive_low_vol": 0.60},
 }
 

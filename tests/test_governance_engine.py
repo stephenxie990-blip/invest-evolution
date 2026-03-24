@@ -4,7 +4,8 @@ import invest_evolution.investment.governance.engine as governance_engine
 from invest_evolution.investment.agents.specialists import GovernanceSelectorAgent
 from invest_evolution.investment.contracts import AllocationPlan
 from invest_evolution.investment.governance import GovernanceCoordinator, RegimeClassifier
-from invest_evolution.investment.governance.engine import MarketObservation
+from invest_evolution.investment.governance.engine import MarketObservation, ModelAllocator
+from invest_evolution.investment.shared.policy import manager_regime_compatibility
 
 
 LEADERBOARD = {
@@ -37,6 +38,15 @@ def test_governance_selector_returns_dominant_manager_id_as_canonical_field():
 
     assert advice["dominant_manager_id"] == "mean_reversion"
     assert advice["candidate_manager_ids"][0] == "mean_reversion"
+
+
+def test_oscillation_style_compatibility_demotes_mean_reversion_from_default_lead():
+    defensive = manager_regime_compatibility("defensive_low_vol", "oscillation")
+    value = manager_regime_compatibility("value_quality", "oscillation")
+    mean_reversion = manager_regime_compatibility("mean_reversion", "oscillation")
+
+    assert defensive > mean_reversion
+    assert value > mean_reversion
 
 
 def _leaderboard_path(tmp_path):
@@ -102,7 +112,7 @@ def test_governance_coordinator_holds_current_manager_id_when_cooldown_is_active
     assert decision.hold_reason == 'governance_cooldown_active'
 
 
-def test_governance_coordinator_breaks_cooldown_for_strong_candidate_exception(tmp_path, monkeypatch):
+def test_governance_coordinator_breaks_cooldown_for_strong_oscillation_candidate_exception(tmp_path, monkeypatch):
     coordinator = GovernanceCoordinator(
         cooldown_cycles=2,
         hysteresis_margin=0.01,
@@ -152,8 +162,8 @@ def test_governance_coordinator_breaks_cooldown_for_strong_candidate_exception(t
                     'eligible_for_governance': True,
                 },
                 {
-                    'manager_id': 'mean_reversion',
-                    'manager_config_ref': 'mean_reversion_v1',
+                    'manager_id': 'defensive_low_vol',
+                    'manager_config_ref': 'defensive_low_vol_v1',
                     'score': 14.0,
                     'avg_return_pct': 1.9,
                     'avg_sharpe_ratio': 1.3,
@@ -167,7 +177,7 @@ def test_governance_coordinator_breaks_cooldown_for_strong_candidate_exception(t
             'regime_leaderboards': {
                 'oscillation': [
                     {
-                        'manager_id': 'mean_reversion',
+                        'manager_id': 'defensive_low_vol',
                         'rank': 1,
                         'eligible_for_governance': True,
                     },
@@ -187,15 +197,15 @@ def test_governance_coordinator_breaks_cooldown_for_strong_candidate_exception(t
         current_manager_id='momentum',
         leaderboard_path=leaderboard_path,
         allocator_top_n=3,
-        allowed_manager_ids=['momentum', 'mean_reversion'],
+        allowed_manager_ids=['momentum', 'defensive_low_vol'],
         governance_mode='rule',
         current_cycle_id=5,
         last_governance_change_cycle_id=4,
     )
 
-    assert decision.active_manager_ids == ['mean_reversion', 'momentum']
-    assert decision.dominant_manager_id == 'mean_reversion'
-    assert decision.manager_budget_weights['mean_reversion'] > decision.manager_budget_weights['momentum']
+    assert decision.active_manager_ids == ['defensive_low_vol', 'momentum']
+    assert decision.dominant_manager_id == 'defensive_low_vol'
+    assert decision.manager_budget_weights['defensive_low_vol'] > decision.manager_budget_weights['momentum']
     assert decision.metadata['historical']['guardrail_hold'] is False
     assert decision.metadata['historical']['governance_applied'] is True
     assert decision.metadata['cooldown_exception']['applied'] is True
@@ -403,6 +413,58 @@ def test_governance_coordinator_uses_shadow_regime_prior_fallback_when_no_qualif
     ]
     assert 'shadow 专用 provisional fallback' in decision.reasoning
     assert decision.evidence['allocator_quality']['qualified_candidate_count'] == 0
+
+
+def test_model_allocator_prefers_defensive_and_value_quality_in_oscillation_when_quality_is_similar():
+    allocator = ModelAllocator()
+    leaderboard = {
+        "generated_at": "2026-03-24T00:00:00",
+        "entries": [
+            {
+                "manager_id": "mean_reversion",
+                "manager_config_ref": "mean_reversion_v1",
+                "score": 10.0,
+                "avg_return_pct": 0.6,
+                "avg_sharpe_ratio": 0.7,
+                "avg_max_drawdown": 3.5,
+                "benchmark_pass_rate": 0.4,
+                "avg_strategy_score": 0.68,
+                "rank": 1,
+                "eligible_for_governance": True,
+            },
+            {
+                "manager_id": "value_quality",
+                "manager_config_ref": "value_quality_v1",
+                "score": 10.0,
+                "avg_return_pct": 0.6,
+                "avg_sharpe_ratio": 0.7,
+                "avg_max_drawdown": 3.5,
+                "benchmark_pass_rate": 0.4,
+                "avg_strategy_score": 0.68,
+                "rank": 1,
+                "eligible_for_governance": True,
+            },
+            {
+                "manager_id": "defensive_low_vol",
+                "manager_config_ref": "defensive_low_vol_v1",
+                "score": 10.0,
+                "avg_return_pct": 0.6,
+                "avg_sharpe_ratio": 0.7,
+                "avg_max_drawdown": 3.5,
+                "benchmark_pass_rate": 0.4,
+                "avg_strategy_score": 0.68,
+                "rank": 1,
+                "eligible_for_governance": True,
+            },
+        ],
+        "regime_leaderboards": {},
+    }
+
+    plan = allocator.allocate("oscillation", leaderboard, as_of_date="20260324", top_n=3)
+
+    assert plan.active_manager_ids[0] == "defensive_low_vol"
+    assert plan.manager_budget_weights["defensive_low_vol"] > plan.manager_budget_weights["value_quality"]
+    assert plan.manager_budget_weights["value_quality"] > plan.manager_budget_weights["mean_reversion"]
 
 
 def test_governance_coordinator_shadow_fallback_ignores_invalid_allowlist_entries(tmp_path, monkeypatch):

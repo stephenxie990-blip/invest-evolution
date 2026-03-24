@@ -1978,19 +1978,19 @@ DEFAULT_MANAGER_STYLE_COMPATIBILITY: dict[str, dict[str, float]] = {
     },
     "mean_reversion": {
         "bull": 0.20,
-        "oscillation": 1.0,
+        "oscillation": 0.58,
         "bear": 0.65,
         "unknown": 0.60,
     },
     "defensive_low_vol": {
         "bull": 0.35,
-        "oscillation": 0.78,
+        "oscillation": 0.88,
         "bear": 1.0,
         "unknown": 0.65,
     },
     "value_quality": {
         "bull": 0.82,
-        "oscillation": 0.76,
+        "oscillation": 0.84,
         "bear": 0.62,
         "unknown": 0.68,
     },
