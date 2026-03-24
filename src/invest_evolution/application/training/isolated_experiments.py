@@ -10,6 +10,7 @@ from invest_evolution.config import config, normalize_date
 DEFAULT_REVIEW_WINDOW = {"mode": "rolling", "size": 5}
 DEFAULT_STEP_DAYS = 30
 DEFAULT_WARMUP_WINDOWS = 3
+DEFAULT_DENSE_SCAN_DAYS = 7
 
 
 @dataclass(frozen=True)
@@ -36,12 +37,62 @@ ISOLATED_EXPERIMENT_PRESETS: dict[str, IsolatedExperimentPreset] = {
 }
 
 
+def list_isolated_experiment_preset_names() -> list[str]:
+    return sorted(ISOLATED_EXPERIMENT_PRESETS.keys())
+
+
 def resolve_isolated_experiment_preset(value: str) -> IsolatedExperimentPreset:
     key = str(value or "").strip()
     if key not in ISOLATED_EXPERIMENT_PRESETS:
         available = ", ".join(sorted(ISOLATED_EXPERIMENT_PRESETS))
         raise ValueError(f"unknown isolated experiment preset: {key!r}; expected one of: {available}")
     return ISOLATED_EXPERIMENT_PRESETS[key]
+
+
+def _build_discovery_probe_schedule(
+    *,
+    anchor_date: str,
+    max_date: str,
+    step_days: int,
+) -> tuple[list[str], dict[str, Any]]:
+    coarse_step_days = max(1, int(step_days or DEFAULT_STEP_DAYS))
+    dense_step_days = (
+        coarse_step_days
+        if coarse_step_days <= DEFAULT_DENSE_SCAN_DAYS
+        else DEFAULT_DENSE_SCAN_DAYS
+    )
+    anchor_dt = datetime.strptime(anchor_date, "%Y%m%d")
+    end_dt = datetime.strptime(max_date, "%Y%m%d")
+    if anchor_dt > end_dt:
+        return [], {
+            "mode": "coarse_plus_dense_scan",
+            "coarse_step_days": coarse_step_days,
+            "dense_step_days": dense_step_days,
+            "probe_count": 0,
+        }
+
+    probe_dates: set[str] = set()
+    window_start = anchor_dt
+    while window_start <= end_dt:
+        window_end = min(end_dt, window_start + timedelta(days=coarse_step_days))
+        probe_dates.add(window_start.strftime("%Y%m%d"))
+
+        if dense_step_days < coarse_step_days:
+            dense_cursor = window_start + timedelta(days=dense_step_days)
+            while dense_cursor < window_end:
+                probe_dates.add(dense_cursor.strftime("%Y%m%d"))
+                dense_cursor += timedelta(days=dense_step_days)
+
+        window_start += timedelta(days=coarse_step_days)
+
+    probe_dates.add(end_dt.strftime("%Y%m%d"))
+    ordered_probe_dates = sorted(probe_dates)
+    return ordered_probe_dates, {
+        "mode": "coarse_plus_dense_scan",
+        "coarse_step_days": coarse_step_days,
+        "dense_step_days": dense_step_days,
+        "probe_count": len(ordered_probe_dates),
+    }
 
 
 def resolve_ready_anchor_date(
@@ -182,13 +233,17 @@ def discover_isolated_regime_dates(
     if not normalized_max_date:
         normalized_max_date = resolved_anchor_date
 
-    cursor = datetime.strptime(resolved_anchor_date, "%Y%m%d")
-    end_dt = datetime.strptime(normalized_max_date, "%Y%m%d")
+    probe_schedule, discovery_strategy = _build_discovery_probe_schedule(
+        anchor_date=resolved_anchor_date,
+        max_date=normalized_max_date,
+        step_days=max(1, int(step_days or DEFAULT_STEP_DAYS)),
+    )
     matched_dates: list[str] = []
     probes: list[dict[str, Any]] = []
     allowed_manager_ids = [normalized_manager_id]
-    while cursor <= end_dt and len(matched_dates) < max(1, int(max_dates or 1)):
-        cutoff_date = cursor.strftime("%Y%m%d")
+    for cutoff_date in probe_schedule:
+        if len(matched_dates) >= max(1, int(max_dates or 1)):
+            break
         probe: dict[str, Any] = {"cutoff_date": cutoff_date}
         try:
             preview = controller.preview_governance(
@@ -216,7 +271,6 @@ def discover_isolated_regime_dates(
         except Exception as exc:
             probe.update({"regime": "error", "regime_confidence": 0.0, "matched": False, "error": str(exc)})
         probes.append(probe)
-        cursor += timedelta(days=max(1, int(step_days or DEFAULT_STEP_DAYS)))
 
     return {
         "schema_version": "training.isolated_regime_date_discovery.v1",
@@ -233,6 +287,7 @@ def discover_isolated_regime_dates(
         "matched_dates": matched_dates,
         "matched_count": len(matched_dates),
         "probes": probes,
+        "discovery_strategy": discovery_strategy,
         "readiness": readiness_payload,
     }
 

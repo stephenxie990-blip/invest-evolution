@@ -7,6 +7,7 @@ from invest_evolution.application.training.controller import (
     update_session_current_params,
 )
 from invest_evolution.application.training.execution import (
+    apply_runtime_adjustments_boundary,
     apply_regime_runtime_profile,
     apply_safety_override,
     begin_cycle_runtime_window,
@@ -75,6 +76,31 @@ def test_apply_safety_override_updates_locked_runtime_without_violation():
     assert summary["violation_count"] == 0
     assert summary["safety_override_keys"] == ["kill_switch"]
     assert controller.session_state.current_params["kill_switch"] is True
+
+
+def test_runtime_adjustments_are_deferred_until_cycle_finalize():
+    controller, runtime = _build_controller({"position_size": 0.2, "cash_reserve": 0.1})
+    begin_cycle_runtime_window(controller, cycle_id=13)
+
+    applied = apply_runtime_adjustments_boundary(
+        controller,
+        {"position_size": 0.12, "cash_reserve": 0.2},
+    )
+
+    assert applied == {"position_size": 0.12, "cash_reserve": 0.2}
+    assert controller.session_state.current_params == {"position_size": 0.2, "cash_reserve": 0.1}
+    assert getattr(controller, "current_cycle_deferred_runtime_adjustments", {}) == {
+        "position_size": 0.12,
+        "cash_reserve": 0.2,
+    }
+
+    summary = finalize_cycle_runtime_window(controller)
+
+    assert summary["violation_count"] == 0
+    assert summary["deferred_runtime_adjustment_keys"] == ["cash_reserve", "position_size"]
+    assert controller.session_state.current_params == {"position_size": 0.12, "cash_reserve": 0.2}
+    assert runtime.calls[-1]["position_size"] == 0.12
+    assert runtime.calls[-1]["cash_reserve"] == 0.2
 
 
 def test_apply_safety_override_rejects_non_safety_key():

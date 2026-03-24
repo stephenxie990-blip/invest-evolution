@@ -54,6 +54,10 @@ from invest_evolution.investment.evolution import EvolutionService, derive_scori
 from invest_evolution.investment.foundation.simulator import SimulatedTrader
 from invest_evolution.investment.governance.planning import PortfolioAssembler
 from invest_evolution.investment.managers import build_default_manager_registry
+from invest_evolution.investment.managers.registry import (
+    canonical_manager_config_ref as canonical_registry_manager_config_ref,
+    normalize_manager_config_ref,
+)
 from invest_evolution.investment.research import AttributionService
 from invest_evolution.investment.runtimes import SimulationService, list_manager_runtime_ids
 from invest_evolution.investment.runtimes.catalog import COMMON_EXECUTION_DEFAULTS, COMMON_PARAM_DEFAULTS
@@ -481,42 +485,14 @@ def _manager_config_ref_matches_manager(
     if inferred_manager_id:
         return inferred_manager_id == normalized_manager_id
     canonical_default_ref = str(
-        normalize_config_ref(resolve_manager_config_ref(normalized_manager_id))
+        normalize_manager_config_ref(resolve_manager_config_ref(normalized_manager_id))
         or resolve_manager_config_ref(normalized_manager_id)
         or ""
     ).strip()
     normalized_config_ref = str(
-        normalize_config_ref(resolved_config_ref) or resolved_config_ref
+        normalize_manager_config_ref(resolved_config_ref) or resolved_config_ref
     ).strip()
     return bool(canonical_default_ref) and normalized_config_ref == canonical_default_ref
-
-
-def _looks_like_runtime_config_path(value: Any) -> bool:
-    text = str(value or "").strip()
-    if not text:
-        return False
-    path = Path(text)
-    return (
-        path.is_absolute()
-        or path.suffix.lower() in {".yaml", ".yml", ".json"}
-        or "/" in text
-        or "\\" in text
-    )
-
-
-def _canonicalize_ref_for_manager(
-    manager_id: str,
-    manager_config_ref: Any,
-) -> str:
-    resolved_config_ref = str(manager_config_ref or "").strip()
-    if not resolved_config_ref:
-        return ""
-    if _looks_like_runtime_config_path(resolved_config_ref):
-        return resolved_config_ref
-    if not manager_id:
-        return resolved_config_ref
-    # Legacy aliases like "momentum_v1" are canonicalized to runtime config refs.
-    return str(resolve_manager_config_ref(manager_id)).strip()
 
 
 def _canonical_manager_config_ref(
@@ -538,7 +514,7 @@ def _canonical_manager_config_ref(
                 direct_ref,
             )
         ):
-            return _canonicalize_ref_for_manager(
+            return canonical_registry_manager_config_ref(
                 normalized_manager_id,
                 direct_ref,
             )
@@ -551,16 +527,16 @@ def _canonical_manager_config_ref(
                 fallback_ref,
             )
         ):
-            return _canonicalize_ref_for_manager(
+            return canonical_registry_manager_config_ref(
                 normalized_manager_id,
                 fallback_ref,
             )
         if direct_ref:
-            return str(resolve_manager_config_ref(normalized_manager_id)).strip()
+            return canonical_registry_manager_config_ref(normalized_manager_id)
         if fallback_ref:
-            return str(resolve_manager_config_ref(normalized_manager_id)).strip()
-        return str(resolve_manager_config_ref(normalized_manager_id)).strip()
-    return _canonicalize_ref_for_manager("", direct_ref or fallback_ref)
+            return canonical_registry_manager_config_ref(normalized_manager_id)
+        return canonical_registry_manager_config_ref(normalized_manager_id)
+    return canonical_registry_manager_config_ref("", direct_ref or fallback_ref)
 
 
 @dataclass(frozen=True)
@@ -911,6 +887,13 @@ def apply_runtime_adjustments_boundary(
     payload = dict(adjustments or {})
     if not payload:
         return {}
+    if bool(getattr(controller, "current_cycle_runtime_locked", False)):
+        deferred = _runtime_copy_dict(
+            getattr(controller, "current_cycle_deferred_runtime_adjustments", {}) or {}
+        )
+        deferred.update(payload)
+        setattr(controller, "current_cycle_deferred_runtime_adjustments", deferred)
+        return payload
     update_session_current_params(controller, payload)
     manager_runtime = getattr(controller, "manager_runtime", None)
     if manager_runtime is not None and hasattr(manager_runtime, "update_runtime_overrides"):
@@ -1384,6 +1367,7 @@ def begin_cycle_runtime_window(controller: Any, *, cycle_id: int) -> dict[str, A
     setattr(controller, "current_cycle_learning_proposals", [])
     setattr(controller, "current_cycle_runtime_violations", [])
     setattr(controller, "current_cycle_safety_overrides", {})
+    setattr(controller, "current_cycle_deferred_runtime_adjustments", {})
     setattr(
         controller,
         "current_cycle_regime_profile",
@@ -1474,6 +1458,9 @@ def apply_safety_override(
 def finalize_cycle_runtime_window(controller: Any) -> dict[str, Any]:
     proposals = deepcopy(list(getattr(controller, "current_cycle_learning_proposals", []) or []))
     safety_overrides = _runtime_copy_dict(getattr(controller, "current_cycle_safety_overrides", {}) or {})
+    deferred_adjustments = _runtime_copy_dict(
+        getattr(controller, "current_cycle_deferred_runtime_adjustments", {}) or {}
+    )
     start_params = _runtime_copy_dict(getattr(controller, "current_cycle_start_params", {}) or {})
     current_params = _runtime_copy_dict(session_current_params(controller) or {})
     violations: list[dict[str, Any]] = []
@@ -1512,6 +1499,8 @@ def finalize_cycle_runtime_window(controller: Any) -> dict[str, Any]:
         "violation_count": len(violations),
         "violations": deepcopy(violations),
         "safety_override_keys": sorted(safety_overrides.keys()),
+        "deferred_runtime_adjustment_keys": sorted(deferred_adjustments.keys()),
+        "deferred_runtime_adjustments": deepcopy(deferred_adjustments),
         "frozen_params": resolve_active_runtime_params(controller),
         "effective_runtime_params": resolve_effective_runtime_params(controller),
         "regime_runtime_profile": deepcopy(
@@ -1530,11 +1519,17 @@ def finalize_cycle_runtime_window(controller: Any) -> dict[str, Any]:
     setattr(controller, "current_cycle_start_params", {})
     setattr(controller, "current_cycle_effective_runtime_params", {})
     setattr(controller, "current_cycle_safety_overrides", {})
+    setattr(controller, "current_cycle_deferred_runtime_adjustments", {})
     setattr(controller, "current_cycle_regime_profile", {})
     setattr(controller, "current_cycle_selection_intercepts", {})
     setattr(controller, "current_cycle_runtime_locked", False)
     setattr(controller, "current_cycle_runtime_started_at", "")
     setattr(controller, "current_cycle_runtime_started_for", 0)
+    if deferred_adjustments:
+        update_session_current_params(controller, deferred_adjustments)
+        manager_runtime = getattr(controller, "manager_runtime", None)
+        if manager_runtime is not None and hasattr(manager_runtime, "update_runtime_overrides"):
+            manager_runtime.update_runtime_overrides(deferred_adjustments)
     _runtime_sync_model(controller, _runtime_copy_dict(session_current_params(controller) or {}))
     return summary
 

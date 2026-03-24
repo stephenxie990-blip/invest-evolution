@@ -33,6 +33,10 @@ from invest_evolution.investment.governance import GovernanceCoordinator, write_
 from invest_evolution.investment.managers import (
     resolve_manager_config_ref as resolve_registry_manager_config_ref,
 )
+from invest_evolution.investment.managers.registry import (
+    canonical_manager_config_ref as canonical_registry_manager_config_ref,
+    normalize_manager_config_ref,
+)
 from invest_evolution.investment.runtimes import create_manager_runtime
 from invest_evolution.investment.runtimes.catalog import COMMON_BENCHMARK_DEFAULTS
 from invest_evolution.investment.shared.policy import (
@@ -58,10 +62,10 @@ def resolve_manager_config_ref(
     manager_id: Any,
     manager_config_ref: Any = None,
 ) -> str:
-    manager_ref = str(manager_config_ref or "").strip()
-    if manager_ref:
-        return manager_ref
-    return str(resolve_registry_manager_config_ref(normalize_manager_id(manager_id)))
+    return canonical_registry_manager_config_ref(
+        normalize_manager_id(manager_id),
+        manager_config_ref,
+    )
 
 
 def build_manager_runtime(
@@ -213,56 +217,17 @@ def _normalize_regime_targets(value: Any) -> list[str]:
 
 
 def _normalize_config_ref(value: Any) -> str:
-    text = str(value or "").strip()
-    if not text:
-        return ""
-    path = Path(text).expanduser()
-    looks_like_path = path.is_absolute() or path.suffix.lower() in {".yaml", ".yml", ".json"} or any(
-        separator in text for separator in ("/", "\\")
-    )
-    if not looks_like_path:
-        return text
-    # Preserve bare filenames like "executed.yaml" for tests and legacy payloads.
-    # We only resolve paths that include a directory component.
-    if "/" not in text and "\\" not in text:
-        return text
-    try:
-        return str(path.resolve(strict=False))
-    except Exception:
-        return text
-
-
-def _looks_like_runtime_config_path(value: Any) -> bool:
-    text = str(value or "").strip()
-    if not text:
-        return False
-    path = Path(text).expanduser()
-    return (
-        path.is_absolute()
-        or path.suffix.lower() in {".yaml", ".yml", ".json"}
-        or any(separator in text for separator in ("/", "\\"))
-    )
+    return normalize_manager_config_ref(value)
 
 
 def _canonical_manager_config_ref_for_manager(
     manager_id: str,
     manager_config_ref: Any,
 ) -> str:
-    """
-    Canonicalize manager config refs to avoid "manager_id=X but config_ref=Y" drift.
-
-    Rules:
-    - If the ref already looks like a path (.yaml/.yml/.json or contains a slash), keep it (but normalize later).
-    - If the ref looks like an alias (e.g. "momentum_v1"), treat it as non-canonical and use the registry ref.
-    - If empty, use the registry ref.
-    """
-    normalized_manager_id = str(manager_id or "").strip()
-    raw = str(manager_config_ref or "").strip()
-    if not normalized_manager_id:
-        return _normalize_config_ref(raw)
-    if raw and _looks_like_runtime_config_path(raw):
-        return _normalize_config_ref(raw)
-    return _normalize_config_ref(str(resolve_registry_manager_config_ref(normalized_manager_id)))
+    return canonical_registry_manager_config_ref(
+        manager_id,
+        manager_config_ref,
+    )
 
 
 def _finite_float(value: Any) -> float | None:

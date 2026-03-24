@@ -1,14 +1,14 @@
 from __future__ import annotations
 
 import json
-from collections import defaultdict
+from collections import OrderedDict, defaultdict
+from copy import deepcopy
 from datetime import datetime
 from functools import lru_cache
 from pathlib import Path
 from typing import Any, Dict, Iterable, List
 
-from invest_evolution.agent_runtime.runtime import enforce_path_within_root
-from invest_evolution.config import PROJECT_ROOT, normalize_date
+from invest_evolution.config import normalize_date
 from invest_evolution.investment.runtimes import create_manager_runtime
 from invest_evolution.investment.shared.research_feedback_gate import (
     DEFAULT_RESEARCH_FEEDBACK_GATE,
@@ -18,7 +18,25 @@ from invest_evolution.investment.shared.research_feedback_gate import (
 from .analysis import OutcomeAttribution, PolicySnapshot, ResearchHypothesis, ResearchSnapshot, stable_hash
 
 
+def normalize_manager_config_ref(value: str) -> str:
+    from invest_evolution.investment.managers.registry import (
+        normalize_manager_config_ref as _normalize_manager_config_ref,
+    )
+
+    return _normalize_manager_config_ref(value)
+
+
+def canonical_manager_config_ref(manager_id: str, manager_config_ref: str) -> str:
+    from invest_evolution.investment.managers.registry import (
+        canonical_manager_config_ref as _canonical_manager_config_ref,
+    )
+
+    return _canonical_manager_config_ref(manager_id, manager_config_ref)
+
+
 class ResearchCaseStore:
+    _ITER_RECORD_CACHE_SIZE = 32
+
     def __init__(self, root_dir: str | Path):
         self.root_dir = Path(root_dir)
         self.case_dir = self.root_dir / "research_cases"
@@ -27,6 +45,13 @@ class ResearchCaseStore:
         self.case_dir.mkdir(parents=True, exist_ok=True)
         self.attribution_dir.mkdir(parents=True, exist_ok=True)
         self.calibration_dir.mkdir(parents=True, exist_ok=True)
+        self._case_cache_signature: tuple[tuple[str, int, int], ...] = ()
+        self._case_cache_items: List[Dict[str, Any]] = []
+        self._attribution_cache_signature: tuple[tuple[str, int, int], ...] = ()
+        self._attribution_cache_items: List[Dict[str, Any]] = []
+        self._attribution_index_signature: tuple[tuple[str, int, int], ...] = ()
+        self._attribution_by_hypothesis: Dict[str, Dict[str, Any]] = {}
+        self._iter_case_record_cache: OrderedDict[tuple[Any, ...], List[Dict[str, Any]]] = OrderedDict()
 
     def save_case(
         self,
@@ -46,6 +71,7 @@ class ResearchCaseStore:
         }
         path = self.case_dir / f"{payload['research_case_id']}.json"
         path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        self._invalidate_case_cache()
         payload["path"] = str(path)
         return payload
 
@@ -58,42 +84,108 @@ class ResearchCaseStore:
         }
         path = self.attribution_dir / f"{attribution.attribution_id}.json"
         path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        self._invalidate_attribution_cache()
         payload["path"] = str(path)
         return payload
 
+    @staticmethod
+    def _scan_json_files(
+        directory: Path,
+        pattern: str,
+    ) -> list[tuple[Path, tuple[str, int, int]]]:
+        files: list[tuple[Path, tuple[str, int, int]]] = []
+        for path in sorted(directory.glob(pattern), key=lambda item: str(item)):
+            try:
+                stat = path.stat()
+            except OSError:
+                continue
+            files.append((path, (str(path), int(stat.st_mtime_ns), int(stat.st_size))))
+        return files
+
+    def _invalidate_iter_case_record_cache(self) -> None:
+        self._iter_case_record_cache.clear()
+
+    def _invalidate_case_cache(self) -> None:
+        self._case_cache_signature = ()
+        self._case_cache_items = []
+        self._invalidate_iter_case_record_cache()
+
+    def _invalidate_attribution_cache(self) -> None:
+        self._attribution_cache_signature = ()
+        self._attribution_cache_items = []
+        self._attribution_index_signature = ()
+        self._attribution_by_hypothesis = {}
+        self._invalidate_iter_case_record_cache()
+
+    def _refresh_case_cache(
+        self,
+    ) -> tuple[List[Dict[str, Any]], tuple[tuple[str, int, int], ...]]:
+        scanned_files = self._scan_json_files(self.case_dir, "case_*.json")
+        signature = tuple(state for _, state in scanned_files)
+        if signature != self._case_cache_signature:
+            items = [
+                json.loads(path.read_text(encoding="utf-8")) | {"path": str(path)}
+                for path, _ in scanned_files
+            ]
+
+            # IMPORTANT: "history_limit" must reflect a time-ordered window.
+            # Case ids are stable hashes and do not sort chronologically.
+            def sort_key(item: Dict[str, Any]) -> tuple[str, str, str]:
+                snapshot = dict(item.get("snapshot") or {})
+                as_of = normalize_date(snapshot.get("as_of_date") or "") if snapshot.get("as_of_date") else ""
+                created_at = str(item.get("created_at") or "")
+                return (as_of or "", created_at or "", str(item.get("path") or ""))
+
+            items.sort(key=sort_key)
+            self._case_cache_items = items
+            self._case_cache_signature = signature
+            self._invalidate_iter_case_record_cache()
+        return self._case_cache_items, self._case_cache_signature
+
+    def _refresh_attribution_cache(
+        self,
+    ) -> tuple[List[Dict[str, Any]], tuple[tuple[str, int, int], ...]]:
+        scanned_files = self._scan_json_files(self.attribution_dir, "attribution_*.json")
+        signature = tuple(state for _, state in scanned_files)
+        if signature != self._attribution_cache_signature:
+            items = [
+                json.loads(path.read_text(encoding="utf-8")) | {"path": str(path)}
+                for path, _ in scanned_files
+            ]
+
+            def sort_key(item: Dict[str, Any]) -> tuple[str, str]:
+                created_at = str(item.get("created_at") or "")
+                return (created_at or "", str(item.get("path") or ""))
+
+            items.sort(key=sort_key)
+            self._attribution_cache_items = items
+            self._attribution_cache_signature = signature
+            self._attribution_index_signature = ()
+            self._attribution_by_hypothesis = {}
+            self._invalidate_iter_case_record_cache()
+        return self._attribution_cache_items, self._attribution_cache_signature
+
+    def _attribution_index_by_hypothesis(self) -> Dict[str, Dict[str, Any]]:
+        attributions, signature = self._refresh_attribution_cache()
+        if signature != self._attribution_index_signature:
+            self._attribution_by_hypothesis = {
+                str(dict(item.get("attribution") or {}).get("hypothesis_id") or ""): item
+                for item in attributions
+            }
+            self._attribution_index_signature = signature
+        return self._attribution_by_hypothesis
+
     def list_cases(self, *, limit: int | None = None) -> List[Dict[str, Any]]:
-        items = [
-            json.loads(path.read_text(encoding="utf-8")) | {"path": str(path)}
-            for path in self.case_dir.glob("case_*.json")
-        ]
-
-        # IMPORTANT: "history_limit" must reflect a time-ordered window.
-        # Case ids are stable hashes and do not sort chronologically.
-        def sort_key(item: Dict[str, Any]) -> tuple[str, str, str]:
-            snapshot = dict(item.get("snapshot") or {})
-            as_of = normalize_date(snapshot.get("as_of_date") or "") if snapshot.get("as_of_date") else ""
-            created_at = str(item.get("created_at") or "")
-            return (as_of or "", created_at or "", str(item.get("path") or ""))
-
-        items.sort(key=sort_key)
+        items, _ = self._refresh_case_cache()
         if limit is not None:
-            return items[-max(1, int(limit)) :]
-        return items
+            return deepcopy(items[-max(1, int(limit)) :])
+        return deepcopy(items)
 
     def list_attributions(self, *, limit: int | None = None) -> List[Dict[str, Any]]:
-        items = [
-            json.loads(path.read_text(encoding="utf-8")) | {"path": str(path)}
-            for path in self.attribution_dir.glob("attribution_*.json")
-        ]
-
-        def sort_key(item: Dict[str, Any]) -> tuple[str, str]:
-            created_at = str(item.get("created_at") or "")
-            return (created_at or "", str(item.get("path") or ""))
-
-        items.sort(key=sort_key)
+        items, _ = self._refresh_attribution_cache()
         if limit is not None:
-            return items[-max(1, int(limit)) :]
-        return items
+            return deepcopy(items[-max(1, int(limit)) :])
+        return deepcopy(items)
 
     @staticmethod
     def _case_symbol(snapshot: Dict[str, Any]) -> str:
@@ -118,33 +210,14 @@ class ResearchCaseStore:
     @staticmethod
     def _case_manager_config_ref(snapshot: Dict[str, Any]) -> str:
         market_context = dict(snapshot.get("market_context") or {})
-        return ResearchCaseStore._canonical_manager_config_ref(
+        return canonical_manager_config_ref(
+            str(market_context.get("manager_id") or "").strip(),
             market_context.get("manager_config_ref") or ""
         )
 
     @staticmethod
     def _canonical_manager_config_ref(value: str) -> str:
-        text = str(value or "").strip()
-        if not text:
-            return ""
-        path = Path(text).expanduser()
-        looks_like_path = (
-            path.is_absolute()
-            or path.suffix.lower() in {".yaml", ".yml", ".json"}
-            or "/" in text
-            or "\\" in text
-        )
-        if not looks_like_path:
-            configs_dir = PROJECT_ROOT / "src" / "invest_evolution" / "investment" / "runtimes" / "configs"
-            for suffix in (".yaml", ".yml"):
-                candidate = configs_dir / f"{text}{suffix}"
-                if candidate.exists():
-                    return str(enforce_path_within_root(PROJECT_ROOT, candidate))
-            return text
-        try:
-            return str(enforce_path_within_root(PROJECT_ROOT, path))
-        except ValueError:
-            return str(path.resolve(strict=False))
+        return normalize_manager_config_ref(value)
 
     @staticmethod
     @lru_cache(maxsize=32)
@@ -153,8 +226,9 @@ class ResearchCaseStore:
         manager_config_ref: str,
     ) -> Dict[str, Any]:
         normalized_manager_id = str(manager_id or "").strip()
-        normalized_config_ref = ResearchCaseStore._canonical_manager_config_ref(
-            manager_config_ref
+        normalized_config_ref = canonical_manager_config_ref(
+            normalized_manager_id,
+            manager_config_ref,
         )
         if not normalized_manager_id:
             return {}
@@ -221,29 +295,21 @@ class ResearchCaseStore:
             "notes": notes,
         }
 
-    def _iter_case_attribution_records(
+    def _compute_case_attribution_records(
         self,
         *,
-        policy_id: str = "",
-        manager_id: str = "",
-        manager_config_ref: str = "",
-        as_of_date: str = "",
-        symbol: str = "",
-        regime: str = "",
-        stance: str = "",
-    ) -> Iterable[Dict[str, Any]]:
-        normalized_policy = str(policy_id or "").strip()
-        normalized_manager = str(manager_id or "").strip()
-        normalized_config_ref = self._canonical_manager_config_ref(manager_config_ref)
-        normalized_symbol = str(symbol or "").strip()
-        normalized_as_of = normalize_date(as_of_date) if str(as_of_date or "").strip() else ""
-        normalized_regime = str(regime or "").strip()
-        normalized_stance = str(stance or "").strip()
-        attribution_by_hypothesis = {
-            str(dict(item.get("attribution") or {}).get("hypothesis_id") or ""): item
-            for item in self.list_attributions()
-        }
-        for case in self.list_cases():
+        cases: List[Dict[str, Any]],
+        attribution_by_hypothesis: Dict[str, Dict[str, Any]],
+        normalized_policy: str,
+        normalized_manager: str,
+        normalized_config_ref: str,
+        normalized_as_of: str,
+        normalized_symbol: str,
+        normalized_regime: str,
+        normalized_stance: str,
+    ) -> List[Dict[str, Any]]:
+        records: List[Dict[str, Any]] = []
+        for case in cases:
             snapshot = dict(case.get("snapshot") or {})
             policy = dict(case.get("policy") or {})
             hypothesis = dict(case.get("hypothesis") or {})
@@ -258,10 +324,18 @@ class ResearchCaseStore:
             snapshot_manager_id = self._case_manager_id(snapshot)
             if normalized_manager and snapshot_manager_id and snapshot_manager_id != normalized_manager:
                 continue
-            case_config_ref = self._canonical_manager_config_ref(policy.get("manager_config_ref") or "")
+            case_config_ref = canonical_manager_config_ref(
+                normalized_manager or str(policy.get("manager_id") or "").strip(),
+                policy.get("manager_config_ref") or "",
+            )
             if normalized_config_ref and case_config_ref != normalized_config_ref:
                 continue
             snapshot_config_ref = self._case_manager_config_ref(snapshot)
+            if snapshot_config_ref:
+                snapshot_config_ref = canonical_manager_config_ref(
+                    snapshot_manager_id or normalized_manager,
+                    snapshot_config_ref,
+                )
             if normalized_config_ref and snapshot_config_ref and snapshot_config_ref != normalized_config_ref:
                 continue
             if normalized_symbol and case_symbol != normalized_symbol:
@@ -274,15 +348,74 @@ class ResearchCaseStore:
                 continue
             hypothesis_id = str(hypothesis.get("hypothesis_id") or "")
             attribution_item = attribution_by_hypothesis.get(hypothesis_id)
-            yield {
-                "case": case,
-                "snapshot": snapshot,
-                "policy": policy,
-                "hypothesis": hypothesis,
-                "symbol": case_symbol,
-                "attribution_item": attribution_item,
-                "attribution": dict((attribution_item or {}).get("attribution") or {}),
-            }
+            records.append(
+                {
+                    "case": case,
+                    "snapshot": snapshot,
+                    "policy": policy,
+                    "hypothesis": hypothesis,
+                    "symbol": case_symbol,
+                    "attribution_item": attribution_item,
+                    "attribution": dict((attribution_item or {}).get("attribution") or {}),
+                }
+            )
+        return records
+
+    def _iter_case_attribution_records(
+        self,
+        *,
+        policy_id: str = "",
+        manager_id: str = "",
+        manager_config_ref: str = "",
+        as_of_date: str = "",
+        symbol: str = "",
+        regime: str = "",
+        stance: str = "",
+    ) -> Iterable[Dict[str, Any]]:
+        normalized_policy = str(policy_id or "").strip()
+        normalized_manager = str(manager_id or "").strip()
+        normalized_config_ref = canonical_manager_config_ref(
+            normalized_manager,
+            manager_config_ref,
+        )
+        normalized_symbol = str(symbol or "").strip()
+        normalized_as_of = normalize_date(as_of_date) if str(as_of_date or "").strip() else ""
+        normalized_regime = str(regime or "").strip()
+        normalized_stance = str(stance or "").strip()
+        cases, case_signature = self._refresh_case_cache()
+        _, attribution_signature = self._refresh_attribution_cache()
+        cache_key = (
+            case_signature,
+            attribution_signature,
+            normalized_policy,
+            normalized_manager,
+            normalized_config_ref,
+            normalized_as_of,
+            normalized_symbol,
+            normalized_regime,
+            normalized_stance,
+        )
+        cached_records = self._iter_case_record_cache.get(cache_key)
+        if cached_records is None:
+            cached_records = self._compute_case_attribution_records(
+                cases=cases,
+                attribution_by_hypothesis=self._attribution_index_by_hypothesis(),
+                normalized_policy=normalized_policy,
+                normalized_manager=normalized_manager,
+                normalized_config_ref=normalized_config_ref,
+                normalized_as_of=normalized_as_of,
+                normalized_symbol=normalized_symbol,
+                normalized_regime=normalized_regime,
+                normalized_stance=normalized_stance,
+            )
+            self._iter_case_record_cache[cache_key] = cached_records
+            self._iter_case_record_cache.move_to_end(cache_key)
+            while len(self._iter_case_record_cache) > self._ITER_RECORD_CACHE_SIZE:
+                self._iter_case_record_cache.popitem(last=False)
+        else:
+            self._iter_case_record_cache.move_to_end(cache_key)
+        for item in cached_records:
+            yield deepcopy(item)
 
     def _training_feedback_observation_key(
         self,
@@ -598,7 +731,10 @@ class ResearchCaseStore:
         max_history_limit: int | None = None,
     ) -> Dict[str, Any]:
         normalized_manager = str(manager_id or "").strip()
-        normalized_config_ref = self._canonical_manager_config_ref(manager_config_ref)
+        normalized_config_ref = canonical_manager_config_ref(
+            normalized_manager,
+            manager_config_ref,
+        )
         normalized_as_of = normalize_date(as_of_date) if str(as_of_date or "").strip() else ""
         normalized_regime = str(regime or "").strip()
         records = list(

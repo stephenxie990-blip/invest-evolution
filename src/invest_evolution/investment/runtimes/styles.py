@@ -147,11 +147,43 @@ class MeanReversionRuntime(ManagerRuntime):
         stock_summaries = self.build_stock_summary_views(item.summary for item in stock_batches)
         scored: List[Dict[str, Any]] = []
         min_reversion_score = float(self.param("min_reversion_score", 0.05))
+        oversold_rsi = float(self.param("oversold_rsi", 35.0))
+        regime_min_reversion_score = min_reversion_score
+        oscillation_max_5d_drop_guard = float(
+            self.param("oscillation_max_5d_drop_guard", -6.0)
+        )
+        oscillation_max_20d_drop_guard = float(
+            self.param("oscillation_max_20d_drop_guard", -9.0)
+        )
+        oscillation_bear_trend_rsi_cap = float(
+            self.param("oscillation_bear_trend_rsi_cap", max(oversold_rsi - 2.0, 1.0))
+        )
+        if regime == "oscillation":
+            regime_min_reversion_score = max(
+                regime_min_reversion_score,
+                float(
+                    self.param(
+                        "oscillation_min_reversion_score",
+                        regime_min_reversion_score,
+                    )
+                ),
+            )
         scorer = MeanReversionScorer(self)
         for item in stock_batches:
-            score = scorer.score(item)
-            if score >= min_reversion_score:
-                enriched = dict(item.summary)
+            summary = dict(item.summary)
+            if regime == "oscillation":
+                if float(summary.get("change_5d", 0.0) or 0.0) < oscillation_max_5d_drop_guard:
+                    continue
+                if float(summary.get("change_20d", 0.0) or 0.0) < oscillation_max_20d_drop_guard:
+                    continue
+                if (
+                    str(summary.get("ma_trend", "") or "") == "空头"
+                    and float(summary.get("rsi", 50.0) or 50.0) > oscillation_bear_trend_rsi_cap
+                ):
+                    continue
+            score = scorer.score(summary)
+            if score >= regime_min_reversion_score:
+                enriched = dict(summary)
                 enriched["reversion_score"] = score
                 scored.append(enriched)
         scored.sort(key=lambda item: (item.get("reversion_score", 0.0), -abs(item.get("change_5d", 0.0))), reverse=True)
@@ -161,6 +193,24 @@ class MeanReversionRuntime(ManagerRuntime):
         stop_loss = float(self.risk_param("stop_loss_pct"))
         take_profit = float(self.risk_param("take_profit_pct"))
         trailing_pct = self.risk_param("trailing_pct")
+        if regime == "oscillation":
+            max_positions = min(
+                max_positions,
+                max(1, int(self.param("oscillation_max_positions", max_positions))),
+            )
+            stop_loss = min(
+                stop_loss,
+                float(self.param("oscillation_stop_loss_pct", stop_loss)),
+            )
+            take_profit = min(
+                take_profit,
+                float(self.param("oscillation_take_profit_pct", take_profit)),
+            )
+            if trailing_pct is not None:
+                trailing_pct = min(
+                    float(trailing_pct),
+                    float(self.param("oscillation_trailing_pct", trailing_pct)),
+                )
         selected = self.build_stock_summary_views(scored[:top_n])
 
         signals = []
@@ -194,6 +244,11 @@ class MeanReversionRuntime(ManagerRuntime):
             )
 
         cash_reserve = float(self.param("cash_reserve"))
+        if regime == "oscillation":
+            cash_reserve = max(
+                cash_reserve,
+                float(self.param("oscillation_cash_reserve_floor", cash_reserve)),
+            )
         return SignalPacket(
             as_of_date=cutoff_date,
             manager_id=self.runtime_id,
@@ -278,12 +333,28 @@ class DefensiveLowVolRuntime(ManagerRuntime):
         stock_batches = summarize_stock_batches(stock_data, stock_codes, cutoff_date, summary_scoring=self.config_section("summary_scoring", {}) or None)
         stock_summaries = self.build_stock_summary_views(item.summary for item in stock_batches)
         min_score = float(self.param("min_defensive_score", 0.15))
+        regime_min_score = min_score
+        bear_max_volatility_guard = float(self.param("bear_max_volatility_guard", self.param("max_volatility", 0.035)))
+        bear_min_change_20d_guard = float(self.param("bear_min_change_20d_guard", 0.0))
+        if regime == "bear":
+            regime_min_score = max(
+                regime_min_score,
+                float(self.param("bear_min_defensive_score", regime_min_score)),
+            )
         selected_pool: List[Dict[str, Any]] = []
         scorer = DefensiveLowVolScorer(self)
         for item in stock_batches:
-            score = scorer.score(item)
-            if score >= min_score:
-                enriched = dict(item.summary)
+            summary = dict(item.summary)
+            if regime == "bear":
+                if float(summary.get("volatility", 0.0) or 0.0) > bear_max_volatility_guard:
+                    continue
+                if float(summary.get("change_20d", 0.0) or 0.0) < bear_min_change_20d_guard:
+                    continue
+                if str(summary.get("ma_trend", "") or "") == "空头":
+                    continue
+            score = scorer.score(summary)
+            if score >= regime_min_score:
+                enriched = dict(summary)
                 enriched["defensive_score"] = score
                 selected_pool.append(enriched)
         selected_pool.sort(
@@ -296,6 +367,24 @@ class DefensiveLowVolRuntime(ManagerRuntime):
         stop_loss = float(self.risk_param("stop_loss_pct"))
         take_profit = float(self.risk_param("take_profit_pct"))
         trailing_pct = self.risk_param("trailing_pct")
+        if regime == "bear":
+            max_positions = min(
+                max_positions,
+                max(1, int(self.param("bear_max_positions", max_positions))),
+            )
+            stop_loss = min(
+                stop_loss,
+                float(self.param("bear_stop_loss_pct", stop_loss)),
+            )
+            take_profit = min(
+                take_profit,
+                float(self.param("bear_take_profit_pct", take_profit)),
+            )
+            if trailing_pct is not None:
+                trailing_pct = min(
+                    float(trailing_pct),
+                    float(self.param("bear_trailing_pct", trailing_pct)),
+                )
         selected = self.build_stock_summary_views(selected_pool[:top_n])
 
         signals = []
@@ -330,6 +419,11 @@ class DefensiveLowVolRuntime(ManagerRuntime):
             )
 
         cash_reserve = float(self.param("cash_reserve"))
+        if regime == "bear":
+            cash_reserve = max(
+                cash_reserve,
+                float(self.param("bear_cash_reserve_floor", cash_reserve)),
+            )
         return SignalPacket(
             as_of_date=cutoff_date,
             manager_id=self.runtime_id,

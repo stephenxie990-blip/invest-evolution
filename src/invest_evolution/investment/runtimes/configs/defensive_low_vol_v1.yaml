@@ -9,12 +9,20 @@ params:
   take_profit_pct: 0.12
   trailing_pct: 0.07
   position_size: 0.15
-  max_volatility: 0.03
-  preferred_rsi_low: 45
-  preferred_rsi_high: 58
-  min_change_20d: -2.0
-  max_change_20d: 8.0
-  min_defensive_score: 0.22
+  max_volatility: 0.025
+  preferred_rsi_low: 46
+  preferred_rsi_high: 56
+  min_change_20d: 0.0
+  max_change_20d: 6.0
+  min_defensive_score: 0.28
+  bear_max_positions: 2
+  bear_cash_reserve_floor: 0.48
+  bear_stop_loss_pct: 0.04
+  bear_take_profit_pct: 0.1
+  bear_trailing_pct: 0.06
+  bear_min_defensive_score: 0.28
+  bear_max_volatility_guard: 0.025
+  bear_min_change_20d_guard: 0.0
 risk:
   stop_loss_pct: 0.05
   take_profit_pct: 0.12

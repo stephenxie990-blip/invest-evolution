@@ -455,34 +455,48 @@ def build_review_eval_projection_boundary(
 ) -> ReviewEvalBoundaryProjection:
     manager_payload = [dict(item) for item in list(manager_results or [])]
     portfolio_payload = dict(portfolio_plan or {})
-    subject_type = "manager_portfolio" if portfolio_payload else "single_manager"
     payload = _resolve_cycle_payload_boundary(
         cycle_payload=cycle_payload,
     )
+    projection_snapshot = (
+        dict(simulation_envelope.execution_snapshot or {})
+        if simulation_envelope is not None
+        else {
+            **dict(execution_snapshot or payload.get("execution_snapshot") or {}),
+            "active_runtime_config_ref": str(getattr(manager_output, "manager_config_ref", "") or ""),
+            "manager_config_ref": str(getattr(manager_output, "manager_config_ref", "") or ""),
+        }
+    )
+    if manager_payload and not list(projection_snapshot.get("manager_results") or []):
+        projection_snapshot["manager_results"] = deepcopy(manager_payload)
+    if portfolio_payload and not dict(projection_snapshot.get("portfolio_plan") or {}):
+        projection_snapshot["portfolio_plan"] = deepcopy(portfolio_payload)
+    if (
+        str(dominant_manager_id or "").strip()
+        and not str(projection_snapshot.get("dominant_manager_id") or "").strip()
+    ):
+        projection_snapshot["dominant_manager_id"] = str(dominant_manager_id).strip()
     projection = _project_manager_compatibility(
         controller,
         manager_output=manager_output,
         portfolio_plan=portfolio_payload,
         manager_results=manager_payload,
-        execution_snapshot=(
-            dict(simulation_envelope.execution_snapshot or {})
-            if simulation_envelope is not None
-            else {
-                **dict(execution_snapshot or payload.get("execution_snapshot") or {}),
-                "active_runtime_config_ref": str(getattr(manager_output, "manager_config_ref", "") or ""),
-                "manager_config_ref": str(getattr(manager_output, "manager_config_ref", "") or ""),
-            }
-        ),
+        execution_snapshot=projection_snapshot,
         dominant_manager_id_hint=str(dominant_manager_id or ""),
     )
+    resolved_subject_type = str(projection.subject_type or "").strip()
+    if not resolved_subject_type:
+        resolved_subject_type = str(projection_snapshot.get("subject_type") or "").strip()
+    if not resolved_subject_type:
+        resolved_subject_type = "manager_portfolio" if portfolio_payload else "single_manager"
     return ReviewEvalBoundaryProjection(
         manager_id=str(projection.manager_id or ""),
         manager_config_ref=str(projection.manager_config_ref or ""),
-        subject_type=subject_type,
+        subject_type=resolved_subject_type,
         compatibility_fields=_build_manager_compatibility_fields(
             projection,
-            derived=subject_type == "manager_portfolio",
-            source="dominant_manager" if subject_type == "manager_portfolio" else "legacy_manager_output",
+            derived=resolved_subject_type == "manager_portfolio",
+            source="dominant_manager" if resolved_subject_type == "manager_portfolio" else "legacy_manager_output",
         ),
     )
 

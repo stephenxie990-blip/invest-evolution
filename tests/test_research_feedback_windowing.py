@@ -154,3 +154,147 @@ def test_gate_is_not_relaxed_by_windowing(tmp_path: Path) -> None:
 
     rec = dict(feedback.get("recommendation") or {})
     assert rec.get("bias") in {"tighten_risk", "recalibrate_probability", "insufficient_samples"}
+
+
+def test_list_cases_and_attributions_cache_hit_and_invalidation(monkeypatch, tmp_path: Path) -> None:
+    store = ResearchCaseStore(tmp_path)
+    manager_id = "momentum"
+    manager_config_ref = "momentum_v1"
+
+    _make_case(
+        store,
+        manager_id=manager_id,
+        manager_config_ref=manager_config_ref,
+        as_of="2026-01-01",
+        regime="bull",
+        hypothesis_id="cache_0",
+        label="hit",
+    )
+
+    original_read_text = Path.read_text
+    read_counter = {"case": 0, "attribution": 0}
+
+    def _tracking_read_text(path: Path, *args, **kwargs):
+        if path.parent == store.case_dir and path.name.startswith("case_"):
+            read_counter["case"] += 1
+        if path.parent == store.attribution_dir and path.name.startswith("attribution_"):
+            read_counter["attribution"] += 1
+        return original_read_text(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", _tracking_read_text)
+
+    first_cases = store.list_cases()
+    first_attributions = store.list_attributions()
+    assert len(first_cases) == 1
+    assert len(first_attributions) == 1
+
+    case_reads_after_first = int(read_counter["case"])
+    attr_reads_after_first = int(read_counter["attribution"])
+    assert case_reads_after_first >= 1
+    assert attr_reads_after_first >= 1
+
+    # Returned payloads should not mutate internal cache content.
+    first_cases[0]["snapshot"]["as_of_date"] = "1900-01-01"
+    first_attributions[0]["attribution"]["thesis_result"] = "mutated"
+
+    second_cases = store.list_cases()
+    second_attributions = store.list_attributions()
+    assert read_counter["case"] == case_reads_after_first
+    assert read_counter["attribution"] == attr_reads_after_first
+    assert second_cases[0]["snapshot"]["as_of_date"] == "2026-01-01"
+    assert second_attributions[0]["attribution"]["thesis_result"] == "unknown"
+
+    _make_case(
+        store,
+        manager_id=manager_id,
+        manager_config_ref=manager_config_ref,
+        as_of="2026-01-02",
+        regime="bull",
+        hypothesis_id="cache_1",
+        label="invalidated",
+    )
+    refreshed_cases = store.list_cases()
+    refreshed_attributions = store.list_attributions()
+    assert len(refreshed_cases) == 2
+    assert len(refreshed_attributions) == 2
+    assert read_counter["case"] > case_reads_after_first
+    assert read_counter["attribution"] > attr_reads_after_first
+
+
+def test_iter_case_attribution_records_cache_hit_and_invalidation(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    store = ResearchCaseStore(tmp_path)
+    manager_id = "momentum"
+    manager_config_ref = "momentum_v1"
+
+    for i in range(3):
+        _make_case(
+            store,
+            manager_id=manager_id,
+            manager_config_ref=manager_config_ref,
+            as_of=f"2026-01-0{i + 1}",
+            regime="bull" if i < 2 else "bear",
+            hypothesis_id=f"iter_{i}",
+            label="hit" if i < 2 else "invalidated",
+        )
+
+    original_compute = store._compute_case_attribution_records
+    compute_counter = {"count": 0}
+
+    def _tracking_compute(*args, **kwargs):
+        compute_counter["count"] += 1
+        return original_compute(*args, **kwargs)
+
+    monkeypatch.setattr(store, "_compute_case_attribution_records", _tracking_compute)
+
+    first = list(
+        store._iter_case_attribution_records(
+            manager_id=manager_id,
+            manager_config_ref=manager_config_ref,
+            regime="bull",
+        )
+    )
+    assert len(first) == 2
+    assert compute_counter["count"] == 1
+
+    second = list(
+        store._iter_case_attribution_records(
+            manager_id=manager_id,
+            manager_config_ref=manager_config_ref,
+            regime="bull",
+        )
+    )
+    assert len(second) == len(first)
+    assert second == first
+    assert compute_counter["count"] == 1
+
+    third = list(
+        store._iter_case_attribution_records(
+            manager_id=manager_id,
+            manager_config_ref=manager_config_ref,
+            regime="bear",
+        )
+    )
+    assert len(third) == 1
+    assert compute_counter["count"] == 2
+
+    _make_case(
+        store,
+        manager_id=manager_id,
+        manager_config_ref=manager_config_ref,
+        as_of="2026-01-04",
+        regime="bull",
+        hypothesis_id="iter_3",
+        label="hit",
+    )
+    refreshed = list(
+        store._iter_case_attribution_records(
+            manager_id=manager_id,
+            manager_config_ref=manager_config_ref,
+            regime="bull",
+        )
+    )
+    assert len(refreshed) == len(first) + 1
+    assert compute_counter["count"] == 3

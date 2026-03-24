@@ -20,6 +20,7 @@ from invest_evolution.application.training.execution import session_cycle_histor
 from invest_evolution.application.training.isolated_experiments import (
     build_isolated_experiment_spec,
     discover_isolated_regime_dates,
+    list_isolated_experiment_preset_names,
     resolve_isolated_experiment_preset,
 )
 from invest_evolution.application.training.observability import (
@@ -98,13 +99,14 @@ def _build_cycle_realization_summary(
 
 
 def main(argv: Sequence[str] | None = None) -> int:
+    preset_choices = list_isolated_experiment_preset_names()
     parser = argparse.ArgumentParser(
         description="Run a fixed regime x fixed manager isolated strict-training experiment without relaxing gates."
     )
     parser.add_argument(
         "--preset",
         required=True,
-        choices=sorted(["defensive_low_vol@bear", "mean_reversion@oscillation"]),
+        choices=preset_choices,
         help="Named isolated experiment line to run.",
     )
     parser.add_argument("--cycles", type=int, default=12, help="Maximum attempt cycles.")

@@ -1,6 +1,9 @@
 from types import SimpleNamespace
 
 from invest_evolution.application.training.review import build_review_input
+from invest_evolution.application.training.observability import (
+    build_review_eval_projection_boundary,
+)
 from invest_evolution.application.training.controller import TrainingSessionState
 from invest_evolution.investment.contracts import EvalReport
 
@@ -345,3 +348,41 @@ def test_build_review_input_prefers_session_state_cycle_history():
     review_input = build_review_input(controller, cycle_id=2, eval_report=eval_report)
 
     assert [item["cycle_id"] for item in review_input["recent_results"]] == [1, 2]
+
+
+def test_build_review_eval_projection_keeps_manager_portfolio_subject_from_snapshot_when_portfolio_plan_missing():
+    controller = SimpleNamespace(
+        session_state=TrainingSessionState(
+            default_manager_id="momentum",
+            default_manager_config_ref="configs/momentum_v1.yaml",
+        ),
+    )
+    execution_snapshot = {
+        "subject_type": "manager_portfolio",
+        "selection_mode": "manager_portfolio",
+        "manager_results": [
+            {"manager_id": "momentum"},
+            {"manager_id": "value_quality"},
+        ],
+        "dominant_manager_id": "momentum",
+        "active_runtime_config_ref": "configs/momentum_v1.yaml",
+        "manager_config_ref": "configs/momentum_v1.yaml",
+    }
+
+    projection = build_review_eval_projection_boundary(
+        controller,
+        manager_output=SimpleNamespace(
+            manager_id="momentum",
+            manager_config_ref="configs/momentum_v1.yaml",
+        ),
+        cycle_payload={"execution_snapshot": execution_snapshot},
+        execution_snapshot=execution_snapshot,
+        simulation_envelope=None,
+        manager_results=list(execution_snapshot["manager_results"]),
+        portfolio_plan={},
+        dominant_manager_id="momentum",
+    )
+
+    assert projection.subject_type == "manager_portfolio"
+    assert projection.compatibility_fields["derived"] is True
+    assert projection.compatibility_fields["source"] == "dominant_manager"

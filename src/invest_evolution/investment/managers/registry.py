@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
+from functools import lru_cache
+from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, List, Optional
 
 from invest_evolution.investment.contracts import ManagerOutput, ManagerPlan, ManagerRunContext, ManagerSpec
@@ -142,6 +144,90 @@ def resolve_manager_config_ref(manager_id: str) -> str:
     return str(registry.resolve(manager_id).runtime_config_ref or resolve_manager_runtime_config_ref(manager_id))
 
 
+def looks_like_manager_config_ref(value: Any) -> bool:
+    text = str(value or "").strip()
+    if not text:
+        return False
+    path = Path(text).expanduser()
+    return (
+        path.is_absolute()
+        or path.suffix.lower() in {".yaml", ".yml", ".json"}
+        or any(separator in text for separator in ("/", "\\"))
+    )
+
+
+def normalize_manager_config_ref(
+    value: Any,
+    *,
+    preserve_bare_filename: bool = True,
+) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    if not looks_like_manager_config_ref(text):
+        return text
+    if preserve_bare_filename and "/" not in text and "\\" not in text:
+        return text
+    try:
+        return str(Path(text).expanduser().resolve(strict=False))
+    except Exception:
+        return text
+
+
+@lru_cache(maxsize=1)
+def _known_manager_ids_for_canonicalization() -> tuple[str, ...]:
+    return tuple(
+        sorted(
+            (
+                str(manager_id).strip()
+                for manager_id in ManagerRegistry().list_manager_ids()
+                if str(manager_id).strip()
+            ),
+            key=len,
+            reverse=True,
+        )
+    )
+
+
+def _infer_manager_id_from_config_ref(manager_config_ref: Any) -> str:
+    text = str(manager_config_ref or "").strip()
+    if not text:
+        return ""
+    path = Path(text)
+    probes = (
+        text.lower(),
+        path.name.lower(),
+        path.stem.lower(),
+    )
+    for manager_id in _known_manager_ids_for_canonicalization():
+        normalized_manager_id = manager_id.lower()
+        if any(normalized_manager_id in probe for probe in probes):
+            return manager_id
+    return ""
+
+
+def canonical_manager_config_ref(
+    manager_id: Any,
+    manager_config_ref: Any = None,
+    *,
+    fallback: Any = None,
+) -> str:
+    normalized_manager_id = str(manager_id or "").strip()
+    direct_ref = str(manager_config_ref or "").strip()
+    fallback_ref = str(fallback or "").strip()
+    candidate_ref = direct_ref or fallback_ref
+    if not normalized_manager_id:
+        return normalize_manager_config_ref(candidate_ref)
+    if candidate_ref and looks_like_manager_config_ref(candidate_ref):
+        inferred_manager_id = _infer_manager_id_from_config_ref(candidate_ref)
+        if inferred_manager_id and inferred_manager_id != normalized_manager_id:
+            return normalize_manager_config_ref(
+                resolve_manager_config_ref(normalized_manager_id)
+            )
+        return normalize_manager_config_ref(candidate_ref)
+    return normalize_manager_config_ref(resolve_manager_config_ref(normalized_manager_id))
+
+
 class ManagerRegistry:
     """Registry for manager specs and their runtime constructors."""
 
@@ -211,6 +297,9 @@ __all__ = [
     'ManagerAgent',
     'RuntimeBackedManager',
     'DEFAULT_MANAGER_CAPABILITIES',
+    'looks_like_manager_config_ref',
+    'normalize_manager_config_ref',
+    'canonical_manager_config_ref',
     'resolve_manager_config_ref',
     'ManagerRegistry',
     'build_default_manager_registry',

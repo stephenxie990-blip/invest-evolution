@@ -11,11 +11,11 @@ from invest_evolution.application.training.controller import (
     session_cycle_history,
 )
 from invest_evolution.application.training.policy import (
-    _normalize_config_ref,
     governance_from_controller,
     normalize_governance_decision,
     normalize_review_window,
 )
+from invest_evolution.investment.managers.registry import normalize_manager_config_ref
 from invest_evolution.investment.shared.policy import (
     evaluate_promotion_discipline,
     infer_deployment_stage,
@@ -25,6 +25,10 @@ from invest_evolution.investment.shared.policy import (
 )
 
 CYCLE_STAGE_SNAPSHOT_CONTRACT_VERSION = "training_cycle_stage_snapshots.v1"
+
+
+def _normalize_config_ref(value: Any) -> str:
+    return normalize_manager_config_ref(value)
 
 
 class ReviewBasisWindowPayload(TypedDict):

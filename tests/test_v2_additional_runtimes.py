@@ -1,6 +1,7 @@
 import numpy as np
 import pandas as pd
 import pytest
+from types import SimpleNamespace
 
 from invest_evolution.investment.runtimes import (
     DefensiveLowVolRuntime,
@@ -9,6 +10,7 @@ from invest_evolution.investment.runtimes import (
     ValueQualityRuntime,
     list_manager_runtime_ids,
 )
+from invest_evolution.investment.runtimes import styles as runtime_styles_module
 
 
 def _make_stock_data(n=8, days=120):
@@ -95,7 +97,7 @@ def test_defensive_low_vol_runtime_outputs_dual_channel():
 
     assert out.manager_id == "defensive_low_vol"
     assert out.signal_packet.manager_id == "defensive_low_vol"
-    assert out.signal_packet.max_positions == 3
+    assert out.signal_packet.max_positions in {2, 3}
     assert len(out.signal_packet.signals) >= 1
     assert out.agent_context.candidate_codes
     assert any("defensive_score" in signal.factor_values for signal in out.signal_packet.signals)
@@ -116,3 +118,145 @@ def test_thresholded_runtimes_do_not_fallback_to_unfiltered_candidates(runtime_c
     assert out.signal_packet.signals == []
     assert out.signal_packet.selected_codes == []
     assert out.agent_context.candidate_codes == []
+
+
+def test_mean_reversion_runtime_applies_oscillation_guards(monkeypatch):
+    monkeypatch.setattr(
+        runtime_styles_module,
+        "compute_market_stats",
+        lambda *_args, **_kwargs: {
+            "regime_hint": "oscillation",
+            "avg_volatility": 0.02,
+            "market_breadth": 0.5,
+            "avg_change_20d": 0.0,
+        },
+    )
+    monkeypatch.setattr(
+        runtime_styles_module,
+        "summarize_stock_batches",
+        lambda *_args, **_kwargs: [
+            SimpleNamespace(
+                code="sh.600100",
+                rsi=31.0,
+                bb_pos=0.08,
+                change_5d=-8.5,
+                change_20d=-12.0,
+                vol_ratio=1.0,
+                volatility=0.03,
+                ma_trend="空头",
+                macd="bearish",
+                summary={
+                    "code": "sh.600100",
+                    "rsi": 31.0,
+                    "bb_pos": 0.08,
+                    "change_5d": -8.5,
+                    "change_20d": -12.0,
+                    "vol_ratio": 1.0,
+                    "volatility": 0.03,
+                    "ma_trend": "空头",
+                    "macd": "bearish",
+                },
+            ),
+            SimpleNamespace(
+                code="sh.600101",
+                rsi=24.0,
+                bb_pos=0.10,
+                change_5d=-4.0,
+                change_20d=-3.0,
+                vol_ratio=1.1,
+                volatility=0.02,
+                ma_trend="多头",
+                macd="gold_cross",
+                summary={
+                    "code": "sh.600101",
+                    "rsi": 24.0,
+                    "bb_pos": 0.10,
+                    "change_5d": -4.0,
+                    "change_20d": -3.0,
+                    "vol_ratio": 1.1,
+                    "volatility": 0.02,
+                    "ma_trend": "多头",
+                    "macd": "gold_cross",
+                },
+            ),
+        ],
+    )
+
+    runtime = MeanReversionRuntime(runtime_overrides={"top_n": 4, "max_positions": 3})
+    out = runtime.process(_make_stock_data(), "20230601")
+
+    assert out.signal_packet.regime == "oscillation"
+    assert out.signal_packet.max_positions == 2
+    assert out.signal_packet.cash_reserve >= 0.55
+    assert out.signal_packet.selected_codes == ["sh.600101"]
+
+
+def test_defensive_runtime_applies_bear_quality_guards(monkeypatch):
+    monkeypatch.setattr(
+        runtime_styles_module,
+        "compute_market_stats",
+        lambda *_args, **_kwargs: {
+            "regime_hint": "bear",
+            "avg_volatility": 0.03,
+            "market_breadth": 0.3,
+            "above_ma20_ratio": 0.35,
+        },
+    )
+    monkeypatch.setattr(
+        runtime_styles_module,
+        "summarize_stock_batches",
+        lambda *_args, **_kwargs: [
+            SimpleNamespace(
+                code="sh.600200",
+                rsi=50.0,
+                bb_pos=0.45,
+                change_5d=-0.5,
+                change_20d=-3.5,
+                vol_ratio=1.0,
+                volatility=0.03,
+                ma_trend="空头",
+                macd="bearish",
+                summary={
+                    "code": "sh.600200",
+                    "rsi": 50.0,
+                    "bb_pos": 0.45,
+                    "change_5d": -0.5,
+                    "change_20d": -3.5,
+                    "vol_ratio": 1.0,
+                    "volatility": 0.03,
+                    "ma_trend": "空头",
+                    "macd": "bearish",
+                },
+            ),
+            SimpleNamespace(
+                code="sh.600201",
+                rsi=51.0,
+                bb_pos=0.48,
+                change_5d=0.6,
+                change_20d=1.8,
+                vol_ratio=1.1,
+                volatility=0.018,
+                ma_trend="多头",
+                macd="bullish",
+                summary={
+                    "code": "sh.600201",
+                    "rsi": 51.0,
+                    "bb_pos": 0.48,
+                    "change_5d": 0.6,
+                    "change_20d": 1.8,
+                    "vol_ratio": 1.1,
+                    "volatility": 0.018,
+                    "ma_trend": "多头",
+                    "macd": "bullish",
+                },
+            ),
+        ],
+    )
+
+    runtime = DefensiveLowVolRuntime(runtime_overrides={"top_n": 4, "max_positions": 3})
+    out = runtime.process(_make_stock_data(), "20230601")
+
+    assert out.signal_packet.regime == "bear"
+    assert out.signal_packet.max_positions == 2
+    assert out.signal_packet.cash_reserve >= 0.48
+    assert out.signal_packet.selected_codes == ["sh.600201"]
