@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
+from copy import deepcopy
+from datetime import datetime
+from importlib import import_module
 from pathlib import Path
-from typing import Any, Dict, cast
+from typing import Any, Callable, Dict, Mapping, cast
 
 import numpy as np
 
@@ -13,6 +17,7 @@ from invest_evolution.application.training.observability import build_self_asses
 from invest_evolution.application.training import review_contracts as training_review_contracts
 from invest_evolution.application.training.policy import execution_defaults_payload, normalize_governance_decision
 from invest_evolution.investment.governance import write_leaderboard
+from invest_evolution.investment.shared.policy import normalize_config_ref
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +47,210 @@ def write_json_boundary(path: Path, payload: dict[str, Any], *, max_bytes: int |
         raise ArtifactTooLargeError(path, actual_bytes=len(encoded), max_bytes=int(max_bytes))
     with open(path, "w", encoding="utf-8") as handle:
         handle.write(text)
+
+
+def _canonicalize_hash_payload(value: Any) -> Any:
+    if isinstance(value, Mapping):
+        return {
+            str(key): _canonicalize_hash_payload(item)
+            for key, item in sorted(value.items(), key=lambda pair: str(pair[0]))
+        }
+    if isinstance(value, list):
+        return [_canonicalize_hash_payload(item) for item in value]
+    if isinstance(value, tuple):
+        return [_canonicalize_hash_payload(item) for item in value]
+    return value
+
+
+def _stable_hash(payload: Mapping[str, Any]) -> str:
+    canonical = json.dumps(
+        _canonicalize_hash_payload(dict(payload)),
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def _proposal_store_dir(base: Any) -> Path:
+    if hasattr(base, "output_dir"):
+        root = _resolved_output_dir(getattr(base, "output_dir"))
+    else:
+        root = _resolved_output_dir(base)
+    store_dir = root / "proposal_store"
+    store_dir.mkdir(parents=True, exist_ok=True)
+    return store_dir
+
+
+def _string_items(values: Any) -> list[str]:
+    output: list[str] = []
+    for value in list(values or []):
+        item = str(value or "").strip()
+        if item and item not in output:
+            output.append(item)
+    return output
+
+
+def _proposal_sequence(proposal: dict[str, Any]) -> int:
+    for candidate in (
+        str(proposal.get("proposal_id") or "").strip(),
+        str(proposal.get("suggestion_id") or "").strip(),
+    ):
+        if not candidate:
+            continue
+        try:
+            return int(candidate.split("_")[-1])
+        except (TypeError, ValueError):
+            continue
+    return 0
+
+
+def _suggestion_text(
+    proposal: dict[str, Any],
+    *,
+    source: str,
+    rationale: str,
+    patch: dict[str, Any],
+) -> str:
+    explicit = str(
+        proposal.get("suggestion_text")
+        or dict(proposal.get("metadata") or {}).get("suggestion_text")
+        or ""
+    ).strip()
+    if explicit:
+        return explicit
+    if rationale:
+        return rationale
+    patch_keys = ", ".join(sorted(str(key) for key in dict(patch or {}).keys())[:3])
+    if patch_keys:
+        return f"{source}: {patch_keys}"
+    return source or "learning_proposal"
+
+
+def _ensure_proposal_tracking_fields_fallback(
+    proposal: dict[str, Any] | None,
+    *,
+    default_cycle_id: int | None = None,
+) -> dict[str, Any]:
+    payload = deepcopy(dict(proposal or {}))
+    cycle_id = int(payload.get("cycle_id") or default_cycle_id or 0)
+    sequence = max(1, _proposal_sequence(payload) or 1)
+    proposal_id = str(payload.get("proposal_id") or "").strip()
+    if not proposal_id:
+        proposal_id = f"proposal_{cycle_id:04d}_{sequence:03d}"
+        payload["proposal_id"] = proposal_id
+
+    suggestion_id = str(payload.get("suggestion_id") or "").strip()
+    if not suggestion_id:
+        suggestion_id = f"suggestion_{cycle_id:04d}_{sequence:03d}"
+        payload["suggestion_id"] = suggestion_id
+
+    source = str(payload.get("source") or "unknown").strip() or "unknown"
+    patch = deepcopy(dict(payload.get("patch") or {}))
+    rationale = str(payload.get("rationale") or "").strip()
+    payload["suggestion_text"] = _suggestion_text(
+        payload,
+        source=source,
+        rationale=rationale,
+        patch=patch,
+    )
+
+    effect_window = deepcopy(dict(payload.get("effect_window") or {}))
+    window_cycles = int(effect_window.get("window_cycles") or 3)
+    window_cycles = max(1, window_cycles)
+    payload["effect_window"] = {
+        "window_cycles": window_cycles,
+        "start_cycle_id": int(effect_window.get("start_cycle_id") or cycle_id + 1),
+        "end_cycle_id": int(effect_window.get("end_cycle_id") or cycle_id + window_cycles),
+        "evaluation_after_cycle_id": int(
+            effect_window.get("evaluation_after_cycle_id") or cycle_id + window_cycles
+        ),
+    }
+    payload["effect_target_metrics"] = _string_items(payload.get("effect_target_metrics") or []) or [
+        "avg_return_pct",
+        "benchmark_pass_rate",
+    ]
+    adoption_ref = deepcopy(dict(payload.get("adoption_ref") or {}))
+    payload["adoption_status"] = str(payload.get("adoption_status") or "queued").strip() or "queued"
+    payload["adoption_ref"] = {
+        "decision_cycle_id": adoption_ref.get("decision_cycle_id"),
+        "decision_stage": str(adoption_ref.get("decision_stage") or "proposal_recorded"),
+        "decision_reason": str(adoption_ref.get("decision_reason") or "queued_for_candidate_governance"),
+        "candidate_config_ref": str(adoption_ref.get("candidate_config_ref") or ""),
+        "candidate_version_id": str(adoption_ref.get("candidate_version_id") or ""),
+        "pending_candidate_ref": str(adoption_ref.get("pending_candidate_ref") or ""),
+        "proposal_bundle_id": str(adoption_ref.get("proposal_bundle_id") or ""),
+        "block_reasons": _string_items(adoption_ref.get("block_reasons") or []),
+    }
+    effect_status = str(payload.get("effect_status") or "pending_adoption").strip() or "pending_adoption"
+    payload["effect_status"] = effect_status
+    payload["effect_result"] = {
+        "status": str(dict(payload.get("effect_result") or {}).get("status") or effect_status),
+        "observed_cycles": int(dict(payload.get("effect_result") or {}).get("observed_cycles") or 0),
+        "summary": str(dict(payload.get("effect_result") or {}).get("summary") or ""),
+    }
+    return payload
+
+
+def _build_suggestion_tracking_summary_fallback(
+    proposals: list[dict[str, Any]] | None,
+) -> dict[str, Any]:
+    normalized = [
+        _ensure_proposal_tracking_fields_fallback(dict(item or {}))
+        for item in list(proposals or [])
+    ]
+    adoption_status_counts: dict[str, int] = {}
+    effect_status_counts: dict[str, int] = {}
+    source_counts: dict[str, int] = {}
+    pending_evaluation_count = 0
+    completed_evaluation_count = 0
+
+    for proposal in normalized:
+        adoption_status = str(proposal.get("adoption_status") or "queued")
+        effect_status = str(proposal.get("effect_status") or "pending_adoption")
+        source = str(proposal.get("source") or "unknown")
+        adoption_status_counts[adoption_status] = adoption_status_counts.get(adoption_status, 0) + 1
+        effect_status_counts[effect_status] = effect_status_counts.get(effect_status, 0) + 1
+        source_counts[source] = source_counts.get(source, 0) + 1
+        if effect_status == "pending":
+            pending_evaluation_count += 1
+        if effect_status in {"improved", "worsened", "neutral", "inconclusive"}:
+            completed_evaluation_count += 1
+
+    return {
+        "schema_version": "training.suggestion_tracking_summary.v1",
+        "suggestion_count": len(normalized),
+        "adoption_status_counts": adoption_status_counts,
+        "effect_status_counts": effect_status_counts,
+        "pending_evaluation_count": pending_evaluation_count,
+        "completed_evaluation_count": completed_evaluation_count,
+        "source_counts": source_counts,
+    }
+
+
+def _resolve_suggestion_tracking_helpers() -> tuple[
+    Callable[..., dict[str, Any]],
+    Callable[[list[dict[str, Any]] | None], dict[str, Any]],
+]:
+    ensure_fn: Callable[..., dict[str, Any]] = _ensure_proposal_tracking_fields_fallback
+    summary_fn: Callable[[list[dict[str, Any]] | None], dict[str, Any]] = (
+        _build_suggestion_tracking_summary_fallback
+    )
+    try:
+        module = import_module("invest_evolution.application.training.observability")
+    except Exception:
+        return ensure_fn, summary_fn
+
+    resolved_ensure = getattr(module, "ensure_proposal_tracking_fields", None)
+    resolved_summary = getattr(module, "build_suggestion_tracking_summary", None)
+    if callable(resolved_ensure):
+        ensure_fn = cast(Callable[..., dict[str, Any]], resolved_ensure)
+    if callable(resolved_summary):
+        summary_fn = cast(
+            Callable[[list[dict[str, Any]] | None], dict[str, Any]],
+            resolved_summary,
+        )
+    return ensure_fn, summary_fn
 
 
 def _bool(value: Any) -> bool:
@@ -387,6 +596,156 @@ def _result_artifact_paths(output_dir: str | Path, cycle_id: int) -> dict[str, s
 
 def _resolved_output_dir(output_dir: str | Path) -> Path:
     return Path(output_dir).expanduser().resolve(strict=False)
+
+
+def persist_cycle_proposal_bundle(
+    controller: Any,
+    *,
+    cycle_id: int,
+    execution_snapshot: dict[str, Any] | None = None,
+    proposals: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    ensure_tracking_fields, build_tracking_summary = _resolve_suggestion_tracking_helpers()
+    snapshot = deepcopy(dict(execution_snapshot or {}))
+    proposal_items = [
+        ensure_tracking_fields(
+            deepcopy(dict(item or {})),
+            default_cycle_id=int(cycle_id),
+        )
+        for item in list(
+            proposals
+            if proposals is not None
+            else getattr(controller, "current_cycle_learning_proposals", [])
+            or []
+        )
+    ]
+    model_name = str(
+        snapshot.get("model_name")
+        or getattr(controller, "model_name", "")
+        or ""
+    )
+    active_runtime_config_ref = normalize_config_ref(
+        snapshot.get("active_runtime_config_ref")
+        or snapshot.get("active_config_ref")
+        or getattr(controller, "model_config_path", "")
+        or ""
+    )
+    active_version_id = str(
+        snapshot.get("active_version_id")
+        or snapshot.get("active_runtime_version_id")
+        or ""
+    )
+    runtime_fingerprint = str(
+        snapshot.get("runtime_fingerprint")
+        or snapshot.get("active_runtime_fingerprint")
+        or ""
+    )
+    proposal_ids = [
+        str(dict(item or {}).get("proposal_id") or "")
+        for item in proposal_items
+    ]
+    bundle_signature = {
+        "cycle_id": int(cycle_id),
+        "model_name": model_name,
+        "active_runtime_config_ref": active_runtime_config_ref,
+        "active_version_id": active_version_id,
+        "runtime_fingerprint": runtime_fingerprint,
+        "proposal_ids": proposal_ids,
+    }
+    proposal_bundle_id = f"proposal_bundle_{int(cycle_id):04d}_{_stable_hash(bundle_signature)[:8]}"
+    suggestion_tracking_summary = build_tracking_summary(proposal_items)
+    payload = {
+        "schema_version": "training.proposal_bundle.v1",
+        "proposal_bundle_id": proposal_bundle_id,
+        "cycle_id": int(cycle_id),
+        "created_at": datetime.now().isoformat(),
+        "model_name": model_name,
+        "active_runtime_config_ref": active_runtime_config_ref,
+        "active_version_id": active_version_id,
+        "runtime_fingerprint": runtime_fingerprint,
+        "execution_snapshot": snapshot,
+        "proposal_count": len(proposal_items),
+        "proposal_ids": proposal_ids,
+        "proposals": proposal_items,
+        "suggestion_tracking_summary": suggestion_tracking_summary,
+    }
+    path = _proposal_store_dir(controller) / f"cycle_{int(cycle_id):04d}_{proposal_bundle_id}.json"
+    write_json_boundary(path, payload)
+    payload["bundle_path"] = str(path)
+    setattr(controller, "last_cycle_proposal_bundle", deepcopy(payload))
+    return payload
+
+
+def load_cycle_proposal_bundle(bundle_path: str | Path) -> dict[str, Any]:
+    ensure_tracking_fields, build_tracking_summary = _resolve_suggestion_tracking_helpers()
+    path = Path(bundle_path).expanduser().resolve(strict=False)
+    payload = dict(json.loads(path.read_text(encoding="utf-8")) or {})
+    cycle_id = int(payload.get("cycle_id") or 0)
+    proposals = [
+        ensure_tracking_fields(
+            deepcopy(dict(item or {})),
+            default_cycle_id=cycle_id,
+        )
+        for item in list(payload.get("proposals") or [])
+    ]
+    payload["proposals"] = proposals
+    payload["proposal_count"] = len(proposals)
+    payload["proposal_ids"] = [
+        str(dict(item).get("proposal_id") or "")
+        for item in proposals
+    ]
+    payload["suggestion_tracking_summary"] = build_tracking_summary(proposals)
+    payload["bundle_path"] = str(path)
+    return payload
+
+
+def list_cycle_proposal_bundles(base: Any, *, limit: int | None = None) -> list[dict[str, Any]]:
+    items = [
+        load_cycle_proposal_bundle(path)
+        for path in sorted(_proposal_store_dir(base).glob("cycle_*.json"))
+    ]
+    if limit is not None:
+        return items[-max(0, int(limit)) :]
+    return items
+
+
+def update_cycle_proposal_bundle(
+    controller: Any | None,
+    *,
+    bundle_path: str | Path,
+    proposals: list[dict[str, Any]] | None = None,
+    extra_fields: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    ensure_tracking_fields, build_tracking_summary = _resolve_suggestion_tracking_helpers()
+    payload = load_cycle_proposal_bundle(bundle_path)
+    cycle_id = int(payload.get("cycle_id") or 0)
+    if proposals is not None:
+        payload["proposals"] = [
+            ensure_tracking_fields(
+                deepcopy(dict(item or {})),
+                default_cycle_id=cycle_id,
+            )
+            for item in list(proposals or [])
+        ]
+        payload["proposal_count"] = len(list(payload.get("proposals") or []))
+        payload["proposal_ids"] = [
+            str(dict(item).get("proposal_id") or "")
+            for item in list(payload.get("proposals") or [])
+        ]
+    payload["suggestion_tracking_summary"] = build_tracking_summary(
+        list(payload.get("proposals") or [])
+    )
+    for key, value in dict(extra_fields or {}).items():
+        payload[key] = deepcopy(value)
+
+    path = Path(bundle_path).expanduser().resolve(strict=False)
+    persisted = dict(payload)
+    persisted.pop("bundle_path", None)
+    write_json_boundary(path, persisted)
+    payload["bundle_path"] = str(path)
+    if controller is not None:
+        setattr(controller, "last_cycle_proposal_bundle", deepcopy(payload))
+    return payload
 
 
 def _stage_snapshot_refs(
@@ -889,6 +1248,34 @@ def _bounded_contract_stage_snapshots_summary(
     return projected
 
 
+def _proposal_bundle_summary(payload: dict[str, Any] | None) -> dict[str, Any]:
+    bundle = dict(payload or {})
+    if not bundle:
+        return {}
+    proposal_ids_preview, proposal_ids_truncated = _list_preview(
+        list(bundle.get("proposal_ids") or []),
+        limit=10,
+    )
+    summary = _summary_or_empty(
+        {
+            "schema_version": str(bundle.get("schema_version") or ""),
+            "proposal_bundle_id": str(bundle.get("proposal_bundle_id") or ""),
+            "cycle_id": int(bundle.get("cycle_id") or 0) if bundle.get("cycle_id") is not None else 0,
+            "bundle_path": str(bundle.get("bundle_path") or ""),
+            "proposal_count": int(
+                bundle.get("proposal_count")
+                or len(list(bundle.get("proposals") or []))
+            ),
+            "proposal_ids": [str(item) for item in proposal_ids_preview],
+            "proposal_ids_truncated": proposal_ids_truncated,
+            "suggestion_tracking_summary": _jsonable(
+                dict(bundle.get("suggestion_tracking_summary") or {})
+            ),
+        }
+    )
+    return summary
+
+
 def _execution_snapshot_summary(payload: dict[str, Any] | None) -> dict[str, Any]:
     snapshot = dict(payload or {})
     summary = {
@@ -902,6 +1289,9 @@ def _execution_snapshot_summary(payload: dict[str, Any] | None) -> dict[str, Any
         "execution_defaults": _jsonable(dict(snapshot.get("execution_defaults") or {})),
         "portfolio_plan": _portfolio_plan_summary(dict(snapshot.get("portfolio_plan") or {})),
         "manager_results": _manager_results_summary(list(snapshot.get("manager_results") or [])),
+        "proposal_bundle": _proposal_bundle_summary(
+            dict(snapshot.get("proposal_bundle") or {})
+        ),
         **_contract_stage_snapshot_summary_fields(
             dict(snapshot.get("contract_stage_snapshots") or {})
         ),
@@ -922,6 +1312,9 @@ def _run_context_summary(payload: dict[str, Any] | None) -> dict[str, Any]:
         "runtime_overrides": _jsonable(dict(run_context.get("runtime_overrides") or {})),
         "review_basis_window": _jsonable(dict(run_context.get("review_basis_window") or {})),
         "fitness_source_cycles": _jsonable(list(run_context.get("fitness_source_cycles") or [])),
+        "proposal_bundle": _proposal_bundle_summary(
+            dict(run_context.get("proposal_bundle") or {})
+        ),
         "promotion_decision": _promotion_decision_summary(
             dict(run_context.get("promotion_decision") or {})
         ),
@@ -1016,6 +1409,29 @@ def build_cycle_result_persistence_payload(controller: Any, result: Any) -> dict
     optimization_events_preview, optimization_events_truncated = _optimization_events_preview(
         list(getattr(result, "optimization_events", []) or [])
     )
+    proposal_bundle = dict(getattr(result, "proposal_bundle", {}) or {})
+    if not proposal_bundle:
+        proposal_bundle = dict(getattr(result, "run_context", {}) or {}).get("proposal_bundle") or {}
+    proposal_bundle_summary = _proposal_bundle_summary(dict(proposal_bundle or {}))
+    execution_snapshot = dict(result.execution_snapshot or {})
+    run_context = dict(result.run_context or {})
+    manager_id = str(
+        run_context.get("manager_id")
+        or execution_snapshot.get("manager_id")
+        or getattr(result, "dominant_manager_id", "")
+        or ""
+    )
+    manager_config_ref = str(
+        run_context.get("manager_config_ref")
+        or execution_snapshot.get("manager_config_ref")
+        or ""
+    )
+    active_runtime_config_ref = str(
+        run_context.get("active_runtime_config_ref")
+        or execution_snapshot.get("active_runtime_config_ref")
+        or manager_config_ref
+        or ""
+    )
     artifact_paths = _result_artifact_paths(
         getattr(controller, "output_dir", ""),
         int(getattr(result, "cycle_id", 0) or 0),
@@ -1040,6 +1456,9 @@ def build_cycle_result_persistence_payload(controller: Any, result: Any) -> dict
         "degraded": _bool(result.degraded),
         "degrade_reason": result.degrade_reason,
         "selection_mode": result.selection_mode,
+        "manager_id": manager_id,
+        "manager_config_ref": manager_config_ref,
+        "active_runtime_config_ref": active_runtime_config_ref,
         "agent_used": _bool(result.agent_used),
         "llm_used": _bool(result.llm_used),
         "benchmark_passed": _bool(result.benchmark_passed),
@@ -1068,10 +1487,11 @@ def build_cycle_result_persistence_payload(controller: Any, result: Any) -> dict
         "research_artifacts": _jsonable(dict(result.research_artifacts or {})),
         "ab_comparison": _jsonable(dict(result.ab_comparison or {})),
         "experiment_spec": _jsonable(dict(result.experiment_spec or {})),
-        "execution_snapshot": _execution_snapshot_summary(dict(result.execution_snapshot or {})),
-        "run_context": _run_context_summary(dict(result.run_context or {})),
+        "execution_snapshot": _execution_snapshot_summary(execution_snapshot),
+        "run_context": _run_context_summary(run_context),
         "promotion_record": _promotion_record_summary(dict(result.promotion_record or {})),
         "lineage_record": _lineage_record_summary(dict(result.lineage_record or {})),
+        "proposal_bundle": proposal_bundle_summary,
         "manager_results": _manager_results_summary(list(getattr(result, "manager_results", []) or [])),
         "portfolio_plan": _portfolio_plan_summary(dict(getattr(result, "portfolio_plan", {}) or {})),
         "portfolio_attribution": _jsonable(dict(getattr(result, "portfolio_attribution", {}) or {})),

@@ -279,6 +279,67 @@ def test_governance_coordinator_holds_current_when_no_qualified_candidates(tmp_p
     assert '没有通过质量门的正式候选' in decision.reasoning
 
 
+def test_governance_coordinator_surfaces_regime_hard_fail_summary_in_failed_entries(tmp_path, monkeypatch):
+    coordinator = GovernanceCoordinator(cooldown_cycles=1, hysteresis_margin=0.01, min_confidence=0.5)
+    monkeypatch.setattr(
+        coordinator.observer,
+        'observe',
+        lambda *args, **kwargs: MarketObservation(
+            as_of_date='20260310',
+            stats={'avg_change_20d': -0.2, 'above_ma20_ratio': 0.47, 'market_breadth': 0.45, 'avg_volatility': 0.019},
+        ),
+    )
+    monkeypatch.setattr(
+        coordinator.classifier,
+        'classify',
+        lambda *args, **kwargs: {'regime': 'bear', 'confidence': 0.72, 'reasoning': '下行风险偏高', 'suggested_exposure': 0.28, 'source': 'rule', 'rule_result': {}, 'agent_result': {}},
+    )
+    leaderboard_path = _write_leaderboard(
+        tmp_path,
+        {
+            'generated_at': '2026-03-10T00:00:00',
+            'entries': [
+                {
+                    'manager_id': 'value_quality',
+                    'manager_config_ref': 'value_quality_v1',
+                    'score': 3.5,
+                    'avg_return_pct': 0.3,
+                    'avg_sharpe_ratio': 0.7,
+                    'avg_max_drawdown': 5.0,
+                    'benchmark_pass_rate': 0.52,
+                    'avg_strategy_score': 0.63,
+                    'rank': 0,
+                    'eligible_for_governance': False,
+                    'ineligible_reason': 'quality_gate:regime_hard_fail.bear',
+                    'failed_regime_names': ['bear'],
+                    'regime_hard_fail': {
+                        'enabled': True,
+                        'passed': False,
+                        'failed_regime_names': ['bear'],
+                    },
+                },
+            ],
+            'regime_leaderboards': {},
+        },
+    )
+
+    decision = coordinator.decide(
+        stock_data={},
+        cutoff_date='20260310',
+        current_manager_id='momentum',
+        leaderboard_path=leaderboard_path,
+        allocator_top_n=3,
+        allowed_manager_ids=['momentum', 'value_quality'],
+        governance_mode='rule',
+    )
+
+    failed_entries = decision.evidence['allocator_quality']['failed_quality_entries']
+    assert failed_entries
+    assert failed_entries[0]['manager_id'] == 'value_quality'
+    assert failed_entries[0]['failed_regime_names'] == ['bear']
+    assert failed_entries[0]['regime_hard_fail']['passed'] is False
+
+
 def test_governance_coordinator_uses_shadow_regime_prior_fallback_when_no_qualified_candidates(tmp_path, monkeypatch):
     coordinator = GovernanceCoordinator(cooldown_cycles=0, hysteresis_margin=0.01, min_confidence=0.5)
     monkeypatch.setattr(

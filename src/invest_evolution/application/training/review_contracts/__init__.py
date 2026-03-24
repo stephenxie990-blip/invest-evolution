@@ -1648,6 +1648,8 @@ def latest_runtime_config_mutation_event(
         if str(event.get("stage") or "") in {
             "runtime_config_mutation",
             "runtime_config_mutation_skipped",
+            "candidate_build",
+            "candidate_build_skipped",
         }:
             return dict(event)
     return {}
@@ -1666,6 +1668,47 @@ def _runtime_config_mutation_stage_payload(
     skipped_payload = dict(event.get("runtime_config_mutation_skipped_payload") or {})
     if skipped_payload:
         return cast(RuntimeConfigMutationSkippedOptimizationStagePayload, skipped_payload)
+    stage = str(event.get("stage") or "").strip()
+    decision = dict(event.get("decision") or {})
+    applied_change = dict(event.get("applied_change") or {})
+    evidence = dict(event.get("evidence") or {})
+    if stage == "candidate_build":
+        return cast(
+            RuntimeConfigMutationOptimizationStagePayload,
+            {
+                "runtime_config_ref": str(
+                    decision.get("runtime_config_ref")
+                    or decision.get("config_path")
+                    or ""
+                ),
+                "auto_applied": bool(decision.get("auto_applied", False)),
+                "param_adjustments": dict(applied_change.get("params") or {}),
+                "scoring_adjustments": dict(applied_change.get("scoring") or {}),
+                "mutation_meta": dict(evidence.get("mutation_meta") or {}),
+            },
+        )
+    if stage == "candidate_build_skipped":
+        return cast(
+            RuntimeConfigMutationSkippedOptimizationStagePayload,
+            {
+                "skipped": True,
+                "skip_reason": str(
+                    decision.get("skip_reason")
+                    or evidence.get("skip_reason")
+                    or ""
+                ),
+                "pending_candidate_runtime_config_ref": str(
+                    decision.get("pending_candidate_ref")
+                    or decision.get("pending_candidate_runtime_config_ref")
+                    or evidence.get("pending_candidate_ref")
+                    or evidence.get("pending_candidate_runtime_config_ref")
+                    or ""
+                ),
+                "param_adjustments": dict(applied_change.get("params") or {}),
+                "scoring_adjustments": dict(applied_change.get("scoring") or {}),
+                "auto_applied": bool(decision.get("auto_applied", False)),
+            },
+        )
     return cast(
         RuntimeConfigMutationOptimizationStagePayload
         | RuntimeConfigMutationSkippedOptimizationStagePayload,
@@ -1737,21 +1780,23 @@ def _run_context_scope_snapshot(
     auto_applied: bool,
 ) -> dict[str, Any]:
     execution_defaults = dict(snapshot.get("execution_defaults") or {})
+    active_runtime_config_ref = _normalize_config_ref(
+        (
+            candidate_runtime_config_ref
+            if auto_applied and candidate_runtime_config_ref
+            else snapshot.get("active_runtime_config_ref")
+        )
+        or snapshot.get("manager_config_ref")
+        or execution_defaults.get("default_manager_config_ref")
+        or getattr(manager_output, "manager_config_ref", "")
+        or ""
+    )
     return {
         **snapshot,
-        "active_runtime_config_ref": _normalize_config_ref(
-            (
-                candidate_runtime_config_ref
-                if auto_applied and candidate_runtime_config_ref
-                else snapshot.get("active_runtime_config_ref")
-            )
-            or snapshot.get("manager_config_ref")
-            or execution_defaults.get("default_manager_config_ref")
-            or getattr(manager_output, "manager_config_ref", "")
-            or ""
-        ),
+        "active_runtime_config_ref": active_runtime_config_ref,
         "manager_config_ref": _normalize_config_ref(
             snapshot.get("manager_config_ref")
+            or active_runtime_config_ref
             or execution_defaults.get("default_manager_config_ref")
             or getattr(manager_output, "manager_config_ref", "")
             or ""
@@ -1816,6 +1861,36 @@ def build_cycle_run_context(
         dict(snapshot.get("execution_defaults") or scope_state.execution_defaults or {})
     )
     review_window = dict(getattr(controller, "experiment_review_window", {}) or {})
+    active_manager_ids = [
+        str(item).strip()
+        for item in list(
+            dict(snapshot.get("portfolio_plan") or {}).get("active_manager_ids") or []
+        )
+        if str(item).strip()
+    ]
+    if not active_manager_ids:
+        active_manager_ids = [
+            str(dict(item or {}).get("manager_id") or "").strip()
+            for item in list(snapshot.get("manager_results") or [])
+            if str(dict(item or {}).get("manager_id") or "").strip()
+        ]
+    if not active_manager_ids:
+        active_manager_ids = [
+            str(item).strip()
+            for item in list(governance_payload.get("active_manager_ids") or [])
+            if str(item).strip()
+        ]
+    subject_type = str(scope_state.subject_type or "single_manager")
+    if subject_type != "manager_portfolio":
+        subject_type = str(
+            snapshot.get("subject_type") or subject_type or "single_manager"
+        )
+    manager_id = str(
+        snapshot.get("manager_id")
+        or getattr(scope_state.projection, "manager_id", "")
+        or scope_state.dominant_manager_id
+        or ""
+    )
 
     context: dict[str, Any] = {
         "basis_stage": str(snapshot.get("basis_stage") or "post_cycle_result"),
@@ -1852,13 +1927,14 @@ def build_cycle_run_context(
             auto_applied=mutation_projection.auto_applied,
             mutation_event=mutation_projection.mutation_event,
         ),
-        "subject_type": str(snapshot.get("subject_type") or scope_state.subject_type or "single_manager"),
+        "subject_type": subject_type,
         "dominant_manager_id": str(
             snapshot.get("dominant_manager_id")
             or scope_state.dominant_manager_id
             or getattr(scope_state.projection, "manager_id", "")
             or ""
         ),
+        "manager_id": manager_id,
         "manager_config_ref": (
             _normalize_config_ref(snapshot.get("manager_config_ref"))
             or scope_state.manager_config_ref
@@ -1867,9 +1943,7 @@ def build_cycle_run_context(
         "execution_defaults": cast(ExecutionDefaultsPayload, execution_defaults),
         "manager_results": deepcopy(list(snapshot.get("manager_results") or [])),
         "portfolio_plan": deepcopy(dict(snapshot.get("portfolio_plan") or {})),
-        "active_manager_ids": deepcopy(
-            list(dict(snapshot.get("portfolio_plan") or {}).get("active_manager_ids") or [])
-        ),
+        "active_manager_ids": deepcopy(active_manager_ids),
         "governance_decision": cast(GovernanceDecisionPayload, deepcopy(governance_payload)),
         "portfolio_attribution": deepcopy(dict(evaluation.get("portfolio_attribution") or {})),
         "manager_review_report": _project_manager_review_digest(

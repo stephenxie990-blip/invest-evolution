@@ -247,6 +247,97 @@ def test_build_cycle_run_context_uses_candidate_as_active_after_auto_apply():
     assert context["deployment_stage"] == "active"
 
 
+def test_build_cycle_run_context_accepts_candidate_build_events():
+    controller = SimpleNamespace(
+        default_manager_id="momentum",
+        default_manager_config_ref="configs/active.yaml",
+        current_params={"position_size": 0.12},
+        cycle_history=[SimpleNamespace(cycle_id=2), SimpleNamespace(cycle_id=3)],
+        experiment_review_window={"mode": "rolling", "size": 3},
+        experiment_promotion_policy={"min_samples": 2},
+    )
+    manager_output = SimpleNamespace(
+        manager_id="momentum",
+        manager_config_ref="configs/active.yaml",
+    )
+    optimization_events = [
+        {
+            "stage": "candidate_build",
+            "decision": {
+                "runtime_config_ref": "data/evolution/generations/candidate.yaml",
+                "auto_applied": False,
+            },
+            "applied_change": {
+                "params": {"position_size": 0.1},
+                "scoring": {},
+            },
+            "notes": "candidate runtime config generated; active runtime config unchanged",
+        }
+    ]
+
+    context = cast(
+        dict[str, Any],
+        build_cycle_run_context(
+            controller,
+            cycle_id=4,
+            manager_output=manager_output,
+            optimization_events=optimization_events,
+        ),
+    )
+
+    assert context["candidate_runtime_config_ref"] == str(
+        Path("data/evolution/generations/candidate.yaml").resolve()
+    )
+    assert context["promotion_decision"]["status"] == "candidate_generated"
+    assert context["deployment_stage"] == "candidate"
+
+
+def test_build_cycle_run_context_accepts_candidate_build_skipped_events():
+    controller = SimpleNamespace(
+        default_manager_id="momentum",
+        default_manager_config_ref="configs/active.yaml",
+        current_params={"position_size": 0.12},
+        cycle_history=[SimpleNamespace(cycle_id=1), SimpleNamespace(cycle_id=2)],
+        experiment_review_window={"mode": "rolling", "size": 3},
+        experiment_promotion_policy={"min_samples": 2},
+    )
+    manager_output = SimpleNamespace(
+        manager_id="momentum",
+        manager_config_ref="configs/active.yaml",
+    )
+    optimization_events = [
+        {
+            "stage": "candidate_build_skipped",
+            "decision": {
+                "skip_reason": "pending_candidate_unresolved",
+                "pending_candidate_ref": "data/evolution/generations/pending.yaml",
+                "auto_applied": False,
+            },
+            "applied_change": {
+                "params": {"position_size": 0.1},
+                "scoring": {},
+            },
+            "notes": "existing pending candidate reused; skip generating another candidate runtime config",
+        }
+    ]
+
+    context = cast(
+        dict[str, Any],
+        build_cycle_run_context(
+            controller,
+            cycle_id=3,
+            manager_output=manager_output,
+            optimization_events=optimization_events,
+        ),
+    )
+
+    assert context["candidate_runtime_config_ref"] == str(
+        Path("data/evolution/generations/pending.yaml").resolve()
+    )
+    assert context["promotion_decision"]["status"] == "candidate_generated"
+    assert context["deployment_stage"] == "candidate"
+
+
 def test_build_cycle_run_context_skips_fitness_sources_without_runtime_config_mutation():
     controller = SimpleNamespace(
         default_manager_id="momentum",
@@ -765,6 +856,7 @@ def test_build_cycle_run_context_prefers_manager_output_scope_over_controller_de
     )
 
     assert context["dominant_manager_id"] == "value_quality"
+    assert context["manager_id"] == "value_quality"
     assert context["active_runtime_config_ref"] == str(Path("configs/value_quality.yaml").resolve())
     assert context["manager_config_ref"] == str(Path("configs/value_quality.yaml").resolve())
 

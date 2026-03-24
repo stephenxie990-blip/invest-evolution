@@ -180,6 +180,8 @@ class ModelAllocator:
                         "manager_id": _entry_manager_id(item),
                         "ineligible_reason": str(item.get("ineligible_reason") or ""),
                         "deployment_stage": str(item.get("deployment_stage") or ""),
+                        "failed_regime_names": list(item.get("failed_regime_names") or []),
+                        "regime_hard_fail": dict(item.get("regime_hard_fail") or {}),
                     }
                     for item in list(leaderboard.get("entries") or [])
                     if not bool(item.get("eligible_for_governance", False))
@@ -1163,6 +1165,8 @@ MAX_LEADERBOARD_CYCLE_BYTES = 2 * 1024 * 1024
 EXCLUDED_CYCLE_DIR_NAMES = {
     "config_snapshots",
     "control_plane_snapshots",
+    "details",
+    "proposal_store",
     "validation",
 }
 
@@ -1521,6 +1525,47 @@ def _build_regime_performance(
     return performance
 
 
+def _string_list(values: Any) -> List[str]:
+    items: List[str] = []
+    for value in list(values or []):
+        text = str(value or "").strip()
+        if text and text not in items:
+            items.append(text)
+    return items
+
+
+def _extract_regime_hard_fail_summary(quality_gate: Dict[str, Any]) -> Dict[str, Any]:
+    payload = dict(quality_gate or {})
+    regime_hard_fail = dict(payload.get("regime_hard_fail") or {})
+    failed_regime_names = _string_list(regime_hard_fail.get("failed_regime_names") or [])
+
+    if not failed_regime_names:
+        prefix = "regime_hard_fail."
+        for check in list(payload.get("failed_checks") or []):
+            check_name = str(dict(check or {}).get("name") or "").strip()
+            if not check_name.startswith(prefix):
+                continue
+            regime_name = check_name[len(prefix):].strip()
+            if regime_name and regime_name not in failed_regime_names:
+                failed_regime_names.append(regime_name)
+
+    if failed_regime_names:
+        if not regime_hard_fail:
+            regime_hard_fail = {
+                "enabled": True,
+                "passed": False,
+                "failed_regime_names": list(failed_regime_names),
+                "failed_regimes": [{"regime": name} for name in failed_regime_names],
+            }
+        elif "failed_regime_names" not in regime_hard_fail:
+            regime_hard_fail["failed_regime_names"] = list(failed_regime_names)
+
+    return {
+        "regime_hard_fail": regime_hard_fail,
+        "failed_regime_names": failed_regime_names,
+    }
+
+
 def build_leaderboard(records: List[Dict[str, Any]], policy: Dict[str, Any] | None = None) -> Dict[str, Any]:
     resolved_policy = dict(DEFAULT_LEADERBOARD_POLICY)
     resolved_policy.update(dict(policy or {}))
@@ -1632,7 +1677,10 @@ def build_leaderboard(records: List[Dict[str, Any]], policy: Dict[str, Any] | No
             entry,
             policy=dict((governance_matrix.get("governance") or {})),
         )
+        regime_hard_fail_summary = _extract_regime_hard_fail_summary(quality_gate)
         entry["quality_gate"] = quality_gate
+        entry["regime_hard_fail"] = dict(regime_hard_fail_summary.get("regime_hard_fail") or {})
+        entry["failed_regime_names"] = list(regime_hard_fail_summary.get("failed_regime_names") or [])
         entry["objective_eligible_after_governance"] = bool(quality_gate.get("passed", False))
         if eligible_for_governance and quality_gate.get("passed", False):
             entry["eligible_for_governance"] = True
@@ -1644,6 +1692,10 @@ def build_leaderboard(records: List[Dict[str, Any]], policy: Dict[str, Any] | No
                 if failed_checks
                 else "quality_gate"
             )
+            if entry["ineligible_reason"] == "quality_gate" and entry["failed_regime_names"]:
+                entry["ineligible_reason"] = (
+                    f"quality_gate:regime_hard_fail.{entry['failed_regime_names'][0]}"
+                )
         entries.append(entry)
         if entry["eligible_for_governance"]:
             regime_performance = dict(entry.get("regime_performance") or {})

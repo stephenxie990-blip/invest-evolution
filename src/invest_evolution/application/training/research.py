@@ -70,6 +70,85 @@ def project_manager_compatibility(*args: Any, **kwargs: Any) -> Any:
     return _project_manager_compatibility(*args, **kwargs)
 
 
+def build_learning_proposals_from_feedback_plan(
+    *,
+    cycle_id: int,
+    feedback_plan: dict[str, Any] | None,
+    active_params_snapshot: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
+    payload = dict(feedback_plan or {})
+    try:
+        normalized_cycle_id = max(0, int(cycle_id))
+    except (TypeError, ValueError):
+        normalized_cycle_id = 0
+    rationale = str(payload.get("summary") or "research feedback optimization").strip()
+    evidence_common = {
+        "cycle_id": normalized_cycle_id,
+        "trigger": str(payload.get("trigger") or "research_feedback"),
+        "bias": str(payload.get("bias") or ""),
+        "sample_count": int(payload.get("sample_count") or 0),
+        "failed_horizons": [
+            str(item).strip()
+            for item in list(payload.get("failed_horizons") or [])
+            if str(item).strip()
+        ],
+    }
+    metadata_common = {
+        "source_module": "training.research",
+        "trigger": str(payload.get("trigger") or "research_feedback"),
+        "bias": str(payload.get("bias") or ""),
+    }
+    snapshot = (
+        {
+            str(key): value
+            for key, value in dict(active_params_snapshot or {}).items()
+        }
+        if isinstance(active_params_snapshot, dict)
+        else {}
+    )
+    proposals: list[dict[str, Any]] = []
+    sequence = 0
+    scope_specs = (
+        (
+            "param_adjustments",
+            "research_feedback.runtime_param_adjustment",
+            "runtime_param_adjustment",
+        ),
+        (
+            "scoring_adjustments",
+            "research_feedback.scoring_adjustment",
+            "scoring_adjustment",
+        ),
+    )
+    for field_name, source, proposal_kind in scope_specs:
+        patch = {
+            str(key): value
+            for key, value in dict(payload.get(field_name) or {}).items()
+        }
+        if not patch:
+            continue
+        sequence += 1
+        serial = 100 + sequence
+        proposal = {
+            "proposal_id": f"proposal_{normalized_cycle_id:04d}_{serial:03d}",
+            "suggestion_id": f"suggestion_{normalized_cycle_id:04d}_{serial:03d}",
+            "cycle_id": normalized_cycle_id,
+            "source": source,
+            "target_scope": "candidate",
+            "patch": patch,
+            "rationale": rationale,
+            "evidence": dict(evidence_common),
+            "metadata": {
+                **metadata_common,
+                "proposal_kind": proposal_kind,
+            },
+        }
+        if snapshot:
+            proposal["active_params_snapshot"] = dict(snapshot)
+        proposals.append(proposal)
+    return proposals
+
+
 class TrainingResearchService:
     """Persists training-cycle evidence into the shared research case store."""
 
@@ -1289,7 +1368,7 @@ class TrainingFeedbackService:
 
         recommendation = dict(payload.get("recommendation") or {})
         summary = str(recommendation.get("summary") or "research feedback optimization")
-        return {
+        plan = {
             "trigger": "research_feedback",
             "bias": bias,
             "summary": summary,
@@ -1310,6 +1389,19 @@ class TrainingFeedbackService:
             "scoring_adjustments": {},
             "suggestions": suggestions,
         }
+        learning_proposals = build_learning_proposals_from_feedback_plan(
+            cycle_id=int(cycle_id),
+            feedback_plan=plan,
+            active_params_snapshot=dict(session_current_params(controller) or {}),
+        )
+        plan["learning_proposals"] = learning_proposals
+        plan["proposal_refs"] = [
+            str(item.get("proposal_id") or "")
+            for item in learning_proposals
+            if str(item.get("proposal_id") or "").strip()
+        ]
+        plan["proposal_count"] = len(learning_proposals)
+        return plan
 
 
 def load_research_feedback_boundary(
@@ -1321,11 +1413,29 @@ def load_research_feedback_boundary(
     regime: str = "",
 ) -> dict[str, Any]:
     history_limit = 200
+    max_history_limit: int | None = None
     policy = dict(getattr(controller, "research_feedback_policy", {}) or {})
     try:
         history_limit = max(1, int(policy.get("history_limit") or history_limit))
     except (TypeError, ValueError):
         history_limit = 200
+
+    # When a specific regime is requested, allow a larger evidence window to avoid
+    # starving rare regimes (e.g. bull) due to an aggressively small history_limit.
+    # This does not relax any gate thresholds; it only widens sampling.
+    try:
+        min_regime_history_limit = int(policy.get("min_regime_history_limit") or 0)
+    except (TypeError, ValueError):
+        min_regime_history_limit = 0
+    if str(regime or "").strip() and min_regime_history_limit > 0:
+        history_limit = max(history_limit, min_regime_history_limit)
+
+    try:
+        value = policy.get("max_history_limit")
+        if value not in (None, ""):
+            max_history_limit = max(1, int(value))
+    except (TypeError, ValueError):
+        max_history_limit = None
     try:
         feedback = controller.research_case_store.build_training_feedback(
             manager_id=manager_id,
@@ -1333,6 +1443,7 @@ def load_research_feedback_boundary(
             as_of_date=cutoff_date,
             regime=regime,
             limit=history_limit,
+            max_history_limit=max_history_limit,
         )
     except Exception:
         logger.debug("research calibration feedback unavailable", exc_info=True)

@@ -71,6 +71,38 @@ def test_build_leaderboard_payload_does_not_create_json_file(tmp_path):
     assert not (tmp_path / "leaderboard.json").exists()
 
 
+def test_collect_cycle_records_excludes_trade_detail_files(tmp_path):
+    run_dir = tmp_path / "strict_run"
+    details_dir = run_dir / "details"
+    _write_cycle(run_dir, 1, "momentum", "momentum_v1", 1.0, 0.9, 4.0, "bull")
+    details_dir.mkdir(parents=True, exist_ok=True)
+    (details_dir / "cycle_1_trades.json").write_text(
+        json.dumps({"cycle_id": 1, "trades": [{"code": "sh.600519"}]}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+
+    records = collect_cycle_records(tmp_path)
+
+    assert len(records) == 1
+    assert records[0]["manager_id"] == "momentum"
+
+
+def test_collect_cycle_records_excludes_proposal_store_artifacts(tmp_path):
+    run_dir = tmp_path / "strict_run"
+    proposal_store_dir = run_dir / "proposal_store"
+    _write_cycle(run_dir, 1, "momentum", "momentum_v1", 1.0, 0.9, 4.0, "bull")
+    proposal_store_dir.mkdir(parents=True, exist_ok=True)
+    (proposal_store_dir / "cycle_0001_proposal_bundle_0001_deadbeef.json").write_text(
+        json.dumps({"proposal_id": "proposal_1", "manager_id": "unknown"}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+
+    records = collect_cycle_records(tmp_path)
+
+    assert len(records) == 1
+    assert records[0]["manager_id"] == "momentum"
+
+
 def test_leaderboard_backfills_resolved_gate_policy_from_latest_config_ref(tmp_path):
     import invest_evolution.investment.governance.engine as engine_module
 
@@ -258,3 +290,49 @@ def test_leaderboard_policy_uses_explicit_runtime_train_overrides(tmp_path):
 
     assert board["policy"]["train"]["promotion_gate"]["min_samples"] == 6
     assert board["policy"]["train"]["freeze_gate"]["benchmark_pass_rate_gte"] == 0.7
+
+
+def test_leaderboard_exposes_regime_hard_fail_summary_from_quality_gate(tmp_path, monkeypatch):
+    import invest_evolution.investment.governance.engine as engine_module
+
+    _write_cycle(tmp_path / "momentum_run", 1, "momentum", "momentum_v1", 1.2, 1.1, 3.0, "bear")
+    _write_cycle(tmp_path / "momentum_run", 2, "momentum", "momentum_v1", 1.0, 1.0, 2.8, "bear")
+    _write_cycle(tmp_path / "momentum_run", 3, "momentum", "momentum_v1", 0.8, 0.9, 2.7, "bear")
+
+    real_gate = engine_module.evaluate_governance_quality_gate
+
+    def _patched_gate(entry, *, policy=None):
+        payload = real_gate(entry, policy=policy)
+        payload = dict(payload)
+        failed_checks = list(payload.get("failed_checks") or [])
+        failed_checks.append(
+            {
+                "name": "regime_hard_fail.bear",
+                "passed": False,
+                "actual": {"avg_return_pct": -0.6},
+                "threshold": {"min_avg_return_pct": -0.5},
+            }
+        )
+        checks = list(payload.get("checks") or [])
+        checks.append(failed_checks[-1])
+        payload["checks"] = checks
+        payload["failed_checks"] = failed_checks
+        payload["passed"] = False
+        payload["regime_hard_fail"] = {
+            "enabled": True,
+            "passed": False,
+            "failed_regime_names": ["bear"],
+            "failed_regimes": [{"regime": "bear"}],
+        }
+        return payload
+
+    monkeypatch.setattr(engine_module, "evaluate_governance_quality_gate", _patched_gate)
+
+    board = write_leaderboard(tmp_path)
+    entry = board["entries"][0]
+
+    assert entry["eligible_for_governance"] is False
+    assert entry["failed_regime_names"] == ["bear"]
+    assert entry["regime_hard_fail"]["passed"] is False
+    assert entry["regime_hard_fail"]["failed_regime_names"] == ["bear"]
+    assert entry["ineligible_reason"] == "quality_gate:regime_hard_fail.bear"

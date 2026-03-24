@@ -72,6 +72,48 @@ _TRAINING_MODULE_IMPORTS = {
     "research": "invest_evolution.application.training.research",
     "review": "invest_evolution.application.training.review",
     "observability": "invest_evolution.application.training.observability",
+    "persistence": "invest_evolution.application.training.persistence",
+}
+
+RUNTIME_BUDGET_KEYS = frozenset({"position_size", "cash_reserve", "max_positions"})
+SAFETY_RUNTIME_KEYS = frozenset(
+    {
+        "emergency_stop_loss",
+        "max_total_exposure_override",
+        "max_position_size_override",
+        "force_reduce_position",
+        "kill_switch",
+        "liquidity_guard_threshold",
+    }
+)
+REGIME_NAMES = frozenset({"bull", "bear", "oscillation"})
+ENTRY_THRESHOLD_KEYS = (
+    "signal_threshold",
+    "min_reversion_score",
+    "min_value_quality_score",
+    "min_defensive_score",
+)
+DEFAULT_STRATEGY_FAMILY_REGIME_BUDGETS: dict[str, dict[str, dict[str, Any]]] = {
+    "momentum": {
+        "bull": {"position_size": 0.22, "cash_reserve": 0.15, "max_positions": 4},
+        "bear": {"position_size": 0.10, "cash_reserve": 0.45, "max_positions": 2},
+        "oscillation": {"position_size": 0.16, "cash_reserve": 0.28, "max_positions": 3},
+    },
+    "mean_reversion": {
+        "bull": {"position_size": 0.14, "cash_reserve": 0.40, "max_positions": 3},
+        "bear": {"position_size": 0.15, "cash_reserve": 0.38, "max_positions": 3},
+        "oscillation": {"position_size": 0.18, "cash_reserve": 0.30, "max_positions": 4},
+    },
+    "defensive_low_vol": {
+        "bull": {"position_size": 0.16, "cash_reserve": 0.30, "max_positions": 4},
+        "bear": {"position_size": 0.15, "cash_reserve": 0.40, "max_positions": 3},
+        "oscillation": {"position_size": 0.17, "cash_reserve": 0.32, "max_positions": 4},
+    },
+    "value_quality": {
+        "bull": {"position_size": 0.18, "cash_reserve": 0.22, "max_positions": 4},
+        "bear": {"position_size": 0.12, "cash_reserve": 0.40, "max_positions": 2},
+        "oscillation": {"position_size": 0.16, "cash_reserve": 0.28, "max_positions": 3},
+    },
 }
 
 
@@ -88,6 +130,28 @@ def _call_training_module(
     **kwargs: Any,
 ) -> Any:
     return getattr(_training_module(module_name), attr)(*args, **kwargs)
+
+
+def _resolve_training_module_attr(module_name: str, attr: str) -> Callable[..., Any] | None:
+    try:
+        module = _training_module(module_name)
+    except Exception:
+        return None
+    candidate = getattr(module, attr, None)
+    return candidate if callable(candidate) else None
+
+
+def _call_training_module_if_available(
+    module_name: str,
+    attr: str,
+    /,
+    *args: Any,
+    **kwargs: Any,
+) -> Any | None:
+    fn = _resolve_training_module_attr(module_name, attr)
+    if fn is None:
+        return None
+    return fn(*args, **kwargs)
 
 
 def _training_module_proxy(module_name: str, attr: str) -> Callable[..., Any]:
@@ -133,6 +197,10 @@ set_session_manager_budget_weights = cast(
 update_session_current_params = cast(
     Callable[..., dict[str, Any]],
     _training_module_proxy("controller", "update_session_current_params"),
+)
+set_session_current_params = cast(
+    Callable[..., dict[str, Any]],
+    _training_module_proxy("controller", "set_session_current_params"),
 )
 session_current_params = cast(
     Callable[..., dict[str, Any]],
@@ -330,7 +398,11 @@ def runtime_manager_config_ref(manager_runtime: Any, *, fallback: Any = "") -> s
     if direct_ref:
         return direct_ref
     config = getattr(manager_runtime, "config", None)
-    runtime_config_ref = str(getattr(config, "name", "") or "").strip()
+    runtime_config_ref = str(
+        getattr(config, "path", "")
+        or getattr(config, "name", "")
+        or ""
+    ).strip()
     if runtime_config_ref:
         return runtime_config_ref
     return str(fallback or "").strip()
@@ -419,6 +491,34 @@ def _manager_config_ref_matches_manager(
     return bool(canonical_default_ref) and normalized_config_ref == canonical_default_ref
 
 
+def _looks_like_runtime_config_path(value: Any) -> bool:
+    text = str(value or "").strip()
+    if not text:
+        return False
+    path = Path(text)
+    return (
+        path.is_absolute()
+        or path.suffix.lower() in {".yaml", ".yml", ".json"}
+        or "/" in text
+        or "\\" in text
+    )
+
+
+def _canonicalize_ref_for_manager(
+    manager_id: str,
+    manager_config_ref: Any,
+) -> str:
+    resolved_config_ref = str(manager_config_ref or "").strip()
+    if not resolved_config_ref:
+        return ""
+    if _looks_like_runtime_config_path(resolved_config_ref):
+        return resolved_config_ref
+    if not manager_id:
+        return resolved_config_ref
+    # Legacy aliases like "momentum_v1" are canonicalized to runtime config refs.
+    return str(resolve_manager_config_ref(manager_id)).strip()
+
+
 def _canonical_manager_config_ref(
     manager_id: Any,
     *,
@@ -438,7 +538,10 @@ def _canonical_manager_config_ref(
                 direct_ref,
             )
         ):
-            return direct_ref
+            return _canonicalize_ref_for_manager(
+                normalized_manager_id,
+                direct_ref,
+            )
         inferred_fallback_manager_id = _infer_manager_id_from_config_ref(fallback_ref)
         if fallback_ref and (
             not inferred_fallback_manager_id
@@ -448,13 +551,16 @@ def _canonical_manager_config_ref(
                 fallback_ref,
             )
         ):
-            return fallback_ref
+            return _canonicalize_ref_for_manager(
+                normalized_manager_id,
+                fallback_ref,
+            )
         if direct_ref:
             return str(resolve_manager_config_ref(normalized_manager_id)).strip()
         if fallback_ref:
             return str(resolve_manager_config_ref(normalized_manager_id)).strip()
         return str(resolve_manager_config_ref(normalized_manager_id)).strip()
-    return direct_ref or fallback_ref
+    return _canonicalize_ref_for_manager("", direct_ref or fallback_ref)
 
 
 @dataclass(frozen=True)
@@ -561,6 +667,37 @@ def _resolve_projection_execution_defaults(
     return execution_defaults
 
 
+def _resolve_projection_subject_type(
+    *,
+    snapshot: dict[str, Any],
+    scope: Any,
+) -> str:
+    snapshot_subject_type = str(snapshot.get("subject_type") or "").strip()
+    scope_subject_type = str(getattr(scope, "subject_type", "") or "").strip()
+    portfolio_plan = dict(snapshot.get("portfolio_plan") or {})
+    governance_decision = dict(snapshot.get("governance_decision") or {})
+    if scope_subject_type == "manager_portfolio":
+        return "manager_portfolio"
+    if snapshot_subject_type == "manager_portfolio":
+        return snapshot_subject_type
+    if str(snapshot.get("selection_mode") or "").strip() == "manager_portfolio":
+        return "manager_portfolio"
+    if list(snapshot.get("manager_results") or []):
+        return "manager_portfolio"
+    if list(portfolio_plan.get("active_manager_ids") or []):
+        return "manager_portfolio"
+    if str(portfolio_plan.get("dominant_manager_id") or "").strip():
+        return "manager_portfolio"
+    try:
+        if int(portfolio_plan.get("manager_count") or 0) > 0:
+            return "manager_portfolio"
+    except (TypeError, ValueError):
+        pass
+    if len(list(governance_decision.get("active_manager_ids") or [])) > 1:
+        return "manager_portfolio"
+    return snapshot_subject_type or scope_subject_type or "single_manager"
+
+
 def project_manager_compatibility(
     controller: Any | None,
     *,
@@ -636,8 +773,10 @@ def project_manager_compatibility(
             manager_config_ref=manager_config_ref,
         ),
         dominant_manager_id=str(scope.dominant_manager_id or manager_id or "").strip(),
-        subject_type=str(snapshot.get("subject_type") or scope.subject_type or "single_manager").strip()
-        or "single_manager",
+        subject_type=_resolve_projection_subject_type(
+            snapshot=snapshot,
+            scope=scope,
+        ),
     )
 
 
@@ -899,6 +1038,1224 @@ def _dict_payload(value: Any) -> dict[str, Any]:
         return {}
 
 
+def _runtime_copy_dict(value: Any) -> dict[str, Any]:
+    return deepcopy(dict(value or {}))
+
+
+def _runtime_safe_float(value: Any) -> float | None:
+    if value in (None, ""):
+        return None
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    return number if math.isfinite(number) else None
+
+
+def _runtime_safe_int(value: Any) -> int | None:
+    if value in (None, ""):
+        return None
+    try:
+        number = int(round(float(value)))
+    except (TypeError, ValueError):
+        return None
+    return number
+
+
+def _runtime_policy_lookup(policy: dict[str, Any] | None, path: str, default: Any) -> Any:
+    current: Any = dict(policy or {})
+    for key in path.split("."):
+        if not isinstance(current, dict) or key not in current:
+            return default
+        current = current[key]
+    return current
+
+
+def _runtime_normalize_regime(value: Any) -> str:
+    normalized = str(value or "").strip().lower()
+    return normalized if normalized in REGIME_NAMES else "unknown"
+
+
+def _runtime_sync_model(controller: Any, params: dict[str, Any]) -> None:
+    manager_runtime = getattr(controller, "manager_runtime", None)
+    if manager_runtime is not None and hasattr(manager_runtime, "update_runtime_overrides"):
+        try:
+            manager_runtime.update_runtime_overrides(dict(params or {}))
+        except Exception:
+            logger.debug("runtime sync skipped for manager_runtime", exc_info=True)
+    model = getattr(controller, "investment_model", None)
+    if model is None:
+        return
+    if hasattr(model, "runtime_overrides"):
+        model.runtime_overrides = _runtime_copy_dict(params)
+        return
+    update_runtime_overrides = getattr(model, "update_runtime_overrides", None)
+    if callable(update_runtime_overrides):
+        try:
+            update_runtime_overrides(dict(params or {}))
+        except Exception:
+            logger.debug("runtime sync skipped for investment_model", exc_info=True)
+
+
+def _runtime_resolve_controller_regime_controls(controller: Any) -> dict[str, dict[str, Any]]:
+    configured = _runtime_copy_dict(getattr(controller, "regime_controls", {}) or {})
+    if not configured:
+        manager_runtime = getattr(controller, "manager_runtime", None)
+        config_section = getattr(manager_runtime, "config_section", None)
+        if callable(config_section):
+            try:
+                configured = _runtime_copy_dict(config_section("regime_controls", {}) or {})
+            except Exception:
+                configured = {}
+    normalized: dict[str, dict[str, Any]] = {}
+    for regime, params in configured.items():
+        regime_name = _runtime_normalize_regime(regime)
+        if regime_name == "unknown":
+            continue
+        normalized[regime_name] = _runtime_copy_dict(params or {})
+    return normalized
+
+
+def _runtime_resolve_strategy_family(controller: Any) -> str:
+    explicit = str(getattr(controller, "strategy_family", "") or "").strip().lower()
+    if explicit:
+        return explicit
+    governance_decision = governance_from_controller(controller)
+    dominant_manager = str(governance_decision.get("dominant_manager_id") or "").strip().lower()
+    if dominant_manager:
+        return dominant_manager
+    default_manager_id = controller_default_manager_id(controller, default="").strip().lower()
+    return default_manager_id or "unknown"
+
+
+def _runtime_resolve_strategy_family_regime_budgets(
+    controller: Any,
+) -> dict[str, dict[str, Any]]:
+    family = _runtime_resolve_strategy_family(controller)
+    configured = _runtime_copy_dict(getattr(controller, "strategy_family_risk_budgets", {}) or {})
+    if family and family in configured and isinstance(configured.get(family), dict):
+        configured = _runtime_copy_dict(configured.get(family) or {})
+    family_budget = _runtime_copy_dict(
+        DEFAULT_STRATEGY_FAMILY_REGIME_BUDGETS.get(family, {}) or {}
+    )
+    for regime, params in configured.items():
+        regime_name = _runtime_normalize_regime(regime)
+        if regime_name == "unknown":
+            continue
+        baseline = dict(family_budget.get(regime_name) or {})
+        baseline.update(
+            {
+                str(key): value
+                for key, value in dict(params or {}).items()
+                if str(key) in RUNTIME_BUDGET_KEYS
+            }
+        )
+        family_budget[regime_name] = baseline
+    return family_budget
+
+
+def _runtime_clamp_between(
+    value: Any,
+    minimum: float,
+    maximum: float,
+    *,
+    digits: int = 4,
+) -> float | None:
+    number = _runtime_safe_float(value)
+    if number is None:
+        return None
+    return round(max(minimum, min(maximum, number)), digits)
+
+
+def _runtime_sanitize_regime_overlay(
+    controller: Any,
+    *,
+    base_params: dict[str, Any],
+    overlay: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    raw = _runtime_copy_dict(overlay or {})
+    clean: dict[str, Any] = {}
+    risk_clamps = dict(
+        _runtime_policy_lookup(getattr(controller, "risk_policy", {}), "clamps", {}) or {}
+    )
+    review_clamps = dict(
+        _runtime_policy_lookup(getattr(controller, "review_policy", {}), "param_clamps", {}) or {}
+    )
+    for key, value in raw.items():
+        if value is None:
+            continue
+        if key == "position_size":
+            bounds = dict(risk_clamps.get("position_size") or {"min": 0.0, "max": 1.0})
+            clamped = _runtime_clamp_between(
+                value,
+                float(bounds.get("min", 0.0)),
+                float(bounds.get("max", 1.0)),
+            )
+            if clamped is not None:
+                clean[key] = clamped
+            continue
+        if key == "cash_reserve":
+            bounds = dict(review_clamps.get("cash_reserve") or {"min": 0.0, "max": 0.80})
+            clamped = _runtime_clamp_between(
+                value,
+                float(bounds.get("min", 0.0)),
+                float(bounds.get("max", 0.80)),
+            )
+            if clamped is not None:
+                clean[key] = clamped
+            continue
+        if key == "signal_threshold":
+            bounds = dict(review_clamps.get("signal_threshold") or {"min": 0.30, "max": 0.95})
+            clamped = _runtime_clamp_between(
+                value,
+                float(bounds.get("min", 0.30)),
+                float(bounds.get("max", 0.95)),
+            )
+            if clamped is not None:
+                clean[key] = clamped
+            continue
+        if key == "max_positions":
+            parsed = _runtime_safe_int(value)
+            if parsed is not None:
+                clean[key] = max(1, parsed)
+            continue
+        if key == "max_hold_days":
+            bounds = dict(review_clamps.get("max_hold_days") or {"min": 5, "max": 60})
+            parsed = _runtime_safe_int(value)
+            if parsed is not None:
+                clean[key] = max(
+                    int(bounds.get("min", 5)),
+                    min(int(bounds.get("max", 60)), parsed),
+                )
+            continue
+        parsed_float = _runtime_safe_float(value)
+        if parsed_float is not None:
+            baseline_value = base_params.get(key)
+            if isinstance(baseline_value, int) and not isinstance(baseline_value, bool):
+                clean[key] = int(round(parsed_float))
+            else:
+                clean[key] = round(parsed_float, 6)
+            continue
+        clean[key] = value
+    return clean
+
+
+def resolve_entry_threshold_spec(params: dict[str, Any] | None = None) -> dict[str, Any]:
+    payload = _runtime_copy_dict(params or {})
+    for key in ENTRY_THRESHOLD_KEYS:
+        value = _runtime_safe_float(payload.get(key))
+        if value is not None:
+            return {"key": key, "value": value}
+    return {"key": "", "value": None}
+
+
+def build_regime_runtime_profile(
+    controller: Any,
+    *,
+    regime: str | None = None,
+    base_params: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    active_params = _runtime_copy_dict(base_params or resolve_active_runtime_params(controller))
+    governance_decision = governance_from_controller(controller)
+    requested_regime = _runtime_normalize_regime(
+        regime
+        or governance_decision.get("regime")
+        or dict(getattr(controller, "last_routing_decision", {}) or {}).get("regime")
+    )
+    strategy_family = _runtime_resolve_strategy_family(controller)
+    strategy_family_budgets = _runtime_resolve_strategy_family_regime_budgets(controller)
+    regime_controls = _runtime_resolve_controller_regime_controls(controller)
+    raw_family_budget = _runtime_copy_dict(strategy_family_budgets.get(requested_regime, {}) or {})
+    raw_model_overlay = _runtime_copy_dict(regime_controls.get(requested_regime, {}) or {})
+    raw_model_budget_override = {
+        key: value
+        for key, value in raw_model_overlay.items()
+        if str(key) in RUNTIME_BUDGET_KEYS
+    }
+    raw_behavior_overlay = {
+        key: value
+        for key, value in raw_model_overlay.items()
+        if str(key) not in RUNTIME_BUDGET_KEYS
+    }
+    raw_overlay = _runtime_copy_dict(raw_family_budget)
+    raw_overlay.update(raw_model_budget_override)
+    raw_overlay.update(raw_behavior_overlay)
+    overlay = _runtime_sanitize_regime_overlay(
+        controller,
+        base_params=active_params,
+        overlay=raw_overlay,
+    )
+    family_budget = _runtime_sanitize_regime_overlay(
+        controller,
+        base_params=active_params,
+        overlay=raw_family_budget,
+    )
+    model_budget_override = _runtime_sanitize_regime_overlay(
+        controller,
+        base_params=active_params,
+        overlay=raw_model_budget_override,
+    )
+    behavior_overlay = _runtime_sanitize_regime_overlay(
+        controller,
+        base_params=active_params,
+        overlay=raw_behavior_overlay,
+    )
+    effective_params = _runtime_copy_dict(active_params)
+    effective_params.update(overlay)
+    resolved_budget = {
+        key: effective_params.get(key)
+        for key in RUNTIME_BUDGET_KEYS
+        if effective_params.get(key) is not None
+    }
+    source_parts: list[str] = []
+    if family_budget:
+        source_parts.append("strategy_family_risk_budget")
+    if raw_model_overlay:
+        source_parts.append("model_regime_controls")
+    profile_source = "+".join(source_parts) if source_parts else "base_runtime"
+    return {
+        "schema_version": "training.regime_runtime_profile.v1",
+        "regime": requested_regime,
+        "strategy_family": strategy_family,
+        "source": profile_source if overlay else "base_runtime",
+        "controls_configured": bool(regime_controls or strategy_family_budgets),
+        "applied": bool(overlay),
+        "control_keys": sorted(raw_overlay.keys()),
+        "budget_control_keys": sorted(
+            {
+                str(key)
+                for key in list(raw_family_budget.keys()) + list(raw_model_budget_override.keys())
+            }
+        ),
+        "behavior_control_keys": sorted(raw_behavior_overlay.keys()),
+        "base_params": active_params,
+        "overlay": overlay,
+        "effective_params": effective_params,
+        "entry_threshold": resolve_entry_threshold_spec(behavior_overlay),
+        "budget_layering": {
+            "schema_version": "training.regime_budget_layering.v1",
+            "strategy_family": strategy_family,
+            "family_budget": family_budget,
+            "model_budget_override": model_budget_override,
+            "behavior_overlay": behavior_overlay,
+            "resolved_budget": resolved_budget,
+            "budget_keys": sorted(RUNTIME_BUDGET_KEYS),
+            "source": profile_source,
+        },
+    }
+
+
+def apply_regime_runtime_profile(
+    controller: Any,
+    profile: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    effective_params = _runtime_copy_dict(dict(profile or {}).get("effective_params") or {})
+    if not effective_params:
+        effective_params = _runtime_copy_dict(resolve_active_runtime_params(controller))
+    setattr(controller, "current_cycle_effective_runtime_params", _runtime_copy_dict(effective_params))
+    setattr(controller, "current_cycle_regime_profile", deepcopy(dict(profile or {})))
+    _runtime_sync_model(controller, effective_params)
+    return _runtime_copy_dict(effective_params)
+
+
+def resolve_effective_runtime_params(controller: Any) -> dict[str, Any]:
+    if bool(getattr(controller, "current_cycle_runtime_locked", False)):
+        effective = _runtime_copy_dict(
+            getattr(controller, "current_cycle_effective_runtime_params", {}) or {}
+        )
+        if effective:
+            return effective
+    return resolve_active_runtime_params(controller)
+
+
+def resolve_active_runtime_params(controller: Any) -> dict[str, Any]:
+    if bool(getattr(controller, "current_cycle_runtime_locked", False)):
+        frozen = _runtime_copy_dict(getattr(controller, "current_cycle_frozen_params", {}) or {})
+        if frozen:
+            return frozen
+    return _runtime_copy_dict(session_current_params(controller) or {})
+
+
+def begin_cycle_runtime_window(controller: Any, *, cycle_id: int) -> dict[str, Any]:
+    active_params = _runtime_copy_dict(session_current_params(controller) or {})
+    setattr(controller, "current_cycle_frozen_params", _runtime_copy_dict(active_params))
+    setattr(controller, "current_cycle_start_params", _runtime_copy_dict(active_params))
+    setattr(controller, "current_cycle_effective_runtime_params", _runtime_copy_dict(active_params))
+    setattr(controller, "current_cycle_learning_proposals", [])
+    setattr(controller, "current_cycle_runtime_violations", [])
+    setattr(controller, "current_cycle_safety_overrides", {})
+    setattr(
+        controller,
+        "current_cycle_regime_profile",
+        {
+            "schema_version": "training.regime_runtime_profile.v1",
+            "regime": "unknown",
+            "source": "base_runtime",
+            "controls_configured": bool(_runtime_resolve_controller_regime_controls(controller)),
+            "applied": False,
+            "control_keys": [],
+            "base_params": _runtime_copy_dict(active_params),
+            "overlay": {},
+            "effective_params": _runtime_copy_dict(active_params),
+            "entry_threshold": resolve_entry_threshold_spec(active_params),
+        },
+    )
+    setattr(controller, "current_cycle_selection_intercepts", {})
+    setattr(controller, "current_cycle_runtime_locked", True)
+    setattr(controller, "current_cycle_runtime_started_at", datetime.now().isoformat())
+    setattr(controller, "current_cycle_runtime_started_for", int(cycle_id))
+    _runtime_sync_model(controller, active_params)
+    return _runtime_copy_dict(active_params)
+
+
+def apply_safety_override(
+    controller: Any,
+    adjustments: dict[str, Any] | None,
+    *,
+    source: str,
+) -> dict[str, Any]:
+    clean = _runtime_copy_dict(adjustments or {})
+    for key in clean:
+        if key not in SAFETY_RUNTIME_KEYS:
+            raise ValueError(f"Non-safety param {key} cannot override frozen runtime")
+    if not clean:
+        return {}
+
+    update_session_current_params(controller, clean)
+    if bool(getattr(controller, "current_cycle_runtime_locked", False)):
+        frozen = _runtime_copy_dict(getattr(controller, "current_cycle_frozen_params", {}) or {})
+        frozen.update(clean)
+        setattr(controller, "current_cycle_frozen_params", frozen)
+        effective = _runtime_copy_dict(
+            getattr(controller, "current_cycle_effective_runtime_params", {}) or {}
+        )
+        effective.update(clean)
+        setattr(controller, "current_cycle_effective_runtime_params", effective)
+        safety_overrides = _runtime_copy_dict(
+            getattr(controller, "current_cycle_safety_overrides", {}) or {}
+        )
+        safety_overrides.update(clean)
+        setattr(controller, "current_cycle_safety_overrides", safety_overrides)
+
+    _runtime_sync_model(controller, resolve_effective_runtime_params(controller))
+    proposals = getattr(controller, "current_cycle_learning_proposals", None)
+    if not isinstance(proposals, list):
+        proposals = []
+        setattr(controller, "current_cycle_learning_proposals", proposals)
+    proposal = {
+        "cycle_id": int(
+            getattr(controller, "current_cycle_runtime_started_for", 0)
+            or getattr(controller, "current_cycle_id", 0)
+            or 0
+        ),
+        "source": str(source or "safety_override"),
+        "target_scope": "safety",
+        "patch": _runtime_copy_dict(clean),
+        "rationale": "approved safety override",
+        "metadata": {"proposal_kind": "safety_override"},
+        "active_params_snapshot": resolve_active_runtime_params(controller),
+        "created_at": datetime.now().isoformat(),
+    }
+    ensure_tracking_fields = _resolve_training_module_attr(
+        "observability",
+        "ensure_proposal_tracking_fields",
+    )
+    if callable(ensure_tracking_fields):
+        proposal = dict(
+            ensure_tracking_fields(
+                proposal,
+                default_cycle_id=int(proposal["cycle_id"]),
+            )
+        )
+    proposals.append(proposal)
+    return clean
+
+
+def finalize_cycle_runtime_window(controller: Any) -> dict[str, Any]:
+    proposals = deepcopy(list(getattr(controller, "current_cycle_learning_proposals", []) or []))
+    safety_overrides = _runtime_copy_dict(getattr(controller, "current_cycle_safety_overrides", {}) or {})
+    start_params = _runtime_copy_dict(getattr(controller, "current_cycle_start_params", {}) or {})
+    current_params = _runtime_copy_dict(session_current_params(controller) or {})
+    violations: list[dict[str, Any]] = []
+    if bool(getattr(controller, "current_cycle_runtime_locked", False)):
+        for key in sorted(set(start_params) | set(current_params)):
+            if key in safety_overrides:
+                continue
+            before = start_params.get(key)
+            after = current_params.get(key)
+            if before == after:
+                continue
+            violations.append(
+                {
+                    "key": key,
+                    "before": before,
+                    "after": after,
+                    "violation_type": "illegal_cycle_runtime_mutation",
+                }
+            )
+
+    if violations:
+        logger.warning(
+            "Detected illegal runtime mutation during cycle: %s",
+            [item["key"] for item in violations],
+        )
+        update_session_current_params(controller, _runtime_copy_dict(start_params))
+        _runtime_sync_model(controller, start_params)
+
+    summary = {
+        "cycle_id": int(
+            getattr(controller, "current_cycle_runtime_started_for", 0)
+            or getattr(controller, "current_cycle_id", 0)
+            or 0
+        ),
+        "proposal_count": len(proposals),
+        "violation_count": len(violations),
+        "violations": deepcopy(violations),
+        "safety_override_keys": sorted(safety_overrides.keys()),
+        "frozen_params": resolve_active_runtime_params(controller),
+        "effective_runtime_params": resolve_effective_runtime_params(controller),
+        "regime_runtime_profile": deepcopy(
+            dict(getattr(controller, "current_cycle_regime_profile", {}) or {})
+        ),
+        "selection_intercepts": deepcopy(
+            dict(getattr(controller, "current_cycle_selection_intercepts", {}) or {})
+        ),
+    }
+
+    setattr(controller, "last_cycle_learning_proposals", proposals)
+    setattr(controller, "last_cycle_runtime_summary", deepcopy(summary))
+    setattr(controller, "current_cycle_runtime_violations", deepcopy(violations))
+    setattr(controller, "current_cycle_learning_proposals", [])
+    setattr(controller, "current_cycle_frozen_params", {})
+    setattr(controller, "current_cycle_start_params", {})
+    setattr(controller, "current_cycle_effective_runtime_params", {})
+    setattr(controller, "current_cycle_safety_overrides", {})
+    setattr(controller, "current_cycle_regime_profile", {})
+    setattr(controller, "current_cycle_selection_intercepts", {})
+    setattr(controller, "current_cycle_runtime_locked", False)
+    setattr(controller, "current_cycle_runtime_started_at", "")
+    setattr(controller, "current_cycle_runtime_started_for", 0)
+    _runtime_sync_model(controller, _runtime_copy_dict(session_current_params(controller) or {}))
+    return summary
+
+
+def _cycle_learning_proposals(
+    controller: Any,
+    *,
+    cycle_id: int,
+) -> list[dict[str, Any]]:
+    proposals = [
+        _runtime_copy_dict(item)
+        for item in list(getattr(controller, "current_cycle_learning_proposals", []) or [])
+        if _runtime_copy_dict(item)
+    ]
+    if proposals:
+        return proposals
+    feedback_payload = _runtime_copy_dict(session_last_feedback_optimization(controller) or {})
+    return [
+        _runtime_copy_dict(item)
+        for item in list(feedback_payload.get("learning_proposals") or [])
+        if _runtime_copy_dict(item)
+    ]
+
+
+def _proposal_block_reason_map(gate_result: dict[str, Any]) -> dict[str, list[str]]:
+    blocked: dict[str, list[str]] = {}
+    for proposal in list(gate_result.get("blocked_proposals") or []):
+        payload = _runtime_copy_dict(proposal or {})
+        proposal_id = str(payload.get("proposal_id") or "")
+        if proposal_id:
+            blocked[proposal_id] = [
+                str(reason).strip()
+                for reason in list(payload.get("block_reasons") or [])
+                if str(reason).strip()
+            ]
+    return blocked
+
+
+def _fallback_candidate_proposal_gate(
+    proposal_bundle: dict[str, Any],
+) -> dict[str, Any]:
+    proposals = [_runtime_copy_dict(item) for item in list(proposal_bundle.get("proposals") or [])]
+    param_adjustments: dict[str, Any] = {}
+    scoring_adjustments: dict[str, Any] = {}
+    agent_weight_adjustments: dict[str, Any] = {}
+    proposal_refs: list[str] = []
+    requested_source_summary: dict[str, int] = {}
+
+    for item in proposals:
+        source = str(item.get("source") or "unknown").strip() or "unknown"
+        requested_source_summary[source] = int(requested_source_summary.get(source, 0) or 0) + 1
+        if str(item.get("target_scope") or "candidate") != "candidate":
+            continue
+        patch = _runtime_copy_dict(item.get("patch") or {})
+        if not patch:
+            continue
+        proposal_id = str(item.get("proposal_id") or "").strip()
+        if proposal_id:
+            proposal_refs.append(proposal_id)
+        proposal_kind = str(
+            _runtime_copy_dict(item.get("metadata") or {}).get("proposal_kind") or source
+        ).lower()
+        if "scoring" in proposal_kind:
+            scoring_adjustments.update(patch)
+        elif "agent_weight" in proposal_kind:
+            agent_weight_adjustments.update(patch)
+        else:
+            param_adjustments.update(patch)
+
+    return {
+        "passed": True,
+        "filtered_adjustments": {
+            "params": param_adjustments,
+            "scoring": scoring_adjustments,
+            "agent_weights": agent_weight_adjustments,
+            "proposal_refs": proposal_refs,
+        },
+        "blocked_adjustments": {
+            "params": {},
+            "scoring": {},
+            "agent_weights": {},
+        },
+        "blocked_proposals": [],
+        "proposal_summary": {
+            "requested_source_summary": requested_source_summary,
+            "requested_proposal_count": len(proposals),
+            "approved_proposal_count": len(proposal_refs),
+            "approved_proposal_refs": list(proposal_refs),
+            "blocked_proposal_refs": [],
+        },
+    }
+
+
+def _resolve_candidate_proposal_gate(
+    controller: Any,
+    *,
+    cycle_id: int,
+    proposal_bundle: dict[str, Any],
+) -> dict[str, Any]:
+    candidate_functions: list[Callable[..., Any]] = []
+    training_policy_gate = _resolve_training_module_attr(
+        "policy",
+        "evaluate_candidate_proposal_gate",
+    )
+    if callable(training_policy_gate):
+        candidate_functions.append(training_policy_gate)
+    try:
+        shared_policy_module = import_module("invest_evolution.investment.shared.policy")
+        shared_policy_gate = getattr(shared_policy_module, "evaluate_candidate_proposal_gate", None)
+        if callable(shared_policy_gate):
+            candidate_functions.append(shared_policy_gate)
+    except Exception:
+        pass
+
+    for gate_fn in candidate_functions:
+        invocations: tuple[Callable[[], Any], ...] = (
+            lambda: gate_fn(
+                controller,
+                cycle_id=cycle_id,
+                proposal_bundle=proposal_bundle,
+            ),
+            lambda: gate_fn(
+                cycle_id=cycle_id,
+                proposal_bundle=proposal_bundle,
+                controller=controller,
+            ),
+            lambda: gate_fn(
+                proposal_bundle=proposal_bundle,
+                cycle_id=cycle_id,
+            ),
+            lambda: gate_fn(proposal_bundle, cycle_id=cycle_id),
+        )
+        for invoke in invocations:
+            try:
+                result = invoke()
+            except TypeError:
+                continue
+            except Exception:
+                logger.warning("proposal gate evaluation failed", exc_info=True)
+                break
+            if isinstance(result, dict):
+                return _runtime_copy_dict(result)
+    return _fallback_candidate_proposal_gate(proposal_bundle)
+
+
+def _runtime_override_keys(
+    *,
+    param_adjustments: dict[str, Any],
+    scoring_adjustments: dict[str, Any],
+    agent_weight_adjustments: dict[str, Any],
+) -> list[str]:
+    return sorted(
+        {
+            *(str(key) for key in param_adjustments.keys()),
+            *(str(key) for key in scoring_adjustments.keys()),
+            *(str(key) for key in agent_weight_adjustments.keys()),
+        }
+    )
+
+
+def _resolve_candidate_event(
+    event_factory: Any,
+    *,
+    cycle_id: int,
+    trigger_reason: str,
+    stage: str,
+    decision: dict[str, Any],
+    applied_change: dict[str, Any],
+    lineage: dict[str, Any],
+    evidence: dict[str, Any],
+    notes: str,
+) -> Any:
+    event = _call_training_module_if_available(
+        "observability",
+        "_new_optimization_event",
+        event_factory,
+        cycle_id=int(cycle_id),
+        trigger=trigger_reason,
+        stage=stage,
+        decision=decision,
+        applied_change=applied_change,
+        lineage=lineage,
+        evidence=evidence,
+        notes=notes,
+    )
+    if event is not None:
+        return event
+    return event_factory(
+        cycle_id=int(cycle_id),
+        trigger=trigger_reason,
+        stage=stage,
+        status="ok",
+        decision=dict(decision or {}),
+        suggestions=[],
+        applied_change=dict(applied_change or {}),
+        lineage=dict(lineage or {}),
+        evidence=dict(evidence or {}),
+        notes=str(notes or ""),
+    )
+
+
+def _refresh_bundle_tracking(
+    controller: Any,
+    *,
+    cycle_id: int,
+    bundle: dict[str, Any],
+    gate_result: dict[str, Any],
+    decision_stage: str,
+    decision_reason: str,
+    candidate_runtime_config_ref: str = "",
+    candidate_version_id: str = "",
+    pending_candidate_ref: str = "",
+) -> dict[str, Any]:
+    proposals = [_runtime_copy_dict(item) for item in list(bundle.get("proposals") or [])]
+    if not proposals:
+        return _runtime_copy_dict(bundle)
+    apply_proposal_outcome_fn = _resolve_training_module_attr("observability", "apply_proposal_outcome")
+    build_tracking_summary_fn = _resolve_training_module_attr(
+        "observability",
+        "build_suggestion_tracking_summary",
+    )
+    update_bundle_fn = _resolve_training_module_attr("persistence", "update_cycle_proposal_bundle")
+    approved_refs = {
+        str(item).strip()
+        for item in list(
+            _runtime_copy_dict(gate_result.get("proposal_summary") or {}).get("approved_proposal_refs")
+            or _runtime_copy_dict(gate_result.get("filtered_adjustments") or {}).get("proposal_refs")
+            or []
+        )
+        if str(item).strip()
+    }
+    blocked_reason_map = _proposal_block_reason_map(gate_result)
+    updated_proposals: list[dict[str, Any]] = []
+    bundle_id = str(bundle.get("proposal_bundle_id") or "")
+    for proposal in proposals:
+        payload = _runtime_copy_dict(proposal)
+        if str(payload.get("target_scope") or "candidate") != "candidate":
+            updated_proposals.append(payload)
+            continue
+        proposal_id = str(payload.get("proposal_id") or "")
+        if proposal_id in blocked_reason_map and callable(apply_proposal_outcome_fn):
+            updated_proposals.append(
+                _runtime_copy_dict(
+                    apply_proposal_outcome_fn(
+                        payload,
+                        adoption_status="rejected_by_proposal_gate",
+                        decision_cycle_id=int(cycle_id),
+                        decision_stage=decision_stage,
+                        decision_reason=decision_reason,
+                        proposal_bundle_id=bundle_id,
+                        block_reasons=blocked_reason_map.get(proposal_id) or [],
+                    )
+                )
+            )
+            continue
+        if proposal_id in approved_refs and callable(apply_proposal_outcome_fn):
+            adoption_status = (
+                "deferred_pending_candidate"
+                if pending_candidate_ref
+                else ("adopted_to_candidate" if candidate_runtime_config_ref else "queued")
+            )
+            updated_proposals.append(
+                _runtime_copy_dict(
+                    apply_proposal_outcome_fn(
+                        payload,
+                        adoption_status=adoption_status,
+                        decision_cycle_id=int(cycle_id),
+                        decision_stage=decision_stage,
+                        decision_reason=decision_reason,
+                        candidate_runtime_config_ref=candidate_runtime_config_ref,
+                        candidate_config_ref=candidate_runtime_config_ref,
+                        candidate_version_id=candidate_version_id,
+                        pending_candidate_ref=pending_candidate_ref,
+                        proposal_bundle_id=bundle_id,
+                    )
+                )
+            )
+            continue
+        updated_proposals.append(payload)
+
+    updated_bundle = _runtime_copy_dict(bundle)
+    updated_bundle["proposals"] = updated_proposals
+    if callable(build_tracking_summary_fn):
+        updated_bundle["suggestion_tracking_summary"] = _runtime_copy_dict(
+            build_tracking_summary_fn(updated_proposals)
+        )
+    updated_bundle["proposal_count"] = len(updated_proposals)
+    updated_bundle["proposal_ids"] = [
+        str(_runtime_copy_dict(item).get("proposal_id") or "")
+        for item in updated_proposals
+    ]
+    bundle_path = str(bundle.get("bundle_path") or "")
+    if bundle_path and callable(update_bundle_fn):
+        try:
+            persisted = update_bundle_fn(
+                controller,
+                bundle_path=bundle_path,
+                proposals=updated_proposals,
+            )
+        except TypeError:
+            persisted = update_bundle_fn(
+                controller,
+                bundle_path,
+                updated_proposals,
+            )
+        if isinstance(persisted, dict):
+            updated_bundle = _runtime_copy_dict(persisted)
+    return updated_bundle
+
+
+def _attach_suggestion_summary_to_event(event: Any, bundle: dict[str, Any]) -> None:
+    summary = _runtime_copy_dict(bundle.get("suggestion_tracking_summary") or {})
+    if not summary:
+        return
+    if isinstance(event, dict):
+        evidence = _runtime_copy_dict(event.get("evidence") or {})
+        evidence["suggestion_tracking_summary"] = summary
+        event["evidence"] = evidence
+        return
+    evidence = _runtime_copy_dict(getattr(event, "evidence", {}) or {})
+    evidence["suggestion_tracking_summary"] = summary
+    setattr(event, "evidence", evidence)
+
+
+def _mutate_candidate_runtime(
+    controller: Any,
+    *,
+    active_runtime_config_ref: str,
+    trigger_reason: str,
+    cycle_id: int,
+    proposal_bundle_id: str,
+    proposal_refs: list[str],
+    param_adjustments: dict[str, Any],
+    scoring_adjustments: dict[str, Any],
+    agent_weight_adjustments: dict[str, Any],
+) -> dict[str, Any]:
+    mutator = getattr(controller, "runtime_config_mutator", None) or getattr(
+        controller,
+        "model_mutator",
+        None,
+    )
+    mutate = getattr(mutator, "mutate", None)
+    if not callable(mutate):
+        raise RuntimeError("candidate mutation runtime is unavailable")
+    kwargs = {
+        "param_adjustments": param_adjustments or None,
+        "scoring_adjustments": scoring_adjustments or None,
+        "narrative_adjustments": {"last_trigger": trigger_reason},
+        "generation_label": f"cycle_{int(cycle_id):04d}",
+        "parent_meta": {
+            "cycle_id": int(cycle_id),
+            "trigger": trigger_reason,
+            "proposal_bundle_id": str(proposal_bundle_id or ""),
+            "proposal_refs": list(proposal_refs or []),
+        },
+    }
+    invocations: tuple[Callable[[], Any], ...] = (
+        lambda: mutate(
+            active_runtime_config_ref,
+            **kwargs,
+        ),
+        lambda: mutate(
+            active_runtime_config_ref,
+            agent_weight_adjustments=agent_weight_adjustments or None,
+            **kwargs,
+        ),
+        lambda: mutate(
+            active_runtime_config_ref,
+            adjustments={
+                "params": param_adjustments,
+                "scoring": scoring_adjustments,
+                "agent_weights": agent_weight_adjustments,
+            },
+            generation_label=kwargs["generation_label"],
+            parent_meta=kwargs["parent_meta"],
+        ),
+    )
+    for invoke in invocations:
+        try:
+            result = invoke()
+        except TypeError:
+            continue
+        if isinstance(result, dict):
+            return _runtime_copy_dict(result)
+    raise RuntimeError("candidate mutation runtime cannot satisfy mutate signature")
+
+
+def build_cycle_candidate_from_proposals(
+    controller: Any,
+    *,
+    cycle_id: int,
+    proposal_bundle: dict[str, Any] | None = None,
+    event_factory: Any,
+    trigger_reason: str = "cycle_review_completed",
+) -> Any | None:
+    resolved_cycle_id = int(cycle_id)
+    bundle = _runtime_copy_dict(proposal_bundle or {})
+    if not bundle:
+        proposals = _cycle_learning_proposals(controller, cycle_id=resolved_cycle_id)
+        persisted_bundle = _call_training_module_if_available(
+            "persistence",
+            "persist_cycle_proposal_bundle",
+            controller,
+            cycle_id=resolved_cycle_id,
+            execution_snapshot={
+                "active_runtime_config_ref": str(
+                    resolve_effective_runtime_params(controller).get("active_runtime_config_ref")
+                    or ""
+                ),
+                "model_name": str(getattr(controller, "model_name", "") or ""),
+            },
+            proposals=proposals or None,
+        )
+        if isinstance(persisted_bundle, dict):
+            bundle = _runtime_copy_dict(persisted_bundle)
+        else:
+            bundle = {
+                "cycle_id": resolved_cycle_id,
+                "model_name": str(getattr(controller, "model_name", "") or ""),
+                "active_runtime_config_ref": str(
+                    getattr(controller, "model_config_path", "") or ""
+                ),
+                "proposals": proposals,
+                "proposal_count": len(proposals),
+                "proposal_ids": [
+                    str(_runtime_copy_dict(item).get("proposal_id") or "")
+                    for item in proposals
+                ],
+                "proposal_bundle_id": f"proposal_bundle_{resolved_cycle_id:04d}",
+                "bundle_path": "",
+                "suggestion_tracking_summary": {},
+            }
+    proposals = [_runtime_copy_dict(item) for item in list(bundle.get("proposals") or [])]
+    if not proposals:
+        return None
+
+    active_runtime_config_ref = str(
+        normalize_config_ref(
+            bundle.get("active_runtime_config_ref")
+            or bundle.get("active_config_ref")
+            or _runtime_copy_dict(bundle.get("execution_snapshot") or {}).get("active_runtime_config_ref")
+            or getattr(controller, "model_config_path", "")
+            or ""
+        )
+        or bundle.get("active_runtime_config_ref")
+        or bundle.get("active_config_ref")
+        or _runtime_copy_dict(bundle.get("execution_snapshot") or {}).get("active_runtime_config_ref")
+        or getattr(controller, "model_config_path", "")
+        or ""
+    ).strip()
+    gate_result = _resolve_candidate_proposal_gate(
+        controller,
+        cycle_id=resolved_cycle_id,
+        proposal_bundle=bundle,
+    )
+    allowed_adjustments = _runtime_copy_dict(gate_result.get("filtered_adjustments") or {})
+    param_adjustments = _runtime_copy_dict(allowed_adjustments.get("params") or {})
+    scoring_adjustments = _runtime_copy_dict(allowed_adjustments.get("scoring") or {})
+    agent_weight_adjustments = _runtime_copy_dict(allowed_adjustments.get("agent_weights") or {})
+    proposal_refs = [
+        str(item).strip()
+        for item in list(allowed_adjustments.get("proposal_refs") or [])
+        if str(item).strip()
+    ]
+    runtime_override_keys = _runtime_override_keys(
+        param_adjustments=param_adjustments,
+        scoring_adjustments=scoring_adjustments,
+        agent_weight_adjustments=agent_weight_adjustments,
+    )
+    projection = project_manager_compatibility(
+        controller,
+        execution_snapshot={
+            "active_runtime_config_ref": active_runtime_config_ref,
+            "manager_config_ref": active_runtime_config_ref,
+        },
+    )
+    manager_id = str(
+        projection.manager_id
+        or controller_default_manager_id(controller, default="")
+        or ""
+    ).strip()
+    fitness_source_cycles = [
+        int(getattr(item, "cycle_id"))
+        for item in list(session_cycle_history(controller) or [])[-10:]
+        if getattr(item, "cycle_id", None) is not None
+    ]
+    context = _new_optimization_boundary_context(
+        cycle_id=resolved_cycle_id,
+        manager_id=manager_id,
+        active_runtime_config_ref=active_runtime_config_ref,
+        fitness_source_cycles=fitness_source_cycles,
+    )
+    if not (param_adjustments or scoring_adjustments or agent_weight_adjustments):
+        blocked_adjustments = _runtime_copy_dict(gate_result.get("blocked_adjustments") or {})
+        blocked_proposals = list(gate_result.get("blocked_proposals") or [])
+        has_blocked = bool(blocked_proposals) or any(
+            _runtime_copy_dict(blocked_adjustments.get(scope) or {})
+            for scope in ("params", "scoring", "agent_weights")
+        )
+        if not has_blocked:
+            return None
+        event = _resolve_candidate_event(
+            event_factory,
+            cycle_id=resolved_cycle_id,
+            trigger_reason=trigger_reason,
+            stage="candidate_build_skipped",
+            decision={
+                "skipped": True,
+                "skip_reason": "proposal_governance_rejected",
+                "proposal_bundle_id": str(bundle.get("proposal_bundle_id") or ""),
+                "proposal_bundle_path": str(bundle.get("bundle_path") or ""),
+            },
+            applied_change={
+                "params": param_adjustments,
+                "scoring": scoring_adjustments,
+                "agent_weights": agent_weight_adjustments,
+                "proposal_refs": proposal_refs,
+                "proposal_count": len(proposal_refs),
+            },
+            lineage=build_optimization_lineage(
+                context,
+                candidate_runtime_config_ref="",
+                deployment_stage="active",
+                runtime_override_keys=[],
+                promotion_status="proposal_rejected",
+            ),
+            evidence={
+                "proposal_bundle_id": str(bundle.get("proposal_bundle_id") or ""),
+                "proposal_bundle_path": str(bundle.get("bundle_path") or ""),
+                "proposal_source_summary": _runtime_copy_dict(
+                    _runtime_copy_dict(gate_result.get("proposal_summary") or {}).get(
+                        "requested_source_summary"
+                    )
+                    or {}
+                ),
+                "proposal_gate": gate_result,
+            },
+            notes="all candidate changes blocked by proposal governance gate",
+        )
+        updated_bundle = _refresh_bundle_tracking(
+            controller,
+            cycle_id=resolved_cycle_id,
+            bundle=bundle,
+            gate_result=gate_result,
+            decision_stage="candidate_build_skipped",
+            decision_reason="proposal_governance_rejected",
+        )
+        _attach_suggestion_summary_to_event(event, updated_bundle)
+        return event
+
+    pending_candidate_ref = _latest_open_candidate_runtime_config_ref(controller)
+    if pending_candidate_ref and not bool(getattr(controller, "auto_apply_mutation", False)):
+        event = _resolve_candidate_event(
+            event_factory,
+            cycle_id=resolved_cycle_id,
+            trigger_reason=trigger_reason,
+            stage="candidate_build_skipped",
+            decision={
+                "skipped": True,
+                "skip_reason": "pending_candidate_unresolved",
+                "pending_candidate_ref": pending_candidate_ref,
+                "auto_applied": False,
+                "proposal_bundle_id": str(bundle.get("proposal_bundle_id") or ""),
+                "proposal_bundle_path": str(bundle.get("bundle_path") or ""),
+            },
+            applied_change={
+                "params": param_adjustments,
+                "scoring": scoring_adjustments,
+                "agent_weights": agent_weight_adjustments,
+                "proposal_refs": proposal_refs,
+                "proposal_count": len(proposal_refs),
+            },
+            lineage=build_optimization_lineage(
+                context,
+                candidate_runtime_config_ref=pending_candidate_ref,
+                deployment_stage="candidate",
+                runtime_override_keys=runtime_override_keys,
+                promotion_status="candidate_generated",
+            ),
+            evidence={
+                "skip_reason": "pending_candidate_unresolved",
+                "pending_candidate_ref": pending_candidate_ref,
+                "proposal_bundle_id": str(bundle.get("proposal_bundle_id") or ""),
+                "proposal_bundle_path": str(bundle.get("bundle_path") or ""),
+                "proposal_source_summary": _runtime_copy_dict(
+                    _runtime_copy_dict(gate_result.get("proposal_summary") or {}).get(
+                        "requested_source_summary"
+                    )
+                    or {}
+                ),
+                "proposal_gate": gate_result,
+            },
+            notes="existing pending candidate reused; skip generating another candidate runtime config",
+        )
+        updated_bundle = _refresh_bundle_tracking(
+            controller,
+            cycle_id=resolved_cycle_id,
+            bundle=bundle,
+            gate_result=gate_result,
+            decision_stage="candidate_build_skipped",
+            decision_reason="pending_candidate_unresolved",
+            pending_candidate_ref=pending_candidate_ref,
+        )
+        _attach_suggestion_summary_to_event(event, updated_bundle)
+        return event
+
+    mutation = _mutate_candidate_runtime(
+        controller,
+        active_runtime_config_ref=active_runtime_config_ref,
+        trigger_reason=trigger_reason,
+        cycle_id=resolved_cycle_id,
+        proposal_bundle_id=str(bundle.get("proposal_bundle_id") or ""),
+        proposal_refs=proposal_refs,
+        param_adjustments=param_adjustments,
+        scoring_adjustments=scoring_adjustments,
+        agent_weight_adjustments=agent_weight_adjustments,
+    )
+    raw_candidate_runtime_ref = str(
+        mutation.get("runtime_config_ref")
+        or mutation.get("config_path")
+        or mutation.get("runtime_config_path")
+        or ""
+    ).strip()
+    candidate_runtime_config_ref = str(
+        normalize_config_ref(raw_candidate_runtime_ref) or raw_candidate_runtime_ref
+    ).strip()
+    candidate_version_id = str(
+        _runtime_copy_dict(mutation.get("meta") or {}).get("version_id") or ""
+    ).strip()
+    auto_applied = bool(getattr(controller, "auto_apply_mutation", False))
+    if auto_applied:
+        reload_model = getattr(controller, "_reload_investment_model", None)
+        if callable(reload_model):
+            try:
+                reload_model(candidate_runtime_config_ref)
+            except TypeError:
+                reload_model()
+    event = _resolve_candidate_event(
+        event_factory,
+        cycle_id=resolved_cycle_id,
+        trigger_reason=trigger_reason,
+        stage="candidate_build",
+        decision={
+            "config_path": candidate_runtime_config_ref,
+            "runtime_config_ref": candidate_runtime_config_ref,
+            "meta_path": str(mutation.get("meta_path") or ""),
+            "auto_applied": auto_applied,
+            "proposal_bundle_id": str(bundle.get("proposal_bundle_id") or ""),
+            "proposal_bundle_path": str(bundle.get("bundle_path") or ""),
+            "candidate_version_id": candidate_version_id,
+        },
+        applied_change={
+            "params": param_adjustments,
+            "scoring": scoring_adjustments,
+            "agent_weights": agent_weight_adjustments,
+            "proposal_refs": proposal_refs,
+            "proposal_count": len(proposal_refs),
+        },
+        lineage=build_optimization_lineage(
+            context,
+            candidate_runtime_config_ref=candidate_runtime_config_ref,
+            deployment_stage="active" if auto_applied else "candidate",
+            runtime_override_keys=runtime_override_keys,
+            promotion_status="candidate_auto_applied" if auto_applied else "candidate_generated",
+        ),
+        evidence={
+            "mutation_meta": _runtime_copy_dict(mutation.get("meta") or {}),
+            "auto_applied": auto_applied,
+            "proposal_bundle_id": str(bundle.get("proposal_bundle_id") or ""),
+            "proposal_bundle_path": str(bundle.get("bundle_path") or ""),
+            "proposal_source_summary": _runtime_copy_dict(
+                _runtime_copy_dict(gate_result.get("proposal_summary") or {}).get(
+                    "requested_source_summary"
+                )
+                or {}
+            ),
+            "proposal_gate": gate_result,
+        },
+        notes=(
+            "active runtime config mutated"
+            if auto_applied
+            else "candidate runtime config generated; active runtime config unchanged"
+        ),
+    )
+    updated_bundle = _refresh_bundle_tracking(
+        controller,
+        cycle_id=resolved_cycle_id,
+        bundle=bundle,
+        gate_result=gate_result,
+        decision_stage="candidate_build",
+        decision_reason="candidate_auto_applied" if auto_applied else "candidate_generated",
+        candidate_runtime_config_ref=candidate_runtime_config_ref,
+        candidate_version_id=candidate_version_id,
+    )
+    _attach_suggestion_summary_to_event(event, updated_bundle)
+    append_event = getattr(controller, "_append_optimization_event", None)
+    if callable(append_event):
+        append_event(event)
+    emit_module_log = getattr(controller, "_emit_module_log", None)
+    if callable(emit_module_log):
+        event_evidence = (
+            _runtime_copy_dict(event.get("evidence") or {})
+            if isinstance(event, dict)
+            else _runtime_copy_dict(getattr(event, "evidence", {}) or {})
+        )
+        emit_module_log(
+            "optimization",
+            "候选 runtime 配置已生成",
+            (
+                f"已自动接管 active：{candidate_runtime_config_ref}"
+                if auto_applied
+                else f"候选配置已生成（未自动接管 active）：{candidate_runtime_config_ref}"
+            ),
+            cycle_id=resolved_cycle_id,
+            kind="candidate_build",
+            details=event_evidence,
+            metrics={"adjustment_count": len(runtime_override_keys)},
+        )
+    return event
+
+
 @dataclass(frozen=True, init=False)
 class TrainingSelectionResult:
     regime_result: dict[str, Any]
@@ -912,6 +2269,8 @@ class TrainingSelectionResult:
     dominant_manager_id: str = ""
     selection_trace: dict[str, Any] = field(default_factory=dict)
     compatibility_fields: dict[str, Any] = field(default_factory=dict)
+    regime_runtime_profile: dict[str, Any] = field(default_factory=dict, compare=False)
+    selection_intercepts: dict[str, Any] = field(default_factory=dict, compare=False)
 
     def __init__(
         self,
@@ -927,6 +2286,8 @@ class TrainingSelectionResult:
         dominant_manager_id: str = "",
         selection_trace: dict[str, Any] | None = None,
         compatibility_fields: dict[str, Any] | None = None,
+        regime_runtime_profile: dict[str, Any] | None = None,
+        selection_intercepts: dict[str, Any] | None = None,
         meeting_log: dict[str, Any] | None = None,
         selected: list[str] | None = None,
     ) -> None:
@@ -982,6 +2343,8 @@ class TrainingSelectionResult:
         object.__setattr__(self, "dominant_manager_id", normalized_dominant_manager_id)
         object.__setattr__(self, "selection_trace", normalized_selection_trace)
         object.__setattr__(self, "compatibility_fields", dict(compatibility_fields or {}))
+        object.__setattr__(self, "regime_runtime_profile", dict(regime_runtime_profile or {}))
+        object.__setattr__(self, "selection_intercepts", dict(selection_intercepts or {}))
 
     @property
     def selected(self) -> list[str]:
@@ -994,6 +2357,10 @@ class TrainingSelectionResult:
 
 class TrainingSelectionService:
     """Owns manager-runtime selection orchestration for the training hot path."""
+
+    @staticmethod
+    def _requested_regime(controller: Any) -> str:
+        return str(dict(governance_from_controller(controller) or {}).get("regime") or "")
 
     @staticmethod
     def _bundle_dominant_output(bundle: Any) -> Any | None:
@@ -1090,6 +2457,11 @@ class TrainingSelectionService:
         cutoff_date: str,
         stock_data: dict[str, Any],
     ) -> TrainingSelectionResult | None:
+        regime_runtime_profile = build_regime_runtime_profile(
+            controller,
+            regime=self._requested_regime(controller),
+        )
+        apply_regime_runtime_profile(controller, regime_runtime_profile)
         bundle = controller.training_manager_execution_service.execute_manager_selection(
             controller,
             cycle_id=cycle_id,
@@ -1116,6 +2488,17 @@ class TrainingSelectionService:
             selected_codes=selected_codes,
             trading_plan=trading_plan,
         )
+        resolved_regime = str(regime_result.get("regime") or "").strip().lower()
+        if resolved_regime and (
+            resolved_regime
+            != str(regime_runtime_profile.get("regime") or "").strip().lower()
+        ):
+            regime_runtime_profile = build_regime_runtime_profile(
+                controller,
+                regime=resolved_regime,
+                base_params=dict(regime_runtime_profile.get("base_params") or {}),
+            )
+            apply_regime_runtime_profile(controller, regime_runtime_profile)
         selection_trace = self._bundle_selection_trace(
             bundle,
             selected_codes=selected_codes,
@@ -1168,11 +2551,15 @@ class TrainingSelectionService:
             field_role="derived_compatibility",
         )
 
+        run_context = getattr(bundle, "run_context", None)
+        run_context_metadata = dict(getattr(run_context, "metadata", {}) or {}) if run_context is not None else {}
+        subject_type = str(run_context_metadata.get("subject_type") or "").strip()
+        resolved_selection_mode = "single_manager" if subject_type == "single_manager" else "manager_portfolio"
         return TrainingSelectionResult(
             regime_result=regime_result,
             selected_codes=selected_codes,
             selected_data=selected_data,
-            selection_mode="manager_portfolio",
+            selection_mode=resolved_selection_mode,
             agent_used=False,
             manager_bundle=bundle,
             manager_results=manager_results_payload,
@@ -1180,6 +2567,8 @@ class TrainingSelectionService:
             dominant_manager_id=str(bundle.dominant_manager_id or ""),
             selection_trace=selection_trace,
             compatibility_fields=compatibility_fields,
+            regime_runtime_profile=regime_runtime_profile,
+            selection_intercepts={},
         )
 
 class TrainingSimulationService:
@@ -2117,6 +3506,18 @@ class TrainingOutcomeService:
             or EFFECTIVE_RUNTIME_MODE
         ).strip()
         governance_decision = governance_from_controller(controller)
+        normalized_selection_mode = str(selection_mode or "").strip()
+        if normalized_selection_mode == "single_manager":
+            resolved_subject_type = "single_manager"
+        elif normalized_selection_mode == "manager_portfolio":
+            resolved_subject_type = "manager_portfolio"
+        else:
+            # Legacy selection modes keep the historical effective-runtime fallback.
+            resolved_subject_type = (
+                "manager_portfolio"
+                if effective_runtime_mode == EFFECTIVE_RUNTIME_MODE
+                else "single_manager"
+            )
         return {
             "data_mode": data_mode,
             "requested_data_mode": requested_data_mode,
@@ -2135,9 +3536,7 @@ class TrainingOutcomeService:
             "governance_mode": controller.governance_mode,
             "governance_dominant_manager": dominant_manager_id(governance_decision),
             "governance_regime": str(governance_decision.get("regime") or regime_result.get("regime", "unknown")),
-            "subject_type": "manager_portfolio"
-            if selection_mode == "manager_portfolio" or effective_runtime_mode == EFFECTIVE_RUNTIME_MODE
-            else "single_manager",
+            "subject_type": resolved_subject_type,
             "dual_review_enabled": bool(getattr(controller, "dual_review_enabled", False)),
         }
 
@@ -2578,6 +3977,8 @@ class SelectionStageContext:
     dominant_manager_id: str
     portfolio_attribution_payload: dict[str, Any]
     compatibility_fields: dict[str, Any]
+    regime_runtime_profile: dict[str, Any] = field(default_factory=dict)
+    selection_intercepts: dict[str, Any] = field(default_factory=dict)
 
     def execution_snapshot_inputs(self, *, persistence_enabled: bool) -> dict[str, Any]:
         return {
@@ -2605,11 +4006,40 @@ class SelectionStageContext:
 
     def outcome_persistence_inputs(self, *, persistence_enabled: bool) -> dict[str, Any]:
         if not persistence_enabled:
+            minimal_manager_results = [
+                {
+                    "manager_id": str(item.get("manager_id") or ""),
+                    "manager_config_ref": str(item.get("manager_config_ref") or ""),
+                }
+                for item in list(self.manager_results_payload or [])
+                if str(item.get("manager_id") or "").strip()
+            ]
+            active_manager_ids = [
+                str(item).strip()
+                for item in list(
+                    dict(self.portfolio_plan_payload or {}).get("active_manager_ids")
+                    or []
+                )
+                if str(item).strip()
+            ]
+            if not active_manager_ids:
+                active_manager_ids = [
+                    str(item.get("manager_id") or "").strip()
+                    for item in minimal_manager_results
+                    if str(item.get("manager_id") or "").strip()
+                ]
+            minimal_portfolio_plan = {}
+            if self.selection_mode == "manager_portfolio":
+                minimal_portfolio_plan = {
+                    "active_manager_ids": active_manager_ids,
+                    "dominant_manager_id": str(self.dominant_manager_id or ""),
+                    "manager_count": len(active_manager_ids),
+                }
             return {
-                "manager_results": [],
-                "portfolio_plan": {},
+                "manager_results": minimal_manager_results,
+                "portfolio_plan": minimal_portfolio_plan,
                 "portfolio_attribution": {},
-                "dominant_manager_id": "",
+                "dominant_manager_id": str(self.dominant_manager_id or ""),
             }
         return {
             "manager_results": list(self.manager_results_payload or []),
@@ -3137,6 +4567,9 @@ class TrainingExecutionService:
             manager_output=selection_context.manager_output,
             simulation_context=simulation_context,
         )
+        proposal_bundle = dict(getattr(review_stage_result, "proposal_bundle", {}) or {})
+        if proposal_bundle:
+            run_context["proposal_bundle"] = deepcopy(proposal_bundle)
         ab_comparison = self._build_review_ab_comparison(
             controller,
             cycle_id=cycle_id,
@@ -3152,6 +4585,8 @@ class TrainingExecutionService:
             review_applied=review_applied,
             ab_comparison=dict(ab_comparison or {}),
         )
+        if proposal_bundle:
+            review_cycle_payload["proposal_bundle"] = deepcopy(proposal_bundle)
         return ReviewStageContext(
             review_stage_result=review_stage_result,
             review_decision=review_decision,
@@ -3473,6 +4908,12 @@ class TrainingExecutionService:
             compatibility_fields=dict(
                 getattr(selection_result, "compatibility_fields", {}) or {}
             ),
+            regime_runtime_profile=dict(
+                getattr(selection_result, "regime_runtime_profile", {}) or {}
+            ),
+            selection_intercepts=dict(
+                getattr(selection_result, "selection_intercepts", {}) or {}
+            ),
         )
 
     def _run_selection_stage(
@@ -3652,10 +5093,20 @@ class TrainingExecutionService:
                 persistence_enabled=manager_persistence_enabled
             ),
         )
+        mutable_execution_snapshot = cast(dict[str, Any], execution_snapshot)
         if getattr(controller, "last_cutoff_policy_context", None):
-            execution_snapshot["cutoff_policy_context"] = dict(
+            mutable_execution_snapshot["cutoff_policy_context"] = dict(
                 controller.last_cutoff_policy_context or {}
             )
+        mutable_execution_snapshot["effective_runtime_params"] = resolve_effective_runtime_params(
+            controller
+        )
+        mutable_execution_snapshot["regime_runtime_profile"] = dict(
+            selection_context.regime_runtime_profile or {}
+        )
+        mutable_execution_snapshot["selection_intercepts"] = dict(
+            selection_context.selection_intercepts or {}
+        )
         simulation_envelope = SimulationStageEnvelope.from_structured_inputs(
             cycle_id=cycle_id,
             cutoff_date=cutoff_date,
@@ -3861,6 +5312,70 @@ class TrainingExecutionService:
             optimization_events,
             getattr(review_stage_result, "review_event", None),
         )
+        current_cycle_learning_proposals = list(
+            getattr(controller, "current_cycle_learning_proposals", []) or []
+        )
+        review_learning_proposals = [
+            _runtime_copy_dict(item)
+            for item in list(
+                dict(getattr(review_stage_result, "review_decision", {}) or {}).get(
+                    "learning_proposals"
+                )
+                or dict(getattr(review_stage_result, "review_trace", {}) or {}).get(
+                    "learning_proposals"
+                )
+                or []
+            )
+        ]
+        for proposal in review_learning_proposals:
+            proposal_id = str(proposal.get("proposal_id") or "").strip()
+            if proposal_id and any(
+                str(_runtime_copy_dict(item).get("proposal_id") or "").strip()
+                == proposal_id
+                for item in current_cycle_learning_proposals
+            ):
+                continue
+            current_cycle_learning_proposals.append(proposal)
+        setattr(
+            controller,
+            "current_cycle_learning_proposals",
+            current_cycle_learning_proposals,
+        )
+        proposal_bundle = _call_training_module_if_available(
+            "persistence",
+            "persist_cycle_proposal_bundle",
+            controller,
+            cycle_id=cycle_id,
+            execution_snapshot=dict(
+                simulation_context.simulation_envelope.execution_snapshot or {}
+            ),
+            proposals=_cycle_learning_proposals(controller, cycle_id=cycle_id),
+        )
+        proposal_bundle_payload = (
+            _runtime_copy_dict(proposal_bundle)
+            if isinstance(proposal_bundle, dict)
+            else {}
+        )
+        if proposal_bundle_payload:
+            candidate_event = build_cycle_candidate_from_proposals(
+                controller,
+                cycle_id=cycle_id,
+                proposal_bundle=proposal_bundle_payload,
+                event_factory=optimization_event_factory,
+                trigger_reason="cycle_review_completed",
+            )
+            refreshed_bundle = _runtime_copy_dict(
+                getattr(controller, "last_cycle_proposal_bundle", {})
+                or proposal_bundle_payload
+            )
+            review_stage_payload = dict(
+                getattr(review_stage_result, "cycle_payload", {}) or {}
+            )
+            review_stage_payload["proposal_bundle"] = refreshed_bundle
+            object.__setattr__(review_stage_result, "cycle_payload", review_stage_payload)
+            object.__setattr__(review_stage_result, "proposal_bundle", refreshed_bundle)
+            if candidate_event is not None:
+                self._append_stage_event(optimization_events, candidate_event)
         return self._build_review_stage_context(
             controller,
             cycle_id=cycle_id,
@@ -4016,100 +5531,129 @@ class TrainingExecutionService:
         optimization_events: list[dict[str, Any]],
     ) -> Any | None:
         del diagnostics
+        cycle_result: Any | None = None
         enforce_allowed_manager_scope_boundary(controller)
         controller._maybe_apply_allocator(stock_data, cutoff_date, cycle_id)
         enforce_allowed_manager_scope_boundary(controller)
+        begin_cycle_runtime_window(controller, cycle_id=cycle_id)
+        try:
+            selection_context = self._run_selection_stage(
+                controller,
+                cycle_id=cycle_id,
+                cutoff_date=cutoff_date,
+                stock_data=stock_data,
+            )
+            if selection_context is None:
+                return None
 
-        selection_context = self._run_selection_stage(
-            controller,
-            cycle_id=cycle_id,
-            cutoff_date=cutoff_date,
-            stock_data=stock_data,
-        )
-        if selection_context is None:
-            return None
+            simulation_context = self._run_simulation_stage(
+                controller,
+                cycle_id=cycle_id,
+                cutoff_date=cutoff_date,
+                stock_data=stock_data,
+                selection_context=selection_context,
+                requested_data_mode=requested_data_mode,
+                effective_data_mode=effective_data_mode,
+                llm_mode=llm_mode,
+                degraded=degraded,
+                degrade_reason=degrade_reason,
+                data_mode=data_mode,
+                llm_used=llm_used,
+            )
+            if simulation_context is None:
+                return None
 
-        simulation_context = self._run_simulation_stage(
-            controller,
-            cycle_id=cycle_id,
-            cutoff_date=cutoff_date,
-            stock_data=stock_data,
-            selection_context=selection_context,
-            requested_data_mode=requested_data_mode,
-            effective_data_mode=effective_data_mode,
-            llm_mode=llm_mode,
-            degraded=degraded,
-            degrade_reason=degrade_reason,
-            data_mode=data_mode,
-            llm_used=llm_used,
-        )
-        if simulation_context is None:
-            return None
-
-        optimization_context = self._apply_optimization_stage(
-            controller,
-            cycle_id=cycle_id,
-            simulation_context=simulation_context,
-            optimization_events=optimization_events,
-        )
-        review_context = self._run_review_stage(
-            controller,
-            cycle_id=cycle_id,
-            cutoff_date=cutoff_date,
-            stock_data=stock_data,
-            selection_context=selection_context,
-            simulation_context=simulation_context,
-            requested_data_mode=requested_data_mode,
-            effective_data_mode=effective_data_mode,
-            llm_mode=llm_mode,
-            degraded=degraded,
-            degrade_reason=degrade_reason,
-            data_mode=data_mode,
-            llm_used=llm_used,
-            optimization_event_factory=optimization_event_factory,
-            optimization_events=optimization_context.events,
-        )
-        outcome_context = self._build_outcome_stage(
-            controller,
-            result_factory=result_factory,
-            cycle_id=cycle_id,
-            cutoff_date=cutoff_date,
-            data_mode=data_mode,
-            requested_data_mode=requested_data_mode,
-            effective_data_mode=effective_data_mode,
-            llm_mode=llm_mode,
-            degraded=degraded,
-            degrade_reason=degrade_reason,
-            llm_used=llm_used,
-            optimization_events=optimization_context.events,
-            selection_context=selection_context,
-            simulation_context=simulation_context,
-            review_context=review_context,
-        )
-        validation_context = self._run_validation_stage(
-            controller,
-            cycle_id=cycle_id,
-            optimization_events=optimization_context.events,
-            selection_context=selection_context,
-            simulation_context=simulation_context,
-            review_context=review_context,
-            outcome_context=outcome_context,
-        )
-        return self._finalize_cycle_stage(
-            controller,
-            cycle_id=cycle_id,
-            cutoff_date=cutoff_date,
-            requested_data_mode=requested_data_mode,
-            effective_data_mode=effective_data_mode,
-            llm_mode=llm_mode,
-            degraded=degraded,
-            degrade_reason=degrade_reason,
-            selection_context=selection_context,
-            simulation_context=simulation_context,
-            review_context=review_context,
-            outcome_context=outcome_context,
-            validation_context=validation_context,
-        )
+            optimization_context = self._apply_optimization_stage(
+                controller,
+                cycle_id=cycle_id,
+                simulation_context=simulation_context,
+                optimization_events=optimization_events,
+            )
+            review_context = self._run_review_stage(
+                controller,
+                cycle_id=cycle_id,
+                cutoff_date=cutoff_date,
+                stock_data=stock_data,
+                selection_context=selection_context,
+                simulation_context=simulation_context,
+                requested_data_mode=requested_data_mode,
+                effective_data_mode=effective_data_mode,
+                llm_mode=llm_mode,
+                degraded=degraded,
+                degrade_reason=degrade_reason,
+                data_mode=data_mode,
+                llm_used=llm_used,
+                optimization_event_factory=optimization_event_factory,
+                optimization_events=optimization_context.events,
+            )
+            outcome_context = self._build_outcome_stage(
+                controller,
+                result_factory=result_factory,
+                cycle_id=cycle_id,
+                cutoff_date=cutoff_date,
+                data_mode=data_mode,
+                requested_data_mode=requested_data_mode,
+                effective_data_mode=effective_data_mode,
+                llm_mode=llm_mode,
+                degraded=degraded,
+                degrade_reason=degrade_reason,
+                llm_used=llm_used,
+                optimization_events=optimization_context.events,
+                selection_context=selection_context,
+                simulation_context=simulation_context,
+                review_context=review_context,
+            )
+            validation_context = self._run_validation_stage(
+                controller,
+                cycle_id=cycle_id,
+                optimization_events=optimization_context.events,
+                selection_context=selection_context,
+                simulation_context=simulation_context,
+                review_context=review_context,
+                outcome_context=outcome_context,
+            )
+            cycle_result = self._finalize_cycle_stage(
+                controller,
+                cycle_id=cycle_id,
+                cutoff_date=cutoff_date,
+                requested_data_mode=requested_data_mode,
+                effective_data_mode=effective_data_mode,
+                llm_mode=llm_mode,
+                degraded=degraded,
+                degrade_reason=degrade_reason,
+                selection_context=selection_context,
+                simulation_context=simulation_context,
+                review_context=review_context,
+                outcome_context=outcome_context,
+                validation_context=validation_context,
+            )
+            return cycle_result
+        finally:
+            discipline_summary = finalize_cycle_runtime_window(controller)
+            if cycle_result is not None:
+                cycle_result.run_context["runtime_discipline"] = deepcopy(
+                    discipline_summary
+                )
+                cycle_result.execution_snapshot["runtime_discipline"] = deepcopy(
+                    discipline_summary
+                )
+            if discipline_summary.get("violation_count"):
+                controller._emit_module_log(
+                    "runtime_discipline",
+                    "检测到 cycle 内非法 runtime 变更",
+                    "已回滚到 cycle 起点 active 参数",
+                    cycle_id=cycle_id,
+                    kind="runtime_mutation_violation",
+                    details=discipline_summary,
+                    metrics={
+                        "violation_count": int(
+                            discipline_summary.get("violation_count") or 0
+                        ),
+                        "proposal_count": int(
+                            discipline_summary.get("proposal_count") or 0
+                        ),
+                    },
+                )
 
 
 __all__ = [
@@ -4217,9 +5761,26 @@ class ManagerExecutionService:
         stock_data: dict[str, Any],
     ) -> ManagerRunContext:
         governance_context = governance_from_controller(controller)
-        active_manager_ids = self._resolve_active_manager_ids(controller)
+        # Default to multi-manager semantics unless the controller explicitly disables them.
+        # This keeps unit tests and legacy controllers stable, while still allowing strict
+        # single-manager isolation in readiness runs via `manager_arch_enabled=False`.
+        manager_arch_enabled = bool(getattr(controller, "manager_arch_enabled", True))
+        dominant = str(
+            dominant_manager_id(governance_context)
+            or session_default_manager_id(controller)
+            or "momentum"
+        ).strip()
+        active_manager_ids = (
+            self._resolve_active_manager_ids(controller)
+            if manager_arch_enabled
+            else ([dominant] if dominant else [])
+        )
         regime = str(governance_context.get("regime") or "unknown")
-        budget_weights = self._resolve_budget_weights(controller, active_manager_ids)
+        budget_weights = (
+            self._resolve_budget_weights(controller, active_manager_ids)
+            if manager_arch_enabled
+            else ({dominant: 1.0} if dominant else {})
+        )
         return ManagerRunContext(
             as_of_date=cutoff_date,
             regime=regime,
@@ -4230,7 +5791,11 @@ class ManagerExecutionService:
             active_manager_ids=active_manager_ids,
             governance_context=governance_context,
             review_context={},
-            metadata={"stock_universe_size": len(stock_data or {})},
+            metadata={
+                "stock_universe_size": len(stock_data or {}),
+                "subject_type": "manager_portfolio" if manager_arch_enabled else "single_manager",
+                "dominant_manager_id": dominant,
+            },
         )
 
     def execute_manager_selection(

@@ -123,6 +123,77 @@ def _coerce_review_decision_input(
     return cast(ReviewDecisionInputPayload, _dict_payload(payload))
 
 
+def _build_learning_proposals_from_review_decision(
+    *,
+    cycle_id: int,
+    review_decision: ReviewDecisionInputPayload | dict[str, Any] | None,
+    active_params_snapshot: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
+    payload = _dict_payload(review_decision)
+    try:
+        normalized_cycle_id = max(0, int(cycle_id))
+    except (TypeError, ValueError):
+        normalized_cycle_id = 0
+
+    strategy_suggestions = [
+        str(item).strip()
+        for item in _list_payload(payload.get("strategy_suggestions"))
+        if str(item).strip()
+    ]
+    evidence_common = {
+        "cycle_id": normalized_cycle_id,
+        "strategy_suggestions": strategy_suggestions,
+    }
+    metadata_common = {
+        "decision_source": str(payload.get("decision_source") or ""),
+        "subject_type": str(payload.get("subject_type") or ""),
+        "review_verdict": str(payload.get("verdict") or ""),
+    }
+    rationale = str(payload.get("reasoning") or "").strip()
+    snapshot = _dict_payload(active_params_snapshot)
+    proposals: list[dict[str, Any]] = []
+    sequence = 0
+
+    scope_specs = (
+        ("param_adjustments", "review.param_adjustment", "param_adjustment", "candidate"),
+        (
+            "agent_weight_adjustments",
+            "review.agent_weight_adjustment",
+            "agent_weight_adjustment",
+            "candidate",
+        ),
+        (
+            "manager_budget_adjustments",
+            "review.manager_budget_adjustment",
+            "manager_budget_adjustment",
+            "manager_budget",
+        ),
+    )
+    for field_name, source, proposal_kind, target_scope in scope_specs:
+        patch = _dict_payload(payload.get(field_name))
+        if not patch:
+            continue
+        sequence += 1
+        proposal = {
+            "proposal_id": f"proposal_{normalized_cycle_id:04d}_{sequence:03d}",
+            "suggestion_id": f"suggestion_{normalized_cycle_id:04d}_{sequence:03d}",
+            "cycle_id": normalized_cycle_id,
+            "source": source,
+            "target_scope": target_scope,
+            "patch": patch,
+            "rationale": rationale,
+            "evidence": dict(evidence_common),
+            "metadata": {
+                **metadata_common,
+                "proposal_kind": proposal_kind,
+            },
+        }
+        if snapshot:
+            proposal["active_params_snapshot"] = deepcopy(snapshot)
+        proposals.append(proposal)
+    return proposals
+
+
 def _simulation_metric_from_context_or_payload(
     simulation_envelope: SimulationStageEnvelope | None,
     cycle_payload: dict[str, Any],
@@ -967,6 +1038,25 @@ class TrainingReviewService:
             logger.info("manager shadow mode active; review decision remains advisory only")
             return False
 
+        learning_proposals = _build_learning_proposals_from_review_decision(
+            cycle_id=int(cycle_id),
+            review_decision=resolved_review_decision,
+            active_params_snapshot=dict(session_current_params(controller) or {}),
+        )
+        if learning_proposals:
+            resolved_review_decision_payload = cast(
+                dict[str, Any],
+                resolved_review_decision,
+            )
+            resolved_review_decision_payload["learning_proposals"] = deepcopy(
+                learning_proposals
+            )
+            resolved_review_decision_payload["proposal_refs"] = [
+                str(item.get("proposal_id") or "")
+                for item in learning_proposals
+                if str(item.get("proposal_id") or "").strip()
+            ]
+
         review_applied = apply_review_decision_boundary_effects(
             controller,
             cycle_id=cycle_id,
@@ -978,6 +1068,24 @@ class TrainingReviewService:
             logger.info(
                 "根据复盘调整参数: %s",
                 resolved_review_decision.get("param_adjustments"),
+            )
+        if learning_proposals:
+            proposal_refs = [
+                str(item.get("proposal_id") or "")
+                for item in learning_proposals
+                if str(item.get("proposal_id") or "").strip()
+            ]
+            existing_refs = [
+                str(item).strip()
+                for item in _list_payload(review_event.applied_change.get("proposal_refs"))
+                if str(item).strip()
+            ]
+            for ref in proposal_refs:
+                if ref not in existing_refs:
+                    existing_refs.append(ref)
+            review_event.applied_change["proposal_refs"] = existing_refs
+            review_event.applied_change["learning_proposals"] = deepcopy(
+                learning_proposals
             )
         return bool(review_applied)
 
@@ -1251,6 +1359,25 @@ class TrainingReviewStageService:
             allocation_review_report=allocation_review_report,
             dominant_manager_id=dominant_manager_id,
         )
+        learning_proposals = _build_learning_proposals_from_review_decision(
+            cycle_id=int(cycle_id),
+            review_decision=review_decision,
+            active_params_snapshot=dict(session_current_params(controller) or {}),
+        )
+        if learning_proposals:
+            review_decision_payload = cast(dict[str, Any], review_decision)
+            review_decision_payload["learning_proposals"] = deepcopy(
+                learning_proposals
+            )
+            review_decision_payload["proposal_refs"] = [
+                str(item.get("proposal_id") or "")
+                for item in learning_proposals
+                if str(item.get("proposal_id") or "").strip()
+            ]
+            review_trace["learning_proposals"] = deepcopy(learning_proposals)
+            review_trace["proposal_refs"] = list(
+                review_decision_payload["proposal_refs"]
+            )
         manager_review_digest = project_manager_review_digest(manager_review_report)
         allocation_review_digest = project_allocation_review_digest(
             allocation_review_report
