@@ -10,6 +10,7 @@ from typing import Any, Iterable, Mapping, Optional, Sequence
 import pandas as pd
 
 from config import PROJECT_ROOT, normalize_date
+from .universe_policy import DEFAULT_MAX_STALENESS_DAYS, select_universe_codes
 
 logger = logging.getLogger(__name__)
 
@@ -878,6 +879,42 @@ class MarketDataRepository:
             rows = conn.execute(query, params).fetchall()
         return [dict(row) for row in rows]
 
+    def query_financial_snapshots(
+        self,
+        codes: Sequence[str] | None = None,
+        cutoff_date: str | None = None,
+        start_date: str | None = None,
+    ) -> list[dict[str, Any]]:
+        self.initialize_schema()
+        cutoff = normalize_date(cutoff_date) if cutoff_date else None
+        start = normalize_date(start_date) if start_date else None
+        clauses: list[str] = []
+        params: list[Any] = []
+        if codes:
+            placeholders = ",".join(["?"] * len(codes))
+            clauses.append(f"code IN ({placeholders})")
+            params.extend(codes)
+        if cutoff:
+            clauses.append("CASE WHEN publish_date != '' THEN publish_date ELSE report_date END <= ?")
+            params.append(cutoff)
+        if start:
+            clauses.append("CASE WHEN publish_date != '' THEN publish_date ELSE report_date END >= ?")
+            params.append(start)
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        query = f"""
+            SELECT code, report_date, publish_date, roe, net_profit, revenue,
+                   total_assets, market_cap, source
+            FROM financial_snapshot
+            {where}
+            ORDER BY code,
+                     CASE WHEN publish_date != '' THEN publish_date ELSE report_date END ASC,
+                     report_date ASC
+        """
+        with self.connect() as conn:
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute(query, params).fetchall()
+        return [dict(row) for row in rows]
+
     def query_trading_calendar(
         self,
         start_date: str | None = None,
@@ -1051,23 +1088,36 @@ class MarketDataRepository:
         min_history_days: int,
         stock_count: int,
         adj_flag: str = "hfq",
+        max_staleness_days: int = DEFAULT_MAX_STALENESS_DAYS,
     ) -> list[str]:
         self.initialize_schema()
         cutoff = normalize_date(cutoff_date)
         with self.connect() as conn:
             rows = conn.execute(
                 """
-                SELECT code, COUNT(*) AS days
+                SELECT code, COUNT(*) AS history_days, MAX(trade_date) AS last_trade_date
                 FROM daily_bar
                 WHERE trade_date <= ? AND adj_flag = ?
                 GROUP BY code
-                HAVING days >= ?
-                ORDER BY days DESC, code ASC
-                LIMIT ?
+                HAVING history_days >= ?
                 """,
-                (cutoff, adj_flag, max(1, int(min_history_days)), max(1, int(stock_count))),
+                (cutoff, adj_flag, max(1, int(min_history_days))),
             ).fetchall()
-        return [row[0] for row in rows]
+        candidates = [
+            {
+                "code": row[0],
+                "history_days": int(row[1] or 0),
+                "last_trade_date": str(row[2] or ""),
+            }
+            for row in rows
+        ]
+        return select_universe_codes(
+            candidates=candidates,
+            cutoff_date=cutoff,
+            stock_count=stock_count,
+            min_history_days=min_history_days,
+            max_staleness_days=max_staleness_days,
+        )
 
     def query_daily_bars(
         self,

@@ -1,7 +1,7 @@
 import logging
 import os
 import time
-from datetime import datetime, timedelta
+from datetime import datetime
 from importlib import import_module
 from typing import Any, Protocol, Sequence, cast
 
@@ -196,7 +196,6 @@ def _merge_akshare_financial_frames(
     *,
     abstract_df: pd.DataFrame | None,
     balance_df: pd.DataFrame | None,
-    latest_close: float | None,
 ) -> dict[str, dict[str, Any]]:
     merged = _build_akshare_abstract_map(abstract_df)
     if balance_df is None or balance_df.empty:
@@ -213,9 +212,6 @@ def _merge_akshare_financial_frames(
         total_assets = _safe_float(row.get("TOTAL_ASSETS") if "TOTAL_ASSETS" in row else row.get("资产总计"))
         if total_assets is not None:
             record["total_assets"] = total_assets
-        share_capital = _safe_float(row.get("SHARE_CAPITAL") if "SHARE_CAPITAL" in row else row.get("总股本"))
-        if latest_close is not None and share_capital is not None:
-            record["market_cap"] = latest_close * share_capital
     return merged
 
 
@@ -861,7 +857,6 @@ class DataIngestionService:
         if not securities:
             return {"stock_count": 0, "row_count": 0, "source": "akshare"}
 
-        latest_close_map = self._get_latest_close_map([str(row.get("code", "")) for row in securities])
         total_rows = 0
         processed = 0
         failed = 0
@@ -893,11 +888,10 @@ class DataIngestionService:
             merged = _merge_akshare_financial_frames(
                 abstract_df=abstract_df,
                 balance_df=balance_df,
-                latest_close=latest_close_map.get(code),
             )
             records: list[dict[str, Any]] = []
             for report_date, payload in merged.items():
-                if not any(payload.get(field) is not None for field in ("roe", "net_profit", "revenue", "total_assets", "market_cap")):
+                if not any(payload.get(field) is not None for field in ("roe", "net_profit", "revenue", "total_assets")):
                     continue
                 latest_report_date = max(latest_report_date, report_date) if latest_report_date else report_date
                 records.append(
@@ -909,7 +903,7 @@ class DataIngestionService:
                         "net_profit": payload.get("net_profit"),
                         "revenue": payload.get("revenue"),
                         "total_assets": payload.get("total_assets"),
-                        "market_cap": payload.get("market_cap"),
+                        "market_cap": None,
                         "source": "akshare",
                     }
                 )
@@ -1083,23 +1077,6 @@ class DataIngestionService:
             basic = basic.head(3)
 
         latest_trade_date = _latest_trade_date(self.repository)
-        market_cap_start = (datetime.strptime(latest_trade_date, "%Y%m%d") - timedelta(days=14)).strftime("%Y%m%d")
-        market_caps: dict[str, float | None] = {}
-        daily_basic = pro.daily_basic(
-            trade_date=latest_trade_date,
-            fields="ts_code,total_mv",
-        )
-        if daily_basic is None or daily_basic.empty:
-            daily_basic = pro.daily_basic(
-                start_date=market_cap_start,
-                end_date=latest_trade_date,
-                fields="ts_code,trade_date,total_mv",
-            )
-        if daily_basic is not None and not daily_basic.empty:
-            if "trade_date" in daily_basic.columns:
-                daily_basic = daily_basic.sort_values(["ts_code", "trade_date"]).drop_duplicates("ts_code", keep="last")
-            market_caps = {str(row["ts_code"]): _safe_float(row.get("total_mv")) for _, row in daily_basic.iterrows()}
-
         total_rows = 0
         processed = 0
         for _, row in basic.iterrows():
@@ -1117,7 +1094,6 @@ class DataIngestionService:
                 continue
 
             records = []
-            market_cap = market_caps.get(ts_code)
             for report_date, payload in merged.items():
                 records.append(
                     {
@@ -1128,7 +1104,7 @@ class DataIngestionService:
                         "net_profit": payload.get("net_profit"),
                         "revenue": payload.get("revenue"),
                         "total_assets": payload.get("total_assets"),
-                        "market_cap": market_cap,
+                        "market_cap": None,
                         "source": "tushare",
                     }
                 )

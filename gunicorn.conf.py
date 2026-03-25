@@ -1,8 +1,18 @@
 import os
 
+
+def _configured_workers() -> int:
+    raw = str(
+        os.environ.get("GUNICORN_WORKERS")
+        or os.environ.get("WEB_CONCURRENCY")
+        or "1"
+    ).strip()
+    return max(1, int(raw))
+
+
 bind = os.environ.get("GUNICORN_BIND", "0.0.0.0:8080")
 # Web API 当前以内嵌 Commander runtime 方式运行，必须保持单 worker。
-workers = int(os.environ.get("GUNICORN_WORKERS", "1"))
+workers = _configured_workers()
 threads = int(os.environ.get("GUNICORN_THREADS", "4"))
 timeout = int(os.environ.get("GUNICORN_TIMEOUT", "180"))
 graceful_timeout = int(os.environ.get("GUNICORN_GRACEFUL_TIMEOUT", "30"))

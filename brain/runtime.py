@@ -109,12 +109,25 @@ class BrainTool(ABC):
 
         if t == "object":
             props = schema.get("properties", {})
+            additional = schema.get("additionalProperties", True)
             for req in schema.get("required", []):
                 if req not in val:
                     errors.append(f"missing required {path + '.' + req if path else req}")
             for key, item in val.items():
                 if key in props:
                     errors.extend(self._validate(item, props[key], path + '.' + key if path else key))
+                    continue
+                if additional is False:
+                    errors.append(f"unexpected field {path + '.' + key if path else key}")
+                    continue
+                if isinstance(additional, dict):
+                    errors.extend(
+                        self._validate(
+                            item,
+                            additional,
+                            path + "." + key if path else key,
+                        )
+                    )
 
         if t == "array" and "items" in schema:
             for i, item in enumerate(val):

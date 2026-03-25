@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import json
+
 from brain.bridge import BridgeHub, BridgeMessage, FileBridgeChannel
 from brain.memory import MemoryStore
 from brain.plugins import PluginLoader
@@ -137,6 +139,52 @@ def test_file_bridge_channel_quarantines_malformed_messages(tmp_path: Path):
     quarantined = channel.invalid_dir / "bad.json"
     assert quarantined.exists()
     assert quarantined.with_suffix('.json.error.txt').exists()
+
+
+def test_bridge_channel_derives_internal_session_key_and_ignores_external_value(tmp_path: Path):
+    inbox = tmp_path / "inbox"
+    outbox = tmp_path / "outbox"
+    channel = FileBridgeChannel(inbox, outbox)
+
+    payload = {
+        "id": "m1",
+        "channel": "file",
+        "chat_id": "c1",
+        "session_key": "attacker:session",
+        "external_conversation_id": "thread-a",
+        "content": "status",
+        "metadata": {"source": "external"},
+    }
+    (inbox / "request.json").write_text(json.dumps(payload), encoding="utf-8")
+
+    batch = channel.poll_inbox()
+
+    assert len(batch) == 1
+    message = batch[0]
+    assert message.session_key == "file:c1:thread-a"
+    assert message.metadata["source"] == "external"
+    assert message.metadata["ignored_external_session_key"] == "attacker:session"
+
+
+def test_bridge_channel_emit_uses_atomic_json_write(tmp_path: Path) -> None:
+    channel = FileBridgeChannel(tmp_path / "inbox", tmp_path / "outbox")
+    path = channel.emit(
+        BridgeMessage(
+            id="m1",
+            channel="file",
+            chat_id="c1",
+            session_key="file:c1",
+            role="assistant",
+            content="ok",
+            ts_ms=1,
+            metadata={},
+        )
+    )
+
+    assert path.exists()
+    assert list(path.parent.glob("*.tmp")) == []
+    loaded = json.loads(path.read_text(encoding="utf-8"))
+    assert loaded["session_key"] == "file:c1"
 
 
 def test_bridge_handle_survives_error_emit_failure(tmp_path: Path):

@@ -6,10 +6,12 @@ import asyncio
 import json
 import logging
 import time
-import uuid
 from dataclasses import dataclass, asdict
 from pathlib import Path
 from typing import Awaitable, Callable, Optional
+
+from .file_io import atomic_write_json, atomic_write_text
+from .message_envelope import normalize_inbound_envelope
 
 
 logger = logging.getLogger(__name__)
@@ -47,18 +49,18 @@ class FileBridgeChannel:
         msgs: list[BridgeMessage] = []
         for path in sorted(self.inbox_dir.glob("*.json")):
             try:
-                data = json.loads(path.read_text(encoding="utf-8"))
-                if not isinstance(data, dict):
-                    raise ValueError("bridge message must be a JSON object")
+                envelope = normalize_inbound_envelope(
+                    json.loads(path.read_text(encoding="utf-8"))
+                )
                 msg = BridgeMessage(
-                    id=str(data.get("id") or uuid.uuid4().hex[:12]),
-                    channel=str(data.get("channel") or "file"),
-                    chat_id=str(data.get("chat_id") or "default"),
-                    session_key=str(data.get("session_key") or f"file:{data.get('chat_id') or 'default'}"),
+                    id=envelope.id,
+                    channel=envelope.channel,
+                    chat_id=envelope.chat_id,
+                    session_key=envelope.session_key,
                     role="user",
-                    content=str(data.get("content") or ""),
-                    ts_ms=int(data.get("ts_ms") or time.time() * 1000),
-                    metadata=data.get("metadata") or {},
+                    content=envelope.content,
+                    ts_ms=envelope.ts_ms,
+                    metadata=envelope.metadata,
                 )
                 msgs.append(msg)
                 path.unlink(missing_ok=True)
@@ -75,7 +77,7 @@ class FileBridgeChannel:
                 target = self.invalid_dir / f"{int(time.time() * 1000)}_{path.name}"
             path.rename(target)
             sidecar = target.with_suffix(target.suffix + ".error.txt")
-            sidecar.write_text(reason, encoding="utf-8")
+            atomic_write_text(sidecar, reason, encoding="utf-8")
         except Exception as exc:
             logger.exception("Failed to quarantine malformed bridge message %s: %s", path, exc)
 
@@ -83,7 +85,7 @@ class FileBridgeChannel:
         self.outbox_dir.mkdir(parents=True, exist_ok=True)
         ts = int(time.time() * 1000)
         out = self.outbox_dir / f"{ts}_{message.id}.json"
-        out.write_text(json.dumps(asdict(message), ensure_ascii=False, indent=2), encoding="utf-8")
+        atomic_write_json(out, asdict(message))
         return out
 
 

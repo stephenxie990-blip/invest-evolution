@@ -375,9 +375,17 @@ def _configured_gunicorn_host() -> str:
     return _parse_bind_host(os.environ.get("GUNICORN_BIND", "0.0.0.0:8080"))
 
 
+def _configured_worker_env() -> tuple[str, str]:
+    for key in ("GUNICORN_WORKERS", "WEB_CONCURRENCY"):
+        raw = str(os.environ.get(key, "") or "").strip()
+        if raw:
+            return key, raw
+    return "GUNICORN_WORKERS", "1"
+
+
 def _configured_gunicorn_workers() -> int:
-    raw = str(os.environ.get("GUNICORN_WORKERS", "1") or "1").strip()
-    return max(1, _parse_int(raw, "GUNICORN_WORKERS", minimum=1))
+    field_name, raw = _configured_worker_env()
+    return max(1, _parse_int(raw, field_name, minimum=1))
 
 
 def _web_api_token() -> str:

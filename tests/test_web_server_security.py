@@ -220,6 +220,14 @@ def test_bootstrap_runtime_services_rejects_multi_worker_wsgi(monkeypatch):
         web_server.bootstrap_runtime_services(host='127.0.0.1', source='wsgi')
 
 
+def test_bootstrap_runtime_services_rejects_multi_worker_wsgi_from_web_concurrency(monkeypatch):
+    monkeypatch.delenv('GUNICORN_WORKERS', raising=False)
+    monkeypatch.setenv('WEB_CONCURRENCY', '2')
+
+    with pytest.raises(RuntimeError, match='single gunicorn worker'):
+        web_server.bootstrap_runtime_services(host='127.0.0.1', source='wsgi')
+
+
 def test_memory_detail_blocks_artifacts_outside_runtime_roots(tmp_path, monkeypatch):
     runtime = _make_runtime(tmp_path)
     monkeypatch.setattr(web_server, '_runtime', runtime)

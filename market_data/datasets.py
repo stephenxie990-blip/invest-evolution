@@ -8,6 +8,7 @@ import numpy as np
 import pandas as pd
 
 from config import normalize_date
+from .pit_join import join_financials_point_in_time
 from .quality import DataQualityService
 from .repository import MarketDataRepository
 
@@ -254,18 +255,12 @@ def _prepare_training_frames(
         combined = cast(pd.DataFrame, combined.merge(security_df, on="code", how="left"))
 
     financial_df = _records_frame(
-        repository.query_latest_financial_snapshots(valid_codes, cutoff_norm)
-    )
-    if not financial_df.empty:
-        financial_df = financial_df.reindex(
-            columns=["code", "report_date", "publish_date", "roe", "net_profit", "revenue", "total_assets", "market_cap"]
-        ).rename(
-            columns={
-                "report_date": "financial_report_date",
-                "publish_date": "financial_publish_date",
-            }
+        repository.query_financial_snapshots(
+            valid_codes,
+            cutoff_date=end_date,
         )
-        combined = cast(pd.DataFrame, combined.merge(financial_df, on="code", how="left"))
+    )
+    combined = join_financials_point_in_time(combined, financial_df)
 
     is_st_master = _numeric_series(combined, "is_st_master").fillna(0).astype(int)
     list_dt = _datetime_series(
@@ -602,11 +597,6 @@ def _attach_point_in_time_context(
     # Step 2: Securities & Financials — vectorised map
     # ══════════════════════════════════════════════════════════════
     securities = {row["code"]: row for row in repository.query_securities(codes)}
-    financials = {
-        row["code"]: row
-        for row in repository.query_latest_financial_snapshots(codes, cutoff_date)
-    }
-
     code_series = _series_from_column(combined, "code").astype(str)
     for key in ("name", "industry", "list_date", "delist_date"):
         lookup = {c: meta.get(key) for c, meta in securities.items()}
@@ -617,17 +607,16 @@ def _attach_point_in_time_context(
     }
     combined["is_st_master"] = code_series.map(is_st_lookup).fillna(0).astype(int)
 
-    for fin_key, fin_col in [
-        ("report_date", "financial_report_date"),
-        ("publish_date", "financial_publish_date"),
-        ("roe", "roe"),
-        ("net_profit", "net_profit"),
-        ("revenue", "revenue"),
-        ("total_assets", "total_assets"),
-        ("market_cap", "market_cap"),
-    ]:
-        lookup = {c: fin.get(fin_key) for c, fin in financials.items()}
-        combined[fin_col] = code_series.map(lookup)
+    financial_cutoff = end_date or cutoff_date
+    financial_start = start_date
+    financial_rows = _records_frame(
+        repository.query_financial_snapshots(
+            codes,
+            cutoff_date=financial_cutoff,
+            start_date=financial_start,
+        )
+    )
+    combined = join_financials_point_in_time(combined, financial_rows)
 
     t2 = time.perf_counter()
     logger.debug("[enrich] Step 2 securities+financials: %.2fs", t2 - t1)

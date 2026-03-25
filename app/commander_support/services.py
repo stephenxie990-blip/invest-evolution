@@ -29,6 +29,12 @@ _DATA_DOWNLOAD_LOCK = threading.Lock()
 _DATA_DOWNLOAD_JOB = DataDownloadJob()
 
 
+class ConfigSurfaceValidationError(ValueError):
+    def __init__(self, message: str, *, invalid_keys: tuple[str, ...] = ()) -> None:
+        super().__init__(message)
+        self.invalid_keys = invalid_keys
+
+
 def get_investment_models_payload(runtime: Any) -> dict[str, Any]:
     controller = runtime.body.controller
     items = list_models()
@@ -106,21 +112,38 @@ def _resolve_agent_registry(project_root: Path | None = None):
     current = Path(agent_config_registry.json_path).resolve()
     if current == target:
         return agent_config_registry
+    if not target.exists():
+        return agent_config_registry
     return AgentConfigRegistry(target)
+
+
+def _known_agent_names(registry: AgentConfigRegistry) -> set[str]:
+    return {
+        str(item.get("name") or "").strip()
+        for item in list(registry.list_configs() or [])
+        if str(item.get("name") or "").strip()
+    }
 
 
 def update_agent_prompt_payload(*, agent_name: str, system_prompt: str, project_root: Path | None = None) -> dict[str, Any]:
     registry = _resolve_agent_registry(project_root)
-    current_cfg = dict(registry.get_config(agent_name) or {})
+    normalized_agent_name = str(agent_name or "").strip()
+    known_names = _known_agent_names(registry)
+    if normalized_agent_name not in known_names:
+        raise ConfigSurfaceValidationError(
+            f"unknown agent prompt name: {normalized_agent_name or '<empty>'}",
+            invalid_keys=("name",),
+        )
+    current_cfg = dict(registry.get_config(normalized_agent_name) or {})
     current_cfg["system_prompt"] = str(system_prompt or "")
-    ok = registry.save_config(agent_name, current_cfg)
+    ok = registry.save_config(normalized_agent_name, current_cfg)
     if not ok:
         raise RuntimeError("failed to persist agent config")
     if registry is not agent_config_registry:
         agent_config_registry.reload()
     return {
         "status": "ok",
-        "updated": [f"agent_prompts.{agent_name}.system_prompt"],
+        "updated": [f"agent_prompts.{normalized_agent_name}.system_prompt"],
         "restart_required": False,
     }
 

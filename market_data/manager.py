@@ -20,6 +20,7 @@ from .datasets import CapitalFlowDatasetService, EventDatasetService, IntradayDa
 from .gateway import MarketDataGateway
 from .ingestion import DataIngestionService
 from .quality import DataQualityService
+from .universe_policy import DEFAULT_MAX_STALENESS_DAYS, select_universe_codes
 
 logger = logging.getLogger(__name__)
 
@@ -317,10 +318,28 @@ class MockDataProvider:
         del include_future_days
         selected: Dict[str, pd.DataFrame] = {}
         cutoff = normalize_date(cutoff_date)
-        for code in list(self.data.keys())[: max(1, int(stock_count))]:
-            df = self.data[code]
-            if int((df["trade_date"] <= cutoff).sum()) >= max(1, int(min_history_days)):
-                selected[code] = df.copy()
+        candidates: list[dict[str, object]] = []
+        for code, df in self.data.items():
+            trade_dates = df["trade_date"].astype(str).map(normalize_date)
+            history_mask = trade_dates <= cutoff
+            history_days = int(history_mask.sum())
+            last_trade_date = str(trade_dates[history_mask].max()) if history_days > 0 else ""
+            candidates.append(
+                {
+                    "code": str(code),
+                    "history_days": history_days,
+                    "last_trade_date": last_trade_date,
+                }
+            )
+        selected_codes = select_universe_codes(
+            candidates=candidates,
+            cutoff_date=cutoff,
+            stock_count=stock_count,
+            min_history_days=min_history_days,
+            max_staleness_days=DEFAULT_MAX_STALENESS_DAYS,
+        )
+        for code in selected_codes:
+            selected[code] = self.data[code].copy()
         return selected
 
 
