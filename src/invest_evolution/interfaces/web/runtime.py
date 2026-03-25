@@ -111,6 +111,66 @@ class WebRuntimeEphemeralState:
             self.rate_limit_events.pop(key, None)
 
 
+@dataclass
+class WebRuntimeStateContainer:
+    """Container for runtime pointers and mutable process-local web state."""
+
+    ephemeral_state: WebRuntimeEphemeralState
+    runtime: Any | None = None
+    loop: Any | None = None
+    runtime_facade_override: RuntimeFacade | Any | None = None
+    runtime_shutdown_registered: bool = False
+    runtime_bootstrap_lock: threading.Lock = field(default_factory=threading.Lock)
+    event_dispatcher_thread: threading.Thread | None = None
+
+    def bind_runtime(
+        self,
+        *,
+        runtime: Any | None,
+        loop: Any | None,
+    ) -> None:
+        self.runtime = runtime
+        self.loop = loop
+
+    def set_runtime_facade_override(self, facade: RuntimeFacade | Any | None) -> None:
+        self.runtime_facade_override = facade
+
+    def set_runtime_shutdown_registered(self, value: bool) -> None:
+        self.runtime_shutdown_registered = bool(value)
+
+    def set_event_dispatcher_thread(self, thread: threading.Thread | None) -> None:
+        self.event_dispatcher_thread = thread
+
+    def sync_from_compat_aliases(
+        self,
+        *,
+        runtime: Any | None,
+        loop: Any | None,
+        runtime_facade_override: RuntimeFacade | Any | None,
+        runtime_shutdown_registered: bool,
+        event_dispatcher_thread: threading.Thread | None,
+    ) -> bool:
+        """Synchronize container state from module-level compatibility aliases.
+
+        Returns True when any field changed.
+        """
+        changed = False
+        if runtime is not self.runtime or loop is not self.loop:
+            self.bind_runtime(runtime=runtime, loop=loop)
+            changed = True
+        if runtime_facade_override is not self.runtime_facade_override:
+            self.set_runtime_facade_override(runtime_facade_override)
+            changed = True
+        normalized_shutdown = bool(runtime_shutdown_registered)
+        if normalized_shutdown != bool(self.runtime_shutdown_registered):
+            self.set_runtime_shutdown_registered(normalized_shutdown)
+            changed = True
+        if event_dispatcher_thread is not self.event_dispatcher_thread:
+            self.set_event_dispatcher_thread(event_dispatcher_thread)
+            changed = True
+        return changed
+
+
 RuntimeSupplier = Callable[[], Any]
 LoopSupplier = Callable[[], Any]
 ResponseBuilder = Callable[[], Any]
@@ -904,5 +964,6 @@ __all__ = [
     "RuntimeFacade",
     "StateBackedRuntimeFacade",
     "WebRuntimeEphemeralState",
+    "WebRuntimeStateContainer",
     "load_default_commander_runtime_types",
 ]

@@ -48,6 +48,7 @@ from invest_evolution.interfaces.web.runtime import (
     InProcessRuntimeFacade,
     StateBackedRuntimeFacade,
     WebRuntimeEphemeralState,
+    WebRuntimeStateContainer,
     load_default_commander_runtime_types,
 )
 
@@ -117,10 +118,6 @@ def register_runtime_interface_routes(app: Flask, **route_kwargs: Any) -> None:
 # Async bridge — run async CommanderRuntime methods from sync Flask handlers
 # ---------------------------------------------------------------------------
 
-_loop: asyncio.AbstractEventLoop | None = None
-_runtime: Any | None = None
-
-
 def _bootstrap_config_int(name: str, *, default: int, minimum: int = 1) -> int:
     raw_value = getattr(config_module.config, name, default)
     try:
@@ -158,19 +155,91 @@ _WEB_STATE = WebRuntimeEphemeralState(
     event_history_limit=_EVENT_HISTORY_LIMIT,
     event_buffer_limit=_EVENT_BUFFER_LIMIT,
 )
+_WEB_RUNTIME_CONTAINER = WebRuntimeStateContainer(ephemeral_state=_WEB_STATE)
+
+# Compatibility aliases retained for tests and thin wrappers.
+_runtime: Any | None = None
+_loop: asyncio.AbstractEventLoop | None = None
+_runtime_facade = None
+_runtime_shutdown_registered = False
+_event_dispatcher_thread: threading.Thread | None = None
+
 _event_condition = _WEB_STATE.event_condition
 _data_download_lock = _WEB_STATE.data_download_lock
 _rate_limit_lock = _WEB_STATE.rate_limit_lock
 _HEAVY_RATE_LIMIT_PATHS = {
     "/api/data/download",
 }
-_runtime_bootstrap_lock = threading.Lock()
-_runtime_shutdown_registered = False
-_event_dispatcher_thread: threading.Thread | None = None
+_runtime_bootstrap_lock = _WEB_RUNTIME_CONTAINER.runtime_bootstrap_lock
 _in_process_runtime_facade = InProcessRuntimeFacade(
-    runtime_getter=lambda: _runtime,
-    loop_getter=lambda: _loop,
+    runtime_getter=lambda: _read_embedded_runtime(),
+    loop_getter=lambda: _read_embedded_loop(),
 )
+
+
+def _sync_container_from_compat_aliases() -> None:
+    _WEB_RUNTIME_CONTAINER.sync_from_compat_aliases(
+        runtime=_runtime,
+        loop=_loop,
+        runtime_facade_override=_runtime_facade,
+        runtime_shutdown_registered=_runtime_shutdown_registered,
+        event_dispatcher_thread=_event_dispatcher_thread,
+    )
+
+
+def _read_embedded_runtime() -> Any | None:
+    _sync_container_from_compat_aliases()
+    return _WEB_RUNTIME_CONTAINER.runtime
+
+
+def _read_embedded_loop() -> asyncio.AbstractEventLoop | None:
+    _sync_container_from_compat_aliases()
+    return _WEB_RUNTIME_CONTAINER.loop
+
+
+def _set_embedded_runtime_context(
+    *,
+    runtime: Any | None,
+    loop: asyncio.AbstractEventLoop | None,
+) -> None:
+    global _runtime, _loop
+    _WEB_RUNTIME_CONTAINER.bind_runtime(runtime=runtime, loop=loop)
+    _runtime = _WEB_RUNTIME_CONTAINER.runtime
+    _loop = _WEB_RUNTIME_CONTAINER.loop
+
+
+def _read_runtime_facade_override() -> Any | None:
+    _sync_container_from_compat_aliases()
+    return _WEB_RUNTIME_CONTAINER.runtime_facade_override
+
+
+def _set_runtime_facade_override_state(facade: Any | None) -> None:
+    global _runtime_facade
+    _WEB_RUNTIME_CONTAINER.set_runtime_facade_override(facade)
+    _runtime_facade = _WEB_RUNTIME_CONTAINER.runtime_facade_override
+
+
+def _read_runtime_shutdown_registered() -> bool:
+    _sync_container_from_compat_aliases()
+    return bool(_WEB_RUNTIME_CONTAINER.runtime_shutdown_registered)
+
+
+def _set_runtime_shutdown_registered_state(value: bool) -> None:
+    global _runtime_shutdown_registered
+    normalized = bool(value)
+    _WEB_RUNTIME_CONTAINER.set_runtime_shutdown_registered(normalized)
+    _runtime_shutdown_registered = _WEB_RUNTIME_CONTAINER.runtime_shutdown_registered
+
+
+def _read_event_dispatcher_thread() -> threading.Thread | None:
+    _sync_container_from_compat_aliases()
+    return _WEB_RUNTIME_CONTAINER.event_dispatcher_thread
+
+
+def _set_event_dispatcher_thread_state(thread: threading.Thread | None) -> None:
+    global _event_dispatcher_thread
+    _WEB_RUNTIME_CONTAINER.set_event_dispatcher_thread(thread)
+    _event_dispatcher_thread = _WEB_RUNTIME_CONTAINER.event_dispatcher_thread
 
 
 def reset_ephemeral_web_state(*, reset_rate_limits: bool = True) -> None:
@@ -189,7 +258,7 @@ def get_ephemeral_web_state() -> WebRuntimeEphemeralState:
 
 
 def set_runtime_facade_override(facade: Any | None) -> None:
-    globals()["_runtime_facade"] = facade
+    _set_runtime_facade_override_state(facade)
 
 
 def bind_embedded_runtime_context(
@@ -197,8 +266,7 @@ def bind_embedded_runtime_context(
     runtime: Any | None,
     loop: asyncio.AbstractEventLoop | None,
 ) -> None:
-    globals()["_runtime"] = runtime
-    globals()["_loop"] = loop
+    _set_embedded_runtime_context(runtime=runtime, loop=loop)
 
 
 def _project_root_path() -> Path:
@@ -253,15 +321,17 @@ def _default_rate_limit_state_file() -> Path:
 
 
 def _default_runtime_events_path() -> Path:
-    if _runtime is not None:
-        return Path(_runtime.cfg.runtime_events_path)
+    runtime = _read_embedded_runtime()
+    if runtime is not None:
+        return Path(runtime.cfg.runtime_events_path)
     return _project_root_path() / "runtime" / "state" / "commander_events.jsonl"
 
 
 def _select_runtime_facade():
-    if _runtime_facade is not None:
-        return _runtime_facade
-    if _runtime is not None:
+    facade_override = _read_runtime_facade_override()
+    if facade_override is not None:
+        return facade_override
+    if _read_embedded_runtime() is not None:
         return _in_process_runtime_facade
     return _state_backed_runtime_facade
 
@@ -275,7 +345,6 @@ _state_backed_runtime_facade = StateBackedRuntimeFacade(
     data_status_getter=collect_data_status,
     config_payload_getter=collect_masked_config_payload,
 )
-_runtime_facade = None
 _route_runtime_facade = DelegatingRuntimeFacade(facade_getter=_select_runtime_facade)
 
 
@@ -294,16 +363,17 @@ def _event_sink(event_type: str, data: dict[str, Any]) -> None:
 
 
 def _ensure_event_dispatcher() -> None:
-    global _event_dispatcher_thread
-    if _event_dispatcher_thread is not None and _event_dispatcher_thread.is_alive():
+    dispatcher_thread = _read_event_dispatcher_thread()
+    if dispatcher_thread is not None and dispatcher_thread.is_alive():
         return
     with _WEB_STATE.event_condition:
-        if _event_dispatcher_thread is not None and _event_dispatcher_thread.is_alive():
+        dispatcher_thread = _read_event_dispatcher_thread()
+        if dispatcher_thread is not None and dispatcher_thread.is_alive():
             return
         t = threading.Thread(
             target=_run_event_dispatch_loop, name="web-sse-dispatcher", daemon=True
         )
-        _event_dispatcher_thread = t
+        _set_event_dispatcher_thread_state(t)
         _WEB_STATE.event_dispatcher_started = True
         t.start()
 
@@ -354,8 +424,9 @@ def _start_event_loop(loop: asyncio.AbstractEventLoop) -> None:
 
 def _run_async(coro: Any) -> Any:
     """Submit a coroutine to the background event loop and wait for result."""
-    assert _loop is not None
-    future = asyncio.run_coroutine_threadsafe(coro, _loop)
+    loop = _read_embedded_loop()
+    assert loop is not None
+    future = asyncio.run_coroutine_threadsafe(coro, loop)
     timeout_sec = _read_web_runtime_async_timeout_sec()
     try:
         return future.result(timeout=timeout_sec)
@@ -523,10 +594,9 @@ def _normalize_chat_session_token(value: Any, *, field_name: str, prefix: str) -
 
 
 def shutdown_runtime_services() -> None:
-    runtime = _runtime
-    loop = _loop
-    globals()["_runtime"] = None
-    globals()["_loop"] = None
+    runtime = _read_embedded_runtime()
+    loop = _read_embedded_loop()
+    _set_embedded_runtime_context(runtime=None, loop=None)
     if runtime is None:
         return
     if loop is not None:
@@ -548,18 +618,20 @@ def shutdown_runtime_services() -> None:
 
 
 def _register_runtime_shutdown() -> None:
-    if _runtime_shutdown_registered:
+    if _read_runtime_shutdown_registered():
         return
     atexit.register(shutdown_runtime_services)
-    globals()["_runtime_shutdown_registered"] = True
+    _set_runtime_shutdown_registered_state(True)
 
 
 def bootstrap_runtime_services(
     *, host: str, mock: bool = False, source: str = "cli"
 ) -> Any:
     with _runtime_bootstrap_lock:
-        if _runtime is not None and _loop is not None:
-            return _runtime
+        runtime = _read_embedded_runtime()
+        loop = _read_embedded_loop()
+        if runtime is not None and loop is not None:
+            return runtime
 
         if not _is_loopback_host(host):
             if not (_is_web_api_auth_required() and _read_web_api_token()):
@@ -594,8 +666,7 @@ def bootstrap_runtime_services(
             daemon=True,
         )
 
-        globals()["_runtime"] = runtime
-        globals()["_loop"] = loop
+        _set_embedded_runtime_context(runtime=runtime, loop=loop)
         loop_thread.start()
         try:
             _run_async(runtime.start())
@@ -613,8 +684,7 @@ def bootstrap_runtime_services(
                 log_message="Failed to stop event loop after bootstrap error: host=%s mock=%s source=%s loop_type=%s",
                 log_args=(host, mock, source, type(loop).__name__),
             )
-            globals()["_runtime"] = None
-            globals()["_loop"] = None
+            _set_embedded_runtime_context(runtime=None, loop=None)
             raise
 
         _register_runtime_shutdown()

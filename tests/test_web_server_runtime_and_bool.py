@@ -1,8 +1,70 @@
 import json
+from typing import Any, cast
 
 import invest_evolution.config as config_module
 import invest_evolution.interfaces.web.server as web_server
 from invest_evolution.interfaces.web.runtime import StateBackedRuntimeFacade
+
+
+def test_bind_embedded_runtime_context_updates_runtime_container():
+    runtime = object()
+    loop = cast(Any, object())
+
+    web_server.bind_embedded_runtime_context(runtime=runtime, loop=loop)
+    try:
+        assert web_server._runtime is runtime
+        assert web_server._loop is loop
+        assert web_server._WEB_RUNTIME_CONTAINER.runtime is runtime
+        assert web_server._WEB_RUNTIME_CONTAINER.loop is loop
+    finally:
+        web_server.bind_embedded_runtime_context(runtime=None, loop=None)
+
+
+def test_runtime_facade_override_updates_runtime_container():
+    override = object()
+
+    web_server.set_runtime_facade_override(override)
+    try:
+        assert web_server._runtime_facade is override
+        assert web_server._WEB_RUNTIME_CONTAINER.runtime_facade_override is override
+    finally:
+        web_server.set_runtime_facade_override(None)
+
+
+def test_runtime_facade_selection_respects_compat_runtime_alias(monkeypatch):
+    monkeypatch.setattr(web_server, "_runtime_facade", None)
+    monkeypatch.setattr(web_server, "_runtime", object())
+    monkeypatch.setattr(web_server, "_loop", cast(Any, object()))
+
+    selected = web_server._select_runtime_facade()
+    web_server._read_embedded_loop()
+
+    assert selected is web_server._in_process_runtime_facade
+    assert web_server._WEB_RUNTIME_CONTAINER.runtime is web_server._runtime
+    assert web_server._WEB_RUNTIME_CONTAINER.loop is web_server._loop
+
+
+def test_runtime_readers_sync_container_from_compat_aliases(monkeypatch):
+    runtime = object()
+    loop = cast(Any, object())
+    facade = object()
+
+    monkeypatch.setattr(web_server, "_runtime", runtime)
+    monkeypatch.setattr(web_server, "_loop", loop)
+    monkeypatch.setattr(web_server, "_runtime_facade", facade)
+
+    assert web_server._read_embedded_runtime() is runtime
+    assert web_server._read_embedded_loop() is loop
+    assert web_server._read_runtime_facade_override() is facade
+    assert web_server._WEB_RUNTIME_CONTAINER.runtime is runtime
+    assert web_server._WEB_RUNTIME_CONTAINER.loop is loop
+    assert web_server._WEB_RUNTIME_CONTAINER.runtime_facade_override is facade
+
+
+def test_runtime_shutdown_reader_syncs_container_from_compat_alias(monkeypatch):
+    monkeypatch.setattr(web_server, "_runtime_shutdown_registered", True)
+    assert web_server._read_runtime_shutdown_registered() is True
+    assert web_server._WEB_RUNTIME_CONTAINER.runtime_shutdown_registered is True
 
 
 def test_status_returns_state_backed_snapshot_when_runtime_not_initialized(monkeypatch, tmp_path):

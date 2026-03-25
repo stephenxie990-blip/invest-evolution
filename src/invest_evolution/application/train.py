@@ -8,7 +8,6 @@ import logging
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Callable, Dict, List, Optional, cast
-from uuid import uuid4
 
 from invest_evolution.config import (
     PROJECT_ROOT,
@@ -17,7 +16,6 @@ from invest_evolution.config import (
 from invest_evolution.config.control_plane import RuntimePathConfigService
 from invest_evolution.investment.shared.policy import (
     evaluate_optimization_event_contract,
-    resolve_governance_matrix,
 )
 from invest_evolution.market_data import DataSourceUnavailableError
 from invest_evolution.investment.runtimes.catalog import COMMON_PARAM_DEFAULTS
@@ -47,29 +45,15 @@ from invest_evolution.application.training.policy import (
     TrainingPolicyService,
 )
 from invest_evolution.application.training import observability as training_observability
+from invest_evolution.application.training.optimization_event import (
+    OptimizationEvent as _OptimizationEvent,
+)
 from invest_evolution.application.training.research import (
     TrainingFeedbackService,
 )
 from invest_evolution.application.training.controller import (
-    session_consecutive_losses,
-    session_current_params,
-    session_cycle_history,
-    session_cycle_records,
-    session_default_manager_config_ref,
-    session_default_manager_id,
-    session_last_feedback_optimization,
-    session_last_feedback_optimization_cycle_id,
-    session_last_governance_decision,
-    session_manager_budget_weights,
-    set_session_consecutive_losses,
-    set_session_current_params,
-    set_session_cycle_history,
-    set_session_cycle_records,
-    set_session_default_manager,
-    set_session_last_feedback_optimization,
-    set_session_last_feedback_optimization_cycle_id,
-    set_session_last_governance_decision,
-    set_session_manager_budget_weights,
+    ReinforcementLearningOptimizer as _ReinforcementLearningOptimizer,
+    TrainingSessionCompatMixin,
 )
 
 logger = logging.getLogger(__name__)
@@ -78,42 +62,8 @@ SelfAssessmentSnapshot = training_observability.SelfAssessmentSnapshot
 _event_callback_state = training_observability._event_callback_state
 emit_event = training_observability.emit_event
 set_event_callback = training_observability.set_event_callback
-
-
-def _empty_review_applied_effects_payload() -> training_review_contracts.ReviewAppliedEffectsPayload:
-    return {}
-
-
-def _empty_review_decision_stage_payload() -> training_review_contracts.ReviewDecisionOptimizationStagePayload:
-    return {}
-
-
-def _empty_research_feedback_stage_payload() -> training_review_contracts.ResearchFeedbackOptimizationStagePayload:
-    return {}
-
-
-def _empty_llm_analysis_stage_payload() -> training_review_contracts.LlmAnalysisOptimizationStagePayload:
-    return {}
-
-
-def _empty_evolution_engine_stage_payload() -> training_review_contracts.EvolutionEngineOptimizationStagePayload:
-    return {}
-
-
-def _empty_runtime_config_mutation_stage_payload() -> (
-    training_review_contracts.RuntimeConfigMutationOptimizationStagePayload
-):
-    return {}
-
-
-def _empty_runtime_config_mutation_skipped_stage_payload() -> (
-    training_review_contracts.RuntimeConfigMutationSkippedOptimizationStagePayload
-):
-    return {}
-
-
-def _empty_optimization_error_stage_payload() -> training_review_contracts.OptimizationErrorStagePayload:
-    return {}
+ReinforcementLearningOptimizer = _ReinforcementLearningOptimizer
+OptimizationEvent = _OptimizationEvent
 
 
 # ============================================================
@@ -123,47 +73,6 @@ def _empty_optimization_error_stage_payload() -> training_review_contracts.Optim
 # ============================================================
 # Part 2: Q-Learning 参数调整器（轻量级 RL）
 # ============================================================
-
-class ReinforcementLearningOptimizer:
-    """
-    简单 Q-Learning 参数调整器
-
-    状态空间：连续亏损次数 / 收益率段
-    动作空间：increase_position / decrease_position / keep
-    """
-
-    def __init__(self, learning_rate: float = 0.10, discount_factor: float = 0.90):
-        self.lr   = learning_rate
-        self.gamma = discount_factor
-        self.q_table: Dict[str, Dict[str, float]] = {}
-
-    def get_action(self, state: str, params: Dict) -> Dict:
-        """选择动作并返回调整后的参数"""
-        if state not in self.q_table:
-            self.q_table[state] = {"increase": 0.0, "decrease": 0.0, "keep": 0.0}
-
-        action = max(self.q_table[state].items(), key=lambda item: item[1])[0]
-        new_params = params.copy()
-
-        if action == "increase":
-            new_params["position_size"]   = min(new_params.get("position_size", COMMON_PARAM_DEFAULTS["position_size"]) * 1.1, 0.5)
-            new_params["take_profit_pct"] = min(new_params.get("take_profit_pct", COMMON_PARAM_DEFAULTS["take_profit_pct"]) * 1.1, 0.5)
-        elif action == "decrease":
-            new_params["position_size"]   = max(new_params.get("position_size", COMMON_PARAM_DEFAULTS["position_size"]) * 0.9, 0.05)
-            new_params["take_profit_pct"] = max(new_params.get("take_profit_pct", COMMON_PARAM_DEFAULTS["take_profit_pct"]) * 0.9, 0.05)
-
-        return new_params
-
-    def update(self, state: str, action: str, reward: float, next_state: str):
-        """更新 Q 值"""
-        for s in (state, next_state):
-            if s not in self.q_table:
-                self.q_table[s] = {"increase": 0.0, "decrease": 0.0, "keep": 0.0}
-
-        old_q      = self.q_table[state][action]
-        max_next_q = max(self.q_table[next_state].values())
-        self.q_table[state][action] = old_q + self.lr * (reward + self.gamma * max_next_q - old_q)
-
 
 # ============================================================
 # Part 3: 训练数据类
@@ -296,111 +205,11 @@ class TrainingResult:
             fallback=dict(self.execution_defaults or {}),
         ))
 
-
-@dataclass
-class OptimizationEvent:
-    trigger: str
-    stage: str
-    cycle_id: int | None = None
-    status: str = "ok"
-    suggestions: List[str] = field(default_factory=list)
-    decision: Dict[str, Any] = field(default_factory=dict)
-    applied_change: Dict[str, Any] = field(default_factory=dict)
-    lineage: Dict[str, Any] = field(default_factory=dict)
-    evidence: Dict[str, Any] = field(default_factory=dict)
-    notes: str = ""
-    review_applied_effects_payload: training_review_contracts.ReviewAppliedEffectsPayload = (
-        field(default_factory=_empty_review_applied_effects_payload)
-    )
-    review_decision_payload: training_review_contracts.ReviewDecisionOptimizationStagePayload = (
-        field(default_factory=_empty_review_decision_stage_payload)
-    )
-    research_feedback_payload: training_review_contracts.ResearchFeedbackOptimizationStagePayload = (
-        field(default_factory=_empty_research_feedback_stage_payload)
-    )
-    llm_analysis_payload: training_review_contracts.LlmAnalysisOptimizationStagePayload = (
-        field(default_factory=_empty_llm_analysis_stage_payload)
-    )
-    evolution_engine_payload: training_review_contracts.EvolutionEngineOptimizationStagePayload = (
-        field(default_factory=_empty_evolution_engine_stage_payload)
-    )
-    runtime_config_mutation_payload: training_review_contracts.RuntimeConfigMutationOptimizationStagePayload = (
-        field(default_factory=_empty_runtime_config_mutation_stage_payload)
-    )
-    runtime_config_mutation_skipped_payload: training_review_contracts.RuntimeConfigMutationSkippedOptimizationStagePayload = (
-        field(default_factory=_empty_runtime_config_mutation_skipped_stage_payload)
-    )
-    optimization_error_payload: training_review_contracts.OptimizationErrorStagePayload = (
-        field(default_factory=_empty_optimization_error_stage_payload)
-    )
-    event_id: str = field(default_factory=lambda: f"opt_{uuid4().hex[:12]}")
-    contract_version: str = field(default_factory=lambda: str(resolve_governance_matrix().get("optimization", {}).get("contract_version", "optimization_event.v2")))
-    ts: str = field(default_factory=lambda: datetime.now().isoformat())
-
-    def to_dict(self) -> training_review_contracts.OptimizationEventPayload:
-        payload = cast(training_review_contracts.OptimizationEventPayload, {
-            "event_id": self.event_id,
-            "contract_version": self.contract_version,
-            "cycle_id": self.cycle_id,
-            "trigger": self.trigger,
-            "stage": self.stage,
-            "status": self.status,
-            "suggestions": list(self.suggestions),
-            "decision": dict(self.decision),
-            "applied_change": dict(self.applied_change),
-            "lineage": dict(self.lineage),
-            "evidence": dict(self.evidence),
-            "notes": self.notes,
-            "ts": self.ts,
-        })
-        if self.review_applied_effects_payload:
-            payload["review_applied_effects_payload"] = cast(
-                training_review_contracts.ReviewAppliedEffectsPayload,
-                dict(self.review_applied_effects_payload),
-            )
-        if self.review_decision_payload:
-            payload["review_decision_payload"] = cast(
-                training_review_contracts.ReviewDecisionOptimizationStagePayload,
-                dict(self.review_decision_payload),
-            )
-        if self.research_feedback_payload:
-            payload["research_feedback_payload"] = cast(
-                training_review_contracts.ResearchFeedbackOptimizationStagePayload,
-                dict(self.research_feedback_payload),
-            )
-        if self.llm_analysis_payload:
-            payload["llm_analysis_payload"] = cast(
-                training_review_contracts.LlmAnalysisOptimizationStagePayload,
-                dict(self.llm_analysis_payload),
-            )
-        if self.evolution_engine_payload:
-            payload["evolution_engine_payload"] = cast(
-                training_review_contracts.EvolutionEngineOptimizationStagePayload,
-                dict(self.evolution_engine_payload),
-            )
-        if self.runtime_config_mutation_payload:
-            payload["runtime_config_mutation_payload"] = cast(
-                training_review_contracts.RuntimeConfigMutationOptimizationStagePayload,
-                dict(self.runtime_config_mutation_payload),
-            )
-        if self.runtime_config_mutation_skipped_payload:
-            payload["runtime_config_mutation_skipped_payload"] = cast(
-                training_review_contracts.RuntimeConfigMutationSkippedOptimizationStagePayload,
-                dict(self.runtime_config_mutation_skipped_payload),
-            )
-        if self.optimization_error_payload:
-            payload["optimization_error_payload"] = cast(
-                training_review_contracts.OptimizationErrorStagePayload,
-                dict(self.optimization_error_payload),
-            )
-        return payload
-
-
 # ============================================================
 # Part 4: 自我学习主控制器
 # ============================================================
 
-class SelfLearningController:
+class SelfLearningController(TrainingSessionCompatMixin):
     """
     自我学习主控制器
 
@@ -526,96 +335,6 @@ class SelfLearningController:
     research_feedback_policy: dict[str, Any]
     research_feedback_optimization_policy: dict[str, Any]
     research_feedback_freeze_policy: dict[str, Any]
-
-    # Compatibility property proxies live on the controller boundary; training core
-    # should prefer invest_evolution.application.training.controller helpers instead of touching these directly.
-    @property
-    def current_params(self) -> Dict[str, Any]:
-        return session_current_params(self)
-
-    @current_params.setter
-    def current_params(self, value: Dict[str, Any] | None) -> None:
-        set_session_current_params(self, value)
-
-    @property
-    def consecutive_losses(self) -> int:
-        return session_consecutive_losses(self)
-
-    @consecutive_losses.setter
-    def consecutive_losses(self, value: int) -> None:
-        set_session_consecutive_losses(self, value)
-
-    @property
-    def default_manager_id(self) -> str:
-        return session_default_manager_id(self)
-
-    @default_manager_id.setter
-    def default_manager_id(self, value: str) -> None:
-        set_session_default_manager(
-            self,
-            manager_id=value,
-            manager_config_ref=session_default_manager_config_ref(self),
-        )
-
-    @property
-    def default_manager_config_ref(self) -> str:
-        return session_default_manager_config_ref(self)
-
-    @default_manager_config_ref.setter
-    def default_manager_config_ref(self, value: str) -> None:
-        set_session_default_manager(
-            self,
-            manager_id=session_default_manager_id(self),
-            manager_config_ref=value,
-        )
-
-    @property
-    def manager_budget_weights(self) -> Dict[str, float]:
-        return session_manager_budget_weights(self)
-
-    @manager_budget_weights.setter
-    def manager_budget_weights(self, value: Dict[str, Any] | None) -> None:
-        set_session_manager_budget_weights(self, value)
-
-    @property
-    def last_governance_decision(self) -> Dict[str, Any]:
-        return session_last_governance_decision(self)
-
-    @last_governance_decision.setter
-    def last_governance_decision(self, value: Dict[str, Any] | None) -> None:
-        set_session_last_governance_decision(self, value)
-
-    @property
-    def last_feedback_optimization(self) -> Dict[str, Any]:
-        return session_last_feedback_optimization(self)
-
-    @last_feedback_optimization.setter
-    def last_feedback_optimization(self, value: Dict[str, Any] | None) -> None:
-        set_session_last_feedback_optimization(self, value)
-
-    @property
-    def last_feedback_optimization_cycle_id(self) -> int:
-        return session_last_feedback_optimization_cycle_id(self)
-
-    @last_feedback_optimization_cycle_id.setter
-    def last_feedback_optimization_cycle_id(self, value: int) -> None:
-        set_session_last_feedback_optimization_cycle_id(self, value)
-
-    @property
-    def cycle_history(self) -> List[TrainingResult]:
-        return session_cycle_history(self)
-
-    @cycle_history.setter
-    def cycle_history(self, value: List[TrainingResult] | None) -> None:
-        set_session_cycle_history(self, value)
-
-    @property
-    def cycle_records(self) -> List[Dict]:
-        return session_cycle_records(self)
-
-    @cycle_records.setter
-    def cycle_records(self, value: List[Dict] | None) -> None:
-        set_session_cycle_records(self, value)
 
     def __init__(
         self,

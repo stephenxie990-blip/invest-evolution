@@ -12,6 +12,7 @@ from typing import Any, TYPE_CHECKING
 import numpy as np
 
 from invest_evolution.config import config, normalize_date
+from invest_evolution.investment.runtimes.catalog import COMMON_PARAM_DEFAULTS
 
 
 def _policy_module():
@@ -38,6 +39,54 @@ def normalize_governance_decision(*args: Any, **kwargs: Any) -> dict[str, Any]:
 
 def execution_defaults_payload(*args: Any, **kwargs: Any) -> dict[str, Any]:
     return _policy_module().execution_defaults_payload(*args, **kwargs)
+
+
+class ReinforcementLearningOptimizer:
+    """Compatibility helper for lightweight runtime parameter adaptation."""
+
+    def __init__(self, learning_rate: float = 0.10, discount_factor: float = 0.90):
+        self.lr = learning_rate
+        self.gamma = discount_factor
+        self.q_table: dict[str, dict[str, float]] = {}
+
+    def get_action(self, state: str, params: dict[str, Any]) -> dict[str, Any]:
+        if state not in self.q_table:
+            self.q_table[state] = {"increase": 0.0, "decrease": 0.0, "keep": 0.0}
+
+        action = max(self.q_table[state].items(), key=lambda item: item[1])[0]
+        new_params = dict(params)
+
+        if action == "increase":
+            new_params["position_size"] = min(
+                new_params.get("position_size", COMMON_PARAM_DEFAULTS["position_size"]) * 1.1,
+                0.5,
+            )
+            new_params["take_profit_pct"] = min(
+                new_params.get("take_profit_pct", COMMON_PARAM_DEFAULTS["take_profit_pct"]) * 1.1,
+                0.5,
+            )
+        elif action == "decrease":
+            new_params["position_size"] = max(
+                new_params.get("position_size", COMMON_PARAM_DEFAULTS["position_size"]) * 0.9,
+                0.05,
+            )
+            new_params["take_profit_pct"] = max(
+                new_params.get("take_profit_pct", COMMON_PARAM_DEFAULTS["take_profit_pct"]) * 0.9,
+                0.05,
+            )
+
+        return new_params
+
+    def update(self, state: str, action: str, reward: float, next_state: str) -> None:
+        for key in (state, next_state):
+            if key not in self.q_table:
+                self.q_table[key] = {"increase": 0.0, "decrease": 0.0, "keep": 0.0}
+
+        old_q = self.q_table[state][action]
+        max_next_q = max(self.q_table[next_state].values())
+        self.q_table[state][action] = old_q + self.lr * (
+            reward + self.gamma * max_next_q - old_q
+        )
 
 
 @dataclass
@@ -258,6 +307,98 @@ def set_session_cycle_records(
     else:
         setattr(controller, "cycle_records", payload)
     return payload
+
+
+class TrainingSessionCompatMixin:
+    """Compatibility proxy surface for session-backed controller state."""
+
+    @property
+    def current_params(self) -> dict[str, Any]:
+        return session_current_params(self)
+
+    @current_params.setter
+    def current_params(self, value: dict[str, Any] | None) -> None:
+        set_session_current_params(self, value)
+
+    @property
+    def consecutive_losses(self) -> int:
+        return session_consecutive_losses(self)
+
+    @consecutive_losses.setter
+    def consecutive_losses(self, value: int) -> None:
+        set_session_consecutive_losses(self, value)
+
+    @property
+    def default_manager_id(self) -> str:
+        return session_default_manager_id(self)
+
+    @default_manager_id.setter
+    def default_manager_id(self, value: str) -> None:
+        set_session_default_manager(
+            self,
+            manager_id=value,
+            manager_config_ref=session_default_manager_config_ref(self),
+        )
+
+    @property
+    def default_manager_config_ref(self) -> str:
+        return session_default_manager_config_ref(self)
+
+    @default_manager_config_ref.setter
+    def default_manager_config_ref(self, value: str) -> None:
+        set_session_default_manager(
+            self,
+            manager_id=session_default_manager_id(self),
+            manager_config_ref=value,
+        )
+
+    @property
+    def manager_budget_weights(self) -> dict[str, float]:
+        return session_manager_budget_weights(self)
+
+    @manager_budget_weights.setter
+    def manager_budget_weights(self, value: dict[str, Any] | None) -> None:
+        set_session_manager_budget_weights(self, value)
+
+    @property
+    def last_governance_decision(self) -> dict[str, Any]:
+        return session_last_governance_decision(self)
+
+    @last_governance_decision.setter
+    def last_governance_decision(self, value: dict[str, Any] | None) -> None:
+        set_session_last_governance_decision(self, value)
+
+    @property
+    def last_feedback_optimization(self) -> dict[str, Any]:
+        return session_last_feedback_optimization(self)
+
+    @last_feedback_optimization.setter
+    def last_feedback_optimization(self, value: dict[str, Any] | None) -> None:
+        set_session_last_feedback_optimization(self, value)
+
+    @property
+    def last_feedback_optimization_cycle_id(self) -> int:
+        return session_last_feedback_optimization_cycle_id(self)
+
+    @last_feedback_optimization_cycle_id.setter
+    def last_feedback_optimization_cycle_id(self, value: int) -> None:
+        set_session_last_feedback_optimization_cycle_id(self, value)
+
+    @property
+    def cycle_history(self) -> list[Any]:
+        return session_cycle_history(self)
+
+    @cycle_history.setter
+    def cycle_history(self, value: list[Any] | None) -> None:
+        set_session_cycle_history(self, value)
+
+    @property
+    def cycle_records(self) -> list[dict[str, Any]]:
+        return session_cycle_records(self)
+
+    @cycle_records.setter
+    def cycle_records(self, value: list[dict[str, Any]] | None) -> None:
+        set_session_cycle_records(self, value)
 
 
 def append_session_cycle_record(controller: Any, record: dict[str, Any] | None) -> None:

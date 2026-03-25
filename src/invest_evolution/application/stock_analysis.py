@@ -17,48 +17,86 @@ try:
 except ImportError:  # pragma: no cover
     yaml = None
 
-from invest_evolution.agent_runtime.planner import (
-    BOUNDED_WORKFLOW_SCHEMA_VERSION,
-    build_readonly_task_bus,
+from invest_evolution.application.stock_analysis_response_contracts import (
+    AskStockResponseHeaderFactory as ExtractedAskStockResponseHeaderFactory,
+    ToolObservationEnvelope,
 )
-from invest_evolution.agent_runtime.presentation import (
-    build_bounded_entrypoint,
-    build_bounded_orchestration,
-    build_bounded_policy,
-    build_bounded_response_context,
-    build_protocol_response,
+from invest_evolution.application.stock_analysis_ask_stock_assembly import (
+    AskStockExecutionRunBundle,
+    AskStockRequestContext,
+    AskStockStageContract,
+)
+from invest_evolution.application.stock_analysis_ask_stock_execution import (
+    AskStockExecutionOrchestrationService,
+)
+from invest_evolution.application.stock_analysis_resolution_contracts import (
+    ResearchResolutionDisplayContract as ExtractedResearchResolutionDisplayContract,
+    ResearchResolutionIdentifiers as ExtractedResearchResolutionIdentifiers,
+    ResearchResolutionPayloadFactory as ExtractedResearchResolutionPayloadFactory,
+)
+from invest_evolution.application.stock_analysis_batch_service import (
+    BatchAnalysisViewService,
+    project_snapshot_fields as _project_snapshot_fields,
+)
+from invest_evolution.application.stock_analysis_research_bridge_service import (
+    StockAnalysisResearchBridgeService as ExtractedStockAnalysisResearchBridgeService,
+)
+from invest_evolution.application.stock_analysis_research_resolution_service import (
+    ResearchResolutionService as ExtractedResearchResolutionService,
+)
+from invest_evolution.application.stock_analysis_tool_catalog import (
+    StockToolCatalog,
+    _build_stock_tool_catalog,
+)
+from invest_evolution.application.stock_analysis_tool_response_builders import (
+    build_tool_analysis_response as extracted_build_tool_analysis_response,
+    build_tool_common_payload as extracted_build_tool_common_payload,
+    build_tool_records_response as extracted_build_tool_records_response,
+    build_tool_response as extracted_build_tool_response,
+    build_tool_unavailable_response as extracted_build_tool_unavailable_response,
+)
+from invest_evolution.application.stock_analysis_projection_service import (
+    StockIndicatorProjection as ExtractedStockIndicatorProjection,
+    build_indicator_projection as extracted_build_indicator_projection,
+)
+from invest_evolution.application.stock_analysis_observation_service import (
+    observation_envelope as extracted_observation_envelope,
+    observation_section as extracted_observation_section,
+    project_tool_observation as extracted_project_tool_observation,
+)
+from invest_evolution.application.stock_analysis_prompt_service import (
+    build_llm_assistant_tool_message as extracted_build_llm_assistant_tool_message,
+    build_llm_tool_result_message as extracted_build_llm_tool_result_message,
+    build_stock_user_prompt as extracted_build_stock_user_prompt,
+    stock_system_prompt as extracted_stock_system_prompt,
+)
+from invest_evolution.application.stock_analysis_parsing_service import (
+    parse_tool_args as extracted_parse_tool_args,
+    render_template_args as extracted_render_template_args,
+)
+from invest_evolution.application.stock_analysis_support_services import (
+    build_stock_analysis_support_services,
+)
+from invest_evolution.application.stock_analysis_research_services import (
+    build_stock_analysis_research_services,
+)
+from invest_evolution.application.stock_analysis_tool_runtime import (
+    StockAnalysisToolRuntimeSupportService,
 )
 from invest_evolution.common.utils import (
     LLMGateway,
     LLMGatewayError,
     LLMUnavailableError,
 )
-from invest_evolution.config import OUTPUT_DIR, PROJECT_ROOT, config, normalize_date
-from invest_evolution.config.control_plane import resolve_default_llm
-from invest_evolution.application.training.execution import (
-    build_manager_runtime,
-    controller_default_manager_config_ref,
-    controller_default_manager_id,
-    normalize_path_ref,
-    resolve_manager_config_ref,
-)
 from invest_evolution.application.training.policy import TrainingGovernanceService
-from invest_evolution.investment.contracts import GovernanceDecision
-from invest_evolution.investment.foundation.compute import (
-    build_batch_indicator_snapshot,
-    build_batch_summary,
-)
+from invest_evolution.config import PROJECT_ROOT, normalize_date
+from invest_evolution.config.control_plane import resolve_default_llm
 from invest_evolution.investment.research import (
     ResearchAttributionEngine,
     ResearchCaseStore,
-    ResearchHypothesis,
     ResearchScenarioEngine,
-    build_dashboard_projection,
-    build_research_hypothesis,
-    build_research_snapshot,
-    resolve_policy_snapshot,
+    build_dashboard_projection as extracted_build_dashboard_projection,
 )
-from invest_evolution.market_data import DataManager
 from invest_evolution.market_data.repository import MarketDataRepository
 
 logger = logging.getLogger("invest_evolution.application.stock_analysis")
@@ -81,611 +119,19 @@ _STOCK_TOOL_EXECUTION_EXCEPTIONS = (
     OSError,
 )
 
-_STOCK_RESEARCH_BRIDGE_EXCEPTIONS = _STOCK_TOOL_EXECUTION_EXCEPTIONS + (ImportError,)
-
-_STOCK_RESEARCH_PERSISTENCE_EXCEPTIONS = _STOCK_TOOL_EXECUTION_EXCEPTIONS
-
-
-@dataclass(frozen=True)
-class ResearchBridgeRuntimeContext:
-    normalized_requested_as_of_date: str
-    replay_mode: bool
-    current_manager_id: str
-    base_config_path: str
-    current_params: dict[str, Any]
-    stock_count: int
-    min_history_days: int
-    lookback_days: int
-    parameter_source: str
-
-    def build_data_lineage(
-        self,
-        *,
-        repository_db_path: Path,
-        data_manager: DataManager,
-        effective_as_of_date: str,
-        stock_data: dict[str, Any],
-    ) -> dict[str, Any]:
-        return {
-            "db_path": str(repository_db_path),
-            "requested_as_of_date": self.normalized_requested_as_of_date,
-            "effective_as_of_date": effective_as_of_date,
-            "data_source": str(
-                getattr(data_manager, "last_source", "unknown") or "unknown"
-            ),
-            "data_resolution": dict(getattr(data_manager, "last_resolution", {}) or {}),
-            "stock_count": len(stock_data),
-            "min_history_days": self.min_history_days,
-            "lookback_days": self.lookback_days,
-        }
-
-    def build_policy_data_window(
-        self,
-        *,
-        effective_as_of_date: str,
-        stock_data: dict[str, Any],
-    ) -> dict[str, Any]:
-        return {
-            "as_of_date": effective_as_of_date,
-            "lookback_days": self.lookback_days,
-            "simulation_days": int(getattr(config, "simulation_days", 30) or 30),
-            "universe_definition": (
-                f"stock_count={self.stock_count}|min_history_days={self.min_history_days}"
-            ),
-            "stock_universe_size": len(stock_data),
-        }
-
-    def build_policy_metadata(
-        self,
-        *,
-        controller: Any,
-        effective_as_of_date: str,
-    ) -> dict[str, Any]:
-        return {
-            "parameter_source": self.parameter_source,
-            "controller_bound": bool(controller is not None),
-            "replay_mode": self.replay_mode,
-            "requested_as_of_date": self.normalized_requested_as_of_date,
-            "effective_as_of_date": effective_as_of_date,
-        }
-
-
-@dataclass(frozen=True)
-class ResearchBridgeRuntimeSelection:
-    dominant_manager_id: str
-    selected_config: str
-    runtime_overrides: dict[str, Any]
-
-
-@dataclass(frozen=True)
-class ResearchBridgeDataBundle:
-    data_manager: DataManager
-    stock_data: dict[str, Any]
-
-
-@dataclass(frozen=True)
-class ResearchBridgeStageResult:
-    bundle: Any | None = None
-    unavailable: dict[str, Any] | None = None
-
-    @classmethod
-    def ok(cls, bundle: Any) -> "ResearchBridgeStageResult":
-        return cls(bundle=bundle, unavailable=None)
-
-    @classmethod
-    def unavailable_result(
-        cls, payload: dict[str, Any]
-    ) -> "ResearchBridgeStageResult":
-        return cls(bundle=None, unavailable=dict(payload))
-
-
-@dataclass(frozen=True)
-class ResearchBridgeGovernanceBundle:
-    decision: GovernanceDecision
-    allowed_manager_ids: list[str]
-    governance_enabled: bool
-    governance_mode: str
-
-
-@dataclass(frozen=True)
-class ResearchBridgeManagerExecution:
-    runtime_selection: ResearchBridgeRuntimeSelection
-    manager_runtime: Any
-    manager_output: Any
-
-
-@dataclass(frozen=True)
-class ResearchBridgeAssemblyBundle:
-    controller: Any
-    runtime_context: ResearchBridgeRuntimeContext
-    data_bundle: ResearchBridgeDataBundle
-    governance_bundle: ResearchBridgeGovernanceBundle
-    manager_execution: ResearchBridgeManagerExecution
-
-
-@dataclass(frozen=True)
-class ResearchBridgeOutputBundle:
-    governance_context: dict[str, Any]
-    data_lineage: dict[str, Any]
-    snapshot: Any
-    policy: Any
-
-
-@dataclass(frozen=True)
-class ResearchResolutionArtifacts:
-    snapshot: Any
-    policy: Any
-    scenario: dict[str, Any]
-    hypothesis: Any
-
-
-@dataclass(frozen=True)
-class ResearchResolutionPersistence:
-    policy_id: str
-    projection: "ResearchPersistenceProjection"
-
-    def display_identifiers(self) -> "ResearchResolutionIdentifiers":
-        return ResearchResolutionIdentifiers(
-            policy_id=self.policy_id,
-            research_case_id=self.projection.identifiers.research_case_id,
-            attribution_id=self.projection.identifiers.attribution_id,
-        )
-
-
-@dataclass(frozen=True)
-class ResearchResolutionAvailableStageBundle:
-    artifacts: "ResearchResolutionArtifacts"
-    analysis: "PreDashboardAnalysisSpec"
-    persistence: "ResearchResolutionPersistence"
-
-
-@dataclass(frozen=True)
-class ResearchResolutionAvailableDisplayAdapter:
-    identifiers: "ResearchResolutionIdentifiers"
-    detail_updates: "ResearchResolutionDetailUpdatesBundle"
-
-
-@dataclass(frozen=True)
-class ResearchResolutionBasePayload:
-    status: str
-    requested_as_of_date: str
-    as_of_date: str
-
-    def to_payload(self) -> dict[str, Any]:
-        return {
-            "status": self.status,
-            "requested_as_of_date": self.requested_as_of_date,
-            "as_of_date": self.as_of_date,
-        }
-
-
-@dataclass(frozen=True)
-class ResearchResolutionPayloadFactory:
-    base_payload: ResearchResolutionBasePayload
-
-    def build(self, updates: dict[str, Any] | None = None) -> dict[str, Any]:
-        return {
-            **self.base_payload.to_payload(),
-            **dict(updates or {}),
-        }
-
-    def build_display_spec(
-        self,
-        *,
-        dashboard: dict[str, Any],
-        identifiers: "ResearchResolutionIdentifiers",
-        detail_updates: "ResearchResolutionDetailUpdatesBundle",
-    ) -> "ResearchResolutionDisplaySpec":
-        shared_updates = detail_updates.shared_updates
-        return ResearchResolutionDisplaySpec(
-            dashboard=dict(dashboard),
-            research_payload=self.build(
-                detail_updates.research.build_payload(
-                    shared_updates=shared_updates
-                )
-            ),
-            research_bridge_payload=self.build(
-                detail_updates.research_bridge.build_payload(
-                    shared_updates=shared_updates
-                )
-            ),
-            identifiers=identifiers,
-        )
-
-
-@dataclass(frozen=True)
-class ResearchResolutionDetailSectionUpdates:
-    payload_updates: dict[str, Any]
-
-    def build_payload(
-        self,
-        *,
-        shared_updates: dict[str, Any] | None = None,
-    ) -> dict[str, Any]:
-        return {
-            **dict(shared_updates or {}),
-            **dict(self.payload_updates),
-        }
-
-
-@dataclass(frozen=True)
-class ResearchResolutionDetailUpdatesBundle:
-    shared_updates: dict[str, Any]
-    research: ResearchResolutionDetailSectionUpdates
-    research_bridge: ResearchResolutionDetailSectionUpdates
-
-
-@dataclass(frozen=True)
-class ResearchResolutionIdentifiers:
-    policy_id: str
-    research_case_id: str
-    attribution_id: str
-
-    def to_dict(self) -> dict[str, str]:
-        return {
-            "policy_id": self.policy_id,
-            "research_case_id": self.research_case_id,
-            "attribution_id": self.attribution_id,
-        }
-
-
-@dataclass(frozen=True)
-class ResearchResolutionDisplaySpec:
-    dashboard: dict[str, Any]
-    research_payload: dict[str, Any]
-    research_bridge_payload: dict[str, Any]
-    identifiers: ResearchResolutionIdentifiers
-
-    def to_payload(self) -> dict[str, Any]:
-        return {
-            "dashboard": dict(self.dashboard),
-            "research": dict(self.research_payload),
-            "research_bridge": dict(self.research_bridge_payload),
-            **self.identifiers.to_dict(),
-        }
-
-
-@dataclass(frozen=True)
-class ResearchResolutionDisplayContract:
-    dashboard_projection_factory: "ResearchResolutionDashboardProjectionFactory"
-    payload_factory: ResearchResolutionPayloadFactory
-
-    def build_spec(
-        self,
-        *,
-        analysis: "PreDashboardAnalysisSpec",
-        identifiers: ResearchResolutionIdentifiers,
-        detail_updates: "ResearchResolutionDetailUpdatesBundle",
-    ) -> ResearchResolutionDisplaySpec:
-        return self.payload_factory.build_display_spec(
-            dashboard=self.dashboard_projection_factory.render(analysis),
-            identifiers=identifiers,
-            detail_updates=detail_updates,
-        )
-
-
-@dataclass(frozen=True)
-class DashboardProjectionSpec:
-    hypothesis: ResearchHypothesis
-    matched_signals: list[str]
-    core_rules: list[str]
-    entry_conditions: list[str]
-    supplemental_reason: str = ""
-
-
-@dataclass(frozen=True)
-class ResearchResolutionDashboardProjectionBundle:
-    input_spec: DashboardProjectionSpec
-    dashboard_projection_builder: Callable[..., dict[str, Any]]
-
-    def render(self) -> dict[str, Any]:
-        return self.dashboard_projection_builder(
-            hypothesis=self.input_spec.hypothesis,
-            matched_signals=list(self.input_spec.matched_signals),
-            core_rules=list(self.input_spec.core_rules),
-            entry_conditions=list(self.input_spec.entry_conditions),
-            supplemental_reason=self.input_spec.supplemental_reason,
-        )
-
-
-@dataclass(frozen=True)
-class PreDashboardAnalysisSpec:
-    hypothesis: ResearchHypothesis
-    matched_signals: list[str]
-    supplemental_reason: str
-
-
-@dataclass(frozen=True)
-class FallbackDerivedAnalysisValues:
-    score: float
-    stance: str
-    entry_price: float | None
-    stop_loss: float | None
-    contradicting_factors: list[str]
-    supplemental_reason: str
-
-
-@dataclass(frozen=True)
-class FallbackScoreReasonComponents:
-    score: float
-    supplemental_reason: str
-
-
-@dataclass(frozen=True)
-class FallbackStanceComponent:
-    stance: str
-
-
-@dataclass(frozen=True)
-class FallbackPriceLevels:
-    entry_price: float | None
-    stop_loss: float | None
-
-
-@dataclass(frozen=True)
-class FallbackRiskSignals:
-    contradicting_factors: list[str]
-
-
-@dataclass(frozen=True)
-class ResearchPersistenceAttributionProjection:
-    saved: bool
-    record: dict[str, Any]
-    preview: dict[str, Any]
-
-    def to_dict(self) -> dict[str, Any]:
-        return {
-            "saved": self.saved,
-            "record": dict(self.record),
-            "preview": dict(self.preview),
-        }
-
-
-@dataclass(frozen=True)
-class ResearchPersistenceProjection:
-    case: dict[str, Any]
-    attribution: ResearchPersistenceAttributionProjection
-    calibration_report: dict[str, Any]
-    identifiers: ResearchResolutionIdentifiers
-
-    def to_detail_payload(self) -> dict[str, Any]:
-        return {
-            "case": dict(self.case),
-            "attribution": self.attribution.to_dict(),
-            "calibration_report": dict(self.calibration_report),
-        }
-
-
-@dataclass(frozen=True)
-class ResearchResolutionRequestInputs:
-    question: str
-    query: str
-    strategy: Any
-    strategy_source: str
-    code: str
-    requested_as_of_date: str
-    effective_as_of_date: str
-
-
-@dataclass(frozen=True)
-class ResearchResolutionRuntimeInputs:
-    execution: dict[str, Any]
-    derived: dict[str, Any]
-
-
-@dataclass(frozen=True)
-class ResearchResolutionContext:
-    request: ResearchResolutionRequestInputs
-    runtime: ResearchResolutionRuntimeInputs
-    display_contract: ResearchResolutionDisplayContract
-
-
-@dataclass(frozen=True)
-class ResearchResolutionDashboardProjectionFactory:
-    strategy: Any
-    dashboard_projection_builder: Callable[..., dict[str, Any]]
-
-    def build_input_spec(
-        self,
-        analysis: "PreDashboardAnalysisSpec",
-    ) -> "DashboardProjectionSpec":
-        return DashboardProjectionSpec(
-            hypothesis=analysis.hypothesis,
-            matched_signals=list(analysis.matched_signals),
-            core_rules=list(self.strategy.core_rules),
-            entry_conditions=list(self.strategy.entry_conditions),
-            supplemental_reason=analysis.supplemental_reason,
-        )
-
-    def build(
-        self,
-        analysis: "PreDashboardAnalysisSpec",
-    ) -> ResearchResolutionDashboardProjectionBundle:
-        return ResearchResolutionDashboardProjectionBundle(
-            input_spec=self.build_input_spec(analysis),
-            dashboard_projection_builder=self.dashboard_projection_builder,
-        )
-
-    def render(self, analysis: "PreDashboardAnalysisSpec") -> dict[str, Any]:
-        return self.build(analysis).render()
-
-
-@dataclass(frozen=True)
-class AskStockResponseRequestHeader:
-    request: "AskStockRequestProjection"
-
-    def to_payload(self) -> dict[str, Any]:
-        request = self.request.to_payload()
-        return {
-            "question": str(request["question"]),
-            "query": str(request["query"]),
-            "normalized_query": str(request["normalized_query"]),
-            "as_of_date": str(request["as_of_date"]),
-            "requested_as_of_date": str(request["requested_as_of_date"]),
-            "request": request,
-        }
-
-
-@dataclass(frozen=True)
-class AskStockResponseResolutionHeader:
-    identifiers: "AskStockIdentifiersProjection"
-    security: dict[str, Any]
-
-    def to_payload(self) -> dict[str, Any]:
-        identifiers = self.identifiers.to_payload()
-        security = dict(self.security)
-        return {
-            "policy_id": str(identifiers.get("policy_id") or ""),
-            "research_case_id": str(identifiers.get("research_case_id") or ""),
-            "attribution_id": str(identifiers.get("attribution_id") or ""),
-            "identifiers": identifiers,
-            "resolved": security,
-            "resolved_security": security,
-            "resolved_entities": {"security": dict(security)},
-        }
-
-
-@dataclass(frozen=True)
-class AskStockResponseStrategyHeader:
-    entrypoint: dict[str, Any]
-    strategy_payload: dict[str, Any]
-    strategy_source: str
-    days: int
-
-    def to_payload(self) -> dict[str, Any]:
-        return {
-            "entrypoint": dict(self.entrypoint),
-            "strategy": dict(self.strategy_payload),
-            "strategy_source": self.strategy_source,
-            "days": self.days,
-        }
-
-
-@dataclass(frozen=True)
-class AskStockResponseHeaderSpec:
-    request: AskStockResponseRequestHeader
-    resolution: AskStockResponseResolutionHeader
-    strategy: AskStockResponseStrategyHeader
-
-
-@dataclass(frozen=True)
-class AskStockResponseHeaderFactory:
-    spec: AskStockResponseHeaderSpec
-
-    def build(self) -> dict[str, Any]:
-        return {
-            **self.spec.request.to_payload(),
-            **self.spec.resolution.to_payload(),
-            **self.spec.strategy.to_payload(),
-        }
-
-
-@dataclass(frozen=True)
-class ToolObservationEnvelope:
-    status: str
-    summary: str
-    next_actions: list[str]
-    artifacts: dict[str, Any]
-
-    @classmethod
-    def from_result(
-        cls,
-        result: Any,
-        *,
-        summary_keys: tuple[str, ...] = ("summary",),
-    ) -> ToolObservationEnvelope:
-        if not isinstance(result, dict):
-            return cls(
-                status="unknown",
-                summary="unknown result",
-                next_actions=[],
-                artifacts={},
-            )
-        summary = ""
-        for key in summary_keys:
-            value = str(result.get(key) or "").strip()
-            if value:
-                summary = value
-                break
-        return cls(
-            status=str(result.get("status", "ok")),
-            summary=summary,
-            next_actions=list(result.get("next_actions") or []),
-            artifacts=dict(result.get("artifacts") or {}),
-        )
-
-    def to_dict(self, **payload: Any) -> dict[str, Any]:
-        return {
-            "status": self.status,
-            "summary": self.summary,
-            **payload,
-            "next_actions": list(self.next_actions),
-            "artifacts": dict(self.artifacts),
-        }
-
-
-@dataclass(frozen=True)
-class AskStockResearchBundle:
-    dashboard: dict[str, Any]
-    research_payload: dict[str, Any]
-    research_bridge_payload: dict[str, Any]
-    policy_id: str
-    research_case_id: str
-    attribution_id: str
-
-
-@dataclass(frozen=True)
-class AskStockRequestContext:
-    question: str
-    query: str
-    code: str
-    security: dict[str, Any]
-    requested_as_of_date: str
-    effective_as_of_date: str
-    strategy: "StockAnalysisStrategy"
-    strategy_source: str
-    days: int
-
-
-@dataclass(frozen=True)
-class AskStockRequestProjection:
-    question: str
-    query: str
-    normalized_query: str
-    requested_as_of_date: str
-    as_of_date: str
-
-    def to_payload(self) -> dict[str, Any]:
-        return {
-            "question": self.question,
-            "query": self.query,
-            "normalized_query": self.normalized_query,
-            "requested_as_of_date": self.requested_as_of_date,
-            "as_of_date": self.as_of_date,
-        }
-
-
-@dataclass(frozen=True)
-class AskStockIdentifiersProjection:
-    policy_id: str
-    research_case_id: str
-    attribution_id: str
-
-    def to_payload(self) -> dict[str, str]:
-        return {
-            "policy_id": self.policy_id,
-            "research_case_id": self.research_case_id,
-            "attribution_id": self.attribution_id,
-        }
-
-
-@dataclass(frozen=True)
-class AskStockExecutionRunBundle:
-    recommended_plan: list[dict[str, Any]]
-    allowed_tools: list[str]
-    execution: dict[str, Any]
-    coverage: dict[str, Any]
-    derived: dict[str, Any]
+# Compatibility export: runtime now resolves to extracted service module.
+ResearchResolutionPayloadFactory = ExtractedResearchResolutionPayloadFactory
+ResearchResolutionDisplayContract = ExtractedResearchResolutionDisplayContract
+ResearchResolutionIdentifiers = ExtractedResearchResolutionIdentifiers
+AskStockResponseHeaderFactory = ExtractedAskStockResponseHeaderFactory
+ResearchResolutionService = ExtractedResearchResolutionService
+StockAnalysisResearchBridgeService = ExtractedStockAnalysisResearchBridgeService
+build_dashboard_projection = extracted_build_dashboard_projection
+build_tool_response = extracted_build_tool_response
+build_tool_common_payload = extracted_build_tool_common_payload
+build_tool_unavailable_response = extracted_build_tool_unavailable_response
+build_tool_analysis_response = extracted_build_tool_analysis_response
+build_tool_records_response = extracted_build_tool_records_response
 
 
 @dataclass(frozen=True)
@@ -693,121 +139,6 @@ class StockExecutionPlanningBundle:
     plan: list["StockToolPlanStep"]
     recommended_plan: list[dict[str, Any]]
     allowed_tools: list[str]
-
-
-@dataclass(frozen=True)
-class AskStockExecutionProjection:
-    mode: str
-    tool_plan: list[dict[str, Any]]
-    tool_calls: list[dict[str, Any]]
-    workflow: list[dict[str, Any]]
-    phase_stats: dict[str, Any]
-    recommended_plan: list[dict[str, Any]]
-    coverage: dict[str, Any]
-    task_bus_artifacts: dict[str, Any]
-    llm_reasoning: str
-    fallback_used: bool
-    gap_fill: dict[str, Any]
-    available_tools: list[str]
-
-
-@dataclass(frozen=True)
-class AskStockExecutionSurfaceSpec:
-    task_bus: dict[str, Any]
-    protocol: dict[str, Any]
-    artifacts: dict[str, Any]
-    coverage: dict[str, Any]
-    artifact_taxonomy: dict[str, Any]
-    orchestration_extra: dict[str, Any]
-
-    def to_presentation_spec(
-        self,
-        *,
-        sections: "AskStockSectionsBundle",
-    ) -> "AskStockPresentationSpec":
-        return AskStockPresentationSpec(
-            task_bus=dict(self.task_bus),
-            protocol=dict(self.protocol),
-            artifacts=dict(self.artifacts),
-            coverage=dict(self.coverage),
-            artifact_taxonomy=dict(self.artifact_taxonomy),
-            sections=sections,
-        )
-
-
-@dataclass(frozen=True)
-class AskStockPresentationSpec:
-    task_bus: dict[str, Any]
-    protocol: dict[str, Any]
-    artifacts: dict[str, Any]
-    coverage: dict[str, Any]
-    artifact_taxonomy: dict[str, Any]
-    sections: "AskStockSectionsBundle"
-
-
-@dataclass(frozen=True)
-class AskStockResponseAssemblySpec:
-    header_factory: AskStockResponseHeaderFactory
-    presentation_spec: AskStockPresentationSpec
-    orchestration: dict[str, Any]
-    dashboard: dict[str, Any]
-
-    def build_payload(self) -> dict[str, Any]:
-        return {
-            "status": "ok",
-            **self.header_factory.build(),
-            "task_bus": dict(self.presentation_spec.task_bus),
-            "orchestration": dict(self.orchestration),
-            "analysis": dict(self.presentation_spec.sections.analysis),
-            "research": dict(self.presentation_spec.sections.research),
-            "dashboard": dict(self.dashboard),
-        }
-
-    def render_protocol_response(self) -> dict[str, Any]:
-        return build_protocol_response(
-            payload=self.build_payload(),
-            protocol=dict(self.presentation_spec.protocol),
-            task_bus=dict(self.presentation_spec.task_bus),
-            artifacts=dict(self.presentation_spec.artifacts),
-            coverage=dict(self.presentation_spec.coverage),
-            artifact_taxonomy=dict(self.presentation_spec.artifact_taxonomy),
-            default_reply="已完成问股分析。",
-        )
-
-
-@dataclass(frozen=True)
-class AskStockResponseInputs:
-    header_factory: AskStockResponseHeaderFactory
-    presentation_spec: AskStockPresentationSpec
-    orchestration: dict[str, Any]
-    dashboard: dict[str, Any]
-
-
-@dataclass(frozen=True)
-class AskStockExecutionStageAdapter:
-    identifiers: AskStockIdentifiersProjection
-    execution_projection: AskStockExecutionProjection
-    execution_surface_spec: AskStockExecutionSurfaceSpec
-
-
-@dataclass(frozen=True)
-class AskStockStageContract:
-    request: AskStockRequestContext
-    execution: AskStockExecutionRunBundle
-    research: "AskStockResearchBundle"
-
-
-@dataclass(frozen=True)
-class AskStockAssemblyStageBundle:
-    presentation_spec: AskStockPresentationSpec
-    response_inputs: AskStockResponseInputs
-
-
-@dataclass(frozen=True)
-class AskStockSectionsBundle:
-    analysis: dict[str, Any]
-    research: dict[str, Any]
-
 
 @dataclass(frozen=True)
 class StockExecutionTraceStep:
@@ -993,13 +324,7 @@ class StockQueryContext:
     price_frame: pd.DataFrame
 
 
-@dataclass(frozen=True)
-class StockIndicatorProjection:
-    snapshot: dict[str, Any]
-    indicators: dict[str, Any]
-    macd_payload: dict[str, Any]
-    boll: dict[str, Any]
-    projected_fields: dict[str, Any]
+StockIndicatorProjection = ExtractedStockIndicatorProjection
 
 
 @dataclass(frozen=True)
@@ -1020,143 +345,6 @@ class StockWindowContext:
         return dict(self.query_context.security)
 
 
-@dataclass(frozen=True)
-class StockToolCatalog:
-    entries: tuple[dict[str, Any], ...]
-    by_name: dict[str, dict[str, Any]]
-    aliases: dict[str, str]
-    definitions_by_name: dict[str, dict[str, Any]]
-
-
-def _stock_tool_parameters(
-    *,
-    include_days: bool = True,
-    minimum: int = 30,
-    maximum: int = 500,
-) -> dict[str, Any]:
-    properties: dict[str, Any] = {"query": {"type": "string"}}
-    if include_days:
-        properties["days"] = {
-            "type": "integer",
-            "minimum": int(minimum),
-            "maximum": int(maximum),
-        }
-    return {
-        "type": "object",
-        "properties": properties,
-        "required": ["query"],
-    }
-
-
-def _stock_tool_catalog_entry(
-    *,
-    name: str,
-    executor: str,
-    description: str,
-    thought: str,
-    include_days: bool = True,
-    minimum: int = 30,
-    maximum: int = 500,
-    aliases: list[str] | None = None,
-) -> dict[str, Any]:
-    payload: dict[str, Any] = {
-        "name": name,
-        "executor": executor,
-        "description": description,
-        "thought": thought,
-        "parameters": _stock_tool_parameters(
-            include_days=include_days,
-            minimum=minimum,
-            maximum=maximum,
-        ),
-    }
-    if aliases:
-        payload["aliases"] = list(aliases)
-    return payload
-
-
-def _build_stock_tool_catalog_entries() -> tuple[dict[str, Any], ...]:
-    return (
-        _stock_tool_catalog_entry(
-            name="get_daily_history",
-            executor="get_daily_history",
-            description="获取历史日线 OHLCV 数据，用于结构和趋势分析。",
-            thought="先读取日线历史，建立价格结构上下文。",
-        ),
-        _stock_tool_catalog_entry(
-            name="get_indicator_snapshot",
-            executor="get_indicator_snapshot",
-            description="计算均线、MACD、RSI、ATR、布林带和量比等指标快照。",
-            thought="先把关键指标跑全，避免只看单一信号。",
-        ),
-        _stock_tool_catalog_entry(
-            name="analyze_trend",
-            executor="analyze_trend",
-            description="分析均线、MACD、RSI、结构与趋势方向。",
-            thought="结合均线、MACD 和 RSI 判断当前趋势级别。",
-        ),
-        _stock_tool_catalog_entry(
-            name="analyze_support_resistance",
-            executor="analyze_support_resistance",
-            description="识别支撑阻力、距关键位距离与突破/回踩偏向。",
-            thought="再确认支撑阻力和关键价格区间。",
-        ),
-        _stock_tool_catalog_entry(
-            name="get_capital_flow",
-            executor="get_capital_flow",
-            description="读取本地主力资金流数据，判断净流入/流出方向。",
-            thought="查看资金是否顺着当前趋势流入或流出。",
-            minimum=1,
-            maximum=120,
-        ),
-        _stock_tool_catalog_entry(
-            name="get_intraday_context",
-            executor="get_intraday_context",
-            description="读取本地60分钟数据，确认短周期顺逆风。",
-            thought="必要时用60分钟结构确认短周期是否配合。",
-            minimum=1,
-            maximum=20,
-        ),
-        _stock_tool_catalog_entry(
-            name="get_realtime_quote",
-            executor="get_realtime_quote",
-            description="获取最新价格/最近收盘数据，用于风险位和结论确认。",
-            thought="最后用最新价格校准入场位和止损位。",
-            include_days=False,
-            aliases=["get_latest_quote"],
-        ),
-    )
-
-
-def _build_stock_tool_catalog() -> StockToolCatalog:
-    entries = _build_stock_tool_catalog_entries()
-    by_name = {str(item["name"]): dict(item) for item in entries}
-    aliases: dict[str, str] = {}
-    for item in entries:
-        canonical_name = str(item.get("name") or "").strip()
-        for alias in list(item.get("aliases") or []):
-            alias_name = str(alias or "").strip()
-            if alias_name:
-                aliases[alias_name] = canonical_name
-    definitions_by_name = {
-        str(item["name"]): {
-            "type": "function",
-            "function": {
-                "name": str(item["name"]),
-                "description": str(item["description"]),
-                "parameters": dict(item["parameters"]),
-            },
-        }
-        for item in entries
-    }
-    return StockToolCatalog(
-        entries=entries,
-        by_name=by_name,
-        aliases=aliases,
-        definitions_by_name=definitions_by_name,
-    )
-
-
 def _build_indicator_projection(
     snapshot: dict[str, Any] | None,
     *,
@@ -1164,19 +352,12 @@ def _build_indicator_projection(
     trend_metrics: dict[str, Any] | None = None,
     quote_row: dict[str, Any] | None = None,
 ) -> StockIndicatorProjection:
-    projected_fields = _project_snapshot_fields(
-        dict(snapshot or {}),
-        summary=dict(summary or {}),
-        trend_metrics=dict(trend_metrics or {}),
-        quote_row=dict(quote_row or {}),
-    )
-    indicators = dict(projected_fields["indicators"])
-    return StockIndicatorProjection(
-        snapshot=dict(projected_fields["snapshot"]),
-        indicators=indicators,
-        macd_payload=dict(projected_fields["macd_payload"]),
-        boll=dict(projected_fields["boll"]),
-        projected_fields=projected_fields,
+    return extracted_build_indicator_projection(
+        snapshot,
+        snapshot_projector=_project_snapshot_fields,
+        summary=summary,
+        trend_metrics=trend_metrics,
+        quote_row=quote_row,
     )
 
 
@@ -1187,6 +368,9 @@ class StockAnalysisExecutionMixin:
     _tool_catalog: StockToolCatalog
     _tool_registry: dict[str, Callable[..., dict[str, Any]]]
     gateway: Any
+    stock_analysis_observation_service: Any
+    stock_analysis_prompt_service: Any
+    stock_analysis_parsing_service: Any
 
     def _stock_tool_aliases(self) -> dict[str, str]:
         return dict(self._tool_catalog.aliases)
@@ -1904,41 +1088,11 @@ class StockAnalysisExecutionMixin:
     def _render_template_args(
         payload: dict[str, Any], *, query: str, days: int
     ) -> dict[str, Any]:
-        def render(value: Any) -> Any:
-            if isinstance(value, str):
-                return (
-                    value.replace("{{query}}", query)
-                    .replace("{{days}}", str(days))
-                    .replace("{{history_days}}", str(days))
-                    .replace("{{trend_days}}", str(max(120, days)))
-                )
-            if isinstance(value, dict):
-                return {k: render(v) for k, v in value.items()}
-            if isinstance(value, list):
-                return [render(v) for v in value]
-            return value
-
-        rendered = render(payload)
-        for key, value in list(rendered.items()):
-            if isinstance(value, str) and value.isdigit():
-                rendered[key] = int(value)
-        return rendered
+        return extracted_render_template_args(payload, query=query, days=days)
 
     @staticmethod
     def _parse_tool_args(raw: Any) -> dict[str, Any]:
-        if isinstance(raw, dict):
-            return raw
-        if raw is None:
-            return {}
-        if isinstance(raw, str):
-            text = raw.strip()
-            if not text:
-                return {}
-            parsed = json.loads(text)
-            if not isinstance(parsed, dict):
-                raise ValueError("tool arguments must decode to a JSON object")
-            return parsed
-        raise ValueError("tool arguments must be a JSON object or JSON string")
+        return extracted_parse_tool_args(raw)
 
     def _stock_tool_catalog_entries(self) -> tuple[dict[str, Any], ...]:
         return self._tool_catalog.entries
@@ -1949,47 +1103,21 @@ class StockAnalysisExecutionMixin:
     def _stock_tool_definitions(
         self, allowed_tools: list[str] | None = None
     ) -> list[dict[str, Any]]:
-        catalog = [
-            dict(item) for item in self._tool_catalog.definitions_by_name.values()
-        ]
-        if not allowed_tools:
-            return catalog
-        allowed = {
-            str(name or "").strip() for name in allowed_tools if str(name or "").strip()
-        }
-        return [
-            item
-            for item in catalog
-            if str(dict(item.get("function") or {}).get("name") or "") in allowed
-        ]
+        return self.stock_analysis_prompt_service.stock_tool_definitions(
+            allowed_tools=allowed_tools
+        )
 
     def _default_thought(self, tool_name: str) -> str:
-        metadata = self._stock_tool_catalog_by_name().get(
-            self._normalize_tool_name(tool_name), {}
-        )
-        return str(
-            metadata.get("thought") or f"调用 {tool_name} 获取下一步分析所需信息。"
-        )
+        return self.stock_analysis_prompt_service.default_thought(tool_name)
 
     @staticmethod
     def _build_llm_assistant_tool_message(
         *, choice: Any, tool_calls: list[Any]
     ) -> dict[str, Any]:
-        return {
-            "role": "assistant",
-            "content": getattr(choice, "content", "") or "",
-            "tool_calls": [
-                {
-                    "id": tc.id,
-                    "type": "function",
-                    "function": {
-                        "name": tc.function.name,
-                        "arguments": tc.function.arguments,
-                    },
-                }
-                for tc in tool_calls
-            ],
-        }
+        return extracted_build_llm_assistant_tool_message(
+            choice=choice,
+            tool_calls=tool_calls,
+        )
 
     @staticmethod
     def _build_llm_tool_result_message(
@@ -1998,12 +1126,11 @@ class StockAnalysisExecutionMixin:
         tool_name: str,
         result: dict[str, Any],
     ) -> dict[str, Any]:
-        return {
-            "role": "tool",
-            "tool_call_id": tool_call_id,
-            "name": tool_name,
-            "content": json.dumps(result, ensure_ascii=False),
-        }
+        return extracted_build_llm_tool_result_message(
+            tool_call_id=tool_call_id,
+            tool_name=tool_name,
+            result=result,
+        )
 
     @staticmethod
     def _observation_envelope(
@@ -2011,12 +1138,11 @@ class StockAnalysisExecutionMixin:
         *,
         summary_keys: tuple[str, ...] = ("summary",),
     ) -> ToolObservationEnvelope:
-        return ToolObservationEnvelope.from_result(result, summary_keys=summary_keys)
+        return extracted_observation_envelope(result, summary_keys=summary_keys)
 
     @staticmethod
     def _observation_section(result: dict[str, Any], key: str) -> dict[str, Any]:
-        payload = result.get(key)
-        return dict(payload or {}) if isinstance(payload, dict) else {}
+        return extracted_observation_section(result, key)
 
     @classmethod
     def _project_tool_observation(
@@ -2026,99 +1152,22 @@ class StockAnalysisExecutionMixin:
         summary_keys: tuple[str, ...] = ("summary",),
         **payload: Any,
     ) -> dict[str, Any]:
-        return cls._observation_envelope(
+        return extracted_project_tool_observation(
             result,
             summary_keys=summary_keys,
-        ).to_dict(**payload)
+            **payload,
+        )
 
-    @staticmethod
     def _summarize_observation(
-        tool_name: str, result: dict[str, Any]
+        self, tool_name: str, result: dict[str, Any]
     ) -> dict[str, Any]:
-        envelope = StockAnalysisExecutionMixin._observation_envelope(result)
-        if not isinstance(result, dict):
-            return envelope.to_dict()
-        if tool_name == "get_daily_history":
-            items = list(result.get("items") or [])
-            last_trade_date = items[-1].get("trade_date") if items else None
-            return envelope.to_dict(
-                count=int(result.get("count") or len(items)),
-                last_trade_date=last_trade_date,
-            )
-        if tool_name == "get_indicator_snapshot":
-            snapshot_payload = StockAnalysisExecutionMixin._observation_section(
-                result,
-                "snapshot",
-            )
-            indicator_projection = _build_indicator_projection(snapshot_payload)
-            return StockAnalysisExecutionMixin._project_tool_observation(
-                result,
-                summary_keys=("observation_summary", "summary"),
-                latest_close=indicator_projection.snapshot.get("latest_close"),
-                rsi_14=indicator_projection.indicators.get("rsi_14"),
-                ma_stack=indicator_projection.indicators.get("ma_stack"),
-                macd_cross=indicator_projection.macd_payload.get("cross"),
-            )
-        if tool_name == "analyze_trend":
-            trend = StockAnalysisExecutionMixin._observation_section(result, "trend")
-            return StockAnalysisExecutionMixin._project_tool_observation(
-                result,
-                summary_keys=("observation_summary", "summary"),
-                signal=result.get("signal"),
-                structure=result.get("structure"),
-                latest_close=trend.get("latest_close"),
-                ma20=trend.get("ma20"),
-                volume_ratio=trend.get("volume_ratio"),
-                macd_cross=trend.get("macd_cross"),
-            )
-        if tool_name == "analyze_support_resistance":
-            levels = StockAnalysisExecutionMixin._observation_section(result, "levels")
-            return StockAnalysisExecutionMixin._project_tool_observation(
-                result,
-                summary_keys=("observation_summary", "summary"),
-                support_20=levels.get("support_20"),
-                resistance_20=levels.get("resistance_20"),
-                bias=levels.get("bias"),
-            )
-        if tool_name == "get_capital_flow":
-            metrics = StockAnalysisExecutionMixin._observation_section(
-                result,
-                "metrics",
-            )
-            return StockAnalysisExecutionMixin._project_tool_observation(
-                result,
-                summary_keys=("observation_summary", "summary"),
-                direction=metrics.get("direction"),
-                main_net_inflow_sum=metrics.get("main_net_inflow_sum"),
-            )
-        if tool_name == "get_intraday_context":
-            metrics = StockAnalysisExecutionMixin._observation_section(
-                result,
-                "metrics",
-            )
-            return StockAnalysisExecutionMixin._project_tool_observation(
-                result,
-                summary_keys=("observation_summary", "summary"),
-                intraday_bias=metrics.get("intraday_bias"),
-                latest_trade_date=metrics.get("latest_trade_date"),
-            )
-        if tool_name in {"get_realtime_quote", "get_latest_quote"}:
-            quote = StockAnalysisExecutionMixin._observation_section(result, "quote")
-            return envelope.to_dict(
-                close=quote.get("close"),
-                trade_date=quote.get("trade_date"),
-            )
-        return envelope.to_dict()
+        return self.stock_analysis_observation_service.summarize_observation(
+            tool_name,
+            result,
+        )
 
     def _stock_system_prompt(self, strategy: StockAnalysisStrategy) -> str:
-        return (
-            "You are a bounded stock-analysis planning agent. "
-            "The tool catalog is restricted by the strategy YAML and defines your hard boundary. "
-            "Use the provided tools to gather evidence before concluding. "
-            "Prefer the strategy's required tools, stay close to the YAML workflow, and stop once the evidence is sufficient. "
-            "If you already have enough evidence, return a short final reasoning summary. "
-            "Do not invent market data or tool results."
-        )
+        return extracted_stock_system_prompt()
 
     def _build_stock_user_prompt(
         self,
@@ -2129,1603 +1178,13 @@ class StockAnalysisExecutionMixin:
         strategy: StockAnalysisStrategy,
         days: int,
     ) -> str:
-        return (
-            f"User question: {question}\n"
-            f"Target security: {security.get('name') or ''} ({query})\n"
-            f"Strategy: {strategy.display_name} / {strategy.name}\n"
-            f"Description: {strategy.description}\n"
-            f"Required tools: {', '.join(strategy.required_tools)}\n"
-            f"Analysis steps: {' -> '.join(strategy.analysis_steps)}\n"
-            f"Core rules: {'; '.join(strategy.core_rules)}\n"
-            f"Entry conditions: {'; '.join(strategy.entry_conditions)}\n"
-            f"Scoring rules: {json.dumps(strategy.scoring, ensure_ascii=False)}\n"
-            f"Recommended lookback days: {days}\n"
-            f"Suggested planner prompt: {strategy.planner_prompt}\n"
-            "First decide the next most useful tool call."
-        )
-
-
-# Research bridge owners
-class StockAnalysisResearchBridgeService:
-    def __init__(
-        self,
-        *,
-        repository: Any,
-        controller_provider: Callable[[], Any] | None,
-        research_resolution_service: Any,
-        governance_service: TrainingGovernanceService,
-        normalize_as_of_date: Callable[[str | None], str],
-        resolve_effective_as_of_date: Callable[[str, str], str],
-        logger_instance: Any,
-    ) -> None:
-        self.repository = repository
-        self._controller_provider = controller_provider
-        self.research_resolution_service = research_resolution_service
-        self.governance_service = governance_service
-        self.normalize_as_of_date = normalize_as_of_date
-        self.resolve_effective_as_of_date = resolve_effective_as_of_date
-        self._logger = logger_instance
-
-    def resolve_outputs(
-        self,
-        *,
-        question: str,
-        query: str,
-        strategy: Any,
-        strategy_source: str,
-        code: str,
-        security: dict[str, Any],
-        requested_as_of_date: str,
-        effective_as_of_date: str,
-        days: int,
-        execution: dict[str, Any],
-        derived: dict[str, Any],
-        dashboard_projection_builder: Callable[
-            ..., dict[str, Any]
-        ] = build_dashboard_projection,
-    ) -> dict[str, Any]:
-        research_bridge = self.build_research_bridge(
-            code=code,
-            security=security,
-            requested_as_of_date=requested_as_of_date,
-            effective_as_of_date=effective_as_of_date,
-            days=days,
-            derived=derived,
-        )
-        return self.research_resolution_service.resolve_outputs(
-            research_bridge=research_bridge,
+        return extracted_build_stock_user_prompt(
             question=question,
             query=query,
-            strategy=strategy,
-            strategy_source=strategy_source,
-            code=code,
-            requested_as_of_date=requested_as_of_date,
-            effective_as_of_date=effective_as_of_date,
-            execution=execution,
-            derived=derived,
-            dashboard_projection_builder=dashboard_projection_builder,
-        )
-
-    def _resolve_live_controller(self) -> Any | None:
-        if self._controller_provider is None:
-            return None
-        try:
-            return self._controller_provider()
-        except _STOCK_RESEARCH_BRIDGE_EXCEPTIONS:
-            self._logger.warning(
-                "Failed to resolve live controller for ask_stock research bridge",
-                exc_info=True,
-            )
-            return None
-
-    def _ensure_query_in_stock_data(
-        self,
-        *,
-        stock_data: dict[str, Any],
-        code: str,
-        cutoff_date: str,
-    ) -> dict[str, Any]:
-        enriched = dict(stock_data or {})
-        if code in enriched:
-            return enriched
-        query_frame = self.repository.get_stock(code, cutoff_date=cutoff_date)
-        if query_frame.empty:
-            return enriched
-        query_frame = query_frame.copy()
-        if "trade_date" in query_frame.columns:
-            query_frame["trade_date"] = query_frame["trade_date"].astype(str)
-            query_frame = query_frame.sort_values("trade_date").reset_index(drop=True)
-        enriched[code] = query_frame
-        return enriched
-
-    def _build_unavailable_bridge(
-        self,
-        *,
-        stage: str,
-        error: str,
-        effective_as_of_date: str,
-        parameter_source: str = "",
-        **details: Any,
-    ) -> dict[str, Any]:
-        detail_payload: dict[str, Any] = {
-            "stage": stage,
-            "as_of_date": effective_as_of_date,
-        }
-        if parameter_source:
-            detail_payload["parameter_source"] = parameter_source
-        detail_payload.update(details)
-        return {
-            "status": "unavailable",
-            "error": error,
-            "details": detail_payload,
-        }
-
-    def _resolve_bridge_stage(
-        self,
-        *,
-        result: ResearchBridgeStageResult,
-        stage: str,
-        error: str,
-        effective_as_of_date: str,
-        parameter_source: str,
-    ) -> Any | dict[str, Any]:
-        if result.unavailable is not None:
-            return result.unavailable
-        if result.bundle is not None:
-            return result.bundle
-        return self._build_unavailable_bridge(
-            stage=stage,
-            error=error,
-            effective_as_of_date=effective_as_of_date,
-            parameter_source=parameter_source,
-        )
-
-    def _resolve_bridge_runtime_context(
-        self,
-        *,
-        controller: Any,
-        code: str,
-        requested_as_of_date: str,
-        effective_as_of_date: str,
-        days: int,
-    ) -> ResearchBridgeRuntimeContext:
-        normalized_requested_as_of_date = self.normalize_as_of_date(
-            requested_as_of_date
-        )
-        latest_live_date = self.resolve_effective_as_of_date(code, "")
-        replay_mode = (
-            bool(normalized_requested_as_of_date)
-            and bool(latest_live_date)
-            and str(effective_as_of_date) < str(latest_live_date)
-        )
-        current_manager_id = str(
-            controller_default_manager_id(
-                controller,
-                default=str(
-                    getattr(config, "default_manager_id", "momentum") or "momentum"
-                ),
-            )
-            or "momentum"
-        )
-        fallback_config_path = resolve_manager_config_ref(
-            current_manager_id,
-            getattr(config, "default_manager_config_ref", ""),
-        )
-        base_config_path = str(
-            controller_default_manager_config_ref(controller)
-            or fallback_config_path
-            or ""
-        )
-        query_history_frame = self.repository.get_stock(
-            code, cutoff_date=effective_as_of_date
-        )
-        query_history_days = int(len(query_history_frame))
-        return ResearchBridgeRuntimeContext(
-            normalized_requested_as_of_date=normalized_requested_as_of_date,
-            replay_mode=replay_mode,
-            current_manager_id=current_manager_id,
-            base_config_path=normalize_path_ref(base_config_path)
-            or fallback_config_path,
-            current_params={}
-            if replay_mode
-            else dict(getattr(controller, "current_params", {}) or {}),
-            stock_count=max(10, int(getattr(config, "max_stocks", 50) or 50)),
-            min_history_days=max(
-                30,
-                min(
-                    60,
-                    query_history_days if query_history_days > 0 else int(days or 60),
-                ),
-            ),
-            lookback_days=max(60, int(days or 60)),
-            parameter_source=(
-                "config_default_replay_safe"
-                if replay_mode
-                else "live_controller"
-                if controller is not None
-                else "config_default"
-            ),
-        )
-
-    def _load_bridge_stock_data(
-        self,
-        *,
-        code: str,
-        effective_as_of_date: str,
-        stock_count: int,
-        min_history_days: int,
-        parameter_source: str,
-    ) -> ResearchBridgeStageResult:
-        data_manager = DataManager(
-            db_path=str(self.repository.db_path),
-            prefer_offline=True,
-            allow_mock_fallback=False,
-        )
-        try:
-            stock_data = data_manager.load_stock_data(
-                cutoff_date=effective_as_of_date,
-                stock_count=stock_count,
-                min_history_days=min_history_days,
-                include_capital_flow=False,
-            )
-        except _STOCK_RESEARCH_BRIDGE_EXCEPTIONS as exc:
-            self._logger.warning(
-                "Research bridge data load failed for %s", code, exc_info=True
-            )
-            return ResearchBridgeStageResult.unavailable_result(
-                self._build_unavailable_bridge(
-                    stage="load_stock_data",
-                    error=str(exc),
-                    effective_as_of_date=effective_as_of_date,
-                    parameter_source=parameter_source,
-                )
-            )
-        stock_data = self._ensure_query_in_stock_data(
-            stock_data=stock_data,
-            code=code,
-            cutoff_date=effective_as_of_date,
-        )
-        if not stock_data:
-            return ResearchBridgeStageResult.unavailable_result(
-                self._build_unavailable_bridge(
-                    stage="empty_universe",
-                    error="research bridge returned empty stock universe",
-                    effective_as_of_date=effective_as_of_date,
-                    parameter_source=parameter_source,
-                )
-            )
-        return ResearchBridgeStageResult.ok(
-            ResearchBridgeDataBundle(
-                data_manager=data_manager,
-                stock_data=stock_data,
-            )
-        )
-
-    def _resolve_allowed_manager_ids(self, controller: Any) -> list[str]:
-        return [
-            str(item).strip()
-            for item in (
-                getattr(controller, "experiment_allowed_manager_ids", None)
-                or getattr(controller, "governance_allowed_manager_ids", None)
-                or getattr(config, "governance_allowed_manager_ids", None)
-                or []
-            )
-            if str(item).strip()
-        ]
-
-    def _resolve_governance_settings(
-        self, controller: Any
-    ) -> tuple[list[str], bool, str]:
-        allowed_manager_ids = self._resolve_allowed_manager_ids(controller)
-        governance_enabled = bool(
-            getattr(
-                controller,
-                "governance_enabled",
-                getattr(config, "governance_enabled", True),
-            )
-        )
-        governance_mode = (
-            str(
-                getattr(
-                    controller,
-                    "governance_mode",
-                    getattr(config, "governance_mode", "rule"),
-                )
-                or "rule"
-            )
-            .strip()
-            .lower()
-        )
-        return allowed_manager_ids, governance_enabled, governance_mode
-
-    def _resolve_governance_bundle(
-        self,
-        *,
-        controller: Any,
-        data_bundle: ResearchBridgeDataBundle,
-        effective_as_of_date: str,
-        runtime_context: ResearchBridgeRuntimeContext,
-        code: str,
-    ) -> ResearchBridgeStageResult:
-        allowed_manager_ids, governance_enabled, governance_mode = (
-            self._resolve_governance_settings(controller)
-        )
-        decision, unavailable = self._resolve_governance_decision(
-            controller=controller,
-            stock_data=data_bundle.stock_data,
-            effective_as_of_date=effective_as_of_date,
-            current_manager_id=runtime_context.current_manager_id,
-            data_manager=data_bundle.data_manager,
-            allowed_manager_ids=allowed_manager_ids,
-            parameter_source=runtime_context.parameter_source,
-            code=code,
-        )
-        if unavailable is not None:
-            return ResearchBridgeStageResult.unavailable_result(unavailable)
-        if decision is None:
-            return ResearchBridgeStageResult.unavailable_result(
-                self._build_unavailable_bridge(
-                    stage="governance",
-                    error="governance decision unavailable",
-                    effective_as_of_date=effective_as_of_date,
-                    parameter_source=runtime_context.parameter_source,
-                )
-            )
-        return ResearchBridgeStageResult.ok(
-            ResearchBridgeGovernanceBundle(
-                decision=decision,
-                allowed_manager_ids=allowed_manager_ids,
-                governance_enabled=governance_enabled,
-                governance_mode=governance_mode,
-            )
-        )
-
-    def _resolve_governance_decision(
-        self,
-        *,
-        controller: Any,
-        stock_data: dict[str, Any],
-        effective_as_of_date: str,
-        current_manager_id: str,
-        data_manager: DataManager,
-        allowed_manager_ids: list[str],
-        parameter_source: str,
-        code: str,
-    ) -> tuple[GovernanceDecision | None, dict[str, Any] | None]:
-        try:
-            decision = self.governance_service.decide_governance(
-                controller,
-                stock_data=stock_data,
-                cutoff_date=effective_as_of_date,
-                current_manager_id=current_manager_id,
-                data_manager=data_manager,
-                output_dir=getattr(controller, "output_dir", OUTPUT_DIR),
-                allowed_manager_ids=allowed_manager_ids or None,
-                current_cycle_id=getattr(controller, "current_cycle_id", None),
-                safe_leaderboard_refresh=True,
-            )
-        except _STOCK_RESEARCH_BRIDGE_EXCEPTIONS as exc:
-            self._logger.warning(
-                "Research bridge governance failed for %s", code, exc_info=True
-            )
-            return None, self._build_unavailable_bridge(
-                stage="governance",
-                error=str(exc),
-                effective_as_of_date=effective_as_of_date,
-                parameter_source=parameter_source,
-            )
-        return decision, None
-
-    @staticmethod
-    def _resolve_runtime_selection(
-        *,
-        decision: GovernanceDecision,
-        current_manager_id: str,
-        base_config_path: str,
-        current_params: dict[str, Any],
-        replay_mode: bool,
-    ) -> ResearchBridgeRuntimeSelection:
-        dominant_manager_id = str(
-            getattr(decision, "dominant_manager_id", "")
-            or current_manager_id
-            or "momentum"
-        )
-        allocation_plan = dict(getattr(decision, "allocation_plan", {}) or {})
-        decision_metadata = dict(getattr(decision, "metadata", {}) or {})
-        selected_config = str(
-            dict(allocation_plan.get("selected_manager_config_refs") or {}).get(
-                dominant_manager_id
-            )
-            or decision_metadata.get("dominant_manager_config")
-            or resolve_manager_config_ref(dominant_manager_id)
-        )
-        selected_config = normalize_path_ref(selected_config) or str(selected_config)
-        runtime_overrides = (
-            current_params
-            if (
-                not replay_mode
-                and dominant_manager_id == current_manager_id
-                and selected_config == base_config_path
-            )
-            else {}
-        )
-        return ResearchBridgeRuntimeSelection(
-            dominant_manager_id=dominant_manager_id,
-            selected_config=selected_config,
-            runtime_overrides=runtime_overrides,
-        )
-
-    def _build_governance_context(
-        self,
-        *,
-        decision: GovernanceDecision,
-        effective_as_of_date: str,
-        requested_as_of_date: str,
-        governance_mode: str,
-        governance_enabled: bool,
-        dominant_manager_id: str,
-        allowed_manager_ids: list[str],
-    ) -> dict[str, Any]:
-        return {
-            "as_of_date": effective_as_of_date,
-            "requested_as_of_date": requested_as_of_date,
-            "governance_mode": governance_mode if governance_enabled else "off",
-            "dominant_manager_id": dominant_manager_id,
-            "active_manager_ids": list(
-                getattr(decision, "active_manager_ids", []) or [dominant_manager_id]
-            ),
-            "manager_budget_weights": dict(
-                getattr(decision, "manager_budget_weights", {}) or {}
-            ),
-            "portfolio_constraints": dict(
-                getattr(decision, "portfolio_constraints", {}) or {}
-            ),
-            "decision_source": str(getattr(decision, "decision_source", "") or ""),
-            "regime": str(getattr(decision, "regime", "") or "unknown"),
-            "regime_confidence": float(
-                getattr(decision, "regime_confidence", 0.0) or 0.0
-            ),
-            "decision_confidence": float(
-                getattr(decision, "decision_confidence", 0.0) or 0.0
-            ),
-            "allowed_manager_ids": allowed_manager_ids or [dominant_manager_id],
-            "cash_reserve_hint": float(
-                getattr(decision, "cash_reserve_hint", 0.0) or 0.0
-            ),
-        }
-
-    def _execute_manager_bridge(
-        self,
-        *,
-        code: str,
-        effective_as_of_date: str,
-        runtime_context: ResearchBridgeRuntimeContext,
-        data_bundle: ResearchBridgeDataBundle,
-        governance_bundle: ResearchBridgeGovernanceBundle,
-    ) -> ResearchBridgeStageResult:
-        runtime_selection = self._resolve_runtime_selection(
-            decision=governance_bundle.decision,
-            current_manager_id=runtime_context.current_manager_id,
-            base_config_path=runtime_context.base_config_path,
-            current_params=dict(runtime_context.current_params),
-            replay_mode=runtime_context.replay_mode,
-        )
-        try:
-            manager_runtime = build_manager_runtime(
-                manager_id=runtime_selection.dominant_manager_id,
-                manager_config_ref=runtime_selection.selected_config,
-                runtime_overrides=dict(runtime_selection.runtime_overrides),
-            )
-            manager_output = manager_runtime.process(
-                data_bundle.stock_data,
-                effective_as_of_date,
-            )
-        except _STOCK_RESEARCH_BRIDGE_EXCEPTIONS as exc:
-            self._logger.warning(
-                "Research bridge model execution failed for %s", code, exc_info=True
-            )
-            return ResearchBridgeStageResult.unavailable_result(
-                self._build_unavailable_bridge(
-                    stage="model_process",
-                    error=str(exc),
-                    effective_as_of_date=effective_as_of_date,
-                    dominant_manager_id=runtime_selection.dominant_manager_id,
-                    selected_config=runtime_selection.selected_config,
-                )
-            )
-        return ResearchBridgeStageResult.ok(
-            ResearchBridgeManagerExecution(
-                runtime_selection=runtime_selection,
-                manager_runtime=manager_runtime,
-                manager_output=manager_output,
-            )
-        )
-
-    def _run_bridge_output_stage(
-        self,
-        *,
-        controller: Any,
-        security: dict[str, Any],
-        code: str,
-        effective_as_of_date: str,
-        derived: dict[str, Any],
-        runtime_context: ResearchBridgeRuntimeContext,
-        data_bundle: ResearchBridgeDataBundle,
-        governance_bundle: ResearchBridgeGovernanceBundle,
-        manager_execution: ResearchBridgeManagerExecution,
-    ) -> ResearchBridgeOutputBundle:
-        governance_context = self._build_governance_context(
-            decision=governance_bundle.decision,
-            effective_as_of_date=effective_as_of_date,
-            requested_as_of_date=runtime_context.normalized_requested_as_of_date,
-            governance_mode=governance_bundle.governance_mode,
-            governance_enabled=governance_bundle.governance_enabled,
-            dominant_manager_id=manager_execution.runtime_selection.dominant_manager_id,
-            allowed_manager_ids=governance_bundle.allowed_manager_ids,
-        )
-        data_lineage = runtime_context.build_data_lineage(
-            repository_db_path=self.repository.db_path,
-            data_manager=data_bundle.data_manager,
-            effective_as_of_date=effective_as_of_date,
-            stock_data=data_bundle.stock_data,
-        )
-        snapshot = build_research_snapshot(
-            manager_output=manager_execution.manager_output,
             security=security,
-            query_code=code,
-            stock_data=data_bundle.stock_data,
-            governance_context=governance_context,
-            data_lineage=data_lineage,
-            derived_signals=derived,
-        )
-        policy = resolve_policy_snapshot(
-            manager_runtime=manager_execution.manager_runtime,
-            manager_id=manager_execution.runtime_selection.dominant_manager_id,
-            governance_context=governance_context,
-            data_window=runtime_context.build_policy_data_window(
-                effective_as_of_date=effective_as_of_date,
-                stock_data=data_bundle.stock_data,
-            ),
-            metadata=runtime_context.build_policy_metadata(
-                controller=controller,
-                effective_as_of_date=effective_as_of_date,
-            ),
-        )
-        return ResearchBridgeOutputBundle(
-            governance_context=governance_context,
-            data_lineage=data_lineage,
-            snapshot=snapshot,
-            policy=policy,
-        )
-
-    def _resolve_bridge_assembly(
-        self,
-        *,
-        controller: Any,
-        code: str,
-        effective_as_of_date: str,
-        runtime_context: ResearchBridgeRuntimeContext,
-    ) -> ResearchBridgeAssemblyBundle | dict[str, Any]:
-        data_bundle_result = self._resolve_bridge_stage(
-            result=self._load_bridge_stock_data(
-                code=code,
-                effective_as_of_date=effective_as_of_date,
-                stock_count=runtime_context.stock_count,
-                min_history_days=runtime_context.min_history_days,
-                parameter_source=runtime_context.parameter_source,
-            ),
-            stage="load_stock_data",
-            error="research bridge data bundle unavailable",
-            effective_as_of_date=effective_as_of_date,
-            parameter_source=runtime_context.parameter_source,
-        )
-        if isinstance(data_bundle_result, dict):
-            return data_bundle_result
-        governance_bundle_result = self._resolve_bridge_stage(
-            result=self._resolve_governance_bundle(
-                controller=controller,
-                data_bundle=data_bundle_result,
-                effective_as_of_date=effective_as_of_date,
-                runtime_context=runtime_context,
-                code=code,
-            ),
-            stage="governance",
-            error="governance decision unavailable",
-            effective_as_of_date=effective_as_of_date,
-            parameter_source=runtime_context.parameter_source,
-        )
-        if isinstance(governance_bundle_result, dict):
-            return governance_bundle_result
-        manager_execution_result = self._resolve_bridge_stage(
-            result=self._execute_manager_bridge(
-                code=code,
-                effective_as_of_date=effective_as_of_date,
-                runtime_context=runtime_context,
-                data_bundle=data_bundle_result,
-                governance_bundle=governance_bundle_result,
-            ),
-            stage="model_process",
-            error="research bridge manager execution unavailable",
-            effective_as_of_date=effective_as_of_date,
-            parameter_source=runtime_context.parameter_source,
-        )
-        if isinstance(manager_execution_result, dict):
-            return manager_execution_result
-        return ResearchBridgeAssemblyBundle(
-            controller=controller,
-            runtime_context=runtime_context,
-            data_bundle=data_bundle_result,
-            governance_bundle=governance_bundle_result,
-            manager_execution=manager_execution_result,
-        )
-
-    @staticmethod
-    def _run_bridge_finalize_stage(
-        *,
-        controller: Any,
-        runtime_context: ResearchBridgeRuntimeContext,
-        governance_bundle: ResearchBridgeGovernanceBundle,
-        manager_execution: ResearchBridgeManagerExecution,
-        bridge_outputs: ResearchBridgeOutputBundle,
-    ) -> dict[str, Any]:
-        return {
-            "status": "ok",
-            "controller_bound": bool(controller is not None),
-            "replay_mode": runtime_context.replay_mode,
-            "parameter_source": runtime_context.parameter_source,
-            "governance_decision": governance_bundle.decision.to_dict(),
-            "manager_output": manager_execution.manager_output,
-            "snapshot": bridge_outputs.snapshot,
-            "policy": bridge_outputs.policy,
-        }
-
-    def build_research_bridge(
-        self,
-        *,
-        code: str,
-        security: dict[str, Any],
-        requested_as_of_date: str,
-        effective_as_of_date: str,
-        days: int,
-        derived: dict[str, Any],
-    ) -> dict[str, Any]:
-        controller = self._resolve_live_controller()
-        runtime_context = self._resolve_bridge_runtime_context(
-            controller=controller,
-            code=code,
-            requested_as_of_date=requested_as_of_date,
-            effective_as_of_date=effective_as_of_date,
+            strategy=strategy,
             days=days,
         )
-        assembly = self._resolve_bridge_assembly(
-            controller=controller,
-            code=code,
-            effective_as_of_date=effective_as_of_date,
-            runtime_context=runtime_context,
-        )
-        if isinstance(assembly, dict):
-            return assembly
-        bridge_outputs = self._run_bridge_output_stage(
-            controller=assembly.controller,
-            security=security,
-            code=code,
-            effective_as_of_date=effective_as_of_date,
-            derived=derived,
-            runtime_context=assembly.runtime_context,
-            data_bundle=assembly.data_bundle,
-            governance_bundle=assembly.governance_bundle,
-            manager_execution=assembly.manager_execution,
-        )
-        return self._run_bridge_finalize_stage(
-            controller=assembly.controller,
-            runtime_context=assembly.runtime_context,
-            governance_bundle=assembly.governance_bundle,
-            manager_execution=assembly.manager_execution,
-            bridge_outputs=bridge_outputs,
-        )
-
-
-# Batch analysis and research resolution owners
-class BatchAnalysisViewService:
-    def __init__(self, *, humanize_macd_cross: Callable[[str], str]):
-        self._humanize_macd_cross = humanize_macd_cross
-
-    @staticmethod
-    def empty_snapshot() -> dict[str, Any]:
-        return {
-            "samples": 0,
-            "latest_trade_date": None,
-            "latest_close": None,
-            "indicators": {},
-            "ready": False,
-        }
-
-    def build_batch_analysis_context(
-        self, frame: pd.DataFrame, code: str
-    ) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
-        cutoff = normalize_date(str(frame["trade_date"].max()))
-        batch = build_batch_indicator_snapshot(frame, cutoff)
-        summary = build_batch_summary(frame, code, cutoff) or {}
-        snapshot = (
-            dict(batch.streaming_snapshot)
-            if batch is not None
-            else self.empty_snapshot()
-        )
-        return summary, snapshot, {"cutoff": cutoff, "batch": batch}
-
-    def view_from_snapshot(
-        self, summary: dict[str, Any], snapshot: dict[str, Any]
-    ) -> dict[str, Any]:
-        fields = _project_snapshot_fields(snapshot, summary=summary)
-        indicators = dict(fields["indicators"])
-        macd = dict(fields["macd_payload"])
-        boll = dict(fields["boll"])
-        latest = float(fields["latest_close"] or 0.0)
-        ma5 = float(fields["ma5"] or 0.0)
-        ma10 = float(fields["ma10"] or 0.0)
-        ma20 = float(fields["ma20"] or 0.0)
-        ma60 = float(fields["ma60"] or 0.0)
-        volume_ratio = fields["volume_ratio"]
-        rsi = float(fields["rsi"] or 50.0)
-        ma_stack = str(fields["ma_stack"] or "mixed")
-        macd_cross = str(fields["macd_cross"] or "neutral")
-        signal = "observe"
-        if ma_stack == "bullish" and macd_cross in {"golden_cross", "bullish"}:
-            signal = "bullish"
-        elif ma_stack == "bearish" and macd_cross in {"dead_cross", "bearish"}:
-            signal = "bearish"
-        structure = "range"
-        if latest > ma20 and ma20 >= ma60:
-            structure = "uptrend"
-        elif latest < ma20 and ma20 <= ma60:
-            structure = "downtrend"
-        summary_view = dict(summary)
-        summary_view.update(
-            {
-                "close": round(latest, 2) if latest else summary_view.get("close"),
-                "rsi": round(rsi, 1),
-                "macd": self._humanize_macd_cross(macd_cross),
-                "ma_trend": "多头"
-                if ma_stack == "bullish"
-                else "空头"
-                if ma_stack == "bearish"
-                else "交叉",
-                "bb_pos": boll.get("position", summary_view.get("bb_pos", 0.5)),
-                "vol_ratio": volume_ratio
-                if volume_ratio is not None
-                else summary_view.get("vol_ratio"),
-            }
-        )
-        trend_view = {
-            "latest_close": round(latest, 2) if latest else None,
-            "ma5": round(ma5, 2) if ma5 else None,
-            "ma10": round(ma10, 2) if ma10 else None,
-            "ma20": round(ma20, 2) if ma20 else None,
-            "ma60": round(ma60, 2) if ma60 else None,
-            "volume_ratio": round(float(volume_ratio), 3)
-            if volume_ratio is not None
-            else None,
-            "macd_cross": macd_cross,
-            "rsi_14": round(rsi, 2),
-            "bollinger_position": boll.get("position"),
-            "atr_14": indicators.get("atr_14"),
-        }
-        return {
-            "summary": summary_view,
-            "trend": trend_view,
-            "signal": signal,
-            "structure": structure,
-            "indicators": indicators,
-            "macd": macd,
-            "boll": boll,
-        }
-
-
-class ResearchResolutionService:
-    def __init__(
-        self,
-        *,
-        case_store: Any,
-        scenario_engine: Any,
-        attribution_engine: Any,
-        logger: Any,
-    ):
-        self.case_store = case_store
-        self.scenario_engine = scenario_engine
-        self.attribution_engine = attribution_engine
-        self._logger = logger
-
-    @staticmethod
-    def normalize_as_of_date(value: str | None = None) -> str:
-        raw = str(value or "").strip()
-        return normalize_date(raw) if raw else ""
-
-    def _build_resolution_base_payload(
-        self,
-        *,
-        research_bridge: dict[str, Any],
-        requested_as_of_date: str,
-        effective_as_of_date: str,
-    ) -> ResearchResolutionBasePayload:
-        return ResearchResolutionBasePayload(
-            status=str(research_bridge.get("status") or "unavailable"),
-            requested_as_of_date=self.normalize_as_of_date(requested_as_of_date),
-            as_of_date=effective_as_of_date,
-        )
-
-    def _build_resolution_payload_factory(
-        self,
-        *,
-        research_bridge: dict[str, Any],
-        requested_as_of_date: str,
-        effective_as_of_date: str,
-    ) -> ResearchResolutionPayloadFactory:
-        return ResearchResolutionPayloadFactory(
-            base_payload=self._build_resolution_base_payload(
-                research_bridge=research_bridge,
-                requested_as_of_date=requested_as_of_date,
-                effective_as_of_date=effective_as_of_date,
-            )
-        )
-
-    @staticmethod
-    def _build_resolution_identifiers(
-        *, policy_id: str = "", research_case_id: str = "", attribution_id: str = ""
-    ) -> ResearchResolutionIdentifiers:
-        return ResearchResolutionIdentifiers(
-            policy_id=policy_id,
-            research_case_id=research_case_id,
-            attribution_id=attribution_id,
-        )
-
-    @staticmethod
-    def _build_resolution_identifier_updates(
-        identifiers: ResearchResolutionIdentifiers,
-    ) -> dict[str, str]:
-        return identifiers.to_dict()
-
-    @staticmethod
-    def _build_resolution_detail_updates_bundle(
-        *,
-        shared_updates: dict[str, Any] | None = None,
-        research_updates: dict[str, Any] | None = None,
-        research_bridge_updates: dict[str, Any] | None = None,
-    ) -> ResearchResolutionDetailUpdatesBundle:
-        return ResearchResolutionDetailUpdatesBundle(
-            shared_updates=dict(shared_updates or {}),
-            research=ResearchResolutionDetailSectionUpdates(
-                payload_updates=dict(research_updates or {}),
-            ),
-            research_bridge=ResearchResolutionDetailSectionUpdates(
-                payload_updates=dict(research_bridge_updates or {}),
-            ),
-        )
-
-    @staticmethod
-    def _build_research_bridge_detail_updates(
-        *,
-        research_bridge: dict[str, Any],
-        identifiers: ResearchResolutionIdentifiers,
-    ) -> dict[str, Any]:
-        return {
-            "controller_bound": bool(research_bridge.get("controller_bound")),
-            "replay_mode": bool(research_bridge.get("replay_mode")),
-            "parameter_source": str(research_bridge.get("parameter_source") or ""),
-            "governance_decision": dict(
-                research_bridge.get("governance_decision") or {}
-            ),
-            "manager_output": research_bridge["manager_output"].to_dict(),
-            **ResearchResolutionService._build_resolution_identifier_updates(
-                identifiers
-            ),
-        }
-
-    @staticmethod
-    def _build_research_detail_updates(
-        *,
-        snapshot: Any,
-        policy: Any,
-        hypothesis: Any,
-        scenario: dict[str, Any],
-        persistence: ResearchPersistenceProjection,
-    ) -> dict[str, Any]:
-        return {
-            "snapshot": snapshot.to_dict(),
-            "policy": policy.to_dict(),
-            "hypothesis": hypothesis.to_dict(),
-            "scenario": dict(scenario or {}),
-            **persistence.to_detail_payload(),
-        }
-
-    @staticmethod
-    def _build_unavailable_detail_updates_bundle(
-        *,
-        research_bridge: dict[str, Any],
-    ) -> ResearchResolutionDetailUpdatesBundle:
-        return ResearchResolutionService._build_resolution_detail_updates_bundle(
-            shared_updates={
-                "error": str(research_bridge.get("error") or ""),
-                "fallback": "canonical_dashboard_fallback",
-                "details": dict(research_bridge.get("details") or {}),
-            },
-        )
-
-    @staticmethod
-    def _build_available_detail_updates_bundle(
-        *,
-        research_bridge: dict[str, Any],
-        stages: ResearchResolutionAvailableStageBundle,
-        identifiers: ResearchResolutionIdentifiers,
-    ) -> ResearchResolutionDetailUpdatesBundle:
-        return ResearchResolutionService._build_resolution_detail_updates_bundle(
-            research_updates=ResearchResolutionService._build_research_detail_updates(
-                snapshot=stages.artifacts.snapshot,
-                policy=stages.artifacts.policy,
-                hypothesis=stages.artifacts.hypothesis,
-                scenario=stages.artifacts.scenario,
-                persistence=stages.persistence.projection,
-            ),
-            research_bridge_updates=ResearchResolutionService._build_research_bridge_detail_updates(
-                research_bridge=research_bridge,
-                identifiers=identifiers,
-            ),
-        )
-
-    @classmethod
-    def _build_available_display_adapter(
-        cls,
-        *,
-        research_bridge: dict[str, Any],
-        stages: ResearchResolutionAvailableStageBundle,
-    ) -> ResearchResolutionAvailableDisplayAdapter:
-        identifiers = stages.persistence.display_identifiers()
-        return ResearchResolutionAvailableDisplayAdapter(
-            identifiers=identifiers,
-            detail_updates=cls._build_available_detail_updates_bundle(
-                research_bridge=research_bridge,
-                stages=stages,
-                identifiers=identifiers,
-            ),
-        )
-
-    def _build_resolution_context(
-        self,
-        *,
-        research_bridge: dict[str, Any],
-        question: str,
-        query: str,
-        strategy: Any,
-        strategy_source: str,
-        code: str,
-        requested_as_of_date: str,
-        effective_as_of_date: str,
-        execution: dict[str, Any],
-        derived: dict[str, Any],
-        dashboard_projection_builder: Callable[..., dict[str, Any]],
-    ) -> ResearchResolutionContext:
-        return ResearchResolutionContext(
-            request=self._build_resolution_request_inputs(
-                question=question,
-                query=query,
-                strategy=strategy,
-                strategy_source=strategy_source,
-                code=code,
-                requested_as_of_date=requested_as_of_date,
-                effective_as_of_date=effective_as_of_date,
-            ),
-            runtime=self._build_resolution_runtime_inputs(
-                execution=execution,
-                derived=derived,
-            ),
-            display_contract=self._build_resolution_display_contract(
-                research_bridge=research_bridge,
-                strategy=strategy,
-                requested_as_of_date=requested_as_of_date,
-                effective_as_of_date=effective_as_of_date,
-                dashboard_projection_builder=dashboard_projection_builder,
-            ),
-        )
-
-    @staticmethod
-    def _build_resolution_request_inputs(
-        *,
-        question: str,
-        query: str,
-        strategy: Any,
-        strategy_source: str,
-        code: str,
-        requested_as_of_date: str,
-        effective_as_of_date: str,
-    ) -> ResearchResolutionRequestInputs:
-        return ResearchResolutionRequestInputs(
-            question=question,
-            query=query,
-            strategy=strategy,
-            strategy_source=strategy_source,
-            code=code,
-            requested_as_of_date=requested_as_of_date,
-            effective_as_of_date=effective_as_of_date,
-        )
-
-    @staticmethod
-    def _build_resolution_runtime_inputs(
-        *,
-        execution: dict[str, Any],
-        derived: dict[str, Any],
-    ) -> ResearchResolutionRuntimeInputs:
-        return ResearchResolutionRuntimeInputs(
-            execution=dict(execution or {}),
-            derived=dict(derived or {}),
-        )
-
-    def _build_resolution_display_contract(
-        self,
-        *,
-        research_bridge: dict[str, Any],
-        strategy: Any,
-        requested_as_of_date: str,
-        effective_as_of_date: str,
-        dashboard_projection_builder: Callable[..., dict[str, Any]],
-    ) -> ResearchResolutionDisplayContract:
-        return ResearchResolutionDisplayContract(
-            dashboard_projection_factory=ResearchResolutionDashboardProjectionFactory(
-                strategy=strategy,
-                dashboard_projection_builder=dashboard_projection_builder,
-            ),
-            payload_factory=self._build_resolution_payload_factory(
-                research_bridge=research_bridge,
-                requested_as_of_date=requested_as_of_date,
-                effective_as_of_date=effective_as_of_date,
-            ),
-        )
-
-    def _build_resolution_display_spec(
-        self,
-        *,
-        context: ResearchResolutionContext,
-        analysis: PreDashboardAnalysisSpec,
-        identifiers: ResearchResolutionIdentifiers | None = None,
-        detail_updates: ResearchResolutionDetailUpdatesBundle | None = None,
-    ) -> ResearchResolutionDisplaySpec:
-        resolved_identifiers = identifiers or self._build_resolution_identifiers()
-        resolved_detail_updates = (
-            detail_updates
-            or self._build_resolution_detail_updates_bundle()
-        )
-        return context.display_contract.build_spec(
-            analysis=analysis,
-            identifiers=resolved_identifiers,
-            detail_updates=resolved_detail_updates,
-        )
-
-    def _run_resolution_finalize_stage(
-        self,
-        *,
-        spec: ResearchResolutionDisplaySpec,
-    ) -> dict[str, Any]:
-        return spec.to_payload()
-
-    def _build_unavailable_display_spec(
-        self,
-        *,
-        context: ResearchResolutionContext,
-        research_bridge: dict[str, Any],
-    ) -> ResearchResolutionDisplaySpec:
-        analysis = self._run_fallback_analysis_stage(
-            strategy=context.request.strategy,
-            derived=context.runtime.derived,
-            execution=context.runtime.execution,
-        )
-        detail_updates = self._build_unavailable_detail_updates_bundle(
-            research_bridge=research_bridge,
-        )
-        return self._build_resolution_display_spec(
-            context=context,
-            analysis=analysis,
-            detail_updates=detail_updates,
-        )
-
-    def persist_research_case_artifacts(
-        self,
-        *,
-        snapshot: Any,
-        policy: Any,
-        hypothesis: Any,
-        question: str,
-        query: str,
-        strategy: Any,
-        strategy_source: str,
-        execution_mode: str,
-        code: str,
-        effective_as_of_date: str,
-    ) -> ResearchPersistenceProjection:
-        case_record = None
-        attribution_preview = None
-        attribution_record = None
-        calibration_report = None
-        research_case_id = ""
-        attribution_id = ""
-        try:
-            case_record = self.case_store.save_case(
-                snapshot=snapshot,
-                policy=policy,
-                hypothesis=hypothesis,
-                metadata={
-                    "question": question,
-                    "query": query,
-                    "strategy": strategy.name,
-                    "strategy_source": strategy_source,
-                    "execution_mode": execution_mode,
-                },
-            )
-            research_case_id = str(case_record.get("research_case_id") or "")
-            attribution = self.attribution_engine.evaluate_case(case_record)
-            attribution_preview = attribution.to_dict()
-            has_scored_horizon = any(
-                str((result or {}).get("label") or "") != "timeout"
-                for result in dict(attribution.horizon_results or {}).values()
-            )
-            if has_scored_horizon:
-                attribution_record = self.case_store.save_attribution(
-                    attribution,
-                    metadata={
-                        "policy_id": policy.policy_id,
-                        "research_case_id": research_case_id,
-                        "code": code,
-                        "as_of_date": effective_as_of_date,
-                    },
-                )
-                attribution_id = str(attribution_record.get("attribution_id") or "")
-                calibration_report = self.case_store.write_calibration_report(
-                    policy_id=policy.policy_id
-                )
-        except _STOCK_RESEARCH_PERSISTENCE_EXCEPTIONS:
-            self._logger.warning(
-                "Failed to persist/evaluate research case for %s", code, exc_info=True
-            )
-        return ResearchPersistenceProjection(
-            case=dict(case_record or {}),
-            attribution=ResearchPersistenceAttributionProjection(
-                saved=bool(attribution_record),
-                record=dict(attribution_record or {}),
-                preview=dict(attribution_preview or {}),
-            ),
-            calibration_report=dict(calibration_report or {}),
-            identifiers=self._build_resolution_identifiers(
-                research_case_id=research_case_id,
-                attribution_id=attribution_id,
-            ),
-        )
-
-    @staticmethod
-    def estimate_preliminary_stance(snapshot: Any) -> str:
-        cross = dict(getattr(snapshot, "cross_section_context", {}) or {})
-        percentile = cross.get("percentile")
-        percentile_f = float(percentile or 0.0) if percentile is not None else 0.0
-        selected_by_policy = bool(cross.get("selected_by_policy"))
-        raw_score = 50.0 + percentile_f * 40.0 + (8.0 if selected_by_policy else 0.0)
-        if raw_score >= 82:
-            return "候选买入"
-        if raw_score >= 68:
-            return "偏强关注"
-        if raw_score <= 35:
-            return "减仓/回避"
-        if raw_score <= 45:
-            return "偏弱回避"
-        return "持有观察"
-
-    @staticmethod
-    def _build_pre_dashboard_analysis_spec(
-        *,
-        hypothesis: ResearchHypothesis,
-        matched_signals: list[str],
-        supplemental_reason: str = "",
-    ) -> PreDashboardAnalysisSpec:
-        return PreDashboardAnalysisSpec(
-            hypothesis=hypothesis,
-            matched_signals=list(matched_signals),
-            supplemental_reason=str(supplemental_reason or ""),
-        )
-
-    @staticmethod
-    def _resolve_analysis_stage_matched_signals(
-        *,
-        derived: dict[str, Any],
-    ) -> list[str]:
-        return list(derived.get("matched_signals") or [])
-
-    @staticmethod
-    def _build_analysis_stage_spec(
-        *,
-        hypothesis: ResearchHypothesis,
-        matched_signals: list[str],
-        supplemental_reason: str = "",
-    ) -> PreDashboardAnalysisSpec:
-        return ResearchResolutionService._build_pre_dashboard_analysis_spec(
-            hypothesis=hypothesis,
-            matched_signals=matched_signals,
-            supplemental_reason=supplemental_reason,
-        )
-
-    @staticmethod
-    def _build_fallback_rule_score_contribution(
-        *,
-        strategy: Any,
-        flags: dict[str, Any],
-    ) -> tuple[float, list[str]]:
-        score_delta = 0.0
-        reason_parts: list[str] = []
-        for label, delta in strategy.scoring.items():
-            if flags.get(label):
-                score_delta += float(delta)
-                reason_parts.append(f"{label}{'+' if delta >= 0 else ''}{delta:g}")
-        return score_delta, reason_parts
-
-    @staticmethod
-    def _build_fallback_algo_score_contribution(
-        *,
-        derived: dict[str, Any],
-    ) -> tuple[float, str]:
-        algo_score = float(derived.get("algo_score") or 0.0)
-        delta = max(-10.0, min(10.0, algo_score * 2.0))
-        if not algo_score:
-            return delta, ""
-        return delta, f"algo_score 调整 {delta:+.1f}"
-
-    @staticmethod
-    def _build_fallback_reasoning_excerpt(
-        *,
-        execution: dict[str, Any],
-    ) -> str:
-        final_reasoning = str(execution.get("final_reasoning") or "").strip()
-        if not final_reasoning:
-            return ""
-        return f"分析摘要: {final_reasoning[:120]}"
-
-    @classmethod
-    def _build_fallback_score_reason_components(
-        cls,
-        *,
-        strategy: Any,
-        derived: dict[str, Any],
-        execution: dict[str, Any],
-    ) -> FallbackScoreReasonComponents:
-        flags = dict(derived.get("flags") or {})
-        rule_score_delta, reason_parts = cls._build_fallback_rule_score_contribution(
-            strategy=strategy,
-            flags=flags,
-        )
-        algo_score_delta, algo_reason = cls._build_fallback_algo_score_contribution(
-            derived=derived,
-        )
-        reasoning_excerpt = cls._build_fallback_reasoning_excerpt(execution=execution)
-        supplemental_reason_parts = [
-            *reason_parts,
-            *([algo_reason] if algo_reason else []),
-            *([reasoning_excerpt] if reasoning_excerpt else []),
-        ]
-        return FallbackScoreReasonComponents(
-            score=50.0 + rule_score_delta + algo_score_delta,
-            supplemental_reason="；".join(supplemental_reason_parts),
-        )
-
-    @staticmethod
-    def _build_fallback_stance_component(
-        *,
-        score: float,
-    ) -> FallbackStanceComponent:
-        stance = "持有观察"
-        if score >= 82:
-            stance = "候选买入"
-        elif score >= 70:
-            stance = "偏强关注"
-        elif score <= 35:
-            stance = "减仓/回避"
-        elif score <= 45:
-            stance = "偏弱回避"
-        return FallbackStanceComponent(stance=stance)
-
-    @staticmethod
-    def _build_fallback_price_levels(
-        *,
-        derived: dict[str, Any],
-        stance: str,
-    ) -> FallbackPriceLevels:
-        latest_price = float(derived.get("latest_close") or 0.0)
-        entry_price = (
-            round(latest_price * 0.99, 2)
-            if latest_price and stance in {"候选买入", "偏强关注"}
-            else None
-        )
-        stop_loss = round(latest_price * 0.94, 2) if latest_price else None
-        return FallbackPriceLevels(
-            entry_price=entry_price,
-            stop_loss=stop_loss,
-        )
-
-    @staticmethod
-    def _build_fallback_risk_signals(
-        *,
-        derived: dict[str, Any],
-    ) -> FallbackRiskSignals:
-        flags = dict(derived.get("flags") or {})
-        contradicting_factors = [
-            label
-            for label in (
-                "空头排列",
-                "MACD死叉",
-                "RSI超买",
-                "趋势向下",
-                "结构走弱",
-                "逼近阻力",
-                "跌破MA20",
-            )
-            if flags.get(label)
-        ]
-        return FallbackRiskSignals(contradicting_factors=contradicting_factors)
-
-    @staticmethod
-    def _derive_fallback_analysis_values(
-        *,
-        strategy: Any,
-        derived: dict[str, Any],
-        execution: dict[str, Any],
-    ) -> FallbackDerivedAnalysisValues:
-        score_components = (
-            ResearchResolutionService._build_fallback_score_reason_components(
-                strategy=strategy,
-                derived=derived,
-                execution=execution,
-            )
-        )
-        stance_component = ResearchResolutionService._build_fallback_stance_component(
-            score=score_components.score,
-        )
-        price_levels = ResearchResolutionService._build_fallback_price_levels(
-            derived=derived,
-            stance=stance_component.stance,
-        )
-        risk_signals = ResearchResolutionService._build_fallback_risk_signals(
-            derived=derived,
-        )
-        return FallbackDerivedAnalysisValues(
-            score=round(max(0.0, min(100.0, score_components.score)), 1),
-            stance=stance_component.stance,
-            entry_price=price_levels.entry_price,
-            stop_loss=price_levels.stop_loss,
-            contradicting_factors=risk_signals.contradicting_factors,
-            supplemental_reason=score_components.supplemental_reason,
-        )
-
-    @staticmethod
-    def _build_fallback_hypothesis(
-        *,
-        strategy: Any,
-        values: FallbackDerivedAnalysisValues,
-        matched_signals: list[str],
-    ) -> ResearchHypothesis:
-        return ResearchHypothesis(
-            hypothesis_id="hypothesis_dashboard_fallback",
-            snapshot_id="snapshot_dashboard_fallback",
-            policy_id="policy_dashboard_fallback",
-            stance=values.stance,
-            score=values.score,
-            entry_rule={
-                "kind": (
-                    "limit_pullback" if values.entry_price is not None else "observe_only"
-                ),
-                "price": values.entry_price,
-                "source": strategy.display_name,
-            },
-            invalidation_rule={
-                "kind": "stop_loss",
-                "price": values.stop_loss,
-                "source": strategy.name,
-            },
-            supporting_factors=matched_signals,
-            contradicting_factors=values.contradicting_factors,
-            metadata={"source": "dashboard_fallback", "strategy_name": strategy.name},
-        )
-
-    def _run_fallback_analysis_stage(
-        self,
-        *,
-        strategy: Any,
-        derived: dict[str, Any],
-        execution: dict[str, Any],
-    ) -> PreDashboardAnalysisSpec:
-        matched_signals = self._resolve_analysis_stage_matched_signals(
-            derived=derived
-        )
-        values = self._derive_fallback_analysis_values(
-            strategy=strategy,
-            derived=derived,
-            execution=execution,
-        )
-        fallback_hypothesis = self._build_fallback_hypothesis(
-            strategy=strategy,
-            values=values,
-            matched_signals=matched_signals,
-        )
-        return self._build_analysis_stage_spec(
-            hypothesis=fallback_hypothesis,
-            matched_signals=matched_signals,
-            supplemental_reason=values.supplemental_reason,
-        )
-
-    def build_canonical_fallback_projection(
-        self,
-        *,
-        strategy: Any,
-        derived: dict[str, Any],
-        execution: dict[str, Any],
-        dashboard_projection_builder: Callable[
-            ..., dict[str, Any]
-        ] = build_dashboard_projection,
-    ) -> dict[str, Any]:
-        fallback_analysis = self._run_fallback_analysis_stage(
-            strategy=strategy,
-            derived=derived,
-            execution=execution,
-        )
-        return ResearchResolutionDashboardProjectionFactory(
-            strategy=strategy,
-            dashboard_projection_builder=dashboard_projection_builder,
-        ).render(fallback_analysis)
-
-    def _run_resolution_artifact_stage(
-        self,
-        *,
-        research_bridge: dict[str, Any],
-        strategy: Any,
-    ) -> ResearchResolutionArtifacts:
-        snapshot = research_bridge["snapshot"]
-        policy = research_bridge["policy"]
-        preliminary_stance = self.estimate_preliminary_stance(snapshot)
-        scenario = self.scenario_engine.estimate(
-            snapshot=snapshot,
-            policy=policy,
-            stance=preliminary_stance,
-        )
-        hypothesis = build_research_hypothesis(
-            snapshot=snapshot,
-            policy=policy,
-            scenario=scenario,
-            strategy_name=strategy.name,
-            strategy_display_name=strategy.display_name,
-        )
-        return ResearchResolutionArtifacts(
-            snapshot=snapshot,
-            policy=policy,
-            scenario=dict(scenario or {}),
-            hypothesis=hypothesis,
-        )
-
-    def _run_resolution_persistence_stage(
-        self,
-        *,
-        artifacts: ResearchResolutionArtifacts,
-        context: ResearchResolutionContext,
-    ) -> ResearchResolutionPersistence:
-        persistence = self.persist_research_case_artifacts(
-            snapshot=artifacts.snapshot,
-            policy=artifacts.policy,
-            hypothesis=artifacts.hypothesis,
-            question=context.request.question,
-            query=context.request.query,
-            strategy=context.request.strategy,
-            strategy_source=context.request.strategy_source,
-            execution_mode=str(context.runtime.execution.get("mode") or ""),
-            code=context.request.code,
-            effective_as_of_date=context.request.effective_as_of_date,
-        )
-        return ResearchResolutionPersistence(
-            policy_id=str(artifacts.policy.policy_id or ""),
-            projection=persistence,
-        )
-
-    def _run_normal_analysis_stage(
-        self,
-        *,
-        artifacts: ResearchResolutionArtifacts,
-        context: ResearchResolutionContext,
-    ) -> PreDashboardAnalysisSpec:
-        return self._build_analysis_stage_spec(
-            hypothesis=artifacts.hypothesis,
-            matched_signals=self._resolve_analysis_stage_matched_signals(
-                derived=context.runtime.derived
-            ),
-        )
-
-    def _run_available_resolution_stages(
-        self,
-        *,
-        context: ResearchResolutionContext,
-        research_bridge: dict[str, Any],
-    ) -> ResearchResolutionAvailableStageBundle:
-        artifacts = self._run_resolution_artifact_stage(
-            research_bridge=research_bridge,
-            strategy=context.request.strategy,
-        )
-        return ResearchResolutionAvailableStageBundle(
-            artifacts=artifacts,
-            analysis=self._run_normal_analysis_stage(
-                artifacts=artifacts,
-                context=context,
-            ),
-            persistence=self._run_resolution_persistence_stage(
-                artifacts=artifacts,
-                context=context,
-            ),
-        )
-
-    def _build_available_display_spec(
-        self,
-        *,
-        context: ResearchResolutionContext,
-        research_bridge: dict[str, Any],
-        stages: ResearchResolutionAvailableStageBundle,
-    ) -> ResearchResolutionDisplaySpec:
-        display_adapter = self._build_available_display_adapter(
-            research_bridge=research_bridge,
-            stages=stages,
-        )
-        return self._build_resolution_display_spec(
-            context=context,
-            analysis=stages.analysis,
-            identifiers=display_adapter.identifiers,
-            detail_updates=display_adapter.detail_updates,
-        )
-
-    def resolve_outputs(
-        self,
-        *,
-        research_bridge: dict[str, Any],
-        question: str,
-        query: str,
-        strategy: Any,
-        strategy_source: str,
-        code: str,
-        requested_as_of_date: str,
-        effective_as_of_date: str,
-        execution: dict[str, Any],
-        derived: dict[str, Any],
-        dashboard_projection_builder: Callable[
-            ..., dict[str, Any]
-        ] = build_dashboard_projection,
-    ) -> dict[str, Any]:
-        context = self._build_resolution_context(
-            research_bridge=research_bridge,
-            question=question,
-            query=query,
-            strategy=strategy,
-            strategy_source=strategy_source,
-            code=code,
-            requested_as_of_date=requested_as_of_date,
-            effective_as_of_date=effective_as_of_date,
-            execution=execution,
-            derived=derived,
-            dashboard_projection_builder=dashboard_projection_builder,
-        )
-        if research_bridge.get("status") != "ok":
-            return self._run_resolution_finalize_stage(
-                spec=self._build_unavailable_display_spec(
-                    context=context,
-                    research_bridge=research_bridge,
-                ),
-            )
-        available_stages = self._run_available_resolution_stages(
-            context=context,
-            research_bridge=research_bridge,
-        )
-        return self._run_resolution_finalize_stage(
-            spec=self._build_available_display_spec(
-                context=context,
-                research_bridge=research_bridge,
-                stages=available_stages,
-            ),
-        )
-
 
 # Strategy contracts and store
 @dataclass
@@ -4033,68 +1492,6 @@ def _numeric_series(frame: pd.DataFrame, column: str) -> pd.Series:
     return cast(pd.Series, pd.to_numeric(values, errors="coerce"))
 
 
-def _project_snapshot_fields(
-    snapshot: dict[str, Any],
-    *,
-    summary: dict[str, Any] | None = None,
-    trend_metrics: dict[str, Any] | None = None,
-    quote_row: dict[str, Any] | None = None,
-) -> dict[str, Any]:
-    summary = dict(summary or {})
-    trend_metrics = dict(trend_metrics or {})
-    quote_row = dict(quote_row or {})
-    snapshot_payload = dict(snapshot or {})
-    indicators = dict(snapshot_payload.get("indicators") or {})
-    macd_payload = dict(indicators.get("macd_12_26_9") or {})
-    boll = dict(indicators.get("bollinger_20") or {})
-    latest_close = float(
-        snapshot_payload.get("latest_close")
-        or trend_metrics.get("latest_close")
-        or quote_row.get("close")
-        or summary.get("close")
-        or 0.0
-    )
-    ma5 = float(
-        indicators.get("sma_5") or trend_metrics.get("ma5") or latest_close or 0.0
-    )
-    ma10 = float(
-        indicators.get("sma_10") or trend_metrics.get("ma10") or latest_close or 0.0
-    )
-    ma20 = float(
-        indicators.get("sma_20") or trend_metrics.get("ma20") or latest_close or 0.0
-    )
-    ma60 = float(indicators.get("sma_60") or trend_metrics.get("ma60") or ma20 or 0.0)
-    volume_ratio = indicators.get("volume_ratio_5_20") or trend_metrics.get(
-        "volume_ratio"
-    )
-    rsi = float(
-        indicators.get("rsi_14")
-        or trend_metrics.get("rsi_14")
-        or summary.get("rsi")
-        or 50.0
-    )
-    ma_stack = str(indicators.get("ma_stack") or "mixed")
-    macd_cross = str(
-        macd_payload.get("cross") or trend_metrics.get("macd_cross") or "neutral"
-    )
-    return {
-        "snapshot": snapshot_payload,
-        "indicators": indicators,
-        "macd_payload": macd_payload,
-        "boll": boll,
-        "latest_close": latest_close,
-        "ma5": ma5,
-        "ma10": ma10,
-        "ma20": ma20,
-        "ma60": ma60,
-        "volume_ratio": volume_ratio,
-        "rsi": rsi,
-        "ma_stack": ma_stack,
-        "macd_cross": macd_cross,
-        "atr_14": indicators.get("atr_14") or trend_metrics.get("atr_14"),
-    }
-
-
 class StockAnalysisService(StockAnalysisExecutionMixin):
     def __init__(
         self,
@@ -4173,23 +1570,104 @@ class StockAnalysisService(StockAnalysisExecutionMixin):
         self.case_store = ResearchCaseStore(self._runtime_state_dir)
         self.scenario_engine = ResearchScenarioEngine(self.case_store)
         self.attribution_engine = ResearchAttributionEngine(self.repository)
-        self.batch_analysis_service = BatchAnalysisViewService(
-            humanize_macd_cross=self._humanize_macd_cross
+        support_services = build_stock_analysis_support_services(
+            humanize_macd_cross=self._humanize_macd_cross,
+            resolve_strategy_name=lambda question, strategy: self._resolve_strategy_name(
+                question=question,
+                strategy=strategy,
+            ),
+            infer_days=lambda question, default_days: self._infer_days(
+                question=question,
+                default_days=default_days,
+            ),
+            load_strategy=self.load_strategy,
+            resolve_query_context=self._resolve_query_context,
+            resolve_effective_as_of_date=self._resolve_effective_as_of_date,
+            normalize_as_of_date=self._normalize_as_of_date,
+            available_tools_provider=lambda: sorted(self._tool_registry.keys()),
+            normalize_tool_name=lambda tool_name: self._normalize_tool_name(tool_name),
+            catalog_by_name_provider=lambda: self._stock_tool_catalog_by_name(),
+            definitions_by_name_provider=lambda: dict(
+                self._tool_catalog.definitions_by_name
+            ),
+            build_indicator_projection=lambda snapshot, **kwargs: _build_indicator_projection(
+                snapshot,
+                **kwargs,
+            ),
+            build_batch_analysis_context=lambda frame, code: self._build_batch_analysis_context(
+                frame, code
+            ),
+            view_from_snapshot=lambda summary, snapshot: self._view_from_snapshot(
+                summary, snapshot
+            ),
+            snapshot_projector=lambda snapshot, **kwargs: _project_snapshot_fields(
+                snapshot, **kwargs
+            ),
+            resolve_security=lambda query: self.resolve_security(query),
+            get_stock_frame=lambda code: self._get_stock_frame(code),
+            build_tool_unavailable_response=lambda **kwargs: self._build_tool_unavailable_response(
+                **kwargs
+            ),
+            query_context_factory=StockQueryContext,
+            window_context_factory=StockWindowContext,
         )
-        self.research_resolution_service = ResearchResolutionService(
+        self.batch_analysis_service = support_services.batch_analysis_service
+        self.ask_stock_request_context_service = (
+            support_services.ask_stock_request_context_service
+        )
+        self.ask_stock_response_assembly_service = (
+            support_services.ask_stock_response_assembly_service
+        )
+        self.stock_analysis_prompt_service = (
+            support_services.stock_analysis_prompt_service
+        )
+        self.stock_analysis_parsing_service = (
+            support_services.stock_analysis_parsing_service
+        )
+        self.stock_analysis_observation_service = (
+            support_services.stock_analysis_observation_service
+        )
+        self.stock_analysis_projection_service = (
+            support_services.stock_analysis_projection_service
+        )
+        self.tool_runtime_support_service = (
+            support_services.tool_runtime_support_service
+        )
+        research_services = build_stock_analysis_research_services(
             case_store=self.case_store,
             scenario_engine=self.scenario_engine,
             attribution_engine=self.attribution_engine,
-            logger=logger,
-        )
-        self.research_bridge_service = StockAnalysisResearchBridgeService(
             repository=self.repository,
             controller_provider=self._controller_provider,
-            research_resolution_service=self.research_resolution_service,
-            governance_service=TrainingGovernanceService(),
+            governance_service_factory=TrainingGovernanceService,
             normalize_as_of_date=self._normalize_as_of_date,
             resolve_effective_as_of_date=self._resolve_effective_as_of_date,
             logger_instance=logger,
+        )
+        self.research_resolution_service = (
+            research_services.research_resolution_service
+        )
+        self.research_bridge_service = research_services.research_bridge_service
+        self.ask_stock_execution_orchestration_service = (
+            AskStockExecutionOrchestrationService(
+                build_execution_planning_bundle=lambda **kwargs: self._build_execution_planning_bundle(
+                    **kwargs
+                ),
+                run_react_executor=lambda **kwargs: self._run_react_executor(
+                    **kwargs
+                ),
+                build_execution_coverage=lambda **kwargs: self._build_execution_coverage(
+                    **kwargs
+                ),
+                derive_signals=lambda execution: self._derive_signals(execution),
+                build_research_bridge=lambda **kwargs: self._build_research_bridge(
+                    **kwargs
+                ),
+                research_resolution_service=self.research_resolution_service,
+                dashboard_projection_builder=lambda **kwargs: build_dashboard_projection(
+                    **kwargs
+                ),
+            )
         )
 
     def list_strategies(self) -> list[dict[str, Any]]:
@@ -4236,7 +1714,7 @@ class StockAnalysisService(StockAnalysisExecutionMixin):
         security = dict(context.security)
         frame = cast(pd.DataFrame, context.price_frame)
         row = dict(frame.tail(1).to_dict(orient="records")[0])
-        return self._build_tool_response(
+        return build_tool_response(
             status="ok",
             query=query,
             code=code,
@@ -4252,12 +1730,9 @@ class StockAnalysisService(StockAnalysisExecutionMixin):
         return BatchAnalysisViewService.empty_snapshot()
 
     def _resolve_query_context(self, query: str) -> StockQueryContext:
-        code, security = self.resolve_security(query)
-        return StockQueryContext(
-            query=query,
-            code=code,
-            security=dict(security),
-            price_frame=self._get_stock_frame(code),
+        return cast(
+            StockQueryContext,
+            self.tool_runtime_support_service.resolve_query_context(query),
         )
 
     def _resolve_price_query_context(
@@ -4268,17 +1743,15 @@ class StockAnalysisService(StockAnalysisExecutionMixin):
         next_actions: list[str],
         status: str = "not_found",
     ) -> tuple[StockQueryContext, dict[str, Any] | None]:
-        context = self._resolve_query_context(query)
-        if context.price_frame.empty:
-            return context, self._build_tool_unavailable_response(
-                status=status,
-                query=context.query,
-                code=context.code,
-                security=context.security,
+        context, unavailable = (
+            self.tool_runtime_support_service.resolve_price_query_context(
+                query,
                 summary=summary,
                 next_actions=next_actions,
+                status=status,
             )
-        return context, None
+        )
+        return cast(StockQueryContext, context), unavailable
 
     def _resolve_window_context(
         self,
@@ -4291,22 +1764,16 @@ class StockAnalysisService(StockAnalysisExecutionMixin):
         status: str = "not_found",
         copy_frame: bool = False,
     ) -> tuple[StockWindowContext | None, dict[str, Any] | None]:
-        context, unavailable = self._resolve_price_query_context(
+        context, unavailable = self.tool_runtime_support_service.resolve_window_context(
             query,
+            days=days,
+            minimum=minimum,
             summary=summary,
             next_actions=next_actions,
             status=status,
+            copy_frame=copy_frame,
         )
-        if unavailable is not None:
-            return None, unavailable
-        frame = self._tail_frame(
-            cast(pd.DataFrame, context.price_frame),
-            days=days,
-            minimum=minimum,
-        )
-        if copy_frame:
-            frame = frame.copy()
-        return StockWindowContext(query_context=context, frame=frame), None
+        return cast(StockWindowContext | None, context), unavailable
 
     def _build_batch_analysis_context(
         self, frame: pd.DataFrame, code: str
@@ -4322,80 +1789,36 @@ class StockAnalysisService(StockAnalysisExecutionMixin):
     def _tail_frame(
         frame: pd.DataFrame, *, days: int, minimum: int = 1
     ) -> pd.DataFrame:
-        return frame.tail(max(minimum, int(days)))
+        return StockAnalysisToolRuntimeSupportService.tail_frame(
+            frame,
+            days=days,
+            minimum=minimum,
+        )
 
     @staticmethod
     def _resolve_frame_date_window(
         frame: pd.DataFrame, *, days: int
     ) -> tuple[str, str]:
-        window = frame.tail(max(1, int(days)))
-        return str(window["trade_date"].min()), str(frame["trade_date"].max())
+        return StockAnalysisToolRuntimeSupportService.resolve_frame_date_window(
+            frame,
+            days=days,
+        )
 
     def _resolve_price_window(
         self, frame: pd.DataFrame, *, days: int
     ) -> dict[str, str]:
-        start_date, end_date = self._resolve_frame_date_window(frame, days=days)
-        return {
-            "start_date": start_date,
-            "end_date": end_date,
-        }
+        return StockAnalysisToolRuntimeSupportService.resolve_price_window(
+            frame,
+            days=days,
+        )
 
     def _build_snapshot_projection(
         self, frame: pd.DataFrame, code: str
     ) -> dict[str, Any]:
-        summary, snapshot, meta = self._build_batch_analysis_context(frame, code)
-        view = self._view_from_snapshot(summary, snapshot)
-        fields = _project_snapshot_fields(
-            snapshot, summary=summary, trend_metrics=dict(view.get("trend") or {})
+        return self.stock_analysis_projection_service.build_snapshot_projection(
+            frame,
+            code,
         )
-        return {
-            "summary": summary,
-            "snapshot": snapshot,
-            "meta": meta,
-            "view": view,
-            "fields": fields,
-        }
-
-    @staticmethod
-    def _build_tool_response(
-        *,
-        status: str,
-        query: str,
-        code: str,
-        security: dict[str, Any] | None = None,
-        **payload: Any,
-    ) -> dict[str, Any]:
-        response: dict[str, Any] = {
-            "status": status,
-            "query": query,
-            "code": code,
-        }
-        if security is not None:
-            response["security"] = security
-        response.update(payload)
-        return response
-
-    @staticmethod
-    def _build_tool_common_payload(
-        *,
-        summary: str,
-        next_actions: list[str],
-        artifacts: dict[str, Any] | None = None,
-        observation_summary: str = "",
-        metrics: dict[str, Any] | None = None,
-        **payload: Any,
-    ) -> dict[str, Any]:
-        common_payload: dict[str, Any] = {
-            "summary": summary,
-            "next_actions": next_actions,
-            "artifacts": dict(artifacts or {}),
-        }
-        if observation_summary:
-            common_payload["observation_summary"] = observation_summary
-        if metrics is not None:
-            common_payload["metrics"] = metrics
-        common_payload.update(payload)
-        return common_payload
 
     def _build_tool_unavailable_response(
         self,
@@ -4409,17 +1832,15 @@ class StockAnalysisService(StockAnalysisExecutionMixin):
         security: dict[str, Any] | None = None,
         **payload: Any,
     ) -> dict[str, Any]:
-        return self._build_tool_response(
+        return build_tool_unavailable_response(
             status=status,
             query=query,
             code=code,
             security=security,
-            **self._build_tool_common_payload(
-                summary=summary,
-                next_actions=next_actions,
-                artifacts=artifacts,
-                **payload,
-            ),
+            summary=summary,
+            next_actions=next_actions,
+            artifacts=artifacts,
+            **payload,
         )
 
     def _build_tool_analysis_response(
@@ -4434,18 +1855,15 @@ class StockAnalysisService(StockAnalysisExecutionMixin):
         observation_summary: str = "",
         **payload: Any,
     ) -> dict[str, Any]:
-        return self._build_tool_response(
-            status="ok",
+        return build_tool_analysis_response(
             query=query,
             code=code,
             security=security,
-            **self._build_tool_common_payload(
-                summary=summary,
-                next_actions=next_actions,
-                artifacts=artifacts,
-                observation_summary=observation_summary,
-                **payload,
-            ),
+            summary=summary,
+            next_actions=next_actions,
+            artifacts=artifacts,
+            observation_summary=observation_summary,
+            **payload,
         )
 
     def _build_tool_records_response(
@@ -4462,23 +1880,17 @@ class StockAnalysisService(StockAnalysisExecutionMixin):
         metrics: dict[str, Any] | None = None,
         **payload: Any,
     ) -> dict[str, Any]:
-        records_payload = {
-            records_key: records,
-            "count": int(len(records)),
-            **payload,
-        }
-        return self._build_tool_response(
-            status="ok",
+        return build_tool_records_response(
             query=query,
             code=code,
             security=security,
-            **self._build_tool_common_payload(
-                summary=summary,
-                next_actions=next_actions,
-                artifacts=artifacts,
-                metrics=metrics,
-                **records_payload,
-            ),
+            records_key=records_key,
+            records=records,
+            summary=summary,
+            next_actions=next_actions,
+            artifacts=artifacts,
+            metrics=metrics,
+            **payload,
         )
 
     def analyze_trend(self, query: str, *, days: int = 120) -> dict[str, Any]:
@@ -4784,10 +2196,10 @@ class StockAnalysisService(StockAnalysisExecutionMixin):
             execution_bundle=execution_bundle,
             research_resolution=research_resolution,
         )
-        assembly_stage = self._build_ask_stock_assembly_stage_bundle(
+        assembly_stage = self.ask_stock_response_assembly_service.build_assembly_stage_bundle(
             stage_contract=stage_contract,
         )
-        response_assembly_spec = self._build_ask_stock_response_assembly_spec(
+        response_assembly_spec = self.ask_stock_response_assembly_service.build_response_assembly_spec(
             response_inputs=assembly_stage.response_inputs,
         )
         return response_assembly_spec.render_protocol_response()
@@ -4801,26 +2213,12 @@ class StockAnalysisService(StockAnalysisExecutionMixin):
         days: int,
         as_of_date: str,
     ) -> AskStockRequestContext:
-        strategy_name, strategy_source = self._resolve_strategy_name(
-            question=question,
-            strategy=strategy,
-        )
-        resolved_days = self._infer_days(question=question, default_days=days)
-        resolved_strategy = self.load_strategy(strategy_name)
-        base_context = self._resolve_query_context(query)
-        code = base_context.code
-        security = dict(base_context.security)
-        effective_as_of_date = self._resolve_effective_as_of_date(code, as_of_date)
-        return AskStockRequestContext(
+        return self.ask_stock_request_context_service.build_request_context(
             question=question,
             query=query,
-            code=code,
-            security=security,
-            requested_as_of_date=as_of_date,
-            effective_as_of_date=effective_as_of_date,
-            strategy=resolved_strategy,
-            strategy_source=strategy_source,
-            days=resolved_days,
+            strategy=strategy,
+            days=days,
+            as_of_date=as_of_date,
         )
 
     def _run_ask_stock_execution_stage(
@@ -4828,284 +2226,8 @@ class StockAnalysisService(StockAnalysisExecutionMixin):
         *,
         request_context: AskStockRequestContext,
     ) -> AskStockExecutionRunBundle:
-        planning_bundle = self._build_execution_planning_bundle(
-            strategy=request_context.strategy,
-            query=request_context.code,
-            days=request_context.days,
-        )
-        execution = self._run_react_executor(
-            question=request_context.question,
-            query=request_context.code,
-            security=request_context.security,
-            strategy=request_context.strategy,
-            days=request_context.days,
-            planning_bundle=planning_bundle,
-        )
-        return AskStockExecutionRunBundle(
-            recommended_plan=planning_bundle.recommended_plan,
-            allowed_tools=planning_bundle.allowed_tools,
-            execution=execution,
-            coverage=self._build_execution_coverage(
-                strategy=request_context.strategy,
-                execution=execution,
-                recommended_plan=planning_bundle.recommended_plan,
-                allowed_tools=planning_bundle.allowed_tools,
-            ),
-            derived=self._derive_signals(execution),
-        )
-
-    def _build_ask_stock_task_artifacts(
-        self,
-        *,
-        code: str,
-        strategy_name: str,
-        strategy_source: str,
-        derived: dict[str, Any],
-        execution: dict[str, Any],
-    ) -> dict[str, Any]:
-        return {
-            "code": code,
-            "strategy": strategy_name,
-            "strategy_source": strategy_source,
-            "latest_close": derived.get("latest_close"),
-            "gap_fill_applied": bool(
-                dict(execution.get("gap_fill") or {}).get("applied")
-            ),
-        }
-
-    def _build_ask_stock_execution_projection(
-        self,
-        *,
-        execution: dict[str, Any],
-        recommended_plan: list[dict[str, Any]],
-        coverage: dict[str, Any],
-        task_bus_artifacts: dict[str, Any],
-    ) -> AskStockExecutionProjection:
-        return AskStockExecutionProjection(
-            mode=str(execution["mode"]),
-            tool_plan=list(execution["plan"]),
-            tool_calls=list(execution["tool_calls"]),
-            workflow=list(execution.get("workflow") or []),
-            phase_stats=dict(execution.get("phase_stats") or {}),
-            recommended_plan=list(recommended_plan),
-            coverage=dict(coverage),
-            task_bus_artifacts=dict(task_bus_artifacts),
-            llm_reasoning=str(execution.get("final_reasoning", "")),
-            fallback_used=bool(
-                execution.get("fallback_used", execution["mode"] == "yaml_react_like")
-            ),
-            gap_fill=dict(execution.get("gap_fill") or {}),
-            available_tools=sorted(self._tool_registry.keys()),
-        )
-
-    @staticmethod
-    def _build_ask_stock_identifiers_projection(
-        *,
-        policy_id: str,
-        research_case_id: str,
-        attribution_id: str,
-    ) -> AskStockIdentifiersProjection:
-        return AskStockIdentifiersProjection(
-            policy_id=policy_id,
-            research_case_id=research_case_id,
-            attribution_id=attribution_id,
-        )
-
-    def _build_ask_stock_task_bus(
-        self,
-        *,
-        question: str,
-        query: str,
-        execution_projection: AskStockExecutionProjection,
-    ) -> dict[str, Any]:
-        return build_readonly_task_bus(
-            intent="stock_analysis",
-            operation="ask_stock",
-            user_goal=question or query,
-            mode=execution_projection.mode,
-            available_tools=list(execution_projection.available_tools),
-            recommended_plan=list(execution_projection.recommended_plan),
-            tool_calls=list(execution_projection.tool_calls),
-            artifacts=dict(execution_projection.task_bus_artifacts),
-            coverage=dict(execution_projection.coverage),
-            status="ok",
-        )
-
-    def _build_ask_stock_bounded_context(
-        self,
-        *,
-        execution_projection: AskStockExecutionProjection,
-        identifiers: AskStockIdentifiersProjection,
-    ) -> dict[str, Any]:
-        return build_bounded_response_context(
-            schema_version=BOUNDED_WORKFLOW_SCHEMA_VERSION,
-            domain="stock",
-            operation="ask_stock",
-            artifacts={
-                **dict(execution_projection.task_bus_artifacts),
-                **identifiers.to_payload(),
-            },
-            workflow=cast(list[str], list(execution_projection.workflow)),
-            phase_stats=dict(execution_projection.phase_stats),
-            coverage=dict(execution_projection.coverage),
-        )
-
-    def _build_ask_stock_request_projection(
-        self,
-        *,
-        request_context: AskStockRequestContext,
-    ) -> AskStockRequestProjection:
-        return AskStockRequestProjection(
-            question=request_context.question,
-            query=request_context.query,
-            normalized_query=request_context.code,
-            requested_as_of_date=self._normalize_as_of_date(
-                request_context.requested_as_of_date
-            ),
-            as_of_date=request_context.effective_as_of_date,
-        )
-
-    @staticmethod
-    def _build_ask_stock_entrypoint() -> dict[str, Any]:
-        return build_bounded_entrypoint(
-            kind="commander_tool_service",
-            runtime_tool="invest_ask_stock",
-            runtime_method="CommanderRuntime.ask_stock",
-            service="StockAnalysisService",
-            domain="stock",
-            agent_kind="bounded_stock_agent",
-            standalone_agent=False,
-            meeting_path=False,
-            agent_system="commander_brain_tooling",
-        )
-
-    def _build_ask_stock_orchestration_extra_projection(
-        self,
-        *,
-        strategy: StockAnalysisStrategy,
-        execution_projection: AskStockExecutionProjection,
-    ) -> dict[str, Any]:
-        return {
-            "required_tools": list(strategy.required_tools),
-            "recommended_plan": list(execution_projection.recommended_plan),
-            "tool_plan": list(execution_projection.tool_plan),
-            "tool_calls": list(execution_projection.tool_calls),
-            "step_count": len(execution_projection.tool_calls),
-            "llm_reasoning": execution_projection.llm_reasoning,
-            "fallback_used": execution_projection.fallback_used,
-            "gap_fill": dict(execution_projection.gap_fill),
-            "coverage": dict(execution_projection.coverage),
-        }
-
-    @staticmethod
-    def _with_identifiers(
-        payload: dict[str, Any],
-        identifiers: AskStockIdentifiersProjection,
-    ) -> dict[str, Any]:
-        return {**dict(payload), "identifiers": identifiers.to_payload()}
-
-    def _build_ask_stock_execution_surface_spec(
-        self,
-        *,
-        request_context: AskStockRequestContext,
-        execution_projection: AskStockExecutionProjection,
-        identifiers: AskStockIdentifiersProjection,
-    ) -> AskStockExecutionSurfaceSpec:
-        task_bus = self._build_ask_stock_task_bus(
-            question=request_context.question,
-            query=request_context.query,
-            execution_projection=execution_projection,
-        )
-        bounded_context = self._build_ask_stock_bounded_context(
-            execution_projection=execution_projection,
-            identifiers=identifiers,
-        )
-        orchestration_extra = self._build_ask_stock_orchestration_extra_projection(
-            strategy=request_context.strategy,
-            execution_projection=execution_projection,
-        )
-        return AskStockExecutionSurfaceSpec(
-            task_bus=task_bus,
-            protocol=dict(bounded_context["protocol"]),
-            artifacts=dict(bounded_context["artifacts"]),
-            coverage=dict(bounded_context["coverage"]),
-            artifact_taxonomy=dict(bounded_context["artifact_taxonomy"]),
-            orchestration_extra=orchestration_extra,
-        )
-
-    def _build_ask_stock_presentation_spec(
-        self,
-        *,
-        stage_contract: AskStockStageContract,
-        execution_surface_spec: AskStockExecutionSurfaceSpec,
-        identifiers: AskStockIdentifiersProjection,
-    ) -> AskStockPresentationSpec:
-        return execution_surface_spec.to_presentation_spec(
-            sections=self._build_ask_stock_sections_bundle(
-                execution_bundle=stage_contract.execution,
-                research_bundle=stage_contract.research,
-                identifiers=identifiers,
-            ),
-        )
-
-    def _build_ask_stock_analysis_section_payload(
-        self,
-        *,
-        execution_bundle: AskStockExecutionRunBundle,
-        research_bundle: AskStockResearchBundle,
-        identifiers: AskStockIdentifiersProjection,
-    ) -> dict[str, Any]:
-        return {
-            "tool_results": execution_bundle.execution["results"],
-            "result_sequence": execution_bundle.execution["result_sequence"],
-            "derived_signals": execution_bundle.derived,
-            "research_bridge": self._with_identifiers(
-                dict(research_bundle.research_bridge_payload),
-                identifiers,
-            ),
-        }
-
-    def _build_ask_stock_research_section_payload(
-        self,
-        *,
-        research_bundle: AskStockResearchBundle,
-        identifiers: AskStockIdentifiersProjection,
-    ) -> dict[str, Any]:
-        return self._with_identifiers(
-            dict(research_bundle.research_payload),
-            identifiers,
-        )
-
-    def _build_ask_stock_sections_bundle(
-        self,
-        *,
-        execution_bundle: AskStockExecutionRunBundle,
-        research_bundle: AskStockResearchBundle,
-        identifiers: AskStockIdentifiersProjection,
-    ) -> AskStockSectionsBundle:
-        return AskStockSectionsBundle(
-            analysis=self._build_ask_stock_analysis_section_payload(
-                execution_bundle=execution_bundle,
-                research_bundle=research_bundle,
-                identifiers=identifiers,
-            ),
-            research=self._build_ask_stock_research_section_payload(
-                research_bundle=research_bundle,
-                identifiers=identifiers,
-            ),
-        )
-
-    @staticmethod
-    def _build_ask_stock_research_bundle(
-        research_resolution: dict[str, Any],
-    ) -> AskStockResearchBundle:
-        return AskStockResearchBundle(
-            dashboard=dict(research_resolution["dashboard"]),
-            research_payload=dict(research_resolution["research"]),
-            research_bridge_payload=dict(research_resolution["research_bridge"]),
-            policy_id=str(research_resolution.get("policy_id") or ""),
-            research_case_id=str(research_resolution.get("research_case_id") or ""),
-            attribution_id=str(research_resolution.get("attribution_id") or ""),
+        return self.ask_stock_execution_orchestration_service.run_execution_stage(
+            request_context=request_context,
         )
 
     def _build_ask_stock_stage_contract(
@@ -5115,183 +2237,10 @@ class StockAnalysisService(StockAnalysisExecutionMixin):
         execution_bundle: AskStockExecutionRunBundle,
         research_resolution: dict[str, Any],
     ) -> AskStockStageContract:
-        return AskStockStageContract(
-            request=request_context,
-            execution=execution_bundle,
-            research=self._build_ask_stock_research_bundle(research_resolution),
-        )
-
-    def _build_ask_stock_orchestration_payload(
-        self,
-        *,
-        strategy: StockAnalysisStrategy,
-        execution_projection: AskStockExecutionProjection,
-        allowed_tools: list[str],
-        orchestration_extra: dict[str, Any],
-    ) -> dict[str, Any]:
-        return build_bounded_orchestration(
-            mode=execution_projection.mode,
-            available_tools=list(execution_projection.available_tools),
-            allowed_tools=list(allowed_tools),
-            workflow=cast(list[str], list(execution_projection.workflow)),
-            phase_stats=dict(execution_projection.phase_stats),
-            policy=self._build_ask_stock_orchestration_policy(strategy),
-            extra=dict(orchestration_extra),
-        )
-
-    @staticmethod
-    def _build_ask_stock_orchestration_policy(
-        strategy: StockAnalysisStrategy,
-    ) -> dict[str, Any]:
-        return build_bounded_policy(
-            source="yaml_strategy",
-            agent_kind="bounded_stock_agent",
-            workflow_mode="llm_react_with_yaml_gap_fill",
-            react_enabled=bool(strategy.react_enabled),
-            tool_catalog_scope="strategy_restricted",
-            fixed_boundary=True,
-            fixed_workflow=True,
-        )
-
-    def _build_ask_stock_response_header_spec(
-        self,
-        *,
-        request: AskStockRequestProjection,
-        identifiers: AskStockIdentifiersProjection,
-        security: dict[str, Any],
-        strategy: StockAnalysisStrategy,
-        strategy_source: str,
-        days: int,
-    ) -> AskStockResponseHeaderSpec:
-        return AskStockResponseHeaderSpec(
-            request=AskStockResponseRequestHeader(
-                request=request,
-            ),
-            resolution=AskStockResponseResolutionHeader(
-                identifiers=identifiers,
-                security=dict(security),
-            ),
-            strategy=AskStockResponseStrategyHeader(
-                entrypoint=self._build_ask_stock_entrypoint(),
-                strategy_payload=strategy.to_dict(),
-                strategy_source=strategy_source,
-                days=days,
-            ),
-        )
-
-    def _build_ask_stock_response_header_factory(
-        self,
-        *,
-        request: AskStockRequestProjection,
-        identifiers: AskStockIdentifiersProjection,
-        security: dict[str, Any],
-        strategy: StockAnalysisStrategy,
-        strategy_source: str,
-        days: int,
-    ) -> AskStockResponseHeaderFactory:
-        return AskStockResponseHeaderFactory(
-            spec=self._build_ask_stock_response_header_spec(
-                request=request,
-                identifiers=identifiers,
-                security=security,
-                strategy=strategy,
-                strategy_source=strategy_source,
-                days=days,
-            )
-        )
-
-    def _build_ask_stock_response_assembly_spec(
-        self,
-        *,
-        response_inputs: AskStockResponseInputs,
-    ) -> AskStockResponseAssemblySpec:
-        return AskStockResponseAssemblySpec(
-            header_factory=response_inputs.header_factory,
-            presentation_spec=response_inputs.presentation_spec,
-            orchestration=dict(response_inputs.orchestration),
-            dashboard=dict(response_inputs.dashboard),
-        )
-
-    def _build_ask_stock_response_inputs(
-        self,
-        *,
-        stage_contract: AskStockStageContract,
-        execution_stage: AskStockExecutionStageAdapter,
-        presentation_spec: AskStockPresentationSpec,
-    ) -> AskStockResponseInputs:
-        return AskStockResponseInputs(
-            header_factory=self._build_ask_stock_response_header_factory(
-                request=self._build_ask_stock_request_projection(
-                    request_context=stage_contract.request
-                ),
-                identifiers=execution_stage.identifiers,
-                security=stage_contract.request.security,
-                strategy=stage_contract.request.strategy,
-                strategy_source=stage_contract.request.strategy_source,
-                days=stage_contract.request.days,
-            ),
-            presentation_spec=presentation_spec,
-            orchestration=self._build_ask_stock_orchestration_payload(
-                strategy=stage_contract.request.strategy,
-                execution_projection=execution_stage.execution_projection,
-                allowed_tools=stage_contract.execution.allowed_tools,
-                orchestration_extra=execution_stage.execution_surface_spec.orchestration_extra,
-            ),
-            dashboard=dict(stage_contract.research.dashboard),
-        )
-
-    def _build_ask_stock_assembly_stage_bundle(
-        self,
-        *,
-        stage_contract: AskStockStageContract,
-    ) -> AskStockAssemblyStageBundle:
-        execution_stage = self._build_ask_stock_execution_stage_adapter(
-            stage_contract=stage_contract,
-        )
-        presentation_spec = self._build_ask_stock_presentation_spec(
-            stage_contract=stage_contract,
-            execution_surface_spec=execution_stage.execution_surface_spec,
-            identifiers=execution_stage.identifiers,
-        )
-        return AskStockAssemblyStageBundle(
-            presentation_spec=presentation_spec,
-            response_inputs=self._build_ask_stock_response_inputs(
-                stage_contract=stage_contract,
-                execution_stage=execution_stage,
-                presentation_spec=presentation_spec,
-            ),
-        )
-
-    def _build_ask_stock_execution_stage_adapter(
-        self,
-        *,
-        stage_contract: AskStockStageContract,
-    ) -> AskStockExecutionStageAdapter:
-        identifiers = self._build_ask_stock_identifiers_projection(
-            policy_id=stage_contract.research.policy_id,
-            research_case_id=stage_contract.research.research_case_id,
-            attribution_id=stage_contract.research.attribution_id,
-        )
-        execution_projection = self._build_ask_stock_execution_projection(
-            execution=stage_contract.execution.execution,
-            recommended_plan=stage_contract.execution.recommended_plan,
-            coverage=stage_contract.execution.coverage,
-            task_bus_artifacts=self._build_ask_stock_task_artifacts(
-                code=stage_contract.request.code,
-                strategy_name=stage_contract.request.strategy.name,
-                strategy_source=stage_contract.request.strategy_source,
-                derived=stage_contract.execution.derived,
-                execution=stage_contract.execution.execution,
-            ),
-        )
-        return AskStockExecutionStageAdapter(
-            identifiers=identifiers,
-            execution_projection=execution_projection,
-            execution_surface_spec=self._build_ask_stock_execution_surface_spec(
-                request_context=stage_contract.request,
-                execution_projection=execution_projection,
-                identifiers=identifiers,
-            ),
+        return self.ask_stock_response_assembly_service.build_stage_contract(
+            request_context=request_context,
+            execution_bundle=execution_bundle,
+            research_resolution=research_resolution,
         )
 
     def _resolve_ask_stock_research_outputs(
@@ -5300,26 +2249,9 @@ class StockAnalysisService(StockAnalysisExecutionMixin):
         request_context: AskStockRequestContext,
         execution_bundle: AskStockExecutionRunBundle,
     ) -> dict[str, Any]:
-        research_bridge = self._build_research_bridge(
-            code=request_context.code,
-            security=request_context.security,
-            requested_as_of_date=request_context.requested_as_of_date,
-            effective_as_of_date=request_context.effective_as_of_date,
-            days=request_context.days,
-            derived=execution_bundle.derived,
-        )
-        return self.research_resolution_service.resolve_outputs(
-            research_bridge=research_bridge,
-            question=request_context.question,
-            query=request_context.query,
-            strategy=request_context.strategy,
-            strategy_source=request_context.strategy_source,
-            code=request_context.code,
-            requested_as_of_date=request_context.requested_as_of_date,
-            effective_as_of_date=request_context.effective_as_of_date,
-            execution=execution_bundle.execution,
-            derived=execution_bundle.derived,
-            dashboard_projection_builder=build_dashboard_projection,
+        return self.ask_stock_execution_orchestration_service.resolve_research_outputs(
+            request_context=request_context,
+            execution_bundle=execution_bundle,
         )
 
     def _build_research_bridge(

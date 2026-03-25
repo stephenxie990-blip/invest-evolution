@@ -8,11 +8,16 @@ from copy import deepcopy
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from functools import lru_cache
-from importlib import import_module
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Callable, cast
 
+import invest_evolution.investment.shared.policy as shared_policy_module
+from invest_evolution.application.training import controller as training_controller
+from invest_evolution.application.training import observability as training_observability
+from invest_evolution.application.training import persistence as training_persistence
+from invest_evolution.application.training import policy as training_policy
+from invest_evolution.application.training import research as training_research
 from invest_evolution.application.training.review_contracts import (
     AllocationReviewDigestPayload,
     GovernanceDecisionInputPayload,
@@ -70,15 +75,6 @@ logger = logging.getLogger(__name__)
 EXECUTABLE_MAX_SINGLE_POSITION = 0.20
 
 
-_TRAINING_MODULE_IMPORTS = {
-    "controller": "invest_evolution.application.training.controller",
-    "policy": "invest_evolution.application.training.policy",
-    "research": "invest_evolution.application.training.research",
-    "review": "invest_evolution.application.training.review",
-    "observability": "invest_evolution.application.training.observability",
-    "persistence": "invest_evolution.application.training.persistence",
-}
-
 RUNTIME_BUDGET_KEYS = frozenset({"position_size", "cash_reserve", "max_positions"})
 SAFETY_RUNTIME_KEYS = frozenset(
     {
@@ -121,50 +117,22 @@ DEFAULT_STRATEGY_FAMILY_REGIME_BUDGETS: dict[str, dict[str, dict[str, Any]]] = {
 }
 
 
-@lru_cache(maxsize=None)
-def _training_module(name: str):
-    return import_module(_TRAINING_MODULE_IMPORTS[name])
-
-
-def _call_training_module(
-    module_name: str,
-    attr: str,
-    /,
-    *args: Any,
-    **kwargs: Any,
-) -> Any:
-    return getattr(_training_module(module_name), attr)(*args, **kwargs)
-
-
-def _resolve_training_module_attr(module_name: str, attr: str) -> Callable[..., Any] | None:
-    try:
-        module = _training_module(module_name)
-    except Exception:
-        return None
+def _resolve_training_callable(module: object, attr: str) -> Callable[..., Any] | None:
     candidate = getattr(module, attr, None)
     return candidate if callable(candidate) else None
 
 
-def _call_training_module_if_available(
-    module_name: str,
+def _call_training_if_available(
+    module: object,
     attr: str,
     /,
     *args: Any,
     **kwargs: Any,
 ) -> Any | None:
-    fn = _resolve_training_module_attr(module_name, attr)
+    fn = _resolve_training_callable(module, attr)
     if fn is None:
         return None
     return fn(*args, **kwargs)
-
-
-def _training_module_proxy(module_name: str, attr: str) -> Callable[..., Any]:
-    def _proxy(*args: Any, **kwargs: Any) -> Any:
-        return _call_training_module(module_name, attr, *args, **kwargs)
-
-    _proxy.__name__ = attr
-    _proxy.__qualname__ = attr
-    return _proxy
 
 
 def _new_optimization_boundary_context(
@@ -174,8 +142,7 @@ def _new_optimization_boundary_context(
     active_runtime_config_ref: str,
     fitness_source_cycles: list[int],
 ) -> Any:
-    context_cls = getattr(_training_module("observability"), "OptimizationBoundaryContext")
-    return context_cls(
+    return training_observability.OptimizationBoundaryContext(
         cycle_id=cycle_id,
         manager_id=manager_id,
         active_runtime_config_ref=active_runtime_config_ref,
@@ -184,173 +151,171 @@ def _new_optimization_boundary_context(
 
 session_default_manager_id = cast(
     Callable[..., str],
-    _training_module_proxy("controller", "session_default_manager_id"),
+    training_controller.session_default_manager_id,
 )
 session_default_manager_config_ref = cast(
     Callable[..., str],
-    _training_module_proxy("controller", "session_default_manager_config_ref"),
+    training_controller.session_default_manager_config_ref,
 )
 session_cycle_history = cast(
     Callable[..., list[Any]],
-    _training_module_proxy("controller", "session_cycle_history"),
+    training_controller.session_cycle_history,
 )
 set_session_manager_budget_weights = cast(
     Callable[..., dict[str, float]],
-    _training_module_proxy("controller", "set_session_manager_budget_weights"),
+    training_controller.set_session_manager_budget_weights,
 )
 update_session_current_params = cast(
     Callable[..., dict[str, Any]],
-    _training_module_proxy("controller", "update_session_current_params"),
+    training_controller.update_session_current_params,
 )
 set_session_current_params = cast(
     Callable[..., dict[str, Any]],
-    _training_module_proxy("controller", "set_session_current_params"),
+    training_controller.set_session_current_params,
 )
 session_current_params = cast(
     Callable[..., dict[str, Any]],
-    _training_module_proxy("controller", "session_current_params"),
+    training_controller.session_current_params,
 )
 session_consecutive_losses = cast(
     Callable[..., int],
-    _training_module_proxy("controller", "session_consecutive_losses"),
+    training_controller.session_consecutive_losses,
 )
 set_session_consecutive_losses = cast(
     Callable[..., int],
-    _training_module_proxy("controller", "set_session_consecutive_losses"),
+    training_controller.set_session_consecutive_losses,
 )
 increment_session_consecutive_losses = cast(
     Callable[..., int],
-    _training_module_proxy("controller", "increment_session_consecutive_losses"),
+    training_controller.increment_session_consecutive_losses,
 )
 session_last_feedback_optimization = cast(
     Callable[..., dict[str, Any]],
-    _training_module_proxy("controller", "session_last_feedback_optimization"),
+    training_controller.session_last_feedback_optimization,
 )
 set_session_last_feedback_optimization = cast(
     Callable[..., dict[str, Any]],
-    _training_module_proxy("controller", "set_session_last_feedback_optimization"),
+    training_controller.set_session_last_feedback_optimization,
 )
 set_session_last_feedback_optimization_cycle_id = cast(
     Callable[..., int],
-    _training_module_proxy("controller", "set_session_last_feedback_optimization_cycle_id"),
+    training_controller.set_session_last_feedback_optimization_cycle_id,
 )
 session_manager_budget_weights = cast(
     Callable[..., dict[str, float]],
-    _training_module_proxy("controller", "session_manager_budget_weights"),
+    training_controller.session_manager_budget_weights,
 )
 
 
 normalize_governance_decision = cast(
     Callable[..., dict[str, Any]],
-    _training_module_proxy("policy", "normalize_governance_decision"),
+    training_policy.normalize_governance_decision,
 )
 resolve_training_scope = cast(
     Callable[..., Any],
-    _training_module_proxy("policy", "resolve_training_scope"),
+    training_policy.resolve_training_scope,
 )
 governance_from_controller = cast(
     Callable[..., dict[str, Any]],
-    _training_module_proxy("policy", "governance_from_controller"),
+    training_policy.governance_from_controller,
 )
 dominant_manager_id = cast(
     Callable[..., str],
-    _training_module_proxy("policy", "dominant_manager_id"),
+    training_policy.dominant_manager_id,
 )
 enforce_allowed_manager_scope_boundary = cast(
     Callable[..., Any],
-    _training_module_proxy("policy", "enforce_allowed_manager_scope_boundary"),
+    training_policy.enforce_allowed_manager_scope_boundary,
 )
 
 
 build_history_peer_entries = cast(
     Callable[..., Any],
-    _training_module_proxy("research", "build_history_peer_entries"),
+    training_research.build_history_peer_entries,
 )
 build_judge_report = cast(
     Callable[..., Any],
-    _training_module_proxy("research", "build_judge_report"),
+    training_research.build_judge_report,
 )
 compare_candidate_to_peers = cast(
     Callable[..., Any],
-    _training_module_proxy("research", "compare_candidate_to_peers"),
+    training_research.compare_candidate_to_peers,
 )
 run_validation_orchestrator = cast(
     Callable[..., Any],
-    _training_module_proxy("research", "run_validation_orchestrator"),
+    training_research.run_validation_orchestrator,
 )
 build_optimization_lineage = cast(
     Callable[..., dict[str, Any]],
-    _training_module_proxy("observability", "build_optimization_lineage"),
+    training_observability.build_optimization_lineage,
 )
 build_feedback_optimization_event = cast(
     Callable[..., Any],
-    _training_module_proxy("observability", "build_feedback_optimization_event"),
+    training_observability.build_feedback_optimization_event,
 )
 build_llm_optimization_event = cast(
     Callable[..., Any],
-    _training_module_proxy("observability", "build_llm_optimization_event"),
+    training_observability.build_llm_optimization_event,
 )
 build_evolution_optimization_event = cast(
     Callable[..., Any],
-    _training_module_proxy("observability", "build_evolution_optimization_event"),
+    training_observability.build_evolution_optimization_event,
 )
 build_optimization_error_event = cast(
     Callable[..., Any],
-    _training_module_proxy("observability", "build_optimization_error_event"),
+    training_observability.build_optimization_error_event,
 )
 build_review_boundary_event = cast(
     Callable[..., Any],
-    _training_module_proxy("observability", "build_review_boundary_event"),
+    training_observability.build_review_boundary_event,
 )
 finalize_review_boundary_effects = cast(
     Callable[..., None],
-    _training_module_proxy("observability", "finalize_review_boundary_effects"),
+    training_observability.finalize_review_boundary_effects,
 )
 emit_optimization_start_boundary = cast(
     Callable[..., None],
-    _training_module_proxy("observability", "emit_optimization_start_boundary"),
+    training_observability.emit_optimization_start_boundary,
 )
 record_feedback_optimization_boundary_effects = cast(
     Callable[..., None],
-    _training_module_proxy("observability", "record_feedback_optimization_boundary_effects"),
+    training_observability.record_feedback_optimization_boundary_effects,
 )
 record_llm_optimization_boundary_effects = cast(
     Callable[..., None],
-    _training_module_proxy("observability", "record_llm_optimization_boundary_effects"),
+    training_observability.record_llm_optimization_boundary_effects,
 )
 record_evolution_optimization_boundary_effects = cast(
     Callable[..., None],
-    _training_module_proxy("observability", "record_evolution_optimization_boundary_effects"),
+    training_observability.record_evolution_optimization_boundary_effects,
 )
 record_runtime_mutation_boundary_effects = cast(
     Callable[..., None],
-    _training_module_proxy("observability", "record_runtime_mutation_boundary_effects"),
+    training_observability.record_runtime_mutation_boundary_effects,
 )
 build_runtime_mutation_boundary = cast(
     Callable[..., Any],
-    _training_module_proxy("observability", "build_runtime_mutation_boundary"),
+    training_observability.build_runtime_mutation_boundary,
 )
 emit_optimization_error_boundary = cast(
     Callable[..., None],
-    _training_module_proxy("observability", "emit_optimization_error_boundary"),
+    training_observability.emit_optimization_error_boundary,
 )
 emit_optimization_completed_boundary = cast(
     Callable[..., None],
-    _training_module_proxy("observability", "emit_optimization_completed_boundary"),
+    training_observability.emit_optimization_completed_boundary,
 )
 
 
 def normalize_manager_id(value: Any, *, default: str = "momentum") -> str:
-    return _call_training_module("policy", "normalize_manager_id", value, default=default)
+    return training_policy.normalize_manager_id(value, default=default)
 
 
 def resolve_manager_config_ref(
     manager_id: Any,
     manager_config_ref: Any = None,
 ) -> str:
-    return _call_training_module(
-        "policy",
-        "resolve_manager_config_ref",
+    return training_policy.resolve_manager_config_ref(
         manager_id,
         manager_config_ref,
     )
@@ -362,9 +327,7 @@ def build_manager_runtime(
     manager_config_ref: Any = None,
     runtime_overrides: dict[str, Any] | None = None,
 ) -> Any:
-    return _call_training_module(
-        "policy",
-        "build_manager_runtime",
+    return training_policy.build_manager_runtime(
         manager_id=manager_id,
         manager_config_ref=manager_config_ref,
         runtime_overrides=runtime_overrides,
@@ -372,20 +335,14 @@ def build_manager_runtime(
 
 
 def controller_default_manager_id(controller: Any, *, default: str = "momentum") -> str:
-    return _call_training_module(
-        "policy",
-        "controller_default_manager_id",
+    return training_policy.controller_default_manager_id(
         controller,
         default=default,
     )
 
 
 def controller_default_manager_config_ref(controller: Any) -> str:
-    return _call_training_module(
-        "policy",
-        "controller_default_manager_config_ref",
-        controller,
-    )
+    return training_policy.controller_default_manager_config_ref(controller)
 
 
 def runtime_manager_id(manager_runtime: Any, *, fallback: Any = "") -> str:
@@ -1440,8 +1397,8 @@ def apply_safety_override(
         "active_params_snapshot": resolve_active_runtime_params(controller),
         "created_at": datetime.now().isoformat(),
     }
-    ensure_tracking_fields = _resolve_training_module_attr(
-        "observability",
+    ensure_tracking_fields = _resolve_training_callable(
+        training_observability,
         "ensure_proposal_tracking_fields",
     )
     if callable(ensure_tracking_fields):
@@ -1630,19 +1587,18 @@ def _resolve_candidate_proposal_gate(
     proposal_bundle: dict[str, Any],
 ) -> dict[str, Any]:
     candidate_functions: list[Callable[..., Any]] = []
-    training_policy_gate = _resolve_training_module_attr(
-        "policy",
+    training_policy_gate = _resolve_training_callable(
+        training_policy,
         "evaluate_candidate_proposal_gate",
     )
     if callable(training_policy_gate):
         candidate_functions.append(training_policy_gate)
-    try:
-        shared_policy_module = import_module("invest_evolution.investment.shared.policy")
-        shared_policy_gate = getattr(shared_policy_module, "evaluate_candidate_proposal_gate", None)
-        if callable(shared_policy_gate):
-            candidate_functions.append(shared_policy_gate)
-    except Exception:
-        pass
+    shared_policy_gate = _resolve_training_callable(
+        shared_policy_module,
+        "evaluate_candidate_proposal_gate",
+    )
+    if callable(shared_policy_gate):
+        candidate_functions.append(shared_policy_gate)
 
     for gate_fn in candidate_functions:
         invocations: tuple[Callable[[], Any], ...] = (
@@ -1702,8 +1658,8 @@ def _resolve_candidate_event(
     evidence: dict[str, Any],
     notes: str,
 ) -> Any:
-    event = _call_training_module_if_available(
-        "observability",
+    event = _call_training_if_available(
+        training_observability,
         "_new_optimization_event",
         event_factory,
         cycle_id=int(cycle_id),
@@ -1746,12 +1702,18 @@ def _refresh_bundle_tracking(
     proposals = [_runtime_copy_dict(item) for item in list(bundle.get("proposals") or [])]
     if not proposals:
         return _runtime_copy_dict(bundle)
-    apply_proposal_outcome_fn = _resolve_training_module_attr("observability", "apply_proposal_outcome")
-    build_tracking_summary_fn = _resolve_training_module_attr(
-        "observability",
+    apply_proposal_outcome_fn = _resolve_training_callable(
+        training_observability,
+        "apply_proposal_outcome",
+    )
+    build_tracking_summary_fn = _resolve_training_callable(
+        training_observability,
         "build_suggestion_tracking_summary",
     )
-    update_bundle_fn = _resolve_training_module_attr("persistence", "update_cycle_proposal_bundle")
+    update_bundle_fn = _resolve_training_callable(
+        training_persistence,
+        "update_cycle_proposal_bundle",
+    )
     approved_refs = {
         str(item).strip()
         for item in list(
@@ -1929,8 +1891,8 @@ def build_cycle_candidate_from_proposals(
     bundle = _runtime_copy_dict(proposal_bundle or {})
     if not bundle:
         proposals = _cycle_learning_proposals(controller, cycle_id=resolved_cycle_id)
-        persisted_bundle = _call_training_module_if_available(
-            "persistence",
+        persisted_bundle = _call_training_if_available(
+            training_persistence,
             "persist_cycle_proposal_bundle",
             controller,
             cycle_id=resolved_cycle_id,
@@ -2514,9 +2476,7 @@ class TrainingSelectionService:
             )
             return None
 
-        _call_training_module(
-            "observability",
-            "record_selection_boundary_effects",
+        training_observability.record_selection_boundary_effects(
             controller,
             cycle_id=cycle_id,
             selected_codes=selected_codes,
@@ -3356,11 +3316,11 @@ def trigger_loss_optimization(
 
 _latest_runtime_config_mutation_event = cast(
     Callable[[list[dict[str, Any]] | None], dict[str, Any]],
-    _training_module_proxy("observability", "_latest_runtime_config_mutation_event"),
+    training_observability._latest_runtime_config_mutation_event,
 )
 _candidate_runtime_config_meta_ref = cast(
     Callable[[str], str],
-    _training_module_proxy("observability", "_candidate_runtime_config_meta_ref"),
+    training_observability._candidate_runtime_config_meta_ref,
 )
 
 
@@ -3370,12 +3330,13 @@ def build_promotion_record(
     run_context: RunContextPayload | dict[str, Any],
     optimization_events: list[dict[str, Any]] | None = None,
 ) -> PromotionRecordPayload:
-    return _call_training_module(
-        "observability",
-        "build_promotion_record",
-        cycle_id=cycle_id,
-        run_context=cast(dict[str, Any], run_context),
-        optimization_events=optimization_events,
+    return cast(
+        PromotionRecordPayload,
+        training_observability.build_promotion_record(
+            cycle_id=cycle_id,
+            run_context=cast(dict[str, Any], run_context),
+            optimization_events=optimization_events,
+        ),
     )
 
 
@@ -3387,14 +3348,15 @@ def build_lineage_record(
     run_context: RunContextPayload | dict[str, Any],
     optimization_events: list[dict[str, Any]] | None = None,
 ) -> LineageRecordPayload:
-    return _call_training_module(
-        "observability",
-        "build_lineage_record",
-        controller,
-        cycle_id=cycle_id,
-        manager_output=manager_output,
-        run_context=cast(dict[str, Any], run_context),
-        optimization_events=optimization_events,
+    return cast(
+        LineageRecordPayload,
+        training_observability.build_lineage_record(
+            controller,
+            cycle_id=cycle_id,
+            manager_output=manager_output,
+            run_context=cast(dict[str, Any], run_context),
+            optimization_events=optimization_events,
+        ),
     )
 
 
@@ -3622,9 +3584,7 @@ class TrainingOutcomeService:
         portfolio_payload: dict[str, Any],
         dominant_manager_id: str,
     ) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any]]:
-        outcome_boundary = _call_training_module(
-            "observability",
-            "build_outcome_execution_boundary_projection",
+        outcome_boundary = training_observability.build_outcome_execution_boundary_projection(
             controller,
             cycle_id=cycle_id,
             cycle_payload=resolved_cycle_payload,
@@ -4969,9 +4929,7 @@ class TrainingExecutionService:
         if selection_result is None:
             return None
 
-        selection_boundary = _call_training_module(
-            "observability",
-            "build_selection_boundary_projection",
+        selection_boundary = training_observability.build_selection_boundary_projection(
             selection_result,
         )
         selection_context = self._build_selection_stage_context(
@@ -5141,9 +5099,7 @@ class TrainingExecutionService:
             governance_decision=dict(governance_decision or {}),
             execution_snapshot=cast(dict[str, Any], execution_snapshot),
         )
-        research_artifacts, research_feedback = _call_training_module(
-            "observability",
-            "persist_research_boundary_effects",
+        research_artifacts, research_feedback = training_observability.persist_research_boundary_effects(
             controller,
             cycle_id=cycle_id,
             cutoff_date=cutoff_date,
@@ -5357,8 +5313,8 @@ class TrainingExecutionService:
             "current_cycle_learning_proposals",
             current_cycle_learning_proposals,
         )
-        proposal_bundle = _call_training_module_if_available(
-            "persistence",
+        proposal_bundle = _call_training_if_available(
+            training_persistence,
             "persist_cycle_proposal_bundle",
             controller,
             cycle_id=cycle_id,
@@ -5422,9 +5378,7 @@ class TrainingExecutionService:
         simulation_context: SimulationStageContext,
         review_context: ReviewStageContext,
     ) -> OutcomeStageContext:
-        config_snapshot_path = _call_training_module(
-            "observability",
-            "write_runtime_snapshot_boundary",
+        config_snapshot_path = training_observability.write_runtime_snapshot_boundary(
             controller,
             cycle_id=cycle_id,
         )

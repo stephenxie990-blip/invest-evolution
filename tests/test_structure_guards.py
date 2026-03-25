@@ -110,7 +110,7 @@ def test_training_canonical_shape_matches_final_collapse():
             "research.py",
             "review.py",
         },
-        allowed_extras={"isolated_experiments.py"},
+        allowed_extras={"isolated_experiments.py", "optimization_event.py"},
     )
 
 
@@ -146,6 +146,189 @@ def test_train_facade_points_at_canonical_training_owners():
     assert "from invest_evolution.application.training.diagnostics import" not in train_source
     assert "def build_train_parser(" in train_source
     assert "def run_train_cli(" in train_source
+
+
+def test_stock_analysis_facade_points_at_extracted_research_owners():
+    stock_analysis_source = (SRC_ROOT / "application" / "stock_analysis.py").read_text(
+        encoding="utf-8"
+    )
+
+    assert (
+        "from invest_evolution.application.stock_analysis_research_bridge_service import ("
+        in stock_analysis_source
+    )
+    assert (
+        "from invest_evolution.application.stock_analysis_research_resolution_service import ("
+        in stock_analysis_source
+    )
+    assert "class StockAnalysisResearchBridgeService:" not in stock_analysis_source
+    assert "class ResearchResolutionService:" not in stock_analysis_source
+    assert "_LegacyResearchResolutionService" not in stock_analysis_source
+    assert "class _LegacyResearchResolutionService:" not in stock_analysis_source
+
+
+def test_stock_analysis_facade_points_at_extracted_ask_stock_assembly_owner():
+    stock_analysis_source = (SRC_ROOT / "application" / "stock_analysis.py").read_text(
+        encoding="utf-8"
+    )
+
+    assert (
+        "from invest_evolution.application.stock_analysis_ask_stock_assembly import ("
+        in stock_analysis_source
+    )
+    assert "def _build_ask_stock_execution_stage_adapter(" not in stock_analysis_source
+    assert "def _build_ask_stock_response_inputs(" not in stock_analysis_source
+
+
+def test_stock_analysis_facade_points_at_extracted_ask_stock_execution_owner():
+    stock_analysis_source = (SRC_ROOT / "application" / "stock_analysis.py").read_text(
+        encoding="utf-8"
+    )
+
+    assert (
+        "from invest_evolution.application.stock_analysis_ask_stock_execution import ("
+        in stock_analysis_source
+    )
+    assert "AskStockExecutionOrchestrationService(" in stock_analysis_source
+    assert "def _run_ask_stock_execution_stage(" in stock_analysis_source
+    assert "ask_stock_execution_orchestration_service.run_execution_stage(" in stock_analysis_source
+    assert "ask_stock_execution_orchestration_service.resolve_research_outputs(" in stock_analysis_source
+
+
+def test_stock_analysis_facade_points_at_extracted_ask_stock_request_context_owner():
+    stock_analysis_source = (SRC_ROOT / "application" / "stock_analysis.py").read_text(
+        encoding="utf-8"
+    )
+
+    assert (
+        "from invest_evolution.application.stock_analysis_support_services import ("
+        in stock_analysis_source
+        or "from invest_evolution.application.stock_analysis_ask_stock_request_context import ("
+        in stock_analysis_source
+    )
+    assert "def _build_ask_stock_request_context(" in stock_analysis_source
+    assert "ask_stock_request_context_service.build_request_context(" in stock_analysis_source
+
+
+def test_stock_analysis_facade_points_at_extracted_tool_response_builders():
+    stock_analysis_source = (SRC_ROOT / "application" / "stock_analysis.py").read_text(
+        encoding="utf-8"
+    )
+
+    assert (
+        "from invest_evolution.application.stock_analysis_tool_response_builders import ("
+        in stock_analysis_source
+    )
+    assert "build_tool_response = extracted_build_tool_response" in stock_analysis_source
+    assert "build_tool_records_response = extracted_build_tool_records_response" in stock_analysis_source
+
+
+def test_stock_analysis_facade_points_at_extracted_tool_runtime_support():
+    stock_analysis_source = (SRC_ROOT / "application" / "stock_analysis.py").read_text(
+        encoding="utf-8"
+    )
+
+    assert (
+        "from invest_evolution.application.stock_analysis_tool_runtime import ("
+        in stock_analysis_source
+    )
+    assert "support_services = build_stock_analysis_support_services(" in stock_analysis_source
+    assert "return cast(" in stock_analysis_source
+    assert "self.tool_runtime_support_service.resolve_query_context(query)" in stock_analysis_source
+    assert "self.tool_runtime_support_service.resolve_window_context(" in stock_analysis_source
+    assert "return frame.tail(max(minimum, int(days)))" not in stock_analysis_source
+    assert 'return {\n            "start_date": start_date,\n            "end_date": end_date,\n        }' not in stock_analysis_source
+
+
+def test_stock_analysis_facade_points_at_extracted_projection_support():
+    stock_analysis_source = (SRC_ROOT / "application" / "stock_analysis.py").read_text(
+        encoding="utf-8"
+    )
+
+    assert (
+        "from invest_evolution.application.stock_analysis_projection_service import ("
+        in stock_analysis_source
+    )
+    assert "self.stock_analysis_projection_service = (" in stock_analysis_source
+    assert "StockIndicatorProjection = ExtractedStockIndicatorProjection" in stock_analysis_source
+    assert "return extracted_build_indicator_projection(" in stock_analysis_source
+    assert "self.stock_analysis_projection_service.build_snapshot_projection(" in stock_analysis_source
+
+
+def test_stock_analysis_facade_points_at_extracted_observation_support():
+    stock_analysis_source = (SRC_ROOT / "application" / "stock_analysis.py").read_text(
+        encoding="utf-8"
+    )
+
+    assert (
+        "from invest_evolution.application.stock_analysis_observation_service import ("
+        in stock_analysis_source
+    )
+    assert "self.stock_analysis_observation_service = (" in stock_analysis_source
+    assert "return extracted_observation_envelope(result, summary_keys=summary_keys)" in stock_analysis_source
+    assert "return extracted_observation_section(result, key)" in stock_analysis_source
+    assert "return extracted_project_tool_observation(" in stock_analysis_source
+
+
+def test_stock_analysis_facade_points_at_extracted_prompt_support():
+    stock_analysis_source = (SRC_ROOT / "application" / "stock_analysis.py").read_text(
+        encoding="utf-8"
+    )
+
+    assert (
+        "from invest_evolution.application.stock_analysis_prompt_service import ("
+        in stock_analysis_source
+    )
+    assert "self.stock_analysis_prompt_service = (" in stock_analysis_source
+    assert "return self.stock_analysis_prompt_service.stock_tool_definitions(" in stock_analysis_source
+    assert "return self.stock_analysis_prompt_service.default_thought(tool_name)" in stock_analysis_source
+    assert "return extracted_build_llm_assistant_tool_message(" in stock_analysis_source
+    assert "return extracted_build_llm_tool_result_message(" in stock_analysis_source
+    assert "return extracted_stock_system_prompt()" in stock_analysis_source
+    assert "return extracted_build_stock_user_prompt(" in stock_analysis_source
+
+
+def test_stock_analysis_facade_points_at_extracted_parsing_support():
+    stock_analysis_source = (SRC_ROOT / "application" / "stock_analysis.py").read_text(
+        encoding="utf-8"
+    )
+
+    assert (
+        "from invest_evolution.application.stock_analysis_parsing_service import ("
+        in stock_analysis_source
+    )
+    assert "self.stock_analysis_parsing_service = (" in stock_analysis_source
+    assert "return extracted_render_template_args(payload, query=query, days=days)" in stock_analysis_source
+    assert "return extracted_parse_tool_args(raw)" in stock_analysis_source
+
+
+def test_stock_analysis_facade_points_at_extracted_support_service_composition():
+    stock_analysis_source = (SRC_ROOT / "application" / "stock_analysis.py").read_text(
+        encoding="utf-8"
+    )
+
+    assert (
+        "from invest_evolution.application.stock_analysis_support_services import ("
+        in stock_analysis_source
+    )
+    assert "support_services = build_stock_analysis_support_services(" in stock_analysis_source
+    assert "self.batch_analysis_service = support_services.batch_analysis_service" in stock_analysis_source
+    assert "self.tool_runtime_support_service = (" in stock_analysis_source
+
+
+def test_stock_analysis_facade_points_at_extracted_research_service_composition():
+    stock_analysis_source = (SRC_ROOT / "application" / "stock_analysis.py").read_text(
+        encoding="utf-8"
+    )
+
+    assert (
+        "from invest_evolution.application.stock_analysis_research_services import ("
+        in stock_analysis_source
+    )
+    assert "research_services = build_stock_analysis_research_services(" in stock_analysis_source
+    assert "self.research_resolution_service = (" in stock_analysis_source
+    assert "self.research_bridge_service = research_services.research_bridge_service" in stock_analysis_source
+    assert "AskStockExecutionOrchestrationService(" in stock_analysis_source
 
 
 def test_controller_owns_session_and_cycle_context_after_collapse():
