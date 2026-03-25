@@ -1,0 +1,6 @@
+{
+  "hunter": {
+    "llm_model": "fast",
+    "system_prompt": "new prompt"
+  }
+}

@@ -40,7 +40,7 @@ class MomentumRuntime(ManagerRuntime):
         params = self.effective_params()
         market_stats = compute_market_stats(stock_data, cutoff_date, regime_policy=self.config_section("market_regime", {}) or None)
         regime = self._resolve_regime(market_stats)
-        stock_codes = list(stock_data.keys())[: int(self.param("candidate_pool_size"))]
+        stock_codes = self.select_candidate_codes(stock_data, cutoff_date)
         stock_batches = summarize_stock_batches(stock_data, stock_codes, cutoff_date, summary_scoring=self.config_section("summary_scoring", {}) or None)
         stock_summaries = self.build_stock_summary_views(item.summary for item in stock_batches)
         top_n = max(1, int(self.param("top_n")))
@@ -143,7 +143,7 @@ class MeanReversionRuntime(ManagerRuntime):
         market_stats = compute_market_stats(stock_data, cutoff_date, regime_policy=self.config_section("market_regime", {}) or None)
         regime = self._resolve_regime(market_stats)
         runtime_profile = self.regime_profile(regime)
-        stock_codes = list(stock_data.keys())[: int(self.param("candidate_pool_size"))]
+        stock_codes = self.select_candidate_codes(stock_data, cutoff_date)
         stock_batches = summarize_stock_batches(stock_data, stock_codes, cutoff_date, summary_scoring=self.config_section("summary_scoring", {}) or None)
         stock_summaries = self.build_stock_summary_views(item.summary for item in stock_batches)
         scored: List[Dict[str, Any]] = []
@@ -379,7 +379,7 @@ class DefensiveLowVolRuntime(ManagerRuntime):
         market_stats = compute_market_stats(stock_data, cutoff_date, regime_policy=self.config_section("market_regime", {}) or None)
         regime = self._resolve_regime(market_stats)
         runtime_profile = self.regime_profile(regime)
-        stock_codes = list(stock_data.keys())[: int(self.param("candidate_pool_size"))]
+        stock_codes = self.select_candidate_codes(stock_data, cutoff_date)
         stock_batches = summarize_stock_batches(stock_data, stock_codes, cutoff_date, summary_scoring=self.config_section("summary_scoring", {}) or None)
         stock_summaries = self.build_stock_summary_views(item.summary for item in stock_batches)
         min_score = float(self.param("min_defensive_score", 0.15))
@@ -594,7 +594,7 @@ class ValueQualityRuntime(ManagerRuntime):
         params = self.effective_params()
         market_stats = compute_market_stats(stock_data, cutoff_date, regime_policy=self.config_section("market_regime", {}) or None)
         regime = self._resolve_regime(market_stats)
-        stock_codes = list(stock_data.keys())[: int(self.param("candidate_pool_size"))]
+        stock_codes = self.select_candidate_codes(stock_data, cutoff_date)
         stock_batches = summarize_stock_batches(stock_data, stock_codes, cutoff_date, summary_scoring=self.config_section("summary_scoring", {}) or None)
         stock_summaries = self.build_stock_summary_views(item.summary for item in stock_batches)
         min_score = float(self.param("min_value_quality_score", 0.25))

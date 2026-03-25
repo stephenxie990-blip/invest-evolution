@@ -6,6 +6,15 @@ from typing import Dict, Iterable, List, Optional
 import logging
 import numpy as np
 
+from .evaluation_policy import (
+    compute_max_drawdown_pct,
+    compute_monthly_turnover,
+    compute_risk_control_score,
+    compute_signal_accuracy,
+    entry_trade_records,
+    realized_trade_records,
+)
+
 logger = logging.getLogger(__name__)
 
 # Metrics attribution
@@ -113,13 +122,7 @@ class BenchmarkEvaluator:
             sharpe_ratio = 0.0
 
         # 最大回撤
-        peak, max_drawdown = values[0], 0.0
-        for v in values:
-            if v > peak:
-                peak = v
-            dd = (peak - v) / peak * 100
-            if dd > max_drawdown:
-                max_drawdown = dd
+        max_drawdown = compute_max_drawdown_pct(values.tolist())
 
         # Calmar Ratio
         calmar_ratio = annual_return / max_drawdown if max_drawdown > 0 else 0.0
@@ -137,17 +140,35 @@ class BenchmarkEvaluator:
         # 交易统计
         win_rate = profit_loss_ratio = monthly_turnover = 0.0
         if trade_history:
-            sells    = [t for t in trade_history if t.get("action") in ("SELL", "卖出")]
-            if sells:
-                wins   = [t for t in sells if t.get("pnl", 0) > 0]
-                losses = [t for t in sells if t.get("pnl", 0) <= 0]
-                win_rate = len(wins) / len(sells)
-                avg_win  = float(np.mean([t["pnl"] for t in wins])) if wins else 0.0
-                avg_loss = abs(float(np.mean([t["pnl"] for t in losses]))) if losses else 1.0
+            realized = realized_trade_records(trade_history)
+            if realized:
+                wins = [t for t in realized if float(t.get("pnl", 0.0) or 0.0) > 0]
+                losses = [
+                    t for t in realized if float(t.get("pnl", 0.0) or 0.0) <= 0
+                ]
+                win_rate = len(wins) / len(realized)
+                avg_win = (
+                    float(np.mean([float(t.get("pnl", 0.0) or 0.0) for t in wins]))
+                    if wins
+                    else 0.0
+                )
+                avg_loss = (
+                    abs(
+                        float(
+                            np.mean(
+                                [float(t.get("pnl", 0.0) or 0.0) for t in losses]
+                            )
+                        )
+                    )
+                    if losses
+                    else 1.0
+                )
                 profit_loss_ratio = avg_win / avg_loss if avg_loss > 0 else 0.0
 
-            months = max(days / 21, 1)
-            monthly_turnover = (len(trade_history) / months) / max(len(values), 1)
+            monthly_turnover = compute_monthly_turnover(
+                trade_history,
+                daily_values=values.tolist(),
+            )
 
         # 合格判定
         passed: bool = True
@@ -328,6 +349,8 @@ class StrategyEvaluator:
 
         logger.info(f"评估周期 #{cycle_id}: 收益率 {return_pct:.2f}%")
 
+        realized_trades = realized_trade_records(trade_history)
+        entry_trades = entry_trade_records(trade_history)
         signal_accuracy = self._evaluate_signal_accuracy(trade_history)
         timing_score = self._evaluate_timing(daily_records)
         risk_score = self._evaluate_risk_control(trade_history)
@@ -347,6 +370,8 @@ class StrategyEvaluator:
             "winning_trades": cycle_result.get("winning_trades", 0),
             "losing_trades": cycle_result.get("losing_trades", 0),
             "win_rate": cycle_result.get("win_rate", 0.0),
+            "entry_trade_count": len(entry_trades),
+            "realized_trade_count": len(realized_trades),
             "selected_stocks": cycle_result.get("selected_stocks", []),
         }
 
@@ -376,40 +401,30 @@ class StrategyEvaluator:
 
     def _evaluate_signal_accuracy(self, trade_history: Optional[List[Dict]]) -> float:
         default_score = float(self.policy["defaults"].get("empty_signal_score", 0.50))
-        if not trade_history:
-            return default_score
-        winning = sum(1 for t in trade_history if t.get("pnl", 0) > 0)
-        total = len(trade_history)
-        return winning / total if total > 0 else default_score
+        return compute_signal_accuracy(
+            trade_history,
+            default_score=default_score,
+        )
 
     def _evaluate_timing(self, daily_records: Optional[List[Dict]]) -> float:
         default_score = float(self.policy["defaults"].get("empty_timing_score", 0.50))
         if not daily_records:
             return default_score
-        peak = 0.0
-        max_drawdown = 0.0
-        for rec in daily_records:
-            val = rec.get("total_value", 0.0)
-            if val > peak:
-                peak = val
-            if peak > 0:
-                dd = (peak - val) / peak
-                if dd > max_drawdown:
-                    max_drawdown = dd
+        values = [float(rec.get("total_value", 0.0) or 0.0) for rec in daily_records]
+        if not values:
+            return default_score
+        max_drawdown = compute_max_drawdown_pct(values) / 100.0
         return max(0.0, min(1.0, 1.0 - max_drawdown))
 
     def _evaluate_risk_control(self, trade_history: Optional[List[Dict]]) -> float:
         defaults = self.policy["defaults"]
         default_score = float(defaults.get("empty_risk_score", 0.50))
         base_score = float(defaults.get("risk_control_base_score", 0.30))
-        if not trade_history:
-            return default_score
-        sl_tp = sum(
-            1 for t in trade_history
-            if "止损" in t.get("reason", "") or "止盈" in t.get("reason", "")
+        return compute_risk_control_score(
+            trade_history,
+            base_score=base_score,
+            default_score=default_score,
         )
-        total = len(trade_history)
-        return min(1.0, sl_tp / total + base_score) if total > 0 else default_score
 
     def _generate_suggestions(
         self,

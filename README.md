@@ -185,13 +185,13 @@ invest-refresh-contracts --check
 
 ```bash
 # 契约漂移 + focused protocol/golden 回归
-uv run python -m invest_evolution.application.freeze_gate --mode quick
+uv run invest-freeze-gate --mode quick
 
 # 完整 freeze gate 回归门（release 前仍推荐再跑 release-readiness 主链）
-uv run python -m invest_evolution.application.freeze_gate --mode full
+uv run invest-freeze-gate --mode full
 
 # 只列出将执行的命令
-uv run python -m invest_evolution.application.freeze_gate --mode full --list
+uv run invest-freeze-gate --mode full --list
 
 # fresh env smoke gate
 uv run python scripts/run_verification_smoke.py
@@ -200,7 +200,7 @@ uv run python scripts/run_verification_smoke.py
 invest-freeze-gate --mode quick
 ```
 
-- `invest-freeze-gate` 通过当前解释器执行 `python -m pytest/ruff/pyright`；推荐在 `uv sync` 完成后使用，或直接使用 `uv run python -m invest_evolution.application.freeze_gate ...`。
+- `invest-freeze-gate` 内部通过 `uv run pytest/ruff/pyright` 执行质量门；推荐在 `uv sync` 完成后使用，避免手工设置 `PYTHONPATH`。
 - `scripts/run_verification_smoke.py` 是当前最小环境恢复 smoke suite，会先检查环境是否与 `uv.lock` 同步，并验证 `requests` / `rank_bm25` 等关键运行依赖，再跑 focused pytest / ruff / pyright。
 
 ### 4. 兼容 / 批处理方式跑训练（非推荐人类入口）

@@ -111,10 +111,7 @@ def test_readme_documents_canonical_bootstrap_and_smoke_paths():
     assert "uv run python -m invest_evolution.interfaces.cli.train" in readme
     assert "uv run python -m invest_evolution.interfaces.web.server" in readme
     assert "uv run python scripts/run_verification_smoke.py" in readme
-    assert (
-        "uv run python -m invest_evolution.application.freeze_gate --mode quick"
-        in readme
-    )
+    assert "uv run invest-freeze-gate --mode quick" in readme
     assert (
         "普通系统解释器下的裸 `python3 -m invest_evolution...` 不属于源码 checkout 的稳定契约"
         in readme

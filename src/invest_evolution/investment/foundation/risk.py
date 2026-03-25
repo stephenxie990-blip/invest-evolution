@@ -369,10 +369,16 @@ class PortfolioRiskManager:
         positions: Dict,
         initial_capital: float,
         current_capital: float,
+        peak_capital: float | None = None,
         hs300_data: Optional[pd.DataFrame] = None,
     ) -> Dict:
         market_state = self.check_market_state(hs300_data)
-        drawdown = (initial_capital - current_capital) / max(initial_capital, 1)
+        baseline_capital = max(
+            float(initial_capital or 0.0),
+            float(peak_capital or 0.0),
+            1.0,
+        )
+        drawdown = max(0.0, baseline_capital - current_capital) / baseline_capital
 
         industry_exposure: Dict[str, float] = {}
         for code, pos in positions.items():
@@ -438,8 +444,13 @@ class RiskController:
         positions: Dict,
         initial_capital: float,
         current_capital: float,
+        peak_capital: float | None = None,
         hs300_data: Optional[pd.DataFrame] = None,
     ) -> Dict:
         return self.portfolio_risk.check_portfolio_risk(
-            positions, initial_capital, current_capital, hs300_data
+            positions,
+            initial_capital,
+            current_capital,
+            peak_capital,
+            hs300_data,
         )

@@ -401,7 +401,8 @@ class SimulatedTrader:
             return False
 
         weight = position_weight if position_weight is not None else self.position_size_pct
-        available_cash = min(self.initial_capital * weight, self.initial_capital * 0.5, self.cash)
+        current_equity = max(self.get_total_value(), self.cash, 0.0)
+        available_cash = min(current_equity * weight, current_equity * 0.5, self.cash)
 
         shares = (int(available_cash / buy_price) // 100) * 100
         if shares <= 0:
@@ -624,9 +625,10 @@ class SimulatedTrader:
                 positions=positions,
                 initial_capital=self.initial_capital,
                 current_capital=current_value,
+                peak_capital=self.peak_value,
                 hs300_data=hs300_data,
             )
-            result.setdefault("drawdown", drawdown)
+            result["drawdown"] = drawdown
             return result
         if drawdown > 0.12:
             return {"action": "CLOSE_ALL", "reason": f"回撤{drawdown:.1%}>12%，清仓", "drawdown": drawdown}
@@ -641,10 +643,16 @@ class SimulatedTrader:
             return False, f"单股仓位{weight:.1%}>20%"
         if hasattr(self, "risk_controller"):
             sector = self.risk_controller.portfolio_risk.get_industry(ts_code)
+            total_value = max(self.get_total_value(), 1)
             sector_exp = weight + sum(
-                pos.shares * pos.entry_price / max(self.get_total_value(), 1)
+                pos.shares
+                * (
+                    self.get_price(pos.ts_code, self.current_date or "") or pos.entry_price
+                )
+                / total_value
                 for pos in self.positions
-                if self.risk_controller.portfolio_risk.get_industry(pos.ts_code) == sector
+                if self.risk_controller.portfolio_risk.get_industry(pos.ts_code)
+                == sector
             )
             if sector_exp > 0.30:
                 return False, f"行业'{sector}'{sector_exp:.1%}>30%"

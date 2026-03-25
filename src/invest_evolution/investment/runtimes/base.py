@@ -15,6 +15,7 @@ from invest_evolution.investment.contracts import (
     SignalPacket,
     StockSummaryView,
 )
+from .candidate_universe import build_candidate_universe
 from .catalog import (
     COMMON_BENCHMARK_DEFAULTS,
     COMMON_EXECUTION_DEFAULTS,
@@ -257,6 +258,29 @@ class ManagerRuntime(ABC):
             return 0.5
         average = sum(scores) / len(scores)
         return round(max(0.5, min(0.95, average)), 4)
+
+    def select_candidate_codes(
+        self, stock_data: Dict[str, Any], cutoff_date: str
+    ) -> list[str]:
+        candidate_pool_size = int(self.param("candidate_pool_size"))
+        min_history_days = int(self.param("candidate_min_history_days", 20))
+        max_staleness_days = int(self.param("candidate_max_staleness_days", 5))
+        selected = build_candidate_universe(
+            stock_data,
+            cutoff_date=cutoff_date,
+            candidate_pool_size=candidate_pool_size,
+            min_history_days=min_history_days,
+            max_staleness_days=max_staleness_days,
+        )
+        if selected or not stock_data:
+            return selected
+        return build_candidate_universe(
+            stock_data,
+            cutoff_date=cutoff_date,
+            candidate_pool_size=candidate_pool_size,
+            min_history_days=min_history_days,
+            max_staleness_days=3650,
+        )
 
     @abstractmethod
     def build_signal_packet(

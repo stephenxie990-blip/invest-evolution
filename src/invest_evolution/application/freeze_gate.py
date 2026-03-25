@@ -7,74 +7,15 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Sequence
 
+from invest_evolution.application.verification_targets import (
+    CONTRACT_CHECK_CMD,
+    CRITICAL_PYRIGHT_TARGETS,
+    CRITICAL_RUFF_TARGETS,
+    focused_protocol_tests,
+)
+
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
-
-CONTRACT_CHECK_CMD = [sys.executable, 'scripts/generate_runtime_contract_derivatives.py', '--check']
-CRITICAL_RUFF_TARGETS = [
-    'src/invest_evolution/market_data/manager.py',
-    'src/invest_evolution/market_data/repository.py',
-    'src/invest_evolution/agent_runtime/memory.py',
-    'src/invest_evolution/agent_runtime/runtime.py',
-    'src/invest_evolution/agent_runtime/plugins.py',
-    'src/invest_evolution/agent_runtime/presentation.py',
-    'src/invest_evolution/investment/contracts/core.py',
-    'src/invest_evolution/application/lab.py',
-    'src/invest_evolution/application/commander/ops.py',
-    'src/invest_evolution/application/commander/status.py',
-    'src/invest_evolution/application/commander/presentation.py',
-    'src/invest_evolution/interfaces/web/presentation.py',
-    'src/invest_evolution/application/training/observability.py',
-    'src/invest_evolution/application/training/execution.py',
-    'tests/test_brain_scheduler.py',
-    'tests/test_brain_runtime.py',
-    'tests/test_brain_extensions.py',
-    'tests/test_data_unification.py',
-    'tests/test_governance_phase_a_f.py',
-    'tests/test_lab_artifacts.py',
-    'tests/test_schema_contracts.py',
-    'tests/test_structured_output_adapter.py',
-    'tests/test_train_ui_semantics.py',
-    'tests/test_v2_contracts.py',
-    'tests/test_web_training_lab_api.py',
-    'tests/test_commander_unified_entry.py',
-    'tests/test_v2_web_managers_api.py',
-    'tests/test_web_governance_api.py',
-]
-CRITICAL_PYRIGHT_TARGETS = [
-    'src/invest_evolution/market_data/manager.py',
-    'src/invest_evolution/market_data/repository.py',
-    'src/invest_evolution/agent_runtime/memory.py',
-    'src/invest_evolution/agent_runtime/runtime.py',
-    'src/invest_evolution/agent_runtime/plugins.py',
-    'src/invest_evolution/agent_runtime/presentation.py',
-    'src/invest_evolution/application/lab.py',
-    'src/invest_evolution/application/commander_main.py',
-    'src/invest_evolution/application/commander/presentation.py',
-    'src/invest_evolution/application/commander/ops.py',
-    'src/invest_evolution/application/commander/status.py',
-    'src/invest_evolution/interfaces/web/presentation.py',
-    'src/invest_evolution/application/training/observability.py',
-    'src/invest_evolution/application/training/execution.py',
-    'src/invest_evolution/investment/contracts/core.py',
-]
-
-FOCUSED_PROTOCOL_TESTS = [
-    'tests/test_schema_contracts.py',
-    'tests/test_architecture_closure_assets.py',
-    'tests/test_commander_transcript_golden.py',
-    'tests/test_commander_mutating_workflow_golden.py',
-    'tests/test_commander_direct_planner_golden.py',
-    'tests/test_runtime_api_contract.py',
-    'tests/test_structure_guards.py',
-    'tests/test_v2_contracts.py',
-    'tests/test_structured_output_adapter.py',
-    'tests/test_brain_runtime.py',
-    'tests/test_lab_artifacts.py',
-    'tests/test_governance_phase_a_f.py',
-    'tests/test_web_training_lab_api.py',
-    'tests/test_training_promotion_lineage.py',
-    'tests/test_training_review_protocol.py',
-]
+FOCUSED_PROTOCOL_TESTS = tuple(focused_protocol_tests(include_research=True))
 
 FULL_REGRESSION_TESTS = [
     'tests/test_stock_analysis_react.py',
@@ -108,29 +49,38 @@ def _assert_relative_paths_exist(paths: Sequence[str]) -> None:
         raise ValueError(f'freeze gate references missing repository paths: {rendered}')
 
 
-def _python_module_cmd(module: str, *args: str) -> list[str]:
-    return [sys.executable, '-m', module, *args]
+def _uv_tool_cmd(tool: str, *args: str) -> list[str]:
+    return ['uv', 'run', tool, *args]
 
 
 def build_freeze_gate_steps(*, mode: str = 'full') -> list[FreezeGateStep]:
     normalized_mode = str(mode or 'full').strip().lower()
     if normalized_mode not in {'quick', 'full'}:
         raise ValueError(f'unsupported freeze gate mode: {mode}')
-    _assert_relative_paths_exist([
-        'scripts/generate_runtime_contract_derivatives.py',
-        *CRITICAL_RUFF_TARGETS,
-        *CRITICAL_PYRIGHT_TARGETS,
-        *FOCUSED_PROTOCOL_TESTS,
-        *FULL_REGRESSION_TESTS,
-    ])
+    _assert_relative_paths_exist(
+        [
+            'scripts/generate_runtime_contract_derivatives.py',
+            *CRITICAL_RUFF_TARGETS,
+            *CRITICAL_PYRIGHT_TARGETS,
+            *FOCUSED_PROTOCOL_TESTS,
+            *FULL_REGRESSION_TESTS,
+        ]
+    )
     steps = [
-        FreezeGateStep(name='contract-drift-check', command=CONTRACT_CHECK_CMD),
-        FreezeGateStep(name='focused-protocol-regression', command=_python_module_cmd('pytest', '-q', *FOCUSED_PROTOCOL_TESTS)),
-        FreezeGateStep(name='critical-ruff-check', command=_python_module_cmd('ruff', 'check', *CRITICAL_RUFF_TARGETS)),
-        FreezeGateStep(name='critical-pyright-check', command=_python_module_cmd('pyright', *CRITICAL_PYRIGHT_TARGETS)),
+        FreezeGateStep(name='contract-drift-check', command=list(CONTRACT_CHECK_CMD)),
+        FreezeGateStep(
+            name='focused-protocol-regression',
+            command=_uv_tool_cmd(
+                'pytest',
+                '-q',
+                *FOCUSED_PROTOCOL_TESTS,
+            ),
+        ),
+        FreezeGateStep(name='critical-ruff-check', command=_uv_tool_cmd('ruff', 'check', *CRITICAL_RUFF_TARGETS)),
+        FreezeGateStep(name='critical-pyright-check', command=_uv_tool_cmd('pyright', *CRITICAL_PYRIGHT_TARGETS)),
     ]
     if normalized_mode == 'full':
-        steps.append(FreezeGateStep(name='full-regression-suite', command=_python_module_cmd('pytest', '-q', *FULL_REGRESSION_TESTS)))
+        steps.append(FreezeGateStep(name='full-regression-suite', command=_uv_tool_cmd('pytest', '-q', *FULL_REGRESSION_TESTS)))
     return steps
 
 

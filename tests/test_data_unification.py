@@ -327,7 +327,7 @@ def test_tushare_financial_snapshots_sync_into_canonical_schema(tmp_path, monkey
     assert payload[0][4] == 10.0
     assert payload[0][5] == 100.0
     assert payload[0][6] == 999.0
-    assert payload[0][7] == 1234.5
+    assert payload[0][7] is None
 
 
 def test_akshare_financial_snapshots_sync_into_canonical_schema(tmp_path, monkeypatch):
@@ -383,7 +383,7 @@ def test_akshare_financial_snapshots_sync_into_canonical_schema(tmp_path, monkey
     assert payload[0][4] == 10.0
     assert payload[0][5] == 100.0
     assert payload[0][6] == 888.0
-    assert payload[0][7] == 1000.0
+    assert payload[0][7] is None
 
 
 def test_market_data_cli_financials_requires_tushare_source(monkeypatch):
@@ -702,7 +702,7 @@ def test_training_dataset_builder_attaches_financial_factor_and_status(tmp_path)
             "turnover": 2.0,
             "source": "test",
         }
-        for idx, day in enumerate(["20240102", "20240103", "20240104", "20240105"], start=1)
+        for idx, day in enumerate(["20240401", "20240402", "20240403", "20240405"], start=1)
     ])
     repo.upsert_financial_snapshots([
         {
@@ -720,7 +720,7 @@ def test_training_dataset_builder_attaches_financial_factor_and_status(tmp_path)
     repo.upsert_security_status_daily([
         {
             "code": "sh.600010",
-            "trade_date": "20240105",
+            "trade_date": "20240405",
             "is_st": 0,
             "is_new_stock_window": 0,
             "is_limit_up": 0,
@@ -731,7 +731,7 @@ def test_training_dataset_builder_attaches_financial_factor_and_status(tmp_path)
     repo.upsert_factor_snapshots([
         {
             "code": "sh.600010",
-            "trade_date": "20240105",
+            "trade_date": "20240405",
             "ma5": 10.0,
             "ma10": 9.8,
             "ma20": 9.5,
@@ -758,7 +758,7 @@ def test_training_dataset_builder_attaches_financial_factor_and_status(tmp_path)
     assert "ma5" in frame.columns
     assert "is_limit_up" in frame.columns
     assert frame["industry"].iloc[-1] == "银行"
-    assert frame["market_cap"].iloc[-1] == 1234.5
+    assert pd.isna(frame["market_cap"].iloc[-1])
     assert frame["ma5"].iloc[-1] == 10.0
 
 

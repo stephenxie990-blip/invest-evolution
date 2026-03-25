@@ -14,12 +14,16 @@ runtime/
 runtime/**
 outputs/
 outputs/**
+reports/
+reports/**
 
 # Local workspace state (agent/session/artifacts)
 .workspace/
 .workspace/**
 .Codex/
-agent_settings/
+agent_settings/*
+!agent_settings/
+!agent_settings/agents_config.json
 .learnings/
 .phase1-verify/
 findings.md

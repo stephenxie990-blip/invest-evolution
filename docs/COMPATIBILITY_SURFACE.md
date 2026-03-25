@@ -148,7 +148,8 @@
 
 - 所有产品源码位于 `src/invest_evolution/`
 - 根目录 Python 文件只保留部署相关的 `gunicorn.conf.py`
-- `outputs/`、agent planning 文件、`.Codex/`、`agent_settings/`、`.workspace/` 均视为本地态，不属于版本化公共面
+- `outputs/`、agent planning 文件、`.Codex/`、`.workspace/` 均视为本地态，不属于版本化公共面
+- `agent_settings/agents_config.json` 维护仓库内可复现 baseline；运行时对该文件的本地修改若需保留，应显式提交
 - 历史设计与执行材料进入 `docs/archive/`
 
 ## 维护规则

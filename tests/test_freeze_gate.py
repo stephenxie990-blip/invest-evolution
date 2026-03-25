@@ -18,18 +18,17 @@ def test_build_freeze_gate_steps_quick_contains_contract_and_focused_suite():
         "critical-pyright-check",
     ]
     assert steps[0].command[-1] == "--check"
-    assert "uv" not in steps[1].command
-    assert steps[1].command[:3] == ["python", "-m", "pytest"] or steps[1].command[1:3] == ["-m", "pytest"]
+    assert steps[1].command[:3] == ["uv", "run", "pytest"]
     assert "tests/test_runtime_api_contract.py" in steps[1].command
     assert "tests/test_structured_output_adapter.py" in steps[1].command
     assert "tests/test_v2_contracts.py" in steps[1].command
     assert "tests/test_web_training_lab_api.py" in steps[1].command
     assert "tests/test_training_promotion_lineage.py" in steps[1].command
-    assert steps[2].command[:3] == ["python", "-m", "ruff"] or steps[2].command[1:3] == ["-m", "ruff"]
+    assert steps[2].command[:3] == ["uv", "run", "ruff"]
     assert "src/invest_evolution/agent_runtime/runtime.py" in steps[2].command
     assert "src/invest_evolution/agent_runtime/presentation.py" in steps[2].command
     assert "src/invest_evolution/market_data/manager.py" in steps[2].command
-    assert steps[3].command[:3] == ["python", "-m", "pyright"] or steps[3].command[1:3] == ["-m", "pyright"]
+    assert steps[3].command[:3] == ["uv", "run", "pyright"]
     assert "src/invest_evolution/application/commander/status.py" in steps[3].command
     assert "src/invest_evolution/investment/contracts/core.py" in steps[3].command
     assert "src/invest_evolution/application/commander_main.py" in steps[3].command

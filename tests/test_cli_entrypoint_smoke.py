@@ -107,6 +107,13 @@ def test_managed_python_can_import_canonical_wsgi_entrypoint():
 
 def test_managed_python_gunicorn_check_config_accepts_canonical_wsgi_entrypoint():
     python_bin = _managed_python()
+    availability = _run(
+        python_bin,
+        "-c",
+        "import importlib.util, sys; sys.exit(0 if importlib.util.find_spec('gunicorn') else 1)",
+    )
+    if availability.returncode != 0:
+        pytest.skip("gunicorn prod extra is not installed in the managed environment")
     result = _run(
         python_bin,
         "-m",

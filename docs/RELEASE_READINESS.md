@@ -70,7 +70,7 @@ python3 scripts/bootstrap_env.py --reinstall
 必须通过：
 
 ```bash
-uv run python -m invest_evolution.application.freeze_gate --mode quick
+uv run invest-freeze-gate --mode quick
 ```
 
 验收口径：
@@ -79,6 +79,11 @@ uv run python -m invest_evolution.application.freeze_gate --mode quick
 - focused protocol / golden regression 通过
 - critical `ruff` 通过
 - critical `pyright` 通过
+
+## Verification Evidence
+
+The statuses above are verified by `scripts/run_verification_report.py`, which drops `reports/verification_report.json`.
+Run that script before calling a release ready and cite the generated report—the JSON file is the canonical source for the quick gate, pyright, ruff, and research-feedback outcomes.
 
 ## Stage 2 Canonical Release Verification
 

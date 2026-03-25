@@ -7,6 +7,8 @@ import logging
 from abc import ABC, abstractmethod
 from typing import Any, Optional
 
+from .tool_contracts import agent_prompts_update_schema
+
 logger = logging.getLogger(__name__)
 
 
@@ -103,12 +105,25 @@ class BrainTool(ABC):
 
         if t == "object":
             props = schema.get("properties", {})
+            additional = schema.get("additionalProperties", True)
             for req in schema.get("required", []):
                 if req not in val:
                     errors.append(f"missing required {path + '.' + req if path else req}")
             for key, item in val.items():
                 if key in props:
                     errors.extend(self._validate(item, props[key], path + '.' + key if path else key))
+                    continue
+                if additional is False:
+                    errors.append(f"unexpected field {path + '.' + key if path else key}")
+                    continue
+                if isinstance(additional, dict):
+                    errors.extend(
+                        self._validate(
+                            item,
+                            additional,
+                            path + "." + key if path else key,
+                        )
+                    )
 
         if t == "array" and "items" in schema:
             for i, item in enumerate(val):
@@ -748,7 +763,7 @@ class InvestAgentPromptsUpdateTool(BrainTool):
         return "Update one agent system prompt."
     @property
     def parameters(self) -> dict[str, Any]:
-        return {"type": "object", "properties": {"name": {"type": "string"}, "system_prompt": {"type": "string"}}, "required": ["name", "system_prompt"]}
+        return agent_prompts_update_schema()
     async def execute(self, **kwargs: Any) -> str:
         return _json(self.runtime.update_agent_prompt(agent_name=str(kwargs["name"]), system_prompt=str(kwargs["system_prompt"])))
 

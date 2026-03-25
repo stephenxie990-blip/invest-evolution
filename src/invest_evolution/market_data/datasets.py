@@ -9,7 +9,9 @@ import numpy as np
 import pandas as pd
 
 from invest_evolution.config import config, normalize_date
+from .pit_join import join_financials_point_in_time
 from .repository import MarketDataRepository
+from .universe_policy import DEFAULT_MAX_STALENESS_DAYS, select_universe_codes
 
 logger = logging.getLogger(__name__)
 
@@ -254,18 +256,12 @@ def _prepare_training_frames(
         combined = cast(pd.DataFrame, combined.merge(security_df, on="code", how="left"))
 
     financial_df = _records_frame(
-        repository.query_latest_financial_snapshots(valid_codes, cutoff_norm)
-    )
-    if not financial_df.empty:
-        financial_df = financial_df.reindex(
-            columns=["code", "report_date", "publish_date", "roe", "net_profit", "revenue", "total_assets", "market_cap"]
-        ).rename(
-            columns={
-                "report_date": "financial_report_date",
-                "publish_date": "financial_publish_date",
-            }
+        repository.query_financial_snapshots(
+            valid_codes,
+            cutoff_date=end_date,
         )
-        combined = cast(pd.DataFrame, combined.merge(financial_df, on="code", how="left"))
+    )
+    combined = join_financials_point_in_time(combined, financial_df)
 
     is_st_master = _numeric_series(combined, "is_st_master").fillna(0).astype(int)
     list_dt = _datetime_series(
@@ -602,11 +598,6 @@ def _attach_point_in_time_context(
     # Step 2: Securities & Financials — vectorised map
     # ══════════════════════════════════════════════════════════════
     securities = {row["code"]: row for row in repository.query_securities(codes)}
-    financials = {
-        row["code"]: row
-        for row in repository.query_latest_financial_snapshots(codes, cutoff_date)
-    }
-
     code_series = _series_from_column(combined, "code").astype(str)
     for key in ("name", "industry", "list_date", "delist_date"):
         lookup = {c: meta.get(key) for c, meta in securities.items()}
@@ -617,17 +608,16 @@ def _attach_point_in_time_context(
     }
     combined["is_st_master"] = code_series.map(is_st_lookup).fillna(0).astype(int)
 
-    for fin_key, fin_col in [
-        ("report_date", "financial_report_date"),
-        ("publish_date", "financial_publish_date"),
-        ("roe", "roe"),
-        ("net_profit", "net_profit"),
-        ("revenue", "revenue"),
-        ("total_assets", "total_assets"),
-        ("market_cap", "market_cap"),
-    ]:
-        lookup = {c: fin.get(fin_key) for c, fin in financials.items()}
-        combined[fin_col] = code_series.map(lookup)
+    financial_cutoff = end_date or cutoff_date
+    financial_start = start_date
+    financial_rows = _records_frame(
+        repository.query_financial_snapshots(
+            codes,
+            cutoff_date=financial_cutoff,
+            start_date=financial_start,
+        )
+    )
+    combined = join_financials_point_in_time(combined, financial_rows)
 
     t2 = time.perf_counter()
     logger.debug("[enrich] Step 2 securities+financials: %.2fs", t2 - t1)
@@ -1485,10 +1475,28 @@ class MockDataProvider:
         del include_future_days, include_capital_flow
         selected: Dict[str, pd.DataFrame] = {}
         cutoff = normalize_date(cutoff_date)
-        for code in list(self.data.keys())[: max(1, int(stock_count))]:
-            df = self.data[code]
-            if int((df["trade_date"] <= cutoff).sum()) >= max(1, int(min_history_days)):
-                selected[code] = df.copy()
+        candidates: list[dict[str, Any]] = []
+        for code, df in self.data.items():
+            trade_dates = df["trade_date"].astype(str).map(normalize_date)
+            history_mask = trade_dates <= cutoff
+            history_days = int(history_mask.sum())
+            last_trade_date = str(trade_dates[history_mask].max()) if history_days > 0 else ""
+            candidates.append(
+                {
+                    "code": str(code),
+                    "history_days": history_days,
+                    "last_trade_date": last_trade_date,
+                }
+            )
+        selected_codes = select_universe_codes(
+            candidates=candidates,
+            cutoff_date=cutoff,
+            stock_count=stock_count,
+            min_history_days=min_history_days,
+            max_staleness_days=DEFAULT_MAX_STALENESS_DAYS,
+        )
+        for code in selected_codes:
+            selected[code] = self.data[code].copy()
         return selected
 
 

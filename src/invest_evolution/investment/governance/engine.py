@@ -19,6 +19,9 @@ from invest_evolution.investment.contracts import AllocationPlan, GovernanceDeci
 from invest_evolution.investment.foundation.compute import compute_market_stats
 from invest_evolution.investment.managers import resolve_manager_config_ref
 from invest_evolution.investment.runtimes import list_manager_runtime_ids
+from invest_evolution.investment.governance.regime_confidence import (
+    build_regime_confidence_map,
+)
 from invest_evolution.investment.shared.policy import (
     evaluate_governance_quality_gate,
     get_manager_style_profile,
@@ -1952,6 +1955,12 @@ def build_leaderboard(
         dominant_regime = (
             max(regimes.items(), key=lambda pair: pair[1])[0] if regimes else "unknown"
         )
+        regime_confidence = build_regime_confidence_map(
+            items,
+            min_cycles_per_regime=max(
+                1, int(resolved_policy.get("min_cycles_per_regime", 1) or 1)
+            ),
+        )
         eligible_for_governance, ineligible_reason, sample_gate = (
             _eligibility_for_entry(
                 cycle_count=len(items),
@@ -1960,6 +1969,16 @@ def build_leaderboard(
                 policy=resolved_policy,
             )
         )
+        undercovered_regimes = [
+            regime_name
+            for regime_name, summary in regime_confidence.items()
+            if bool(dict(summary or {}).get("exploratory_only", False))
+        ]
+        sample_gate = {
+            **sample_gate,
+            "undercovered_regimes": undercovered_regimes,
+            "exploratory_only": bool(undercovered_regimes),
+        }
         latest_item = items[-1]
         latest_run_context = dict(latest_item.get("run_context") or {})
         latest_lineage_record = dict(latest_item.get("lineage_record") or {})
@@ -2019,6 +2038,8 @@ def build_leaderboard(
             ),
             "promotion_status": str(latest_promotion_record.get("status") or ""),
             "sample_gate": sample_gate,
+            "regime_confidence": regime_confidence,
+            "exploratory_only": bool(sample_gate.get("exploratory_only", False)),
             "quality_gate": {},
             "eligible_for_governance": False,
             "ineligible_reason": ineligible_reason,
