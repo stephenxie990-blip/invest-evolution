@@ -165,6 +165,18 @@ def _evidence_support_score(record: dict[str, Any]) -> int:
     return score
 
 
+def _has_similarity_anchor(record: dict[str, Any]) -> bool:
+    return any(
+        (
+            str(record.get("regime") or "").strip() not in {"", "unknown"},
+            str(record.get("selection_mode") or "").strip() not in {"", "unknown"},
+            bool(_primary_driver(record)),
+            bool(_feedback_bias(record)),
+            int(record.get("evidence_score") or 0) > 0,
+        )
+    )
+
+
 def _failure_signature(record: dict[str, Any]) -> dict[str, Any]:
     return {
         "return_direction": "profit" if bool(record.get("is_profit", False)) else "loss",
@@ -267,6 +279,18 @@ def _build_similar_results(
     minimum_score = 5
     ranked: list[tuple[int, int, dict[str, Any], list[str]]] = []
     history = list(getattr(controller, "cycle_history", []) or [])
+    if not _has_similarity_anchor(current_result):
+        return [], {
+            "target_cycle_id": int(cycle_id),
+            "matched_cycle_ids": [],
+            "match_features": [],
+            "dominant_regime": str(current_result.get("regime") or "unknown"),
+            "compared_history_size": len(history),
+            "strict_failure_match_count": 0,
+            "matched_primary_driver": _primary_driver(current_result),
+            "matched_feedback_bias": _feedback_bias(current_result),
+            "avg_evidence_score": 0.0,
+        }
     requires_strict_failure_match = not bool(current_result.get("is_profit", False))
     if requires_strict_failure_match:
         minimum_score = 7

@@ -10,8 +10,8 @@ from typing import Any
 from config import PROJECT_ROOT, AgentConfigRegistry, agent_config_registry, config
 from config.control_plane import ControlPlaneConfigService, get_default_llm_status
 from config.services import EvolutionConfigService, RuntimePathConfigService
-from invest.allocator import build_allocation_plan
-from invest.leaderboard import write_leaderboard
+from invest.allocator import ModelAllocator
+from invest.leaderboard import build_leaderboard, collect_cycle_records, write_leaderboard
 from invest.models import list_models
 from market_data.gateway import MarketDataGateway
 from market_data.services import MarketQueryService
@@ -27,6 +27,7 @@ class DataDownloadJob:
 
 _DATA_DOWNLOAD_LOCK = threading.Lock()
 _DATA_DOWNLOAD_JOB = DataDownloadJob()
+_ALLOCATOR_SAMPLE_GATE_REASONS = {"min_cycles", "min_regime_cycles"}
 
 
 class ConfigSurfaceValidationError(ValueError):
@@ -57,18 +58,93 @@ def get_leaderboard_payload(runtime: Any) -> dict[str, Any]:
     return write_leaderboard(root_dir)
 
 
+def _build_relaxed_allocator_preview(
+    *,
+    root_dir: Path,
+    leaderboard: dict[str, Any],
+    allocator: ModelAllocator,
+    strict_plan: Any,
+    regime: str,
+    top_n: int,
+    as_of_date: str,
+):
+    preview_candidates = [
+        dict(entry)
+        for entry in list(leaderboard.get("entries") or [])
+        if str(entry.get("ineligible_reason") or "") in _ALLOCATOR_SAMPLE_GATE_REASONS
+        and bool(dict(entry.get("quality_gate") or {}).get("passed", False))
+    ]
+    if not preview_candidates:
+        return None
+
+    preview_policy = dict(leaderboard.get("policy") or {})
+    preview_policy["min_cycles"] = 1
+    preview_policy["min_cycles_per_regime"] = 1
+    preview_policy["quality_gate_matrix"] = dict(
+        leaderboard.get("quality_gate_matrix")
+        or preview_policy.get("quality_gate_matrix")
+        or {}
+    )
+    relaxed_leaderboard = build_leaderboard(
+        collect_cycle_records(root_dir),
+        policy=preview_policy,
+    )
+    preview_plan = allocator.allocate(
+        regime,
+        relaxed_leaderboard,
+        as_of_date=as_of_date,
+        top_n=top_n,
+    )
+    if not preview_plan.active_models:
+        return None
+    preview_plan.reasoning = (
+        "预览模式：正式路由仍受样本门限制；以下为放宽样本门槛后的候选分配，仅供分析比较。"
+        f" {preview_plan.reasoning}"
+    )
+    preview_plan.metadata = {
+        **dict(preview_plan.metadata or {}),
+        "preview_mode": "relaxed_sample_gate",
+        "strict_qualified_candidate_count": int(
+            dict(strict_plan.metadata or {}).get("qualified_candidate_count", 0) or 0
+        ),
+        "strict_reasoning": str(getattr(strict_plan, "reasoning", "") or ""),
+        "strict_failed_reasons": sorted(
+            {
+                str(entry.get("ineligible_reason") or "")
+                for entry in preview_candidates
+                if str(entry.get("ineligible_reason") or "").strip()
+            }
+        ),
+    }
+    return relaxed_leaderboard, preview_plan
+
+
 def get_allocator_payload(runtime: Any, *, regime: str = "oscillation", top_n: int = 3, as_of_date: str | None = None) -> dict[str, Any]:
     root_dir = Path(runtime.cfg.training_output_dir).parent
     leaderboard = write_leaderboard(root_dir)
-    leaderboard_path = root_dir / "leaderboard.json"
-    plan = build_allocation_plan(
+    allocator = ModelAllocator()
+    target_as_of_date = as_of_date or datetime.now().strftime("%Y%m%d")
+    plan = allocator.allocate(
         regime,
-        leaderboard_path,
-        as_of_date=as_of_date or datetime.now().strftime("%Y%m%d"),
+        leaderboard,
+        as_of_date=target_as_of_date,
         top_n=max(1, min(4, int(top_n or 3))),
     )
+    plan_leaderboard = leaderboard
+    if not plan.active_models:
+        relaxed_preview = _build_relaxed_allocator_preview(
+            root_dir=root_dir,
+            leaderboard=leaderboard,
+            allocator=allocator,
+            strict_plan=plan,
+            regime=regime,
+            top_n=max(1, min(4, int(top_n or 3))),
+            as_of_date=target_as_of_date,
+        )
+        if relaxed_preview is not None:
+            plan_leaderboard, plan = relaxed_preview
     return {
-        "leaderboard_generated_at": leaderboard.get("generated_at"),
+        "leaderboard_generated_at": plan_leaderboard.get("generated_at"),
         "allocation": plan.to_dict(),
     }
 

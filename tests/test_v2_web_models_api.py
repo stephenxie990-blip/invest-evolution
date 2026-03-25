@@ -107,3 +107,4 @@ def test_allocator_api(tmp_path, monkeypatch):
     data = res.get_json()
     assert data["allocation"]["regime"] == "bear"
     assert "defensive_low_vol" in data["allocation"]["active_models"]
+    assert data["allocation"]["metadata"]["preview_mode"] == "relaxed_sample_gate"

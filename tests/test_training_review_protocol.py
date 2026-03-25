@@ -269,3 +269,39 @@ def test_build_review_input_filters_to_matching_failure_signature_and_bias():
     assert review_input["similarity_summary"]["matched_cycle_ids"] == [1]
     assert review_input["similarity_summary"]["matched_primary_driver"] == "benchmark_gap"
     assert review_input["similarity_summary"]["matched_feedback_bias"] == "tighten_risk"
+
+
+def test_build_review_input_skips_similarity_matching_for_sparse_eval_report():
+    controller = SimpleNamespace(
+        cycle_history=[
+            SimpleNamespace(
+                cycle_id=1,
+                cutoff_date="20240101",
+                return_pct=-1.2,
+                is_profit=False,
+                selection_mode="meeting",
+                benchmark_passed=False,
+                review_applied=False,
+                model_name="momentum",
+                config_name="configs/momentum_a.yaml",
+                routing_decision={"regime": "bear"},
+                audit_tags={"routing_regime": "bear"},
+                research_feedback={"recommendation": {"bias": "tighten_risk"}},
+                causal_diagnosis={},
+                llm_used=True,
+            ),
+        ],
+        experiment_review_window={"mode": "rolling", "size": 2},
+        model_name="momentum",
+        model_config_path="configs/momentum_a.yaml",
+    )
+
+    review_input = build_review_input(
+        controller,
+        cycle_id=2,
+        eval_report={"cycle_id": 2},
+    )
+
+    assert review_input["similar_results"] == []
+    assert review_input["similarity_summary"]["matched_cycle_ids"] == []
+    assert review_input["causal_diagnosis"]["primary_driver"] == "insufficient_history"
