@@ -19,7 +19,6 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 if TYPE_CHECKING:
     from invest.shared.contracts import TradingPlan
-    from invest.shared.llm import LLMCaller
 
 logger = logging.getLogger(__name__)
 

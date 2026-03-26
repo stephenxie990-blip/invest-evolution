@@ -200,6 +200,46 @@ def test_leaderboard_quality_gate_blocks_negative_score_and_candidate_stage(tmp_
     assert any(item["name"] == "allowed_deployment_stages" and item["passed"] is False for item in entry["quality_gate"]["failed_checks"])
 
 
+def test_leaderboard_quality_gate_blocks_regime_hard_fail(tmp_path):
+    run_dir = tmp_path / "momentum_regime_fail"
+    run_dir.mkdir(parents=True, exist_ok=True)
+    cycles = [
+        (1, -1.4, "bear", False),
+        (2, -1.1, "bear", False),
+        (3, 3.2, "bull", True),
+    ]
+    for cycle_id, return_pct, regime, benchmark_passed in cycles:
+        (run_dir / f"cycle_{cycle_id}.json").write_text(
+            json.dumps(
+                {
+                    "cycle_id": cycle_id,
+                    "cutoff_date": "20250101",
+                    "return_pct": return_pct,
+                    "is_profit": return_pct > 0,
+                    "benchmark_passed": benchmark_passed,
+                    "model_name": "momentum",
+                    "config_name": "momentum_v1",
+                    "self_assessment": {
+                        "regime": regime,
+                        "sharpe_ratio": 1.0 if return_pct > 0 else 0.4,
+                        "max_drawdown": 4.0 if return_pct > 0 else 6.5,
+                        "excess_return": return_pct / 2,
+                        "overall_score": 0.7 if return_pct > 0 else 0.5,
+                    },
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+
+    board = write_leaderboard(tmp_path)
+    entry = board["entries"][0]
+
+    assert entry["eligible_for_routing"] is False
+    assert entry["ineligible_reason"] == "quality_gate:regime_hard_fail.bear"
+    assert entry["quality_gate"]["regime_hard_fail"]["failed_regime_names"] == ["bear"]
+
+
 def test_leaderboard_policy_uses_explicit_runtime_train_overrides(tmp_path):
     run_dir = tmp_path / "explicit_policy"
     run_dir.mkdir(parents=True, exist_ok=True)

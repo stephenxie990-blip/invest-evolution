@@ -2,19 +2,26 @@
 .venv/
 __pycache__/
 .pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.pyright/
 *.py[cod]
 *.egg-info/
 
 # macOS
 .DS_Store
 
+# Local agent/tooling metadata
+.Codex/
+.learnings/
+
 # Runtime outputs and logs
 runtime/**
 !runtime/
 !runtime/README.md
+outputs/
 
 # Local state and downloaded data
-config/evolution.yaml
 config/*.local.yaml
 .env
 .env.*

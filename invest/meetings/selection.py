@@ -262,6 +262,10 @@ class SelectionMeeting:
                     f"📊 Agent权重更新 {agent}: {old:.2f} → {self.agent_weights[agent]:.2f}"
                 )
 
+    def iter_runtime_llms(self) -> list[Any]:
+        """Expose every runtime LLM touched by the meeting, including debate sidecars."""
+        return list(self._meeting_llms)
+
     # ==================================================================
     # Internal: model roster
     # ==================================================================
@@ -800,9 +804,24 @@ class SelectionMeeting:
         # =============================================================
         # Phase 3: Aggregation (fast, purely in-memory)
         # =============================================================
+        fallback_used = False
+        fallback_reason = ""
         if hunter_outputs:
             result = self._aggregate(hunter_outputs, regime, top_n)
+            if not list(result.get("selected") or []):
+                fallback_used = True
+                fallback_reason = "empty_hunter_selection"
+                fallback = self._run_algorithm(stock_summaries, top_n)
+                fallback["source"] = "algorithm_fallback"
+                fallback["reasoning"] = (
+                    f"{str(result.get('reasoning') or '').strip()} "
+                    "会议未形成有效候选，回退到模型摘要排序。"
+                ).strip()
+                fallback["hunters"] = hunter_outputs
+                result = fallback
         else:
+            fallback_used = True
+            fallback_reason = "no_successful_hunters"
             result = self._run_algorithm(stock_summaries, top_n)
 
         t_total = time.perf_counter() - t_meeting_start
@@ -870,6 +889,10 @@ class SelectionMeeting:
                     {"code": code, **payload}
                     for code, payload in list(debate_results.items())[:20]
                 ],
+            },
+            "fallback": {
+                "used": fallback_used,
+                "reason": fallback_reason,
             },
         }
         logger.info(

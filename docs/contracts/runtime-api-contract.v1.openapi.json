@@ -1836,7 +1836,7 @@
           "config"
         ],
         "summary": "Patch editable evolution training/runtime configuration.",
-        "description": "Security: llm_api_key should be sourced from env or config/evolution.local.yaml; response remains masked.\nWeb UI has been removed; agent and CLI workflows should use API, SSE and commander entrypoints.",
+        "description": "Security: llm_api_key should be sourced from env or config/control_plane.local.yaml; response remains masked.\nWeb UI has been removed; agent and CLI workflows should use API, SSE and commander entrypoints.",
         "responses": {
           "200": {
             "description": "Patch editable evolution training/runtime configuration.",

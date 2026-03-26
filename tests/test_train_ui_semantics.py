@@ -91,10 +91,14 @@ def test_set_llm_dry_run_updates_agent_llms_and_keeps_mock_alias(tmp_path):
     assert controller.llm_caller.dry_run is True
     assert controller.llm_mode == 'dry_run'
     assert all(getattr(agent.llm, 'dry_run', False) is True for agent in controller.agents.values() if getattr(agent, 'llm', None) is not None)
+    assert all(getattr(llm, 'dry_run', False) is True for llm in controller.selection_meeting.iter_runtime_llms())
+    assert all(getattr(llm, 'dry_run', False) is True for llm in controller.review_meeting.iter_runtime_llms())
 
     controller.set_mock_mode(False)
     assert controller.llm_caller.dry_run is False
     assert controller.llm_mode == 'live'
+    assert all(getattr(llm, 'dry_run', True) is False for llm in controller.selection_meeting.iter_runtime_llms())
+    assert all(getattr(llm, 'dry_run', True) is False for llm in controller.review_meeting.iter_runtime_llms())
 
 
 def test_controller_respects_debate_config(monkeypatch, tmp_path):

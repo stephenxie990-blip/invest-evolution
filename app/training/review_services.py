@@ -4,6 +4,7 @@ import logging
 from typing import Any
 
 from invest.contracts import EvalReport
+from app.training.runtime_discipline import record_learning_proposal
 
 logger = logging.getLogger(__name__)
 
@@ -79,37 +80,68 @@ class TrainingReviewService:
         review_event: Any,
     ) -> bool:
         review_applied = False
+        proposal_refs: list[str] = []
         if review_decision.get("param_adjustments"):
-            controller.current_params.update(review_decision["param_adjustments"])
-            if getattr(controller, "investment_model", None) is not None:
-                controller.investment_model.update_runtime_overrides(
-                    review_decision["param_adjustments"]
-                )
+            sanitize = getattr(controller, "_sanitize_runtime_param_adjustments", None)
+            param_adjustments = (
+                sanitize(review_decision["param_adjustments"])
+                if callable(sanitize)
+                else dict(review_decision["param_adjustments"])
+            )
+            proposal = record_learning_proposal(
+                controller,
+                source="review.param_adjustment",
+                patch=param_adjustments,
+                target_scope="candidate",
+                rationale=str(review_decision.get("reasoning") or ""),
+                evidence={
+                    "cycle_id": int(cycle_id),
+                    "strategy_suggestions": list(review_decision.get("strategy_suggestions", [])),
+                },
+                metadata={"proposal_kind": "param_adjustment"},
+                cycle_id=cycle_id,
+            )
+            proposal_refs.append(str(proposal["proposal_id"]))
             review_applied = True
             review_event.applied_change.update(
-                {"params": dict(review_decision["param_adjustments"])}
+                {"queued_param_adjustments": dict(param_adjustments)}
             )
-            logger.info("根据复盘调整参数: %s", review_decision["param_adjustments"])
+            logger.info("根据复盘记录参数提案: %s", param_adjustments)
             controller._emit_agent_status(
                 "ReviewMeeting",
                 "completed",
-                f"参数已调整: {list(review_decision.get('param_adjustments', {}).keys())}",
+                f"参数提案已记录: {list(param_adjustments.keys())}",
                 cycle_id=cycle_id,
                 stage="review_meeting",
                 progress_pct=96,
                 step=4,
                 total_steps=6,
                 details=review_decision,
-                adjustments=review_decision.get("param_adjustments", {}),
+                adjustments=param_adjustments,
             )
 
         if review_decision.get("agent_weight_adjustments"):
-            controller.selection_meeting_service.update_weights(
-                review_decision["agent_weight_adjustments"]
+            proposal = record_learning_proposal(
+                controller,
+                source="review.agent_weight_adjustment",
+                patch=dict(review_decision["agent_weight_adjustments"]),
+                target_scope="candidate",
+                rationale=str(review_decision.get("reasoning") or ""),
+                evidence={"cycle_id": int(cycle_id)},
+                metadata={"proposal_kind": "agent_weight_adjustment"},
+                cycle_id=cycle_id,
             )
+            proposal_refs.append(str(proposal["proposal_id"]))
             review_applied = True
             review_event.applied_change.update(
-                {"agent_weights": dict(review_decision["agent_weight_adjustments"])}
+                {
+                    "queued_agent_weight_adjustments": dict(
+                        review_decision["agent_weight_adjustments"]
+                    )
+                }
             )
+
+        if proposal_refs:
+            review_event.applied_change["proposal_refs"] = proposal_refs
 
         return review_applied

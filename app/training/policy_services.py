@@ -7,6 +7,7 @@ from invest.foundation.risk.controller import sanitize_risk_params
 from invest.models.defaults import COMMON_BENCHMARK_DEFAULTS
 from invest.shared.model_governance import (
     normalize_freeze_gate_policy,
+    normalize_proposal_gate_policy,
     normalize_promotion_gate_policy,
     resolve_model_governance_matrix,
 )
@@ -73,6 +74,17 @@ class TrainingPolicyService:
             )
         return clean
 
+    @staticmethod
+    def _resolve_train_scalar(controller: Any, key: str, fallback: int) -> int:
+        experiment_overrides = dict(getattr(controller, "experiment_train_policy_overrides", {}) or {})
+        manual_overrides = dict(getattr(controller, "manual_train_policy_overrides", {}) or {})
+        for source in (experiment_overrides, manual_overrides):
+            if source.get(key) is None:
+                continue
+            return int(source.get(key))
+        train_policy = dict(getattr(controller, "train_policy", {}) or {})
+        return int(train_policy.get(key, fallback) or fallback)
+
     def sync_runtime_policy(self, controller: Any) -> None:
         if getattr(controller, "investment_model", None) is None:
             return
@@ -93,6 +105,19 @@ class TrainingPolicyService:
         controller.risk_policy = controller.investment_model.config_section("risk_policy", {}) or {}
         controller.evaluation_policy = controller.investment_model.config_section("evaluation_policy", {}) or {}
         controller.review_policy = controller.investment_model.config_section("review_policy", {}) or {}
+        model_config = getattr(controller.investment_model, "config", None)
+        model_config_data = dict(getattr(model_config, "data", {}) or {})
+        controller.strategy_family = str(
+            model_config_data.get("kind")
+            or getattr(controller, "model_name", "")
+            or ""
+        )
+        controller.strategy_family_risk_budgets = (
+            controller.investment_model.config_section("strategy_family_risk_budgets", {}) or {}
+        )
+        controller.regime_controls = (
+            controller.investment_model.config_section("regime_controls", {}) or {}
+        )
         controller.strategy_evaluator.set_policy(controller.evaluation_policy)
         controller.review_meeting_service.set_policy(controller.review_policy)
 
@@ -114,20 +139,20 @@ class TrainingPolicyService:
         )
 
         controller.train_policy = controller.investment_model.config_section("train", {}) or {}
-        controller.freeze_total_cycles = int(
-            controller.train_policy.get("freeze_total_cycles", controller.freeze_total_cycles)
-            or controller.freeze_total_cycles
+        controller.freeze_total_cycles = self._resolve_train_scalar(
+            controller,
+            "freeze_total_cycles",
+            int(getattr(controller, "freeze_total_cycles", 10) or 10),
         )
-        controller.freeze_profit_required = int(
-            controller.train_policy.get("freeze_profit_required", controller.freeze_profit_required)
-            or controller.freeze_profit_required
+        controller.freeze_profit_required = self._resolve_train_scalar(
+            controller,
+            "freeze_profit_required",
+            int(getattr(controller, "freeze_profit_required", 7) or 7),
         )
-        controller.max_losses_before_optimize = int(
-            controller.train_policy.get(
-                "max_losses_before_optimize",
-                controller.max_losses_before_optimize,
-            )
-            or controller.max_losses_before_optimize
+        controller.max_losses_before_optimize = self._resolve_train_scalar(
+            controller,
+            "max_losses_before_optimize",
+            int(getattr(controller, "max_losses_before_optimize", 3) or 3),
         )
         controller.freeze_gate_policy = normalize_freeze_gate_policy(
             dict(controller.train_policy.get("freeze_gate") or {})
@@ -135,8 +160,12 @@ class TrainingPolicyService:
         controller.promotion_gate_policy = normalize_promotion_gate_policy(
             dict(controller.train_policy.get("promotion_gate") or {})
         )
+        controller.proposal_gate_policy = normalize_proposal_gate_policy(
+            dict(controller.train_policy.get("proposal_gate") or {})
+        )
         controller.quality_gate_matrix = resolve_model_governance_matrix(
-            dict(controller.train_policy.get("quality_gate_matrix") or {})
+            dict(controller.train_policy.get("quality_gate_matrix") or {}),
+            strategy_family=controller.strategy_family,
         )
         if not dict(getattr(controller, "experiment_promotion_policy", {}) or {}):
             controller.experiment_promotion_policy = dict(controller.promotion_gate_policy)

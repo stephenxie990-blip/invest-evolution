@@ -108,14 +108,23 @@ def test_trigger_loss_optimization_generates_candidate_without_auto_apply():
     events = trigger_loss_optimization(controller, {'cycle_id': 7}, [], event_factory=Event)
 
     assert controller.consecutive_losses == 0
-    assert len(events) == 3
-    assert [event['stage'] for event in events] == ['llm_analysis', 'evolution_engine', 'yaml_mutation']
-    assert events[-1]['decision']['auto_applied'] is False
-    assert controller.current_params['position_size'] == 0.12
-    assert controller.current_params['take_profit_pct'] == 0.18
+    assert len(events) == 2
+    assert [event['stage'] for event in events] == ['llm_analysis', 'evolution_engine']
+    assert controller.current_params['position_size'] == 0.2
+    assert controller.current_params['take_profit_pct'] == 0.15
+    assert len(controller.current_cycle_learning_proposals) == 2
+    assert any(
+        proposal['patch'] == {'position_size': 0.12}
+        for proposal in controller.current_cycle_learning_proposals
+    )
+    assert any(
+        proposal['patch'] == {'take_profit_pct': 0.18}
+        for proposal in controller.current_cycle_learning_proposals
+    )
+    assert controller.investment_model.overrides == []
     assert optimized and optimized[-1]['take_profit_pct'] == 0.18
-    assert appended[-1]['stage'] == 'yaml_mutation'
-    assert any(kwargs.get('kind') == 'yaml_mutation' for _, kwargs in logs)
+    assert appended[-1]['stage'] == 'evolution_engine'
+    assert not any(kwargs.get('kind') == 'candidate_build' for _, kwargs in logs)
 
 
 def test_trigger_loss_optimization_uses_benchmark_oriented_fitness_scores():
@@ -177,13 +186,11 @@ def test_trigger_loss_optimization_emits_cycle_id_and_lineage_contract_fields():
     assert all(event['cycle_id'] == 11 for event in events)
     assert all('lineage' in event for event in events)
     assert all(event['lineage']['active_config_ref'] for event in events)
-    mutation_event = next(item for item in events if item['stage'] == 'yaml_mutation')
-    assert mutation_event['lineage']['deployment_stage'] == 'candidate'
-    assert mutation_event['lineage']['candidate_config_ref'].endswith('candidate.yaml')
-    assert mutation_event['evidence']['auto_applied'] is False
+    assert all(event['lineage']['deployment_stage'] == 'active' for event in events)
+    assert all(event['lineage']['candidate_config_ref'] == '' for event in events)
 
 
-def test_trigger_loss_optimization_skips_new_candidate_when_pending_candidate_is_unresolved():
+def test_trigger_loss_optimization_keeps_candidate_build_out_of_optimization_stage():
     appended = []
     controller = SimpleNamespace(
         consecutive_losses=3,
@@ -221,8 +228,6 @@ def test_trigger_loss_optimization_skips_new_candidate_when_pending_candidate_is
 
     events = trigger_loss_optimization(controller, {'cycle_id': 12}, [], event_factory=Event)
 
-    assert [event['stage'] for event in events] == ['llm_analysis', 'evolution_engine', 'yaml_mutation_skipped']
-    skipped_event = events[-1]
-    assert skipped_event['decision']['pending_candidate_ref'].endswith('pending_candidate.yaml')
-    assert skipped_event['lineage']['deployment_stage'] == 'candidate'
-    assert appended[-1]['stage'] == 'yaml_mutation_skipped'
+    assert [event['stage'] for event in events] == ['llm_analysis', 'evolution_engine']
+    assert appended[-1]['stage'] == 'evolution_engine'
+    assert len(controller.current_cycle_learning_proposals) == 2

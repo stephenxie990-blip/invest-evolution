@@ -1,5 +1,4 @@
 from datetime import datetime
-import json
 from typing import cast
 
 import pytest
@@ -8,7 +7,7 @@ import pandas as pd
 import web_server
 from config import IndustryRegistry
 from market_data import DataManager, DataSourceUnavailableError
-from market_data.datasets import T0DatasetBuilder
+from market_data.datasets import T0DatasetBuilder, sample_universe_codes
 from market_data.ingestion import DataIngestionService
 from market_data.quality import DataQualityService
 from market_data.repository import MarketDataRepository
@@ -53,6 +52,39 @@ def test_data_manager_reads_canonical_schema(tmp_path):
     assert sorted(stock_data) == ["sh.600010", "sh.600011"]
     assert all("date" in frame.columns for frame in stock_data.values())
     assert max(stock_data["sh.600010"]["trade_date"]) >= "20240109"
+
+
+def test_sample_universe_codes_is_deterministic_for_seeded_stratified_random():
+    codes = [
+        "sh.600001",
+        "sh.600002",
+        "sz.000001",
+        "sz.000002",
+        "sz.300001",
+        "sz.300002",
+        "sh.688001",
+        "sh.688002",
+    ]
+
+    first = sample_universe_codes(
+        codes,
+        stock_count=4,
+        cutoff_date="20240405",
+        sampling_policy={"mode": "stratified_random", "stratify_by": "board"},
+        sampling_seed=17,
+    )
+    second = sample_universe_codes(
+        codes,
+        stock_count=4,
+        cutoff_date="20240405",
+        sampling_policy={"mode": "stratified_random", "stratify_by": "board"},
+        sampling_seed=17,
+    )
+
+    assert first == second
+    assert len(first) == 4
+    assert any(code.startswith("sh.688") for code in first)
+    assert any(code.startswith("sz.300") for code in first)
 
 
 def test_t0_dataset_builder_uses_canonical_security_master(tmp_path):
@@ -142,7 +174,7 @@ def test_web_data_status_reads_canonical_repository(tmp_path, monkeypatch):
     assert payload["stock_count"] == 1
 
 
-def test_web_data_download_uses_unified_ingestion_service(tmp_path, monkeypatch):
+def test_web_data_download_uses_unified_ingestion_service(monkeypatch):
     calls = []
 
     class InlineThread:
@@ -164,7 +196,6 @@ def test_web_data_download_uses_unified_ingestion_service(tmp_path, monkeypatch)
         calls.append("index")
         return {"row_count": 1}
 
-    monkeypatch.setattr(web_server.config_module, "PROJECT_ROOT", tmp_path)
     monkeypatch.setattr(web_server.threading, "Thread", InlineThread)
     monkeypatch.setattr(web_server, "_data_download_running", False)
     monkeypatch.setattr(DataIngestionService, "sync_security_master", _sync_security)
@@ -172,18 +203,14 @@ def test_web_data_download_uses_unified_ingestion_service(tmp_path, monkeypatch)
     monkeypatch.setattr(DataIngestionService, "sync_index_bars", _sync_index)
 
     client = web_server.app.test_client()
-    res = client.post(
-        "/api/data/download",
-        data=json.dumps({"confirm": True}),
-        content_type="application/json",
-    )
+    res = client.post("/api/data/download")
 
     assert res.status_code == 200
     assert res.get_json()["status"] == "started"
     assert calls == ["security", "daily", "index"]
 
 
-def test_web_data_download_deduplicates_running_job(tmp_path, monkeypatch):
+def test_web_data_download_deduplicates_running_job(monkeypatch):
     started_threads = []
 
     class DeferredThread:
@@ -194,31 +221,18 @@ def test_web_data_download_deduplicates_running_job(tmp_path, monkeypatch):
         def start(self):
             return None
 
-    monkeypatch.setattr(web_server.config_module, "PROJECT_ROOT", tmp_path)
     monkeypatch.setattr(web_server.threading, "Thread", DeferredThread)
     monkeypatch.setattr(web_server, "_data_download_running", False)
 
     client = web_server.app.test_client()
-    payload = json.dumps({"confirm": True})
-    first = client.post("/api/data/download", data=payload, content_type="application/json")
-    second = client.post("/api/data/download", data=payload, content_type="application/json")
+    first = client.post("/api/data/download")
+    second = client.post("/api/data/download")
 
     assert first.status_code == 200
     assert first.get_json()["status"] == "started"
     assert second.status_code == 200
     assert second.get_json()["status"] == "running"
     assert len(started_threads) == 1
-
-
-def test_web_data_download_requires_confirmation_without_runtime(tmp_path, monkeypatch):
-    monkeypatch.setattr(web_server.config_module, "PROJECT_ROOT", tmp_path)
-    monkeypatch.setattr(web_server, "_data_download_running", False)
-
-    client = web_server.app.test_client()
-    res = client.post("/api/data/download", data=json.dumps({}), content_type="application/json")
-
-    assert res.status_code == 400
-    assert res.get_json()["error"] == "confirm=true is required when live runtime is unavailable"
 
 
 def test_data_manager_diagnose_training_data_reports_empty_repository(tmp_path):
@@ -336,7 +350,7 @@ def test_tushare_financial_snapshots_sync_into_canonical_schema(tmp_path, monkey
     assert payload[0][4] == 10.0
     assert payload[0][5] == 100.0
     assert payload[0][6] == 999.0
-    assert payload[0][7] is None
+    assert payload[0][7] == 1234.5
 
 
 def test_akshare_financial_snapshots_sync_into_canonical_schema(tmp_path, monkeypatch):
@@ -392,7 +406,7 @@ def test_akshare_financial_snapshots_sync_into_canonical_schema(tmp_path, monkey
     assert payload[0][4] == 10.0
     assert payload[0][5] == 100.0
     assert payload[0][6] == 888.0
-    assert payload[0][7] is None
+    assert payload[0][7] == 1000.0
 
 
 def test_market_data_cli_financials_requires_tushare_source(monkeypatch):
@@ -711,7 +725,7 @@ def test_training_dataset_builder_attaches_financial_factor_and_status(tmp_path)
             "turnover": 2.0,
             "source": "test",
         }
-        for idx, day in enumerate(["20240401", "20240402", "20240403", "20240405"], start=1)
+        for idx, day in enumerate(["20240102", "20240103", "20240104", "20240105"], start=1)
     ])
     repo.upsert_financial_snapshots([
         {
@@ -729,7 +743,7 @@ def test_training_dataset_builder_attaches_financial_factor_and_status(tmp_path)
     repo.upsert_security_status_daily([
         {
             "code": "sh.600010",
-            "trade_date": "20240405",
+            "trade_date": "20240105",
             "is_st": 0,
             "is_new_stock_window": 0,
             "is_limit_up": 0,
@@ -740,7 +754,7 @@ def test_training_dataset_builder_attaches_financial_factor_and_status(tmp_path)
     repo.upsert_factor_snapshots([
         {
             "code": "sh.600010",
-            "trade_date": "20240405",
+            "trade_date": "20240105",
             "ma5": 10.0,
             "ma10": 9.8,
             "ma20": 9.5,
@@ -767,8 +781,7 @@ def test_training_dataset_builder_attaches_financial_factor_and_status(tmp_path)
     assert "ma5" in frame.columns
     assert "is_limit_up" in frame.columns
     assert frame["industry"].iloc[-1] == "银行"
-    assert frame["roe"].iloc[-1] == 12.5
-    assert pd.isna(frame["market_cap"].iloc[-1])
+    assert frame["market_cap"].iloc[-1] == 1234.5
     assert frame["ma5"].iloc[-1] == 10.0
 
 

@@ -16,6 +16,14 @@ import time
 from dataclasses import dataclass
 from typing import Any
 
+
+def _configure_litellm_environment_defaults() -> None:
+    """Keep LiteLLM import-time metadata lookups offline by default in this repo."""
+    os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "True")
+
+
+_configure_litellm_environment_defaults()
+
 try:
     import litellm
 except Exception:  # pragma: no cover

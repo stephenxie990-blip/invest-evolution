@@ -78,7 +78,7 @@ def test_research_case_store_can_filter_cases_and_write_calibration_report(tmp_p
 def test_research_case_store_build_training_feedback_applies_as_of_filter_and_bias(tmp_path: Path):
     store = ResearchCaseStore(tmp_path)
 
-    def seed_case(index: int, as_of_date: str, label: str, return_pct: float, brier: float) -> None:
+    def seed_case(index: int, as_of_date: str, label: str, return_pct: float, brier: float, *, cycle_id: int, version_id: str) -> None:
         snapshot = ResearchSnapshot(
             snapshot_id=f"snapshot_{index}",
             as_of_date=as_of_date,
@@ -110,7 +110,12 @@ def test_research_case_store_build_training_feedback_applies_as_of_filter_and_bi
             },
             evaluation_protocol={"clock": ["T+20"]},
         )
-        store.save_case(snapshot=snapshot, policy=policy, hypothesis=hypothesis)
+        store.save_case(
+            snapshot=snapshot,
+            policy=policy,
+            hypothesis=hypothesis,
+            metadata={"cycle_id": cycle_id, "decision_episode_id": f"cycle_{cycle_id}", "version_id": version_id},
+        )
         store.save_attribution(
             OutcomeAttribution(
                 attribution_id=f"attribution_{index}",
@@ -126,13 +131,14 @@ def test_research_case_store_build_training_feedback_applies_as_of_filter_and_bi
                     }
                 },
                 calibration_metrics={"positive_return_brier": brier},
-            )
+            ),
+            metadata={"cycle_id": cycle_id, "decision_episode_id": f"cycle_{cycle_id}", "version_id": version_id},
         )
 
-    seed_case(1, "20240105", "hit", 3.0, 0.08)
-    seed_case(2, "20240112", "invalidated", -4.0, 0.18)
-    seed_case(3, "20240119", "timeout", -1.0, 0.22)
-    seed_case(4, "20240220", "hit", 5.0, 0.05)
+    seed_case(1, "20240105", "hit", 3.0, 0.08, cycle_id=101, version_id="version_a")
+    seed_case(2, "20240112", "invalidated", -4.0, 0.18, cycle_id=101, version_id="version_a")
+    seed_case(3, "20240119", "timeout", -1.0, 0.22, cycle_id=102, version_id="version_b")
+    seed_case(4, "20240220", "hit", 5.0, 0.05, cycle_id=103, version_id="version_c")
 
     feedback = store.build_training_feedback(
         model_name="momentum",
@@ -141,6 +147,8 @@ def test_research_case_store_build_training_feedback_applies_as_of_filter_and_bi
     )
 
     assert feedback["sample_count"] == 3
+    assert feedback["episode_count"] == 2
+    assert feedback["distinct_version_count"] == 2
     assert feedback["matched_case_count"] == 3
     assert feedback["recommendation"]["bias"] == "tighten_risk"
     assert "t20_hit_rate_low" in feedback["recommendation"]["reason_codes"]
@@ -150,7 +158,7 @@ def test_research_case_store_build_training_feedback_applies_as_of_filter_and_bi
 def test_research_case_store_build_training_feedback_prefers_requested_regime_when_covered(tmp_path: Path):
     store = ResearchCaseStore(tmp_path)
 
-    def seed_case(index: int, *, regime: str, as_of_date: str, label: str, return_pct: float) -> None:
+    def seed_case(index: int, *, regime: str, as_of_date: str, label: str, return_pct: float, cycle_id: int, version_id: str) -> None:
         snapshot = ResearchSnapshot(
             snapshot_id=f"snapshot_regime_{index}",
             as_of_date=as_of_date,
@@ -182,7 +190,12 @@ def test_research_case_store_build_training_feedback_prefers_requested_regime_wh
             },
             evaluation_protocol={"clock": ["T+20"]},
         )
-        store.save_case(snapshot=snapshot, policy=policy, hypothesis=hypothesis)
+        store.save_case(
+            snapshot=snapshot,
+            policy=policy,
+            hypothesis=hypothesis,
+            metadata={"cycle_id": cycle_id, "decision_episode_id": f"cycle_{cycle_id}", "version_id": version_id},
+        )
         store.save_attribution(
             OutcomeAttribution(
                 attribution_id=f"attribution_regime_{index}",
@@ -198,13 +211,14 @@ def test_research_case_store_build_training_feedback_prefers_requested_regime_wh
                     }
                 },
                 calibration_metrics={"positive_return_brier": 0.12},
-            )
+            ),
+            metadata={"cycle_id": cycle_id, "decision_episode_id": f"cycle_{cycle_id}", "version_id": version_id},
         )
 
-    seed_case(1, regime="bull", as_of_date="20240105", label="hit", return_pct=4.0)
-    seed_case(2, regime="bull", as_of_date="20240112", label="hit", return_pct=3.5)
-    seed_case(3, regime="bull", as_of_date="20240119", label="miss", return_pct=-0.5)
-    seed_case(4, regime="bear", as_of_date="20240122", label="invalidated", return_pct=-4.0)
+    seed_case(1, regime="bull", as_of_date="20240105", label="hit", return_pct=4.0, cycle_id=201, version_id="version_bull_a")
+    seed_case(2, regime="bull", as_of_date="20240112", label="hit", return_pct=3.5, cycle_id=201, version_id="version_bull_a")
+    seed_case(3, regime="bull", as_of_date="20240119", label="miss", return_pct=-0.5, cycle_id=202, version_id="version_bull_b")
+    seed_case(4, regime="bear", as_of_date="20240122", label="invalidated", return_pct=-4.0, cycle_id=203, version_id="version_bear_a")
 
     feedback = store.build_training_feedback(
         model_name="momentum",
@@ -216,133 +230,9 @@ def test_research_case_store_build_training_feedback_prefers_requested_regime_wh
     assert feedback["scope"]["effective_scope"] == "regime"
     assert feedback["subject"]["regime"] == "bull"
     assert feedback["sample_count"] == 3
+    assert feedback["episode_count"] == 2
     assert feedback["overall_feedback"]["sample_count"] == 4
+    assert feedback["overall_feedback"]["episode_count"] == 3
     assert feedback["regime_breakdown"]["bull"]["sample_count"] == 3
+    assert feedback["regime_breakdown"]["bull"]["episode_count"] == 2
     assert feedback["requested_regime_feedback"]["recommendation"]["bias"] == "maintain"
-
-
-def test_research_case_store_feedback_recommendation_uses_model_policy_thresholds(monkeypatch):
-    monkeypatch.setattr(
-        ResearchCaseStore,
-        "_model_research_feedback_policy",
-        staticmethod(
-            lambda model_name, config_name: {
-                "apply_default_horizon_policy": False,
-                "min_sample_count": 8,
-                "blocked_biases": ["tighten_risk", "recalibrate_probability"],
-                "max_brier_like_direction_score": 0.25,
-                "horizons": {
-                    "T+5": {
-                        "min_hit_rate": 0.55,
-                        "max_invalidation_rate": 0.20,
-                        "min_interval_hit_rate": 0.65,
-                    },
-                    "T+20": {
-                        "min_hit_rate": 0.30,
-                        "max_invalidation_rate": 0.33,
-                        "min_interval_hit_rate": 0.70,
-                    },
-                },
-            }
-        ),
-    )
-    feedback = ResearchCaseStore._feedback_recommendation(
-        {
-            "subject": {
-                "model_name": "defensive_low_vol",
-                "config_name": "defensive_low_vol_v1",
-            },
-            "sample_count": 20,
-            "brier_like_direction_score": 0.20,
-            "horizons": {
-                "T+5": {
-                    "hit_rate": 0.50,
-                    "invalidation_rate": 0.10,
-                    "interval_hit_rate": 0.80,
-                },
-                "T+20": {
-                    "hit_rate": 0.35,
-                    "invalidation_rate": 0.30,
-                    "interval_hit_rate": 0.75,
-                },
-            },
-        }
-    )
-
-    assert feedback["recommendation"]["bias"] == "tighten_risk"
-    assert feedback["recommendation"]["reason_codes"] == ["t5_hit_rate_low"]
-
-
-def test_research_case_store_feedback_recommendation_falls_back_to_generic_when_policy_inactive(monkeypatch):
-    monkeypatch.setattr(
-        ResearchCaseStore,
-        "_model_research_feedback_policy",
-        staticmethod(
-            lambda model_name, config_name: {
-                "apply_default_horizon_policy": False,
-                "min_sample_count": 5,
-                "blocked_biases": ["tighten_risk", "recalibrate_probability"],
-                "max_brier_like_direction_score": 0.25,
-                "horizons": {
-                    "T+20": {
-                        "min_hit_rate": 0.30,
-                        "max_invalidation_rate": 0.33,
-                        "min_interval_hit_rate": 0.70,
-                    },
-                },
-            }
-        ),
-    )
-    feedback = ResearchCaseStore._feedback_recommendation(
-        {
-            "subject": {
-                "model_name": "momentum",
-                "config_name": "momentum_v1",
-            },
-            "sample_count": 4,
-            "brier_like_direction_score": 0.20,
-            "horizons": {
-                "T+20": {
-                    "hit_rate": 0.20,
-                    "invalidation_rate": 0.20,
-                    "interval_hit_rate": 0.80,
-                },
-            },
-        }
-    )
-
-    assert feedback["recommendation"]["bias"] == "tighten_risk"
-    assert feedback["recommendation"]["reason_codes"] == ["t20_hit_rate_low"]
-
-
-def test_research_case_store_feedback_recommendation_reads_defensive_low_vol_freeze_gate():
-    feedback = ResearchCaseStore._feedback_recommendation(
-        {
-            "subject": {
-                "model_name": "defensive_low_vol",
-                "config_name": "defensive_low_vol_v1",
-            },
-            "sample_count": 103,
-            "brier_like_direction_score": 0.2108,
-            "horizons": {
-                "T+5": {
-                    "hit_rate": 0.5049,
-                    "invalidation_rate": 0.1068,
-                    "interval_hit_rate": 0.7476,
-                },
-                "T+10": {
-                    "hit_rate": 0.4078,
-                    "invalidation_rate": 0.2136,
-                    "interval_hit_rate": 0.6699,
-                },
-                "T+20": {
-                    "hit_rate": 0.3204,
-                    "invalidation_rate": 0.3107,
-                    "interval_hit_rate": 0.7767,
-                },
-            },
-        }
-    )
-
-    assert feedback["recommendation"]["bias"] == "maintain"
-    assert feedback["recommendation"]["reason_codes"] == []

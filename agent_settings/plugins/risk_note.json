@@ -1,5 +1,0 @@
-{
-  "name": "plugin_risk_note",
-  "description": "Generate a compact risk note for latest context.",
-  "template": "[RiskNote] context={{context}} input={{input}}"
-}

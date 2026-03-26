@@ -5,6 +5,7 @@ from typing import Any
 
 from app.training.experiment_protocol import build_review_basis_window
 from app.training.review_protocol import build_review_input
+from app.training.runtime_discipline import resolve_active_runtime_params
 from invest.shared.model_governance import build_optimization_event_lineage, normalize_config_ref
 
 
@@ -91,7 +92,7 @@ class TrainingReviewStageService:
         review_decision = controller.review_meeting_service.run_with_eval_report(
             eval_report,
             agent_accuracy=agent_accuracy,
-            current_params=controller.current_params,
+            current_params=resolve_active_runtime_params(controller),
             recent_results=review_input["recent_results"],
             review_basis_window=review_input["review_basis_window"],
             similar_results=review_input["similar_results"],
@@ -162,8 +163,8 @@ class TrainingReviewStageService:
                 or ""
             ),
             candidate_config_ref="",
-            promotion_status="override_pending" if review_applied else "not_evaluated",
-            deployment_stage="override" if review_applied else "active",
+            promotion_status="proposal_queued" if review_applied else "not_evaluated",
+            deployment_stage="active",
             review_basis_window=build_review_basis_window(
                 controller,
                 cycle_id=cycle_id,

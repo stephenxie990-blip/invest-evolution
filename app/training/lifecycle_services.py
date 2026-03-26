@@ -4,6 +4,7 @@ import logging
 from datetime import datetime
 from typing import Any
 
+from app.training.suggestion_tracking import refresh_cycle_history_suggestion_effects
 from app.training.runtime_hooks import SelfAssessmentSnapshot, emit_event
 
 logger = logging.getLogger(__name__)
@@ -49,6 +50,22 @@ class TrainingLifecycleService:
     ) -> None:
         controller.cycle_history.append(cycle_result)
         controller.current_cycle_id += 1
+        effect_refresh_summary = refresh_cycle_history_suggestion_effects(
+            controller,
+            cycle_history=controller.cycle_history,
+        )
+        if effect_refresh_summary.get("updated_bundle_count"):
+            controller._emit_module_log(
+                "suggestion_effect",
+                "完成 suggestion effect window 评估刷新",
+                (
+                    f"updated_bundles={int(effect_refresh_summary.get('updated_bundle_count') or 0)}, "
+                    f"completed_effects={int(effect_refresh_summary.get('completed_effect_count') or 0)}"
+                ),
+                cycle_id=cycle_id,
+                kind="suggestion_effect_refresh",
+                metrics=effect_refresh_summary,
+            )
         controller.training_persistence_service.record_self_assessment(
             controller,
             SelfAssessmentSnapshot,

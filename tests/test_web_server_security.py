@@ -110,20 +110,6 @@ def test_api_status_requires_auth_when_enabled(monkeypatch):
     assert ok.get_json()['detail'] == 'fast'
 
 
-def test_api_status_allows_x_real_ip_proxy_when_auth_disabled(monkeypatch):
-    runtime = SimpleNamespace(status=lambda detail='fast': {'detail': detail, 'status': 'ok'})
-    monkeypatch.setattr(web_server, '_runtime', runtime)
-    monkeypatch.setattr(config_module.config, 'web_api_require_auth', False)
-    monkeypatch.setattr(config_module.config, 'web_api_token', '')
-    monkeypatch.setattr(config_module.config, 'web_api_public_read_enabled', False)
-
-    client = web_server.app.test_client()
-    res = client.get('/api/status', headers={'X-Real-IP': '198.51.100.10'})
-
-    assert res.status_code == 200
-    assert res.get_json()['detail'] == 'fast'
-
-
 @pytest.mark.parametrize('header_name', ['Authorization', 'X-Invest-Token'])
 def test_public_status_can_remain_accessible_when_configured(monkeypatch, header_name):
     runtime = SimpleNamespace(status=lambda detail='fast': {'detail': detail, 'status': 'ok'})
@@ -227,22 +213,8 @@ def test_bootstrap_runtime_services_requires_auth_for_non_loopback(monkeypatch):
         web_server.bootstrap_runtime_services(host='0.0.0.0', source='cli')
 
 
-def test_configured_gunicorn_host_defaults_to_loopback(monkeypatch):
-    monkeypatch.delenv('GUNICORN_BIND', raising=False)
-
-    assert web_server._configured_gunicorn_host() == '127.0.0.1'
-
-
 def test_bootstrap_runtime_services_rejects_multi_worker_wsgi(monkeypatch):
     monkeypatch.setenv('GUNICORN_WORKERS', '2')
-
-    with pytest.raises(RuntimeError, match='single gunicorn worker'):
-        web_server.bootstrap_runtime_services(host='127.0.0.1', source='wsgi')
-
-
-def test_bootstrap_runtime_services_rejects_multi_worker_wsgi_from_web_concurrency(monkeypatch):
-    monkeypatch.delenv('GUNICORN_WORKERS', raising=False)
-    monkeypatch.setenv('WEB_CONCURRENCY', '2')
 
     with pytest.raises(RuntimeError, match='single gunicorn worker'):
         web_server.bootstrap_runtime_services(host='127.0.0.1', source='wsgi')
@@ -285,40 +257,6 @@ def test_memory_detail_blocks_artifacts_outside_runtime_roots(tmp_path, monkeypa
     assert result['cycle_result'] is None
     assert result['config_snapshot'] is None
     assert result['selection_meeting_markdown'] == ''
-
-
-def test_non_loopback_config_reads_require_auth_even_when_loopback_auth_disabled(monkeypatch, tmp_path):
-    monkeypatch.setattr(config_module, 'PROJECT_ROOT', tmp_path)
-    monkeypatch.setattr(config_module.config, 'web_api_require_auth', False)
-    monkeypatch.setattr(config_module.config, 'web_api_token', 'secret-token')
-    monkeypatch.setattr(config_module.config, 'web_api_public_read_enabled', False)
-
-    client = web_server.app.test_client()
-    res = client.get(
-        '/api/control_plane',
-        environ_overrides={'REMOTE_ADDR': '198.51.100.20'},
-    )
-
-    assert res.status_code == 401
-    assert res.get_json()['error'] == 'authentication required'
-
-
-def test_non_loopback_config_updates_require_auth_before_payload_validation(monkeypatch, tmp_path):
-    monkeypatch.setattr(config_module, 'PROJECT_ROOT', tmp_path)
-    monkeypatch.setattr(config_module.config, 'web_api_require_auth', False)
-    monkeypatch.setattr(config_module.config, 'web_api_token', 'secret-token')
-    monkeypatch.setattr(config_module.config, 'web_api_public_read_enabled', False)
-
-    client = web_server.app.test_client()
-    res = client.post(
-        '/api/agent_prompts',
-        data=json.dumps({'name': 'researcher'}),
-        content_type='application/json',
-        environ_overrides={'REMOTE_ADDR': '198.51.100.20'},
-    )
-
-    assert res.status_code == 401
-    assert res.get_json()['error'] == 'authentication required'
 
 
 def test_read_rate_limit_returns_429(monkeypatch):

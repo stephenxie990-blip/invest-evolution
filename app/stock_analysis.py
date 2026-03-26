@@ -30,13 +30,7 @@ from invest.research import (
     build_research_snapshot,
     resolve_policy_snapshot,
 )
-from app.stock_analysis_batch_service import BatchAnalysisViewService
-from app.stock_analysis_research_services import (
-    build_stock_analysis_research_services,
-)
-from app.stock_analysis_support_services import (
-    build_stock_analysis_support_services,
-)
+from app.stock_analysis_services import BatchAnalysisViewService, ResearchResolutionService
 from market_data import DataManager
 from market_data.repository import MarketDataRepository
 
@@ -172,18 +166,12 @@ class StockAnalysisService:
         self.case_store = ResearchCaseStore(self._runtime_state_dir)
         self.scenario_engine = ResearchScenarioEngine(self.case_store)
         self.attribution_engine = ResearchAttributionEngine(self.repository)
-        support_services = build_stock_analysis_support_services(
-            humanize_macd_cross=self._humanize_macd_cross,
-        )
-        self.batch_analysis_service = support_services.batch_analysis_service
-        research_services = build_stock_analysis_research_services(
+        self.batch_analysis_service = BatchAnalysisViewService(humanize_macd_cross=self._humanize_macd_cross)
+        self.research_resolution_service = ResearchResolutionService(
             case_store=self.case_store,
             scenario_engine=self.scenario_engine,
             attribution_engine=self.attribution_engine,
             logger=logger,
-        )
-        self.research_resolution_service = (
-            research_services.research_resolution_service
         )
 
     def list_strategies(self) -> list[dict[str, Any]]:

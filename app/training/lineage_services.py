@@ -3,14 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from invest.shared.model_governance import infer_deployment_stage
-
-
-def _latest_yaml_mutation_event(optimization_events: list[dict[str, Any]] | None = None) -> dict[str, Any]:
-    for event in reversed(list(optimization_events or [])):
-        if str(event.get("stage") or "") in {"yaml_mutation", "yaml_mutation_skipped"}:
-            return dict(event)
-    return {}
+from invest.shared.model_governance import infer_deployment_stage, latest_candidate_build_event
 
 
 def _candidate_meta_ref(candidate_config_ref: str) -> str:
@@ -32,7 +25,7 @@ def build_lineage_record(
     promotion_decision = dict(payload.get("promotion_decision") or {})
     candidate_config_ref = str(payload.get("candidate_config_ref") or "")
     active_config_ref = str(payload.get("active_config_ref") or "")
-    mutation_event = _latest_yaml_mutation_event(optimization_events)
+    mutation_event = latest_candidate_build_event(optimization_events)
     discipline = dict(payload.get("promotion_discipline") or {})
     stage_info = infer_deployment_stage(
         run_context=payload,
@@ -68,7 +61,11 @@ def build_lineage_record(
             or ""
         ),
         "active_config_ref": active_config_ref,
+        "active_version_id": str(payload.get("active_version_id") or ""),
+        "active_runtime_fingerprint": str(payload.get("active_runtime_fingerprint") or ""),
         "candidate_config_ref": candidate_config_ref,
+        "candidate_version_id": str(payload.get("candidate_version_id") or ""),
+        "candidate_runtime_fingerprint": str(payload.get("candidate_runtime_fingerprint") or ""),
         "candidate_meta_ref": _candidate_meta_ref(candidate_config_ref),
         "deployment_stage": deployment_stage,
         "lineage_status": lineage_status,

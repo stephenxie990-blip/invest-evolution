@@ -141,9 +141,10 @@ flowchart TD
 - `Commander` 不直接冒充 Hunter 或 ReviewAgent
 - 多数 Agent 输出要求为单个 JSON 对象
 
-这些 prompt 当前落在：
+这些 prompt 当前由两层组成：
 
-- `agent_settings/agents_config.json`
+- 代码内置的公共 baseline prompt
+- `agent_settings/agents_config.json` 中的本地覆盖
 
 并可通过：
 

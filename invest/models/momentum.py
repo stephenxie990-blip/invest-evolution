@@ -63,6 +63,14 @@ class MomentumModel(InvestmentModel):
                 stock_summaries=self.build_stock_summary_views(item.summary for item in selected),
                 raw_summaries=stock_summaries,
             ),
+            metadata={
+                "entry_threshold_policy": {
+                    "mode": "model_managed",
+                    "key": "signal_threshold",
+                    "consumed_upstream": False,
+                    "post_selection_filter_supported": False,
+                }
+            },
         )
 
     def build_agent_context(self, stock_data: Dict[str, Any], cutoff_date: str, signal_packet: SignalPacket) -> AgentContext:

@@ -8,12 +8,16 @@ def test_build_lineage_record_tracks_candidate_pending_state():
     controller = SimpleNamespace(model_name="momentum")
     run_context = {
         "active_config_ref": "configs/active.yaml",
+        "active_version_id": "version_active_1",
+        "active_runtime_fingerprint": "fingerprint_active_1",
         "candidate_config_ref": "data/evolution/generations/momentum_cycle_0006.yaml",
+        "candidate_version_id": "version_candidate_1",
+        "candidate_runtime_fingerprint": "fingerprint_candidate_1",
         "runtime_overrides": {"position_size": 0.12},
         "fitness_source_cycles": [2, 3, 4, 5],
         "promotion_decision": {
             "status": "candidate_generated",
-            "source": "runtime_yaml_mutation",
+            "source": "runtime_candidate_builder",
             "reason": "candidate model config generated; active config unchanged",
             "applied_to_active": False,
             "policy": {"min_samples": 4},
@@ -22,7 +26,7 @@ def test_build_lineage_record_tracks_candidate_pending_state():
     optimization_events = [
         {
             "trigger": "consecutive_losses",
-            "stage": "yaml_mutation",
+            "stage": "candidate_build",
             "notes": "candidate model config generated; active config unchanged",
         }
     ]
@@ -41,15 +45,22 @@ def test_build_lineage_record_tracks_candidate_pending_state():
     assert record["candidate_meta_ref"].endswith(".json")
     assert record["fitness_source_cycles"] == [2, 3, 4, 5]
     assert record["mutation_trigger"] == "consecutive_losses"
+    assert record["active_version_id"] == "version_active_1"
+    assert record["candidate_version_id"] == "version_candidate_1"
+    assert record["candidate_runtime_fingerprint"] == "fingerprint_candidate_1"
 
 
 def test_build_promotion_record_tracks_auto_applied_candidate():
     run_context = {
         "active_config_ref": "data/evolution/generations/momentum_cycle_0007.yaml",
+        "active_version_id": "version_candidate_2",
+        "active_runtime_fingerprint": "fingerprint_candidate_2",
         "candidate_config_ref": "data/evolution/generations/momentum_cycle_0007.yaml",
+        "candidate_version_id": "version_candidate_2",
+        "candidate_runtime_fingerprint": "fingerprint_candidate_2",
         "promotion_decision": {
             "status": "candidate_auto_applied",
-            "source": "runtime_yaml_mutation",
+            "source": "runtime_candidate_builder",
             "reason": "active model config mutated",
             "applied_to_active": True,
             "policy": {"min_samples": 4},
@@ -58,7 +69,7 @@ def test_build_promotion_record_tracks_auto_applied_candidate():
     optimization_events = [
         {
             "trigger": "consecutive_losses",
-            "stage": "yaml_mutation",
+            "stage": "candidate_build",
             "notes": "active model config mutated",
         }
     ]
@@ -74,6 +85,7 @@ def test_build_promotion_record_tracks_auto_applied_candidate():
     assert record["deployment_stage"] == "active"
     assert record["candidate_meta_ref"].endswith(".json")
     assert record["attempted"] is True
+    assert record["candidate_version_id"] == "version_candidate_2"
 
 
 def test_build_lineage_and_promotion_record_distinguish_override_stage():

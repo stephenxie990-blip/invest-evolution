@@ -4,6 +4,8 @@ import logging
 from typing import Any
 
 from config import config
+from app.training.runtime_discipline import resolve_active_runtime_params
+from app.training.versioning import resolve_active_runtime_identity
 from invest.research import (
     build_research_hypothesis,
     build_research_snapshot,
@@ -100,6 +102,15 @@ class TrainingResearchService:
         routing_context = dict(getattr(controller, "last_routing_decision", {}) or {})
         if not routing_context:
             routing_context = dict(regime_result or {})
+        runtime_identity = resolve_active_runtime_identity(
+            controller,
+            model_name=str(getattr(model_output, "model_name", controller.model_name) or controller.model_name),
+            config_ref=str(
+                getattr(model_output, "config_name", controller.model_config_path)
+                or controller.model_config_path
+            ),
+            runtime_params=resolve_active_runtime_params(controller),
+        )
 
         policy = resolve_policy_snapshot(
             investment_model=controller.investment_model,
@@ -126,6 +137,8 @@ class TrainingResearchService:
                 "cycle_id": int(cycle_id),
                 "cutoff_date": str(cutoff_date or ""),
                 "selection_mode": str(selection_mode or ""),
+                "version_id": str(runtime_identity.get("version_id") or ""),
+                "runtime_fingerprint": str(runtime_identity.get("runtime_fingerprint") or ""),
             },
         )
 
@@ -169,9 +182,13 @@ class TrainingResearchService:
                     metadata={
                         "source": "training_cycle",
                         "cycle_id": int(cycle_id),
+                        "decision_episode_id": f"cycle_{int(cycle_id)}",
                         "cutoff_date": str(cutoff_date or ""),
                         "selection_mode": str(selection_mode or ""),
                         "code": code,
+                        "version_id": str(runtime_identity.get("version_id") or ""),
+                        "runtime_fingerprint": str(runtime_identity.get("runtime_fingerprint") or ""),
+                        "policy_version_hash": str(policy.version_hash or ""),
                     },
                 )
                 case_ids.append(str(case_record.get("research_case_id") or ""))
@@ -183,11 +200,15 @@ class TrainingResearchService:
                         metadata={
                             "source": "training_cycle",
                             "cycle_id": int(cycle_id),
+                            "decision_episode_id": f"cycle_{int(cycle_id)}",
                             "cutoff_date": str(cutoff_date or ""),
                             "policy_id": policy.policy_id,
                             "research_case_id": str(case_record.get("research_case_id") or ""),
                             "code": code,
                             "regime": str(routing_context.get("regime") or ""),
+                            "version_id": str(runtime_identity.get("version_id") or ""),
+                            "runtime_fingerprint": str(runtime_identity.get("runtime_fingerprint") or ""),
+                            "policy_version_hash": str(policy.version_hash or ""),
                         },
                     )
                     attribution_ids.append(str(attribution_record.get("attribution_id") or ""))
@@ -217,4 +238,6 @@ class TrainingResearchService:
             "selected_count": len(selected),
             "requested_regime": str(routing_context.get("regime") or ""),
             "calibration_report_path": str(calibration_report.get("path") or ""),
+            "version_id": str(runtime_identity.get("version_id") or ""),
+            "runtime_fingerprint": str(runtime_identity.get("runtime_fingerprint") or ""),
         }

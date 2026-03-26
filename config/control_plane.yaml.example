@@ -1,36 +1,47 @@
 llm:
   providers:
-    openai_main:
-      api_base: https://api.openai.com/v1
+    default_provider:
+      api_base: ${ENV:OPENAI_API_BASE:-https://api.openai.com/v1}
       api_key: ${ENV:OPENAI_API_KEY}
-    kimi_main:
-      api_base: https://api.moonshot.cn/v1
-      api_key: ${ENV:KIMI_API_KEY}
-    minimax_main:
-      api_base: https://api.minimaxi.com/v1
+    minimax_provider:
+      api_base: ${ENV:MINIMAX_API_BASE:-https://api.minimaxi.com/v1}
       api_key: ${ENV:MINIMAX_API_KEY}
   models:
-    gpt_deep:
-      provider: openai_main
+    default_fast:
+      provider: default_provider
       model: gpt-5.4
-    kimi_fast:
-      provider: kimi_main
-      model: moonshot-v1-8k
-    minimax_hunter:
-      provider: minimax_main
+    default_deep:
+      provider: default_provider
+      model: gpt-5.4
+    minimax_fast:
+      provider: minimax_provider
       model: minimax/MiniMax-M2.5-highspeed
   bindings:
-    defaults.fast: kimi_fast
-    defaults.deep: gpt_deep
-    commander.brain: gpt_deep
-    controller.main: kimi_fast
-    meeting.selection.fast: kimi_fast
-    meeting.selection.deep: gpt_deep
-    meeting.review.fast: kimi_fast
-    meeting.review.deep: gpt_deep
-    optimizer.loss_analysis: gpt_deep
-    agent.TrendHunter: minimax_hunter
-    agent.Contrarian: minimax_hunter
+    defaults.fast: default_fast
+    defaults.deep: default_deep
+    controller.main: default_fast
+    agent.MarketRegime: default_deep
+    agent.ModelSelector: default_deep
+    agent.TrendHunter: minimax_fast
+    agent.Contrarian: minimax_fast
+    agent.QualityAgent: default_fast
+    agent.DefensiveAgent: default_fast
+    agent.Strategist: default_deep
+    agent.ReviewDecision: default_deep
+    agent.EvoJudge: default_deep
+    meeting.selection.fast: minimax_fast
+    meeting.selection.deep: default_deep
+    meeting.selection.debate.bull: default_fast
+    meeting.selection.debate.bear: minimax_fast
+    meeting.selection.debate.judge: default_deep
+    meeting.review.fast: default_deep
+    meeting.review.deep: default_deep
+    meeting.review.risk.aggressive: default_fast
+    meeting.review.risk.conservative: minimax_fast
+    meeting.review.risk.neutral: default_fast
+    meeting.review.risk.judge: default_deep
+    optimizer.loss_analysis: default_deep
+    commander.brain: default_fast
 data:
   runtime_policy:
     allow_online_fallback: false

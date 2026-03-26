@@ -159,6 +159,58 @@ def test_selection_meeting_aggregate_normalizes_hunter_confidence():
     assert result["selected_meta"][0]["score"] <= 1.0
 
 
+def test_selection_meeting_run_llm_falls_back_when_hunters_return_empty_picks():
+    class EmptyAgent:
+        def analyze_context(self, agent_context):
+            del agent_context
+            return {
+                "dry_run": True,
+                "picks": [],
+                "confidence": 0.5,
+                "overall_view": "",
+            }
+
+    meeting = SelectionMeeting(
+        llm_caller=object(),
+        trend_hunter=EmptyAgent(),
+        contrarian=EmptyAgent(),
+        quality_agent=EmptyAgent(),
+        defensive_agent=EmptyAgent(),
+        max_hunters=2,
+        enable_debate=False,
+    )
+    result = meeting._run_llm(
+        2,
+        {"regime": "bull", "params": {"max_positions": 2}},
+        [
+            {"code": "AAA", "algo_score": 0.9},
+            {"code": "BBB", "algo_score": 0.7},
+            {"code": "CCC", "algo_score": 0.4},
+        ],
+        agent_context=AgentContext(
+            as_of_date="20240101",
+            model_name="defensive_low_vol",
+            config_name="configs/defensive.yaml",
+            summary="defensive",
+            narrative="defensive",
+            regime="bull",
+            confidence=0.6,
+            metadata={},
+            stock_summaries=[
+                {"code": "AAA", "algo_score": 0.9},
+                {"code": "BBB", "algo_score": 0.7},
+                {"code": "CCC", "algo_score": 0.4},
+            ],
+        ),
+        model_name="defensive_low_vol",
+    )
+
+    assert result["selected"] == ["AAA", "BBB"]
+    assert result["source"] == "algorithm_fallback"
+    assert result["observability"]["fallback"]["used"] is True
+    assert result["observability"]["fallback"]["reason"] == "empty_hunter_selection"
+
+
 def test_selection_meeting_run_with_context_uses_effective_confidence_from_agent_context():
     meeting = SelectionMeeting(llm_caller=None)
     observed = {}

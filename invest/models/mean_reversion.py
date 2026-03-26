@@ -106,6 +106,14 @@ class MeanReversionModel(InvestmentModel):
                 stock_summaries=selected,
                 raw_summaries=stock_summaries,
             ),
+            metadata={
+                "entry_threshold_policy": {
+                    "mode": "upstream_signal_filter",
+                    "key": "min_reversion_score",
+                    "consumed_upstream": True,
+                    "post_selection_filter_supported": False,
+                }
+            },
         )
 
     def build_agent_context(self, stock_data: Dict[str, Any], cutoff_date: str, signal_packet: SignalPacket) -> AgentContext:

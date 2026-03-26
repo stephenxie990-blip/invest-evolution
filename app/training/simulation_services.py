@@ -7,6 +7,7 @@ from typing import Any
 from config import config, normalize_date
 from invest.foundation.engine.simulator import SimulatedTrader
 from invest.models.defaults import COMMON_EXECUTION_DEFAULTS, COMMON_PARAM_DEFAULTS
+from app.training.runtime_discipline import resolve_effective_runtime_params
 
 
 class TrainingSimulationService:
@@ -45,6 +46,7 @@ class TrainingSimulationService:
         selected_data: dict[str, Any],
         trading_plan: Any,
     ) -> SimulatedTrader:
+        active_params = resolve_effective_runtime_params(controller)
         trader = SimulatedTrader(
             initial_capital=float(
                 controller.execution_policy.get(
@@ -54,7 +56,7 @@ class TrainingSimulationService:
                 or getattr(config, "initial_capital", COMMON_EXECUTION_DEFAULTS["initial_capital"])
             ),
             max_positions=trading_plan.max_positions or len(selected_data),
-            position_size_pct=controller.current_params.get(
+            position_size_pct=active_params.get(
                 "position_size",
                 COMMON_PARAM_DEFAULTS["position_size"],
             ),

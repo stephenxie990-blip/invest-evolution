@@ -5,7 +5,10 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from invest.shared.model_governance import normalize_promotion_gate_policy
+from invest.shared.model_governance import (
+    normalize_promotion_gate_policy,
+    normalize_research_feedback_gate_policy,
+)
 
 
 def jsonable(value: Any) -> Any:
@@ -43,8 +46,8 @@ def _build_research_feedback_guardrail_view(
     *,
     overrides: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    resolved = dict(policy or {})
-    override_payload = dict(overrides or {})
+    resolved = normalize_research_feedback_gate_policy(policy or {})
+    override_payload = normalize_research_feedback_gate_policy(overrides or {})
     if not resolved:
         return {
             "enabled": False,
@@ -62,8 +65,8 @@ def _build_research_feedback_guardrail_view(
     blocked_biases = [str(item) for item in (resolved.get("blocked_biases") or []) if str(item).strip()]
     t20 = dict((resolved.get("horizons") or {}).get("T+20") or {})
     clauses: list[str] = []
-    if resolved.get("min_sample_count") is not None:
-        clauses.append(f"样本数>={int(resolved.get('min_sample_count') or 0)}")
+    if resolved.get("min_episode_count") is not None:
+        clauses.append(f"决策轮数>={int(resolved.get('min_episode_count') or 0)}")
     if blocked_biases:
         clauses.append(f"阻断偏置={','.join(blocked_biases)}")
     if resolved.get("max_brier_like_direction_score") is not None:

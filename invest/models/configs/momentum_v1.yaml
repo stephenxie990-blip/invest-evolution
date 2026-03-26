@@ -15,6 +15,22 @@ params:
   rsi_oversold: 30
   rsi_overbought: 70
   signal_threshold: 0.70
+regime_controls:
+  bull:
+    position_size: 0.22
+    cash_reserve: 0.15
+    signal_threshold: 0.68
+    max_positions: 4
+  bear:
+    position_size: 0.10
+    cash_reserve: 0.45
+    signal_threshold: 0.78
+    max_positions: 2
+  oscillation:
+    position_size: 0.16
+    cash_reserve: 0.28
+    signal_threshold: 0.72
+    max_positions: 3
 risk:
   stop_loss_pct: 0.05
   take_profit_pct: 0.15
@@ -117,7 +133,7 @@ train:
   promotion_gate:
     min_samples: 3
     research_feedback:
-      min_sample_count: 5
+      min_episode_count: 5
       blocked_biases: [tighten_risk, recalibrate_probability]
       max_brier_like_direction_score: 0.25
       horizons:

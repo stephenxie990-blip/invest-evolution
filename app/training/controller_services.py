@@ -12,6 +12,7 @@ from invest.leaderboard import write_leaderboard
 from invest.models import resolve_model_config_path
 from invest.models.defaults import COMMON_PARAM_DEFAULTS
 from app.training.experiment_protocol import ExperimentSpec
+from app.training.experiment_protocol import normalize_universe_policy
 from app.training.reporting import (
     build_freeze_report,
     build_self_assessment_snapshot,
@@ -40,6 +41,12 @@ class TrainingLLMRuntimeService:
             getattr(controller, "review_meeting", None),
             getattr(controller, "llm_optimizer", None),
         ):
+            iter_runtime_llms = getattr(component, "iter_runtime_llms", None)
+            if callable(iter_runtime_llms):
+                for llm in list(iter_runtime_llms() or []):
+                    if llm is not None:
+                        targets.append(llm)
+                continue
             llm = getattr(component, "llm", None)
             if llm is not None:
                 targets.append(llm)
@@ -92,6 +99,24 @@ class TrainingExperimentService:
             return None
         return normalize_date(str(value))
 
+    @staticmethod
+    def _resolve_train_policy_overrides(optimization: Dict[str, Any] | None = None) -> Dict[str, int]:
+        payload = dict(optimization or {})
+        runtime_overrides = dict(payload.get("runtime_train_overrides") or {})
+        for key in (
+            "freeze_total_cycles",
+            "freeze_profit_required",
+            "max_losses_before_optimize",
+        ):
+            if payload.get(key) is not None and runtime_overrides.get(key) is None:
+                runtime_overrides[key] = payload.get(key)
+        resolved: Dict[str, int] = {}
+        for key, value in runtime_overrides.items():
+            if value is None or not str(value).strip():
+                continue
+            resolved[str(key)] = int(value)
+        return resolved
+
     def configure_experiment(self, controller: Any, spec: Dict[str, Any] | None = None) -> None:
         normalized_spec = ExperimentSpec.from_payload(spec)
         payload = normalized_spec.to_payload()
@@ -100,6 +125,7 @@ class TrainingExperimentService:
         protocol = dict(payload.get("protocol") or {})
         dataset = dict(payload.get("dataset") or {})
         model_scope = dict(payload.get("model_scope") or {})
+        optimization = dict(payload.get("optimization") or {})
         llm = dict(payload.get("llm") or {})
 
         seed = protocol.get("seed")
@@ -113,6 +139,10 @@ class TrainingExperimentService:
         )
         controller.experiment_min_history_days = self._optional_int(dataset.get("min_history_days"))
         controller.experiment_simulation_days = self._optional_int(dataset.get("simulation_days"))
+        controller.experiment_stock_count = self._optional_int(dataset.get("stock_count"))
+        controller.experiment_universe_policy = normalize_universe_policy(
+            dict(dataset.get("universe_policy") or {})
+        )
         controller.experiment_cutoff_policy = dict(
             protocol.get("cutoff_policy") or normalized_spec.cutoff_policy
         )
@@ -122,6 +152,10 @@ class TrainingExperimentService:
             or normalized_spec.promotion_policy
             or getattr(controller, "promotion_gate_policy", {})
         )
+        controller.experiment_train_policy_overrides = self._resolve_train_policy_overrides(
+            optimization
+        )
+        controller.experiment_mode = str(model_scope.get("experiment_mode") or "standard").strip().lower() or "standard"
 
         allowed_models = model_scope.get("allowed_models") or []
         controller.experiment_allowed_models = [
@@ -130,13 +164,24 @@ class TrainingExperimentService:
         controller.experiment_llm = llm
         controller._apply_experiment_llm_overrides(llm)
 
-        if model_scope.get("allocator_enabled") is not None:
+        if controller.experiment_mode == "validation":
+            controller.allocator_enabled = False
+            controller.model_routing_enabled = False
+            controller.model_routing_mode = "off"
+            controller.model_routing_agent_override_enabled = False
+            if not controller.experiment_allowed_models and str(
+                getattr(controller, "model_name", "") or ""
+            ).strip():
+                controller.experiment_allowed_models = [str(controller.model_name)]
+        elif model_scope.get("allocator_enabled") is not None:
             enabled = bool(model_scope.get("allocator_enabled"))
             controller.allocator_enabled = enabled
             controller.model_routing_enabled = enabled
-        if model_scope.get("model_routing_enabled") is not None:
+        if controller.experiment_mode != "validation" and model_scope.get("model_routing_enabled") is not None:
             controller.model_routing_enabled = bool(model_scope.get("model_routing_enabled"))
-        if model_scope.get("routing_mode") is not None:
+        if controller.experiment_mode == "validation":
+            controller.model_routing_mode = "off"
+        elif model_scope.get("routing_mode") is not None:
             controller.model_routing_mode = (
                 str(model_scope.get("routing_mode") or "rule").strip().lower() or "rule"
             )
@@ -154,11 +199,11 @@ class TrainingExperimentService:
             controller.model_switch_hysteresis_margin = float(
                 model_scope.get("switch_hysteresis_margin") or 0.0
             )
-        if model_scope.get("agent_override_enabled") is not None:
+        if controller.experiment_mode != "validation" and model_scope.get("agent_override_enabled") is not None:
             controller.model_routing_agent_override_enabled = bool(
                 model_scope.get("agent_override_enabled")
             )
-        if model_scope.get("agent_override_max_gap") is not None:
+        if controller.experiment_mode != "validation" and model_scope.get("agent_override_max_gap") is not None:
             controller.model_routing_agent_override_max_gap = float(
                 model_scope.get("agent_override_max_gap") or 0.0
             )
@@ -172,6 +217,10 @@ class TrainingExperimentService:
             controller.model_config_path = str(resolve_model_config_path(controller.model_name))
             controller.current_params = {}
             controller._reload_investment_model(controller.model_config_path)
+
+        sync_runtime_policy = getattr(controller, "_sync_runtime_policy_from_model", None)
+        if callable(sync_runtime_policy):
+            sync_runtime_policy()
 
 
 class TrainingFeedbackService:
@@ -189,6 +238,7 @@ class TrainingFeedbackService:
             "available": bool(payload),
             "source": dict(source or {}),
             "sample_count": int(payload.get("sample_count") or 0),
+            "episode_count": int(payload.get("episode_count") or 0),
             "bias": str(recommendation.get("bias") or "unknown"),
             "summary": str(recommendation.get("summary") or ""),
             "brier_like_direction_score": payload.get("brier_like_direction_score"),
@@ -204,6 +254,7 @@ class TrainingFeedbackService:
         summary = TrainingFeedbackService.research_feedback_summary(feedback)
         return {
             "sample_count": int(summary.get("sample_count") or 0),
+            "episode_count": int(summary.get("episode_count") or 0),
             "bias": str(summary.get("bias") or "unknown"),
             "brier_like_direction_score": summary.get("brier_like_direction_score"),
             "t20_hit_rate": summary.get("t20_hit_rate"),
@@ -222,6 +273,7 @@ class TrainingFeedbackService:
             "failed_check_names": list(payload.get("failed_check_names") or []),
             "summary": str(payload.get("summary") or ""),
             "sample_count": int(payload.get("sample_count") or 0),
+            "episode_count": int(payload.get("episode_count") or 0),
             "cooldown_cycles": int(payload.get("cooldown_cycles") or 0),
         }
 
@@ -246,7 +298,7 @@ class TrainingFeedbackService:
             payload,
             policy=controller.research_feedback_optimization_policy,
             defaults={
-                "min_sample_count": 5,
+                "min_episode_count": 5,
                 "blocked_biases": ["tighten_risk", "recalibrate_probability"],
                 "max_brier_like_direction_score": 0.28,
                 "horizons": {
@@ -337,6 +389,7 @@ class TrainingFeedbackService:
             "bias": bias,
             "summary": summary,
             "sample_count": int(payload.get("sample_count") or 0),
+            "episode_count": int(payload.get("episode_count") or 0),
             "recommendation": recommendation,
             "severity": round(severity, 4),
             "benchmark_context": {
@@ -541,7 +594,10 @@ class TrainingPersistenceService:
             "causal_diagnosis": _jsonable(dict(result.causal_diagnosis or {})),
             "similarity_summary": _jsonable(dict(result.similarity_summary or {})),
             "similar_results": _jsonable(list(result.similar_results or [])),
+            "proposal_bundle": _jsonable(dict(result.proposal_bundle or {})),
             "realism_metrics": _jsonable(dict(result.realism_metrics or {})),
+            "selection_intercepts": _jsonable(dict(result.selection_intercepts or {})),
+            "regime_runtime_profile": _jsonable(dict(result.regime_runtime_profile or {})),
             "scoring_mutation_count": scoring_mutation_count,
             "scoring_changed_keys": sorted(set(scoring_changed_keys)),
         }

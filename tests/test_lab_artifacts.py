@@ -100,7 +100,7 @@ def test_training_plan_payload_injects_default_research_feedback_gate(tmp_path: 
     )
 
     gate = plan['optimization']['promotion_gate']['research_feedback']
-    assert gate['min_sample_count'] == 5
+    assert gate['min_episode_count'] == 5
     assert gate['blocked_biases'] == ['tighten_risk', 'recalibrate_probability']
     assert gate['max_brier_like_direction_score'] == 0.25
     assert gate['horizons']['T+20']['min_hit_rate'] == 0.45
@@ -147,12 +147,12 @@ def test_training_plan_payload_merges_research_feedback_gate_overrides(tmp_path:
     promotion_gate = plan['optimization']['promotion_gate']
     gate = promotion_gate['research_feedback']
     assert promotion_gate['min_samples'] == 2
-    assert gate['min_sample_count'] == 9
+    assert gate['min_episode_count'] == 9
     assert gate['blocked_biases'] == ['tighten_risk', 'recalibrate_probability']
     assert gate['horizons']['T+20']['min_hit_rate'] == 0.50
     assert gate['horizons']['T+20']['max_invalidation_rate'] == 0.30
     assert gate['horizons']['T+20']['min_interval_hit_rate'] == 0.40
     guardrail = plan['guardrails']['promotion_gate']['research_feedback']
     assert guardrail['policy_source']['mode'] == 'default_plus_override'
-    assert guardrail['policy_source']['user_override_keys'] == ['horizons', 'min_sample_count']
+    assert guardrail['policy_source']['user_override_keys'] == ['horizons', 'min_episode_count']
     assert 'research_feedback_user_override_merged' in guardrail['reason_codes']

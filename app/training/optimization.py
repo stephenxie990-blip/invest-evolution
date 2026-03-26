@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Callable
 
+from app.training.runtime_discipline import record_learning_proposal
 from invest.evolution import derive_scoring_adjustments
 from invest.services import EvolutionService
 from invest.shared.model_governance import build_optimization_event_lineage, normalize_config_ref
@@ -10,12 +11,59 @@ from invest.shared.model_governance import build_optimization_event_lineage, nor
 logger = logging.getLogger(__name__)
 
 
-def _apply_runtime_adjustments(controller: Any, adjustments: dict[str, Any]) -> None:
+def _queue_runtime_adjustments(
+    controller: Any,
+    adjustments: dict[str, Any],
+    *,
+    source: str,
+    cycle_id: int | None,
+    rationale: str = '',
+    evidence: dict[str, Any] | None = None,
+) -> tuple[dict[str, Any], list[str]]:
     if not adjustments:
-        return
-    controller.current_params.update(adjustments)
-    if getattr(controller, 'investment_model', None) is not None:
-        controller.investment_model.update_runtime_overrides(adjustments)
+        return {}, []
+    sanitize = getattr(controller, '_sanitize_runtime_param_adjustments', None)
+    clean_adjustments = (
+        sanitize(adjustments) if callable(sanitize) else dict(adjustments)
+    )
+    if not clean_adjustments:
+        return {}, []
+    proposal = record_learning_proposal(
+        controller,
+        source=source,
+        patch=clean_adjustments,
+        target_scope='candidate',
+        rationale=rationale,
+        evidence=evidence,
+        metadata={'proposal_kind': 'runtime_param_adjustment'},
+        cycle_id=cycle_id,
+    )
+    return clean_adjustments, [str(proposal.get('proposal_id') or '')]
+
+
+def _queue_scoring_adjustments(
+    controller: Any,
+    adjustments: dict[str, Any],
+    *,
+    source: str,
+    cycle_id: int | None,
+    rationale: str = '',
+    evidence: dict[str, Any] | None = None,
+) -> tuple[dict[str, Any], list[str]]:
+    if not adjustments:
+        return {}, []
+    clean_adjustments = dict(adjustments)
+    proposal = record_learning_proposal(
+        controller,
+        source=source,
+        patch=clean_adjustments,
+        target_scope='candidate',
+        rationale=rationale,
+        evidence=evidence,
+        metadata={'proposal_kind': 'scoring_adjustment'},
+        cycle_id=cycle_id,
+    )
+    return clean_adjustments, [str(proposal.get('proposal_id') or '')]
 
 
 def _population_size(controller: Any) -> int:
@@ -36,37 +84,6 @@ def _resolve_evolution_service(controller: Any) -> EvolutionService | Any | None
     if engine is None:
         return None
     return EvolutionService(engine=engine)
-
-
-def _reload_investment_model(controller: Any, config_path: str) -> None:
-    routing_service = getattr(controller, "training_routing_service", None)
-    if routing_service is not None:
-        routing_service.reload_investment_model(controller, config_path)
-        return
-    controller._reload_investment_model(config_path)
-
-
-def _latest_open_candidate_ref(controller: Any) -> str:
-    for item in reversed(list(getattr(controller, "cycle_history", []) or [])):
-        lineage_record = dict(
-            item.get("lineage_record", {}) if isinstance(item, dict) else getattr(item, "lineage_record", {})
-            or {}
-        )
-        if str(lineage_record.get("lineage_status") or "") in {
-            "candidate_pruned",
-            "candidate_expired",
-            "candidate_applied",
-            "override_expired",
-        }:
-            continue
-        if str(lineage_record.get("deployment_stage") or "") != "candidate" and str(
-            lineage_record.get("lineage_status") or ""
-        ) != "candidate_pending":
-            continue
-        ref = normalize_config_ref(lineage_record.get("candidate_config_ref") or "")
-        if ref:
-            return ref
-    return ""
 
 
 def _benchmark_oriented_fitness(result: Any) -> float:
@@ -150,18 +167,42 @@ def trigger_loss_optimization(
         details=opening_details,
     )
     events: list[dict[str, Any]] = []
-    config_adjustments: dict[str, Any] = {}
-    scoring_adjustments: dict[str, Any] = {}
+    queued_param_adjustments: dict[str, Any] = {}
 
     try:
         if feedback_plan:
             feedback_adjustments = dict(feedback_plan.get('param_adjustments') or {})
             feedback_scoring = dict(feedback_plan.get('scoring_adjustments') or {})
+            feedback_proposal_refs: list[str] = []
             if feedback_adjustments:
-                _apply_runtime_adjustments(controller, feedback_adjustments)
-                config_adjustments.update(feedback_adjustments)
+                clean_feedback_adjustments, feedback_param_refs = _queue_runtime_adjustments(
+                    controller,
+                    feedback_adjustments,
+                    source='optimization.research_feedback',
+                    cycle_id=int(cycle_id) if cycle_id is not None else None,
+                    rationale=str(feedback_plan.get('summary') or ''),
+                    evidence={
+                        'failed_horizons': list(feedback_plan.get('failed_horizons') or []),
+                        'failed_check_names': list(feedback_plan.get('failed_check_names') or []),
+                        'sample_count': int(feedback_plan.get('sample_count') or 0),
+                    },
+                )
+                feedback_proposal_refs.extend(feedback_param_refs)
+                queued_param_adjustments.update(clean_feedback_adjustments)
             if feedback_scoring:
-                scoring_adjustments.update(feedback_scoring)
+                _, feedback_scoring_refs = _queue_scoring_adjustments(
+                    controller,
+                    feedback_scoring,
+                    source='optimization.research_feedback_scoring',
+                    cycle_id=int(cycle_id) if cycle_id is not None else None,
+                    rationale=str(feedback_plan.get('summary') or ''),
+                    evidence={
+                        'failed_horizons': list(feedback_plan.get('failed_horizons') or []),
+                        'failed_check_names': list(feedback_plan.get('failed_check_names') or []),
+                        'sample_count': int(feedback_plan.get('sample_count') or 0),
+                    },
+                )
+                feedback_proposal_refs.extend(feedback_scoring_refs)
             feedback_event = event_factory(
                 cycle_id=int(cycle_id) if cycle_id is not None else None,
                 trigger=trigger_reason,
@@ -170,14 +211,19 @@ def trigger_loss_optimization(
                     'bias': feedback_plan.get('bias'),
                     'failed_horizons': list(feedback_plan.get('failed_horizons') or []),
                     'failed_checks': list(feedback_plan.get('failed_check_names') or []),
+                    'mutation_mode': 'proposal_only',
                 },
                 suggestions=list(feedback_plan.get('suggestions') or []),
-                applied_change={'params': dict(feedback_adjustments), 'scoring': dict(feedback_scoring)},
+                applied_change={
+                    'queued_params': dict(clean_feedback_adjustments if feedback_adjustments else {}),
+                    'queued_scoring': dict(feedback_scoring),
+                    'proposal_refs': feedback_proposal_refs,
+                },
                 lineage=_lineage(
                     deployment_stage='active',
                     runtime_override_keys=sorted(
                         {
-                            *(str(key) for key in feedback_adjustments.keys()),
+                            *(str(key) for key in (clean_feedback_adjustments if feedback_adjustments else {}).keys()),
                             *(str(key) for key in feedback_scoring.keys()),
                         }
                     ),
@@ -189,7 +235,7 @@ def trigger_loss_optimization(
                     'severity': float(feedback_plan.get('severity') or 0.0),
                     'benchmark_context': dict(feedback_plan.get('benchmark_context') or {}),
                 },
-                notes=str(feedback_plan.get('summary') or ''),
+                notes=str(feedback_plan.get('summary') or 'proposal queued; active runtime unchanged'),
             )
             events.append(feedback_event.to_dict())
             controller._append_optimization_event(feedback_event)
@@ -203,7 +249,7 @@ def trigger_loss_optimization(
                 metrics={
                     'failed_check_count': len(feedback_plan.get('failed_check_names') or []),
                     'sample_count': int(feedback_plan.get('sample_count') or 0),
-                    'param_adjustment_count': len(feedback_adjustments),
+                    'param_adjustment_count': len(clean_feedback_adjustments if feedback_adjustments else {}),
                 },
             )
 
@@ -215,7 +261,7 @@ def trigger_loss_optimization(
                 cycle_id=int(cycle_id) if cycle_id is not None else None,
                 trigger='consecutive_losses',
                 stage='llm_analysis',
-                decision={'cause': analysis.cause},
+                decision={'cause': analysis.cause, 'mutation_mode': 'proposal_only'},
                 suggestions=list(getattr(analysis, 'suggestions', []) or []),
                 lineage=_lineage(deployment_stage='active'),
                 evidence={
@@ -226,11 +272,32 @@ def trigger_loss_optimization(
 
             adjustments = controller.llm_optimizer.generate_strategy_fix(analysis) or {}
             if adjustments:
-                _apply_runtime_adjustments(controller, adjustments)
-                config_adjustments.update(adjustments)
-                scoring_adjustments.update(derive_scoring_adjustments(controller.model_name, analysis))
-                llm_event.applied_change = dict(adjustments)
-                logger.info('参数已更新: %s', controller.current_params)
+                clean_adjustments, proposal_refs = _queue_runtime_adjustments(
+                    controller,
+                    adjustments,
+                    source='optimization.llm_analysis',
+                    cycle_id=int(cycle_id) if cycle_id is not None else None,
+                    rationale=str(analysis.cause or ''),
+                    evidence={'suggestions': list(getattr(analysis, 'suggestions', []) or [])},
+                )
+                queued_param_adjustments.update(clean_adjustments)
+                scoring_adjustments = derive_scoring_adjustments(controller.model_name, analysis)
+                if scoring_adjustments:
+                    _, scoring_proposal_refs = _queue_scoring_adjustments(
+                        controller,
+                        scoring_adjustments,
+                        source='optimization.llm_scoring',
+                        cycle_id=int(cycle_id) if cycle_id is not None else None,
+                        rationale=str(analysis.cause or ''),
+                        evidence={'suggestions': list(getattr(analysis, 'suggestions', []) or [])},
+                    )
+                    proposal_refs.extend(scoring_proposal_refs)
+                llm_event.applied_change = {
+                    'queued_params': dict(clean_adjustments),
+                    'queued_scoring': dict(scoring_adjustments),
+                    'proposal_refs': proposal_refs,
+                }
+                logger.info('参数提案已记录: %s', clean_adjustments)
             events.append(llm_event.to_dict())
             controller._append_optimization_event(llm_event)
             controller._emit_meeting_speech(
@@ -277,8 +344,9 @@ def trigger_loss_optimization(
                     decision={
                         'fitness_scores': fitness_scores[-5:],
                         'fitness_policy': 'benchmark_oriented_v1',
+                        'mutation_mode': 'proposal_only',
                     },
-                    applied_change=dict(best_params or {}),
+                    applied_change={},
                     lineage=_lineage(
                         deployment_stage='active',
                         runtime_override_keys=sorted(str(key) for key in (best_params or {}).keys()),
@@ -290,9 +358,23 @@ def trigger_loss_optimization(
                     notes='population evolved',
                 )
                 if best_params:
-                    _apply_runtime_adjustments(controller, best_params)
-                    config_adjustments.update(best_params)
-                    logger.info('遗传算法优化参数: %s', best_params)
+                    clean_best_params, proposal_refs = _queue_runtime_adjustments(
+                        controller,
+                        best_params,
+                        source='optimization.evolution_engine',
+                        cycle_id=int(cycle_id) if cycle_id is not None else None,
+                        rationale='population evolved',
+                        evidence={
+                            'fitness_scores': fitness_scores[-5:],
+                            'fitness_policy': 'benchmark_oriented_v1',
+                        },
+                    )
+                    evo_event.applied_change = {
+                        'queued_params': dict(clean_best_params),
+                        'proposal_refs': proposal_refs,
+                    }
+                    queued_param_adjustments.update(clean_best_params)
+                    logger.info('遗传算法参数提案已记录: %s', clean_best_params)
                 events.append(evo_event.to_dict())
                 controller._append_optimization_event(evo_event)
                 controller._emit_module_log(
@@ -304,95 +386,6 @@ def trigger_loss_optimization(
                     details=best_params or {},
                     metrics={'fitness_samples': fitness_scores[-5:], 'fitness_policy': 'benchmark_oriented_v1'},
                 )
-
-        if config_adjustments:
-            pending_candidate_ref = _latest_open_candidate_ref(controller)
-            if pending_candidate_ref and not bool(controller.auto_apply_mutation):
-                mutation_event = event_factory(
-                    cycle_id=int(cycle_id) if cycle_id is not None else None,
-                    trigger=trigger_reason,
-                    stage='yaml_mutation_skipped',
-                    decision={
-                        'skipped': True,
-                        'pending_candidate_ref': pending_candidate_ref,
-                        'auto_applied': False,
-                    },
-                    applied_change={'params': dict(config_adjustments), 'scoring': dict(scoring_adjustments)},
-                    lineage=_lineage(
-                        candidate_config_ref=pending_candidate_ref,
-                        deployment_stage='candidate',
-                        runtime_override_keys=sorted(
-                            {
-                                *(str(key) for key in config_adjustments.keys()),
-                                *(str(key) for key in scoring_adjustments.keys()),
-                            }
-                        ),
-                        promotion_status='candidate_generated',
-                    ),
-                    evidence={
-                        'skip_reason': 'pending_candidate_unresolved',
-                        'pending_candidate_ref': pending_candidate_ref,
-                        'auto_applied': False,
-                    },
-                    notes='existing pending candidate reused; skip generating another candidate config',
-                )
-                mutation_log_message = '已有 pending candidate，跳过重复生成新候选配置'
-            else:
-                mutation = controller.model_mutator.mutate(
-                    controller.model_config_path,
-                    param_adjustments=config_adjustments,
-                    scoring_adjustments=scoring_adjustments or None,
-                    narrative_adjustments={'last_trigger': trigger_reason},
-                    generation_label=f"cycle_{int(cycle_id or 0):04d}",
-                    parent_meta={
-                        'cycle_id': cycle_id,
-                        'trigger': trigger_reason,
-                        'auto_apply': controller.auto_apply_mutation,
-                        'feedback_bias': dict((feedback_plan or {}).get('recommendation') or {}).get('bias', ''),
-                    },
-                )
-                auto_applied = bool(controller.auto_apply_mutation)
-                if auto_applied:
-                    _reload_investment_model(controller, mutation['config_path'])
-                mutation_event = event_factory(
-                    cycle_id=int(cycle_id) if cycle_id is not None else None,
-                    trigger=trigger_reason,
-                    stage='yaml_mutation',
-                    decision={'config_path': mutation['config_path'], 'auto_applied': auto_applied},
-                    applied_change={'params': dict(config_adjustments), 'scoring': dict(scoring_adjustments)},
-                    lineage=_lineage(
-                        candidate_config_ref=mutation['config_path'],
-                        deployment_stage='active' if auto_applied else 'candidate',
-                        runtime_override_keys=sorted(
-                            {
-                                *(str(key) for key in config_adjustments.keys()),
-                                *(str(key) for key in scoring_adjustments.keys()),
-                            }
-                        ),
-                        promotion_status='candidate_auto_applied' if auto_applied else 'candidate_generated',
-                    ),
-                    evidence={
-                        'mutation_meta': dict(mutation.get('meta') or {}),
-                        'auto_applied': auto_applied,
-                    },
-                    notes='active model config mutated' if auto_applied else 'candidate model config generated; active config unchanged',
-                )
-                mutation_log_message = (
-                    f"新的模型配置已生成并已接管 active：{mutation['config_path']}"
-                    if auto_applied
-                    else f"新的候选模型配置已生成（未自动接管 active）：{mutation['config_path']}"
-                )
-            events.append(mutation_event.to_dict())
-            controller._append_optimization_event(mutation_event)
-            controller._emit_module_log(
-                'optimization',
-                '模型配置已变异',
-                mutation_log_message,
-                cycle_id=cycle_id,
-                kind=str(mutation_event.stage),
-                details=dict(getattr(mutation_event, 'evidence', {}) or {}),
-                metrics={'adjustment_count': len(config_adjustments)},
-            )
 
     except Exception as exc:
         err_event = event_factory(
@@ -434,5 +427,5 @@ def trigger_loss_optimization(
     )
 
     if controller.on_optimize:
-        controller.on_optimize(controller.current_params)
+        controller.on_optimize(dict(queued_param_adjustments or controller.current_params))
     return events

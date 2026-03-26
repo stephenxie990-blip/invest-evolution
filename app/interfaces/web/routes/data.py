@@ -2,10 +2,6 @@
 
 from __future__ import annotations
 
-import json
-import os
-from datetime import datetime
-from pathlib import Path
 from typing import Any, Callable
 
 from flask import Flask, jsonify, request
@@ -48,7 +44,6 @@ def register_runtime_data_routes(
     jsonify_contract_payload: Callable[..., ResponseValue],
     data_source_unavailable_response: Callable[[DataSourceUnavailableError], ResponseValue],
     logger: Any,
-    data_download_lock_file_getter: Callable[[], Path],
     data_download_lock: Any,
     get_data_download_running: Callable[[], bool],
     set_data_download_running: Callable[[bool], None],
@@ -169,75 +164,13 @@ def register_runtime_data_routes(
     @app.route("/api/data/download", methods=["POST"])
     def api_data_download():
         runtime = get_runtime()
-        data = request.get_json(silent=True) or {}
-        try:
-            confirm = parse_bool(data.get("confirm", False), "confirm")
-        except ValueError as exc:
-            return jsonify({"error": str(exc)}), 400
-
         if runtime is not None:
+            data = request.get_json(silent=True) or {}
+            try:
+                confirm = parse_bool(data.get("confirm", False), "confirm")
+            except ValueError as exc:
+                return jsonify({"error": str(exc)}), 400
             return jsonify_contract_payload(runtime.trigger_data_download(confirm=confirm))
-
-        if not confirm:
-            return jsonify({"error": "confirm=true is required when live runtime is unavailable"}), 400
-
-        lock_file_path = data_download_lock_file_getter()
-
-        def _release_lock_file() -> None:
-            try:
-                lock_file_path.unlink(missing_ok=True)
-            except OSError:
-                logger.debug(
-                    "Failed to remove fallback data download lock: path=%s",
-                    lock_file_path,
-                    exc_info=True,
-                )
-
-        def _lock_file_is_active() -> bool:
-            if not lock_file_path.exists():
-                return False
-            try:
-                payload = json.loads(lock_file_path.read_text(encoding="utf-8"))
-            except (OSError, UnicodeDecodeError, json.JSONDecodeError):
-                return True
-            if not isinstance(payload, dict):
-                return True
-            try:
-                pid = int(payload.get("pid") or 0)
-            except (TypeError, ValueError):
-                return True
-            if pid <= 0:
-                return True
-            try:
-                os.kill(pid, 0)
-                return True
-            except OSError:
-                _release_lock_file()
-                return False
-
-        def _acquire_lock_file() -> bool:
-            lock_file_path.parent.mkdir(parents=True, exist_ok=True)
-            if _lock_file_is_active():
-                return False
-            try:
-                fd = os.open(
-                    lock_file_path,
-                    os.O_CREAT | os.O_EXCL | os.O_WRONLY,
-                    0o644,
-                )
-            except FileExistsError:
-                return False
-            with os.fdopen(fd, "w", encoding="utf-8") as handle:
-                handle.write(
-                    json.dumps(
-                        {
-                            "pid": os.getpid(),
-                            "started_at": datetime.now().isoformat(),
-                        },
-                        ensure_ascii=False,
-                    )
-                )
-            return True
 
         def _do_download():
             try:
@@ -247,12 +180,9 @@ def register_runtime_data_routes(
             finally:
                 with data_download_lock:
                     set_data_download_running(False)
-                _release_lock_file()
 
         with data_download_lock:
-            if get_data_download_running() or _lock_file_is_active():
-                return jsonify({"status": "running", "message": "后台同步已在运行"})
-            if not _acquire_lock_file():
+            if get_data_download_running():
                 return jsonify({"status": "running", "message": "后台同步已在运行"})
             set_data_download_running(True)
 
@@ -262,6 +192,5 @@ def register_runtime_data_routes(
         except Exception:
             with data_download_lock:
                 set_data_download_running(False)
-            _release_lock_file()
             raise
         return jsonify({"status": "started", "message": "后台同步已启动"})

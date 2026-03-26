@@ -74,6 +74,14 @@ from app.training.research_services import TrainingResearchService
 from app.training.selection_services import TrainingSelectionService
 from app.training.routing_services import TrainingRoutingService
 from app.training.simulation_services import TrainingSimulationService
+from app.training.experiment_protocol import build_standard_training_experiment_spec
+from app.training.runtime_discipline import (
+    apply_safety_override,
+    begin_cycle_runtime_window,
+    finalize_cycle_runtime_window,
+    record_learning_proposal,
+    resolve_active_runtime_params,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -81,6 +89,8 @@ SelfAssessmentSnapshot = training_runtime_hooks.SelfAssessmentSnapshot
 _event_callback_state = training_runtime_hooks._event_callback_state
 emit_event = training_runtime_hooks.emit_event
 set_event_callback = training_runtime_hooks.set_event_callback
+
+_UNSET = object()
 
 
 def _build_mock_provider() -> MockDataProvider:
@@ -207,7 +217,10 @@ class TrainingResult:
     causal_diagnosis: Dict[str, Any] = field(default_factory=dict)
     similarity_summary: Dict[str, Any] = field(default_factory=dict)
     similar_results: List[Dict[str, Any]] = field(default_factory=list)
+    proposal_bundle: Dict[str, Any] = field(default_factory=dict)
     realism_metrics: Dict[str, Any] = field(default_factory=dict)
+    selection_intercepts: Dict[str, Any] = field(default_factory=dict)
+    regime_runtime_profile: Dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if (not self.effective_data_mode or self.effective_data_mode == "unknown") and self.data_mode:
@@ -281,9 +294,9 @@ class SelfLearningController:
         config_audit_log_path: Optional[str] = None,
         config_snapshot_dir: Optional[str] = None,
         runtime_state_dir: Optional[str] = None,
-        freeze_total_cycles:    int = 10,
-        freeze_profit_required: int = 7,
-        max_losses_before_optimize: int = 3,
+        freeze_total_cycles: Any = _UNSET,
+        freeze_profit_required: Any = _UNSET,
+        max_losses_before_optimize: Any = _UNSET,
         data_provider=None,
     ):
         self._initialize_core_runtime(data_provider=data_provider)
@@ -531,13 +544,32 @@ class SelfLearningController:
     def _initialize_model_runtime(
         self,
         *,
-        freeze_total_cycles: int,
-        freeze_profit_required: int,
-        max_losses_before_optimize: int,
+        freeze_total_cycles: Any,
+        freeze_profit_required: Any,
+        max_losses_before_optimize: Any,
     ) -> None:
-        self.freeze_total_cycles = freeze_total_cycles
-        self.freeze_profit_required = freeze_profit_required
-        self.max_losses_before_optimize = max_losses_before_optimize
+        self.manual_train_policy_overrides: Dict[str, int] = {}
+        self.freeze_total_cycles = (
+            10 if freeze_total_cycles is _UNSET else int(freeze_total_cycles)
+        )
+        self.freeze_profit_required = (
+            7 if freeze_profit_required is _UNSET else int(freeze_profit_required)
+        )
+        self.max_losses_before_optimize = (
+            3 if max_losses_before_optimize is _UNSET else int(max_losses_before_optimize)
+        )
+        if freeze_total_cycles is not _UNSET:
+            self.manual_train_policy_overrides["freeze_total_cycles"] = int(
+                self.freeze_total_cycles
+            )
+        if freeze_profit_required is not _UNSET:
+            self.manual_train_policy_overrides["freeze_profit_required"] = int(
+                self.freeze_profit_required
+            )
+        if max_losses_before_optimize is not _UNSET:
+            self.manual_train_policy_overrides["max_losses_before_optimize"] = int(
+                self.max_losses_before_optimize
+            )
 
         self.model_name = str(getattr(config, "investment_model", "momentum") or "momentum")
         self.model_config_path = str(
@@ -595,6 +627,17 @@ class SelfLearningController:
         self.consecutive_losses = 0
         if getattr(self, "investment_model", None) is not None:
             self.investment_model.update_runtime_overrides(self.current_params)
+        self.current_cycle_frozen_params: Dict[str, Any] = {}
+        self.current_cycle_start_params: Dict[str, Any] = {}
+        self.current_cycle_learning_proposals: List[Dict[str, Any]] = []
+        self.current_cycle_runtime_violations: List[Dict[str, Any]] = []
+        self.current_cycle_safety_overrides: Dict[str, Any] = {}
+        self.current_cycle_runtime_locked = False
+        self.current_cycle_runtime_started_at = ""
+        self.current_cycle_runtime_started_for = 0
+        self.last_cycle_learning_proposals: List[Dict[str, Any]] = []
+        self.last_cycle_runtime_summary: Dict[str, Any] = {}
+        self.last_cycle_proposal_bundle: Dict[str, Any] = {}
 
         self.assessment_history: List[SelfAssessmentSnapshot] = []
         self.optimization_events_history: List[OptimizationEvent] = []
@@ -606,6 +649,8 @@ class SelfLearningController:
         self.experiment_allowed_models: list[str] = []
         self.experiment_min_history_days: int | None = None
         self.experiment_simulation_days: int | None = None
+        self.experiment_stock_count: int | None = None
+        self.experiment_universe_policy: Dict[str, Any] = {"mode": "ranked", "stratify_by": "board"}
         self.experiment_llm: Dict[str, Any] = {}
         self.experiment_protocol: Dict[str, Any] = {}
         self.experiment_cutoff_policy: Dict[str, Any] = {
@@ -617,6 +662,9 @@ class SelfLearningController:
         }
         self.experiment_review_window: Dict[str, Any] = {"mode": "single_cycle", "size": 1}
         self.experiment_promotion_policy: Dict[str, Any] = {}
+        self.experiment_train_policy_overrides: Dict[str, int] = {}
+        self.experiment_mode: str = "standard"
+        self.current_cycle_sampling_seed: int | None = None
 
     def _initialize_callbacks(self) -> None:
         self.on_cycle_complete: Optional[Callable] = None
@@ -699,6 +747,45 @@ class SelfLearningController:
     @staticmethod
     def _feedback_optimization_brief(plan: Dict[str, Any] | None = None, *, triggered: bool = False) -> Dict[str, Any]:
         return TrainingFeedbackService.feedback_brief(plan, triggered=triggered)
+
+    def active_runtime_params(self) -> Dict[str, Any]:
+        return resolve_active_runtime_params(self)
+
+    def begin_cycle_runtime_window(self, *, cycle_id: int) -> Dict[str, Any]:
+        return begin_cycle_runtime_window(self, cycle_id=cycle_id)
+
+    def finalize_cycle_runtime_window(self) -> Dict[str, Any]:
+        return finalize_cycle_runtime_window(self)
+
+    def queue_learning_proposal(
+        self,
+        *,
+        source: str,
+        patch: Dict[str, Any] | None,
+        target_scope: str = "candidate",
+        rationale: str = "",
+        evidence: Dict[str, Any] | None = None,
+        metadata: Dict[str, Any] | None = None,
+        cycle_id: int | None = None,
+    ) -> Dict[str, Any]:
+        return record_learning_proposal(
+            self,
+            source=source,
+            patch=patch,
+            target_scope=target_scope,
+            rationale=rationale,
+            evidence=evidence,
+            metadata=metadata,
+            cycle_id=cycle_id,
+        )
+
+    def apply_safety_runtime_override(
+        self,
+        adjustments: Dict[str, Any] | None,
+        *,
+        source: str,
+    ) -> Dict[str, Any]:
+        return apply_safety_override(self, adjustments, source=source)
 
     def _build_feedback_optimization_plan(self, feedback: Dict[str, Any] | None, *, cycle_id: int) -> Dict[str, Any]:
         return self.training_feedback_service.build_feedback_optimization_plan(self, feedback, cycle_id=cycle_id)
@@ -1164,6 +1251,30 @@ def train_main():
     parser.add_argument("--use-allocator", action="store_true", help="启用 market regime allocator")
     parser.add_argument("--allocator-top-n", type=int, default=None, help="allocator 参与分配的前 N 个模型")
     parser.add_argument("--force-full-cycles", action="store_true", help="即使达到冻结条件也继续跑满 cycles")
+    parser.add_argument("--seed", type=int, default=7, help="标准训练路径随机种子（用于 cutoff 与 universe sampling，可复现）")
+    parser.add_argument(
+        "--cutoff-policy",
+        choices=("random", "fixed", "rolling", "sequence", "regime_balanced"),
+        default="random",
+        help="标准训练路径 cutoff 选择策略",
+    )
+    parser.add_argument("--cutoff-min-date", type=str, default=None, help="cutoff 最小日期")
+    parser.add_argument("--cutoff-max-date", type=str, default=None, help="cutoff 最大日期")
+    parser.add_argument("--cutoff-date", action="append", default=None, help="固定/序列 cutoff 日期，可重复传入")
+    parser.add_argument("--cutoff-step-days", type=int, default=30, help="rolling cutoff 步长")
+    parser.add_argument("--stock-count", type=int, default=None, help="标准训练路径 universe 样本规模")
+    parser.add_argument(
+        "--universe-sampling-mode",
+        choices=("ranked", "random", "stratified_random"),
+        default="stratified_random",
+        help="标准训练路径 universe 采样模式",
+    )
+    parser.add_argument(
+        "--universe-stratify-by",
+        choices=("board", "industry"),
+        default="board",
+        help="分层采样维度（仅 stratified_random 生效）",
+    )
 
     args = parser.parse_args()
 
@@ -1210,6 +1321,31 @@ def train_main():
             data_provider=mock_provider,
         )
         controller.set_llm_dry_run(True)
+
+    cutoff_policy: Dict[str, Any] = {"mode": str(args.cutoff_policy)}
+    if args.cutoff_policy == "fixed":
+        cutoff_policy["date"] = str((args.cutoff_date or [""])[0] or "")
+    elif args.cutoff_policy == "sequence":
+        cutoff_policy["dates"] = list(args.cutoff_date or [])
+    elif args.cutoff_policy == "rolling":
+        cutoff_policy["anchor_date"] = str((args.cutoff_date or [""])[0] or args.cutoff_min_date or "")
+        cutoff_policy["step_days"] = int(args.cutoff_step_days)
+
+    experiment_spec = build_standard_training_experiment_spec(
+        seed=int(args.seed),
+        min_history_days=int(getattr(config, "min_history_days", 200) or 200),
+        simulation_days=int(getattr(config, "simulation_days", 30) or 30),
+        stock_count=max(1, int(args.stock_count or getattr(config, "max_stocks", 50) or 50)),
+        min_date=args.cutoff_min_date,
+        max_date=args.cutoff_max_date,
+        cutoff_policy=cutoff_policy,
+        universe_policy={
+            "mode": str(args.universe_sampling_mode),
+            "stratify_by": str(args.universe_stratify_by),
+        },
+        dry_run_llm=bool(args.mock),
+    )
+    controller.configure_experiment(experiment_spec)
 
     report = controller.run_continuous(max_cycles=args.cycles)
     logger.info(f"\n训练完成: {report}")

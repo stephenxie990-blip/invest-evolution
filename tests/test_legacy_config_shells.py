@@ -48,69 +48,33 @@ def test_evolution_config_rejects_llm_patch(monkeypatch, tmp_path):
 def test_agent_prompts_endpoint_updates_prompt_without_restart(monkeypatch, tmp_path):
     monkeypatch.setattr(config_module, 'PROJECT_ROOT', tmp_path)
     clear_control_plane_cache()
-    agent_dir = tmp_path / 'agent_settings'
-    agent_dir.mkdir(parents=True)
-    (agent_dir / 'agents_config.json').write_text(
-        json.dumps(
-            {
-                'hunter': {'llm_model': 'fast', 'system_prompt': 'old prompt'}
-            }
-        ),
-        encoding='utf-8',
-    )
+    original_configs = dict(config_module.agent_config_registry._configs)
+    config_module.agent_config_registry._configs = {
+        'hunter': {'llm_model': 'fast', 'system_prompt': 'old prompt'}
+    }
+    try:
+        client = web_server.app.test_client()
+        res = client.post(
+            '/api/agent_prompts',
+            data=json.dumps(
+                {
+                    'name': 'hunter',
+                    'system_prompt': 'new prompt',
+                }
+            ),
+            content_type='application/json',
+        )
+        assert res.status_code == 200
+        payload = res.get_json()
+        assert payload['status'] == 'ok'
+        assert payload['restart_required'] is False
 
-    client = web_server.app.test_client()
-    res = client.post(
-        '/api/agent_prompts',
-        data=json.dumps(
-            {
-                'name': 'hunter',
-                'system_prompt': 'new prompt',
-            }
-        ),
-        content_type='application/json',
-    )
-    assert res.status_code == 200
-    payload = res.get_json()
-    assert payload['status'] == 'ok'
-    assert payload['restart_required'] is False
+        listing = client.get('/api/agent_prompts').get_json()
+        hunter = next(item for item in listing['configs'] if item['name'] == 'hunter')
+        assert hunter['system_prompt'] == 'new prompt'
+    finally:
+        config_module.agent_config_registry._configs = original_configs
 
-    listing = client.get('/api/agent_prompts').get_json()
-    hunter = next(item for item in listing['configs'] if item['name'] == 'hunter')
-    assert hunter['system_prompt'] == 'new prompt'
-
-
-def test_agent_prompts_endpoint_rejects_unknown_agent(monkeypatch, tmp_path):
-    monkeypatch.setattr(config_module, 'PROJECT_ROOT', tmp_path)
-    clear_control_plane_cache()
-    agent_dir = tmp_path / 'agent_settings'
-    agent_dir.mkdir(parents=True)
-    (agent_dir / 'agents_config.json').write_text(
-        json.dumps(
-            {
-                'hunter': {'llm_model': 'fast', 'system_prompt': 'old prompt'}
-            }
-        ),
-        encoding='utf-8',
-    )
-
-    client = web_server.app.test_client()
-    res = client.post(
-        '/api/agent_prompts',
-        data=json.dumps(
-            {
-                'name': '__unknown_agent__',
-                'system_prompt': 'new prompt',
-            }
-        ),
-        content_type='application/json',
-    )
-
-    assert res.status_code == 400
-    payload = res.get_json()
-    assert payload['status'] == 'error'
-    assert payload['invalid_keys'] == ['name']
-    assert 'unknown agent prompt name' in payload['error']
 
 
 def test_agent_configs_legacy_route_removed(monkeypatch, tmp_path):

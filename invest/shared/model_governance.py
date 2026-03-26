@@ -5,6 +5,96 @@ from pathlib import Path
 from typing import Any
 
 
+DEFAULT_REGIME_HARD_FAIL_POLICY: dict[str, Any] = {
+    "enabled": True,
+    "critical_regimes": ["bull", "bear"],
+    "min_cycles": 2,
+    "min_avg_return_pct": -0.5,
+    "max_benchmark_pass_rate": 0.25,
+    "max_win_rate": 0.40,
+    "per_regime": {},
+}
+
+DEFAULT_STRATEGY_FAMILY_REGIME_HARD_FAIL_PROFILES: dict[str, dict[str, Any]] = {
+    "momentum": {
+        "critical_regimes": ["bull", "bear"],
+        "min_cycles": 2,
+        "per_regime": {
+            "bull": {
+                "min_avg_return_pct": -0.10,
+                "max_benchmark_pass_rate": 0.25,
+                "max_win_rate": 0.45,
+            },
+            "bear": {
+                "min_avg_return_pct": -0.40,
+                "max_benchmark_pass_rate": 0.25,
+                "max_win_rate": 0.40,
+            },
+        },
+    },
+    "mean_reversion": {
+        "critical_regimes": ["oscillation", "bear"],
+        "min_cycles": 2,
+        "per_regime": {
+            "oscillation": {
+                "min_avg_return_pct": -0.20,
+                "max_benchmark_pass_rate": 0.25,
+                "max_win_rate": 0.40,
+            },
+            "bear": {
+                "min_avg_return_pct": -0.50,
+                "max_benchmark_pass_rate": 0.20,
+                "max_win_rate": 0.35,
+            },
+        },
+    },
+    "defensive_low_vol": {
+        "critical_regimes": ["bear", "oscillation"],
+        "min_cycles": 2,
+        "per_regime": {
+            "bear": {
+                "min_avg_return_pct": -0.15,
+                "max_benchmark_pass_rate": 0.30,
+                "max_win_rate": 0.45,
+            },
+            "oscillation": {
+                "min_avg_return_pct": -0.25,
+                "max_benchmark_pass_rate": 0.25,
+                "max_win_rate": 0.40,
+            },
+        },
+    },
+    "value_quality": {
+        "critical_regimes": ["bear", "oscillation"],
+        "min_cycles": 2,
+        "per_regime": {
+            "bear": {
+                "min_avg_return_pct": -0.35,
+                "max_benchmark_pass_rate": 0.25,
+                "max_win_rate": 0.40,
+            },
+            "oscillation": {
+                "min_cycles": 3,
+                "min_avg_return_pct": -0.20,
+                "max_benchmark_pass_rate": 0.15,
+                "max_win_rate": 0.35,
+                "max_loss_share": 0.65,
+                "min_negative_contribution_pct": -4.0,
+                "required_failed_metrics": [
+                    "avg_return_pct",
+                    "loss_share",
+                    "negative_contribution_pct",
+                ],
+                "confirm_any_failed_metrics": [
+                    "benchmark_pass_rate",
+                    "win_rate",
+                ],
+            },
+        },
+    },
+}
+
+
 DEFAULT_MODEL_GOVERNANCE_MATRIX: dict[str, Any] = {
     "review": {
         "min_strategy_score": 0.45,
@@ -46,6 +136,7 @@ DEFAULT_MODEL_GOVERNANCE_MATRIX: dict[str, Any] = {
         "max_avg_drawdown": 15.0,
         "block_negative_score": True,
         "allowed_deployment_stages": ["active"],
+        "regime_hard_fail": deepcopy(DEFAULT_REGIME_HARD_FAIL_POLICY),
     },
     "promotion": {
         "max_pending_cycles": 3,
@@ -56,6 +147,7 @@ DEFAULT_MODEL_GOVERNANCE_MATRIX: dict[str, Any] = {
         "max_selection_overlap_for_failed_candidate": 0.85,
         "blocked_feedback_biases": ["tighten_risk", "recalibrate_probability"],
         "min_feedback_samples": 5,
+        "regime_hard_fail": deepcopy(DEFAULT_REGIME_HARD_FAIL_POLICY),
     },
     "freeze": {
         "max_candidate_pending_count": 0,
@@ -76,8 +168,9 @@ DEFAULT_MODEL_GOVERNANCE_MATRIX: dict[str, Any] = {
 
 DEFAULT_PROMOTION_GATE_POLICY: dict[str, Any] = {
     "min_samples": 3,
+    "regime_hard_fail": deepcopy(DEFAULT_REGIME_HARD_FAIL_POLICY),
     "research_feedback": {
-        "min_sample_count": 5,
+        "min_episode_count": 5,
         "blocked_biases": ["tighten_risk", "recalibrate_probability"],
         "max_brier_like_direction_score": 0.25,
         "horizons": {
@@ -119,7 +212,7 @@ DEFAULT_FREEZE_GATE_POLICY: dict[str, Any] = {
     "avg_max_drawdown_lt": 15.0,
     "benchmark_pass_rate_gte": 0.60,
     "research_feedback": {
-        "min_sample_count": 8,
+        "min_episode_count": 8,
         "blocked_biases": ["tighten_risk", "recalibrate_probability"],
         "max_brier_like_direction_score": 0.22,
         "horizons": {
@@ -137,6 +230,64 @@ DEFAULT_FREEZE_GATE_POLICY: dict[str, Any] = {
     },
 }
 
+DEFAULT_PROPOSAL_GATE_POLICY: dict[str, Any] = {
+    "enabled": True,
+    "protected_params": [
+        "position_size",
+        "cash_reserve",
+        "signal_threshold",
+        "take_profit_pct",
+        "stop_loss_pct",
+        "trailing_pct",
+        "max_hold_days",
+    ],
+    "behavior_params": [
+        "position_size",
+        "cash_reserve",
+        "signal_threshold",
+        "take_profit_pct",
+        "max_hold_days",
+        "top_n",
+        "max_positions",
+    ],
+    "profitable_cycle": {
+        "freeze_behavior_params": True,
+        "block_scoring_adjustments": True,
+        "block_agent_weight_adjustments": True,
+        "allowed_safety_tightening_params": ["stop_loss_pct"],
+    },
+    "identity_protection": {
+        "max_single_step_ratio_vs_baseline": 0.30,
+        "scoring": {
+            "max_single_step_ratio_vs_baseline": 0.30,
+        },
+        "agent_weights": {
+            "max_single_step_ratio_vs_baseline": 0.30,
+        },
+    },
+    "cumulative_drift": {
+        "max_param_ratio_vs_baseline": 0.50,
+        "scoring": {
+            "max_ratio_vs_baseline": 0.50,
+        },
+        "agent_weights": {
+            "max_ratio_vs_baseline": 0.50,
+        },
+    },
+}
+
+_CANDIDATE_BUILD_STAGE_ALIASES: dict[str, str] = {
+    "candidate_build": "candidate_build",
+    "candidate_build_skipped": "candidate_build_skipped",
+    "yaml_mutation": "candidate_build",
+    "yaml_mutation_skipped": "candidate_build_skipped",
+}
+
+_CANDIDATE_BUILD_SOURCE_ALIASES: dict[str, str] = {
+    "runtime_candidate_builder": "runtime_candidate_builder",
+    "runtime_yaml_mutation": "runtime_candidate_builder",
+}
+
 
 def deep_merge(base: dict[str, Any] | None, patch: dict[str, Any] | None = None) -> dict[str, Any]:
     merged = deepcopy(dict(base or {}))
@@ -148,10 +299,57 @@ def deep_merge(base: dict[str, Any] | None, patch: dict[str, Any] | None = None)
     return merged
 
 
-def resolve_model_governance_matrix(*overrides: dict[str, Any] | None) -> dict[str, Any]:
+def normalize_strategy_family_name(value: Any) -> str:
+    normalized = str(value or "").strip().lower()
+    if not normalized:
+        return ""
+    if normalized in DEFAULT_STRATEGY_FAMILY_REGIME_HARD_FAIL_PROFILES:
+        return normalized
+    for family in DEFAULT_STRATEGY_FAMILY_REGIME_HARD_FAIL_PROFILES:
+        if normalized.startswith(f"{family}_") or normalized.startswith(f"{family}-"):
+            return family
+    return normalized
+
+
+def resolve_strategy_family_regime_hard_fail_profile(
+    strategy_family: Any | None = None,
+) -> dict[str, Any]:
+    normalized = normalize_strategy_family_name(strategy_family)
+    return deepcopy(
+        dict(DEFAULT_STRATEGY_FAMILY_REGIME_HARD_FAIL_PROFILES.get(normalized) or {})
+    )
+
+
+def _apply_shared_regime_hard_fail_profile(override: dict[str, Any] | None) -> dict[str, Any]:
+    payload = deepcopy(dict(override or {}))
+    shared_regime_hard_fail = dict(payload.pop("shared_regime_hard_fail", {}) or {})
+    if not shared_regime_hard_fail:
+        return payload
+    for scope_name in ("routing", "promotion"):
+        scope_policy = dict(payload.get(scope_name) or {})
+        scope_policy["regime_hard_fail"] = deep_merge(
+            shared_regime_hard_fail,
+            dict(scope_policy.get("regime_hard_fail") or {}),
+        )
+        payload[scope_name] = scope_policy
+    return payload
+
+
+def resolve_model_governance_matrix(
+    *overrides: dict[str, Any] | None,
+    strategy_family: Any | None = None,
+) -> dict[str, Any]:
     matrix = deepcopy(DEFAULT_MODEL_GOVERNANCE_MATRIX)
+    family_profile = resolve_strategy_family_regime_hard_fail_profile(strategy_family)
+    if family_profile:
+        matrix = deep_merge(
+            matrix,
+            _apply_shared_regime_hard_fail_profile(
+                {"shared_regime_hard_fail": family_profile}
+            ),
+        )
     for override in overrides:
-        matrix = deep_merge(matrix, dict(override or {}))
+        matrix = deep_merge(matrix, _apply_shared_regime_hard_fail_profile(override))
     return matrix
 
 
@@ -160,7 +358,17 @@ def normalize_promotion_gate_policy(
     *,
     defaults: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    return deep_merge(defaults or DEFAULT_PROMOTION_GATE_POLICY, dict(policy or {}))
+    resolved_defaults = deepcopy(defaults or DEFAULT_PROMOTION_GATE_POLICY)
+    resolved_policy = deepcopy(dict(policy or {}))
+    if "research_feedback" in resolved_defaults:
+        resolved_defaults["research_feedback"] = normalize_research_feedback_gate_policy(
+            resolved_defaults.get("research_feedback")
+        )
+    if "research_feedback" in resolved_policy:
+        resolved_policy["research_feedback"] = normalize_research_feedback_gate_policy(
+            resolved_policy.get("research_feedback")
+        )
+    return deep_merge(resolved_defaults, resolved_policy)
 
 
 def normalize_freeze_gate_policy(
@@ -168,7 +376,268 @@ def normalize_freeze_gate_policy(
     *,
     defaults: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    return deep_merge(defaults or DEFAULT_FREEZE_GATE_POLICY, dict(policy or {}))
+    resolved_defaults = deepcopy(defaults or DEFAULT_FREEZE_GATE_POLICY)
+    resolved_policy = deepcopy(dict(policy or {}))
+    if "research_feedback" in resolved_defaults:
+        resolved_defaults["research_feedback"] = normalize_research_feedback_gate_policy(
+            resolved_defaults.get("research_feedback")
+        )
+    if "research_feedback" in resolved_policy:
+        resolved_policy["research_feedback"] = normalize_research_feedback_gate_policy(
+            resolved_policy.get("research_feedback")
+        )
+    return deep_merge(resolved_defaults, resolved_policy)
+
+
+def normalize_research_feedback_gate_policy(policy: dict[str, Any] | None = None) -> dict[str, Any]:
+    resolved = deepcopy(dict(policy or {}))
+    legacy_min_sample_count = resolved.pop("min_sample_count", None)
+    if legacy_min_sample_count is not None and resolved.get("min_episode_count") is None:
+        resolved["min_episode_count"] = legacy_min_sample_count
+    return resolved
+
+
+def normalize_proposal_gate_policy(
+    policy: dict[str, Any] | None = None,
+    *,
+    defaults: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    return deep_merge(defaults or DEFAULT_PROPOSAL_GATE_POLICY, dict(policy or {}))
+
+
+def _safe_float(value: Any, default: float = 0.0) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return float(default)
+
+
+def _record_field(item: Any, field: str, default: Any = None) -> Any:
+    if isinstance(item, dict):
+        return item.get(field, default)
+    return getattr(item, field, default)
+
+
+def _record_dict(item: Any, field: str) -> dict[str, Any]:
+    value = _record_field(item, field, {})
+    return dict(value or {})
+
+
+def _record_regime_name(item: Any) -> str:
+    routing_decision = _record_dict(item, "routing_decision")
+    audit_tags = _record_dict(item, "audit_tags")
+    regime = str(
+        routing_decision.get("regime")
+        or audit_tags.get("routing_regime")
+        or _record_field(item, "regime", "")
+        or "unknown"
+    ).strip()
+    return regime or "unknown"
+
+
+def _build_regime_performance_from_cycle_history(
+    cycle_history: list[Any] | None = None,
+) -> dict[str, dict[str, Any]]:
+    grouped: dict[str, dict[str, Any]] = {}
+    for item in list(cycle_history or []):
+        regime = _record_regime_name(item)
+        bucket = grouped.setdefault(
+            regime,
+            {
+                "cycles": 0,
+                "profit_cycles": 0,
+                "benchmark_pass_cycles": 0,
+                "return_sum": 0.0,
+                "negative_contribution_pct": 0.0,
+            },
+        )
+        return_pct = _safe_float(_record_field(item, "return_pct", 0.0), 0.0)
+        is_profit = bool(_record_field(item, "is_profit", return_pct > 0.0))
+        benchmark_passed = bool(_record_field(item, "benchmark_passed", False))
+        bucket["cycles"] += 1
+        bucket["return_sum"] += return_pct
+        bucket["negative_contribution_pct"] += min(return_pct, 0.0)
+        if is_profit:
+            bucket["profit_cycles"] += 1
+        if benchmark_passed:
+            bucket["benchmark_pass_cycles"] += 1
+
+    performance: dict[str, dict[str, Any]] = {}
+    for regime, bucket in grouped.items():
+        cycles = int(bucket.get("cycles", 0) or 0)
+        if cycles <= 0:
+            continue
+        profit_cycles = int(bucket.get("profit_cycles", 0) or 0)
+        benchmark_pass_cycles = int(bucket.get("benchmark_pass_cycles", 0) or 0)
+        performance[regime] = {
+            "cycles": cycles,
+            "profit_cycles": profit_cycles,
+            "loss_cycles": cycles - profit_cycles,
+            "avg_return_pct": _safe_float(bucket.get("return_sum"), 0.0) / cycles,
+            "win_rate": profit_cycles / cycles,
+            "benchmark_pass_rate": benchmark_pass_cycles / cycles,
+            "negative_contribution_pct": _safe_float(bucket.get("negative_contribution_pct"), 0.0),
+        }
+    return performance
+
+
+def evaluate_regime_hard_fail(
+    regime_performance: dict[str, Any] | None,
+    *,
+    policy: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    config = deep_merge(DEFAULT_REGIME_HARD_FAIL_POLICY, dict(policy or {}))
+    enabled = bool(config.get("enabled", True))
+    critical_regimes = [
+        str(item).strip()
+        for item in list(config.get("critical_regimes") or [])
+        if str(item).strip()
+    ]
+    if not critical_regimes:
+        critical_regimes = list(DEFAULT_REGIME_HARD_FAIL_POLICY.get("critical_regimes") or [])
+
+    checks: list[dict[str, Any]] = []
+    failed_regimes: list[dict[str, Any]] = []
+    performance = dict(regime_performance or {})
+    for regime in critical_regimes:
+        metrics = dict(performance.get(regime) or {})
+        threshold = deep_merge(
+            {
+                "min_cycles": int(config.get("min_cycles", 2) or 2),
+                "min_avg_return_pct": _safe_float(config.get("min_avg_return_pct"), -0.5),
+                "max_benchmark_pass_rate": _safe_float(
+                    config.get("max_benchmark_pass_rate"),
+                    0.25,
+                ),
+                "max_win_rate": _safe_float(config.get("max_win_rate"), 0.40),
+            },
+            dict(dict(config.get("per_regime") or {}).get(regime) or {}),
+        )
+        min_cycles = max(1, int(threshold.get("min_cycles", 2) or 2))
+        min_avg_return_pct = _safe_float(threshold.get("min_avg_return_pct"), -0.5)
+        max_benchmark_pass_rate = _safe_float(threshold.get("max_benchmark_pass_rate"), 0.25)
+        max_win_rate = _safe_float(threshold.get("max_win_rate"), 0.40)
+        cycles = int(metrics.get("cycles", 0) or 0)
+        avg_return_pct = _safe_float(metrics.get("avg_return_pct"), 0.0)
+        benchmark_pass_rate = _safe_float(metrics.get("benchmark_pass_rate"), 0.0)
+        win_rate = _safe_float(metrics.get("win_rate"), 0.0)
+        active = enabled and cycles >= min_cycles
+        loss_cycles = int(metrics.get("loss_cycles", 0) or 0)
+        actual = {
+            "cycles": cycles,
+            "avg_return_pct": avg_return_pct,
+            "benchmark_pass_rate": benchmark_pass_rate,
+            "win_rate": win_rate,
+            "loss_cycles": loss_cycles,
+            "loss_share": (loss_cycles / cycles) if cycles > 0 else 0.0,
+            "negative_contribution_pct": _safe_float(
+                metrics.get("negative_contribution_pct"),
+                0.0,
+            ),
+        }
+        max_loss_share = threshold.get("max_loss_share")
+        min_negative_contribution_pct = threshold.get("min_negative_contribution_pct")
+        loss_share_failed = True
+        if max_loss_share is not None:
+            loss_share_failed = actual["loss_share"] >= _safe_float(max_loss_share, 1.0)
+        negative_contribution_failed = True
+        if min_negative_contribution_pct is not None:
+            negative_contribution_failed = actual["negative_contribution_pct"] <= _safe_float(
+                min_negative_contribution_pct,
+                0.0,
+            )
+        failed_metric_status = {
+            "avg_return_pct": avg_return_pct <= min_avg_return_pct,
+            "benchmark_pass_rate": benchmark_pass_rate <= max_benchmark_pass_rate,
+            "win_rate": win_rate <= max_win_rate,
+        }
+        if max_loss_share is not None:
+            failed_metric_status["loss_share"] = loss_share_failed
+        if min_negative_contribution_pct is not None:
+            failed_metric_status["negative_contribution_pct"] = negative_contribution_failed
+        required_failed_metrics = [
+            str(item).strip()
+            for item in list(threshold.get("required_failed_metrics") or failed_metric_status.keys())
+            if str(item).strip() in failed_metric_status
+        ]
+        confirm_any_failed_metrics = [
+            str(item).strip()
+            for item in list(threshold.get("confirm_any_failed_metrics") or [])
+            if str(item).strip() in failed_metric_status
+        ]
+        required_failed = all(
+            bool(failed_metric_status.get(metric_name, False))
+            for metric_name in required_failed_metrics
+        )
+        auxiliary_failed = (
+            any(bool(failed_metric_status.get(metric_name, False)) for metric_name in confirm_any_failed_metrics)
+            if confirm_any_failed_metrics
+            else True
+        )
+        hard_failed = (
+            active
+            and required_failed
+            and auxiliary_failed
+        )
+        checks.append(
+            {
+                "name": f"regime_hard_fail.{regime}",
+                "passed": not hard_failed,
+                "active": active,
+                "actual": actual,
+                "threshold": threshold,
+                "failed_metric_status": failed_metric_status,
+                "required_failed_metrics": required_failed_metrics,
+                "confirm_any_failed_metrics": confirm_any_failed_metrics,
+            }
+        )
+        if hard_failed:
+            failed_regimes.append(
+                {
+                    "regime": regime,
+                    **actual,
+                }
+            )
+
+    failed_checks = [item for item in checks if not bool(item.get("passed", False))]
+    return {
+        "enabled": enabled,
+        "passed": not failed_checks,
+        "policy": config,
+        "checks": checks,
+        "failed_checks": failed_checks,
+        "failed_regimes": failed_regimes,
+        "failed_regime_names": [str(item.get("regime") or "") for item in failed_regimes],
+        "regime_performance": performance,
+    }
+
+
+def canonicalize_candidate_build_stage(stage: Any) -> str:
+    return _CANDIDATE_BUILD_STAGE_ALIASES.get(str(stage or "").strip(), str(stage or "").strip())
+
+
+def is_candidate_build_stage(stage: Any) -> bool:
+    return canonicalize_candidate_build_stage(stage) in {
+        "candidate_build",
+        "candidate_build_skipped",
+    }
+
+
+def latest_candidate_build_event(
+    optimization_events: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    for event in reversed(list(optimization_events or [])):
+        if is_candidate_build_stage(event.get("stage")):
+            payload = dict(event)
+            payload["stage"] = canonicalize_candidate_build_stage(payload.get("stage"))
+            decision = dict(payload.get("decision") or {})
+            payload["decision"] = decision
+            return payload
+    return {}
+
+
+def canonicalize_candidate_build_source(source: Any) -> str:
+    return _CANDIDATE_BUILD_SOURCE_ALIASES.get(str(source or "").strip(), str(source or "").strip())
 
 
 def normalize_config_ref(value: Any) -> str:
@@ -195,6 +664,45 @@ def latest_actionable_event(optimization_events: list[dict[str, Any]] | None = N
         applied_change = dict(event.get("applied_change") or {})
         if applied_change:
             return dict(event)
+    return {}
+
+
+def latest_open_candidate_record(cycle_history: list[Any] | None = None) -> dict[str, Any]:
+    for item in reversed(list(cycle_history or [])):
+        lineage_record = dict(
+            item.get("lineage_record", {})
+            if isinstance(item, dict)
+            else getattr(item, "lineage_record", {})
+            or {}
+        )
+        lineage_status = str(lineage_record.get("lineage_status") or "")
+        if lineage_status in {
+            "candidate_pruned",
+            "candidate_expired",
+            "candidate_applied",
+            "override_expired",
+        }:
+            continue
+        deployment_stage = str(lineage_record.get("deployment_stage") or "")
+        if deployment_stage != "candidate" and lineage_status != "candidate_pending":
+            continue
+        candidate_config_ref = normalize_config_ref(lineage_record.get("candidate_config_ref") or "")
+        if not candidate_config_ref:
+            continue
+        return {
+            "candidate_config_ref": candidate_config_ref,
+            "candidate_version_id": str(lineage_record.get("candidate_version_id") or ""),
+            "candidate_runtime_fingerprint": str(
+                lineage_record.get("candidate_runtime_fingerprint") or ""
+            ),
+            "candidate_meta_ref": str(lineage_record.get("candidate_meta_ref") or ""),
+            "cycle_id": int(
+                lineagerecord_cycle_id
+                if (lineagerecord_cycle_id := lineage_record.get("cycle_id")) is not None
+                else (item.get("cycle_id") if isinstance(item, dict) else getattr(item, "cycle_id", 0))
+                or 0
+            ),
+        }
     return {}
 
 
@@ -272,9 +780,18 @@ def evaluate_promotion_discipline(
     policy: dict[str, Any] | None = None,
     optimization_events: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
-    matrix = resolve_model_governance_matrix({"promotion": dict(policy or {})})
-    config = dict(matrix.get("promotion") or {})
     payload = dict(run_context or {})
+    strategy_family = (
+        payload.get("strategy_family")
+        or payload.get("model_name")
+        or payload.get("strategy_kind")
+        or ""
+    )
+    matrix = resolve_model_governance_matrix(
+        {"promotion": dict(policy or {})},
+        strategy_family=strategy_family,
+    )
+    config = dict(matrix.get("promotion") or {})
     stage_info = infer_deployment_stage(
         run_context=payload,
         optimization_events=optimization_events,
@@ -322,6 +839,10 @@ def evaluate_promotion_discipline(
     comparison = dict(ab_comparison.get("comparison") or {})
     research_feedback = dict(payload.get("research_feedback") or {})
     recommendation = dict(research_feedback.get("recommendation") or {})
+    regime_hard_fail = evaluate_regime_hard_fail(
+        _build_regime_performance_from_cycle_history(cycle_history),
+        policy=dict(config.get("regime_hard_fail") or {}),
+    )
 
     status = "active_aligned"
     discipline_actions: list[str] = []
@@ -348,14 +869,24 @@ def evaluate_promotion_discipline(
             if str(item).strip()
         ]
         feedback_bias = str(recommendation.get("bias") or "").strip()
+        feedback_evidence_count = int(research_feedback.get("episode_count") or 0) or int(
+            research_feedback.get("sample_count") or 0
+        )
         if (
             feedback_bias in blocked_feedback_biases
-            and int(research_feedback.get("sample_count") or 0)
-            >= int(config.get("min_feedback_samples", 5) or 5)
+            and feedback_evidence_count >= int(config.get("min_feedback_samples", 5) or 5)
         ):
             status = "candidate_pruned"
             violations.append("blocked_research_feedback")
             discipline_actions.append("prune_feedback_blocked_candidate")
+        if regime_hard_fail.get("failed_regimes"):
+            status = "candidate_pruned"
+            for regime_name in regime_hard_fail.get("failed_regime_names") or []:
+                violation_name = f"regime_hard_fail.{regime_name}"
+                if violation_name not in violations:
+                    violations.append(violation_name)
+            if "prune_regime_hard_fail_candidate" not in discipline_actions:
+                discipline_actions.append("prune_regime_hard_fail_candidate")
         if pending_age > int(config.get("max_pending_cycles", 3) or 3):
             status = "candidate_expired"
             violations.append("max_pending_cycles")
@@ -384,6 +915,7 @@ def evaluate_promotion_discipline(
         "runtime_override_keys": list(stage_info.get("runtime_override_keys") or []),
         "candidate_ab": comparison,
         "feedback_bias": str(recommendation.get("bias") or ""),
+        "regime_hard_fail": regime_hard_fail,
         "policy": config,
     }
 
@@ -451,7 +983,16 @@ def evaluate_routing_quality_gate(
     *,
     policy: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    matrix = resolve_model_governance_matrix({"routing": dict(policy or {})})
+    strategy_family = (
+        entry.get("strategy_family")
+        or entry.get("model_name")
+        or entry.get("strategy_kind")
+        or ""
+    )
+    matrix = resolve_model_governance_matrix(
+        {"routing": dict(policy or {})},
+        strategy_family=strategy_family,
+    )
     config = dict(matrix.get("routing") or {})
     checks: list[dict[str, Any]] = []
 
@@ -512,10 +1053,17 @@ def evaluate_routing_quality_gate(
             allowed_deployment_stages,
         )
 
+    regime_hard_fail = evaluate_regime_hard_fail(
+        dict(entry.get("regime_performance") or {}),
+        policy=dict(config.get("regime_hard_fail") or {}),
+    )
+    checks.extend(list(regime_hard_fail.get("checks") or []))
+
     failed_checks = [item for item in checks if not bool(item.get("passed", False))]
     return {
         "passed": not failed_checks,
         "checks": checks,
         "failed_checks": failed_checks,
         "deployment_stage": deployment_stage,
+        "regime_hard_fail": regime_hard_fail,
     }

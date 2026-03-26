@@ -15,6 +15,60 @@ logger = logging.getLogger(__name__)
 class TrainingRoutingService:
     """Coordinates leaderboard refresh and model-routing decisions."""
 
+    @staticmethod
+    def _validation_mode_enabled(owner: Any | None) -> bool:
+        return (
+            str(getattr(owner, "experiment_mode", "standard") or "standard").strip().lower()
+            == "validation"
+        )
+
+    def _apply_validation_mode_constraints(self, controller: Any) -> None:
+        controller.allocator_enabled = False
+        controller.model_routing_enabled = False
+        controller.model_routing_mode = "off"
+        controller.model_routing_agent_override_enabled = False
+        allowed = [
+            str(item).strip()
+            for item in list(getattr(controller, "experiment_allowed_models", []) or [])
+            if str(item).strip()
+        ]
+        if not allowed and str(getattr(controller, "model_name", "") or "").strip():
+            allowed = [str(controller.model_name)]
+        if allowed:
+            controller.model_routing_allowed_models = allowed
+
+    @staticmethod
+    def _build_validation_hold_decision(controller: Any) -> dict[str, Any]:
+        allowed_models = [
+            str(item).strip()
+            for item in list(getattr(controller, "experiment_allowed_models", []) or [])
+            if str(item).strip()
+        ]
+        if not allowed_models and str(getattr(controller, "model_name", "") or "").strip():
+            allowed_models = [str(controller.model_name)]
+        current_model = str(getattr(controller, "model_name", "") or "")
+        return {
+            "current_model": current_model,
+            "selected_model": current_model,
+            "selected_config": str(getattr(controller, "model_config_path", "") or ""),
+            "candidate_models": list(allowed_models),
+            "candidate_weights": {name: 1.0 if name == current_model else 0.0 for name in allowed_models},
+            "regime": str(dict(getattr(controller, "last_routing_decision", {}) or {}).get("regime") or ""),
+            "regime_confidence": 0.0,
+            "regime_source": "validation_mode",
+            "decision_confidence": 1.0,
+            "decision_source": "validation_mode",
+            "switch_applied": False,
+            "hold_current": True,
+            "hold_reason": "validation_mode_pinned",
+            "reasoning": "validation mode pins the active model and disables routing/allocator",
+            "guardrail_checks": [],
+            "allocation_plan": {},
+            "cash_reserve_hint": None,
+            "routing_mode": "off",
+            "allowed_models": list(allowed_models),
+        }
+
     def sync_runtime_from_config(self, controller: Any) -> None:
         previous_model = controller.model_name
         previous_config_path = controller.model_config_path
@@ -94,6 +148,8 @@ class TrainingRoutingService:
         controller.model_routing_policy = dict(
             getattr(config, "model_routing_policy", controller.model_routing_policy) or {}
         )
+        if self._validation_mode_enabled(controller):
+            self._apply_validation_mode_constraints(controller)
         self.refresh_routing_coordinator(controller)
         if previous_model != controller.model_name or previous_config_path != controller.model_config_path:
             controller.current_params = {}
@@ -146,15 +202,27 @@ class TrainingRoutingService:
         stock_count: int | None = None,
         min_history_days: int | None = None,
         allowed_models: list[str] | None = None,
+        sampling_policy: dict[str, Any] | None = None,
+        sampling_seed: int | None = None,
+        regime_only: bool = False,
     ) -> dict[str, Any]:
         preview_cutoff = normalize_date(cutoff_date or controller.data_manager.random_cutoff_date())
         preview_stock_count = max(1, int(stock_count or getattr(config, "max_stocks", 50) or 50))
         preview_min_history = max(30, int(min_history_days or getattr(config, "min_history_days", 200) or 200))
-        stock_data = controller.data_manager.load_stock_data(
+        stock_data = self._load_preview_stock_data(
+            controller,
             cutoff_date=preview_cutoff,
             stock_count=preview_stock_count,
             min_history_days=preview_min_history,
+            sampling_policy=sampling_policy,
+            sampling_seed=sampling_seed,
         )
+        if regime_only:
+            return self.preview_market_regime(
+                controller,
+                cutoff_date=preview_cutoff,
+                stock_data=stock_data,
+            )
         decision = self.route_model(
             controller,
             stock_data=stock_data,
@@ -167,6 +235,76 @@ class TrainingRoutingService:
         )
         return decision.to_dict()
 
+    def preview_market_regime(
+        self,
+        controller: Any,
+        *,
+        cutoff_date: str,
+        stock_data: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        coordinator = getattr(controller, "routing_coordinator", None)
+        if coordinator is None:
+            coordinator = self.build_routing_coordinator(controller or config)
+            controller.routing_coordinator = coordinator
+        resolved_stock_data = dict(stock_data or {})
+        observation = coordinator.observer.observe(
+            resolved_stock_data,
+            cutoff_date,
+            data_manager=getattr(controller, "data_manager", None),
+        )
+        routing_mode = str(
+            getattr(controller, "model_routing_mode", getattr(config, "model_routing_mode", "rule"))
+            or "rule"
+        ).strip().lower()
+        agents = dict(getattr(controller, "agents", {}) or {})
+        regime_payload = coordinator.classifier.classify(
+            observation,
+            agent=agents.get("market_regime") if routing_mode in {"hybrid", "agent"} else None,
+            mode="hybrid" if routing_mode in {"hybrid", "agent"} else "rule",
+        )
+        return {
+            "cutoff_date": cutoff_date,
+            "regime": str(regime_payload.get("regime") or "unknown"),
+            "regime_confidence": float(regime_payload.get("confidence", 0.0) or 0.0),
+            "confidence": float(regime_payload.get("confidence", 0.0) or 0.0),
+            "reasoning": str(regime_payload.get("reasoning") or ""),
+            "regime_source": str(regime_payload.get("source") or "rule"),
+            "decision_source": "regime_only_preview",
+            "market_observation": observation.to_dict(),
+        }
+
+    def _load_preview_stock_data(
+        self,
+        controller: Any,
+        *,
+        cutoff_date: str,
+        stock_count: int,
+        min_history_days: int,
+        sampling_policy: dict[str, Any] | None = None,
+        sampling_seed: int | None = None,
+    ) -> dict[str, Any]:
+        normalized_policy = dict(sampling_policy or {})
+        cache_key = (
+            str(cutoff_date),
+            int(stock_count),
+            int(min_history_days),
+            tuple(sorted((str(key), str(value)) for key, value in normalized_policy.items())),
+            int(sampling_seed) if sampling_seed is not None else None,
+        )
+        cache = dict(getattr(controller, "_routing_preview_stock_data_cache", {}) or {})
+        if cache_key in cache:
+            return dict(cache[cache_key] or {})
+        stock_data = controller.data_manager.load_stock_data(
+            cutoff_date=cutoff_date,
+            stock_count=stock_count,
+            min_history_days=min_history_days,
+            sampling_policy=normalized_policy or None,
+            sampling_seed=sampling_seed,
+        )
+        cache[cache_key] = dict(stock_data or {})
+        controller._routing_preview_stock_data_cache = cache
+        return dict(stock_data or {})
+
     def apply_model_routing(
         self,
         controller: Any,
@@ -176,6 +314,12 @@ class TrainingRoutingService:
         cycle_id: int,
         event_emitter: Any,
     ) -> None:
+        if self._validation_mode_enabled(controller):
+            self._apply_validation_mode_constraints(controller)
+            controller.last_routing_decision = self._build_validation_hold_decision(controller)
+            controller.routing_history.append(dict(controller.last_routing_decision))
+            controller.last_allocation_plan = {}
+            return
         if not controller.model_routing_enabled or controller.model_routing_mode == "off":
             return
         controller._emit_agent_status(
@@ -309,6 +453,10 @@ class TrainingRoutingService:
         current_cycle_id: int | None = None,
         safe_leaderboard_refresh: bool = False,
     ) -> Any:
+        if self._validation_mode_enabled(owner):
+            self._apply_validation_mode_constraints(owner)
+            coordinator = self.build_routing_coordinator(owner)
+            owner.routing_coordinator = coordinator
         routing_enabled = bool(
             getattr(owner, "model_routing_enabled", getattr(config, "model_routing_enabled", True))
         )

@@ -129,6 +129,12 @@ class TrainingOutcomeService:
                 "regime",
                 regime_result.get("regime", "unknown"),
             ),
+            "regime_overlay_applied": bool(
+                dict(getattr(controller, "current_cycle_regime_profile", {}) or {}).get("applied")
+            ),
+            "selection_intercepted": bool(
+                dict(getattr(controller, "current_cycle_selection_intercepts", {}) or {}).get("active")
+            ),
         }
 
     def build_cycle_result(
@@ -249,5 +255,8 @@ class TrainingOutcomeService:
             causal_diagnosis=dict(cycle_dict.get("causal_diagnosis") or {}),
             similarity_summary=dict(cycle_dict.get("similarity_summary") or {}),
             similar_results=[dict(item) for item in list(cycle_dict.get("similar_results") or [])],
+            proposal_bundle=dict(cycle_dict.get("proposal_bundle") or {}),
             realism_metrics=realism_metrics,
+            selection_intercepts=dict(cycle_dict.get("selection_intercepts") or {}),
+            regime_runtime_profile=dict(cycle_dict.get("regime_runtime_profile") or {}),
         )

@@ -1,9 +1,66 @@
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 from app.training.experiment_protocol import build_review_basis_window
 from invest.contracts import EvalReport
+from invest.shared.model_governance import normalize_strategy_family_name
+
+
+FAILURE_SIGNATURE_CATALOG: dict[str, dict[str, str]] = {
+    "trend_chase_failed": {
+        "description": "bull 环境下追涨/追趋势后失败。",
+    },
+    "mean_revert_failed": {
+        "description": "oscillation 环境下均值回归类判断失败。",
+    },
+    "late_exit": {
+        "description": "复盘/风控提示已出现，但退出或收缩偏慢。",
+    },
+    "early_stopout": {
+        "description": "小幅亏损且基准并未显著失效，疑似过早止损。",
+    },
+    "overexposed_in_bear": {
+        "description": "bear 环境下风险暴露过重导致亏损。",
+    },
+    "weak_signal_entry": {
+        "description": "信号质量不足仍然入场，最终形成亏损。",
+    },
+    "unclassified_loss": {
+        "description": "当前字段不足以归入更具体的失败类型。",
+    },
+}
+
+FAILURE_SUB_SIGNATURE_CATALOG: dict[str, dict[str, str]] = {
+    "false_rebound_entry": {
+        "description": "均值回归类在震荡中把局部反弹当成可回归拐点，入场过早。",
+    },
+    "chop_stopout": {
+        "description": "震荡噪音触发止损或洗出，回归逻辑未必错，但仓位/节奏不匹配。",
+    },
+    "overcrowded_reversion_book": {
+        "description": "回归类仓位铺得过满，在重复震荡里被组合层面拖累。",
+    },
+    "slow_reversion_timeout": {
+        "description": "回归方向可能最终成立，但兑现太慢，当前持有窗口承接不住。",
+    },
+    "quality_trap_in_range": {
+        "description": "价值质量类在震荡中落入质量陷阱，基本面优势未转化为价格确认。",
+    },
+    "defensive_lag": {
+        "description": "价值质量类过于保守，亏损不大但系统性跑不过基准。",
+    },
+    "concentration_mismatch": {
+        "description": "价值质量类持仓过于集中，少数失误就拖累整轮表现。",
+    },
+    "diluted_edge": {
+        "description": "价值质量类持仓过散，把有限 alpha 稀释掉了。",
+    },
+    "oscillation_generic_loss": {
+        "description": "震荡环境下出现亏损，但当前证据不足以稳定细分到更具体的家族模式。",
+    },
+}
 
 
 def _coerce_int(value: Any, default: int = 0) -> int:
@@ -65,6 +122,7 @@ def _normalize_review_result(
     ab_comparison = dict(
         metadata.get("ab_comparison") or record.get("ab_comparison") or {}
     )
+    trade_history = _normalized_trade_history(record)
     metadata.update(
         {
             "model_name": model_name,
@@ -74,6 +132,7 @@ def _normalize_review_result(
             "similarity_summary": similarity_summary,
             "review_decision": review_decision,
             "ab_comparison": ab_comparison,
+            "trade_history": trade_history,
         }
     )
     record["cycle_id"] = _coerce_int(record.get("cycle_id"))
@@ -93,6 +152,8 @@ def _normalize_review_result(
     record["similarity_summary"] = similarity_summary
     record["review_decision"] = review_decision
     record["ab_comparison"] = ab_comparison
+    record["trade_history"] = trade_history
+    record["trade_micro_attribution"] = _build_trade_micro_attribution(record)
     record["failure_signature"] = _failure_signature(record)
     record["evidence_score"] = _evidence_support_score(record)
     return record
@@ -128,12 +189,14 @@ def _history_record_to_review_result(item: Any) -> dict[str, Any]:
                 "similarity_summary": dict(getattr(item, "similarity_summary", {}) or {}),
                 "review_decision": dict(getattr(item, "review_decision", {}) or {}),
                 "ab_comparison": dict(getattr(item, "ab_comparison", {}) or {}),
+                "trade_history": list(getattr(item, "trade_history", []) or []),
             },
             "research_feedback": research_feedback,
             "causal_diagnosis": dict(getattr(item, "causal_diagnosis", {}) or {}),
             "similarity_summary": dict(getattr(item, "similarity_summary", {}) or {}),
             "review_decision": dict(getattr(item, "review_decision", {}) or {}),
             "ab_comparison": dict(getattr(item, "ab_comparison", {}) or {}),
+            "trade_history": list(getattr(item, "trade_history", []) or []),
             "llm_used": llm_used,
         }
     )
@@ -160,30 +223,345 @@ def _evidence_support_score(record: dict[str, Any]) -> int:
     if any(list(item.get("evidence_cycle_ids") or []) for item in drivers):
         score += 1
     feedback = dict(record.get("research_feedback") or {})
-    if int(feedback.get("sample_count") or 0) > 0:
+    if (int(feedback.get("episode_count") or 0) or int(feedback.get("sample_count") or 0)) > 0:
         score += 1
     return score
 
 
-def _has_similarity_anchor(record: dict[str, Any]) -> bool:
-    return any(
-        (
-            str(record.get("regime") or "").strip() not in {"", "unknown"},
-            str(record.get("selection_mode") or "").strip() not in {"", "unknown"},
-            bool(_primary_driver(record)),
-            bool(_feedback_bias(record)),
-            int(record.get("evidence_score") or 0) > 0,
+def _normalized_trade_history(record: dict[str, Any]) -> list[dict[str, Any]]:
+    metadata = dict(record.get("metadata") or {})
+    raw_trades = record.get("trade_history")
+    if raw_trades is None:
+        raw_trades = metadata.get("trade_history")
+    normalized: list[dict[str, Any]] = []
+    for item in list(raw_trades or []):
+        trade = dict(item or {}) if isinstance(item, dict) else {}
+        if trade:
+            normalized.append(trade)
+    return normalized
+
+
+def _build_trade_micro_attribution(record: dict[str, Any]) -> dict[str, Any]:
+    trades = _normalized_trade_history(record)
+    sells = [
+        trade
+        for trade in trades
+        if str(trade.get("action") or "").strip().upper() in {"SELL", "卖出"}
+    ]
+    losing_sells = [
+        trade
+        for trade in sells
+        if _coerce_float(trade.get("pnl"), 0.0) < 0
+    ]
+    abs_losses = [abs(_coerce_float(trade.get("pnl"), 0.0)) for trade in losing_sells]
+    total_abs_loss = sum(abs_losses)
+    dominant_loss_share = (
+        max(abs_losses) / total_abs_loss
+        if total_abs_loss > 0 and abs_losses
+        else 0.0
+    )
+    holding_days = [
+        _coerce_int(trade.get("holding_days"), 0)
+        for trade in losing_sells
+        if _coerce_int(trade.get("holding_days"), 0) > 0
+    ]
+    avg_holding_days = (
+        sum(holding_days) / len(holding_days)
+        if holding_days
+        else 0.0
+    )
+    stop_loss_exit_count = sum(
+        1
+        for trade in losing_sells
+        if str(trade.get("exit_trigger") or "").strip().lower() == "stop_loss"
+    )
+    timeout_exit_count = sum(
+        1
+        for trade in losing_sells
+        if "timeout" in str(trade.get("exit_reason") or "").strip().lower()
+        or "hold" in str(trade.get("exit_reason") or "").strip().lower()
+        or str(trade.get("exit_trigger") or "").strip().lower() == "max_hold_days"
+    )
+    small_loss_trade_count = sum(
+        1
+        for trade in losing_sells
+        if 0 < abs(_coerce_float(trade.get("pnl_pct"), 0.0)) <= 2.5
+    )
+    material_loss_trade_count = sum(
+        1
+        for trade in losing_sells
+        if abs(_coerce_float(trade.get("pnl_pct"), 0.0)) >= 4.0
+    )
+    unique_loss_codes = {
+        str(trade.get("ts_code") or "").strip()
+        for trade in losing_sells
+        if str(trade.get("ts_code") or "").strip()
+    }
+    return {
+        "trade_count": len(trades),
+        "sell_trade_count": len(sells),
+        "loss_trade_count": len(losing_sells),
+        "unique_loss_codes": sorted(unique_loss_codes),
+        "dominant_loss_share": round(dominant_loss_share, 4),
+        "avg_holding_days": round(avg_holding_days, 2),
+        "stop_loss_exit_count": stop_loss_exit_count,
+        "timeout_exit_count": timeout_exit_count,
+        "small_loss_trade_count": small_loss_trade_count,
+        "material_loss_trade_count": material_loss_trade_count,
+        "concentrated_loss_book": dominant_loss_share >= 0.55 and len(losing_sells) >= 2,
+        "diffuse_loss_book": dominant_loss_share <= 0.45 and len(losing_sells) >= 3,
+        "rapid_exit_loss_book": avg_holding_days > 0 and avg_holding_days <= 3.0,
+        "slow_exit_loss_book": avg_holding_days >= 8.0,
+    }
+
+
+def _resolve_strategy_family(record: dict[str, Any]) -> str:
+    metadata = dict(record.get("metadata") or {})
+    candidates = [
+        record.get("strategy_family"),
+        metadata.get("strategy_family"),
+        record.get("model_name"),
+        metadata.get("model_name"),
+        record.get("config_name"),
+        metadata.get("config_name"),
+    ]
+    for raw in candidates:
+        value = str(raw or "").strip()
+        if not value:
+            continue
+        normalized = normalize_strategy_family_name(Path(value).stem)
+        if normalized:
+            return normalized
+    return "unknown"
+
+
+def _oscillation_failure_sub_signature(
+    *,
+    strategy_family: str,
+    benchmark_passed: bool,
+    loss_size: float,
+    primary_driver: str,
+    feedback_bias: str,
+    review_applied: bool,
+    evidence_score: int,
+    trade_micro_attribution: dict[str, Any],
+) -> tuple[str, list[str], str]:
+    reason_codes = ["oscillation_regime", f"family_{strategy_family or 'unknown'}"]
+
+    if strategy_family == "mean_reversion":
+        if (
+            int(trade_micro_attribution.get("stop_loss_exit_count") or 0) >= 2
+            and bool(trade_micro_attribution.get("rapid_exit_loss_book"))
+            and int(trade_micro_attribution.get("small_loss_trade_count") or 0) >= 2
+        ):
+            return (
+                "chop_stopout",
+                reason_codes + ["rapid_stopouts", "small_loss_cluster"],
+                "多笔小亏且快速被 stop_loss 洗出，更像是震荡噪音造成的 chop stopout。",
+            )
+        if bool(trade_micro_attribution.get("diffuse_loss_book")) and int(
+            trade_micro_attribution.get("loss_trade_count") or 0
+        ) >= 3:
+            return (
+                "overcrowded_reversion_book",
+                reason_codes + ["diffuse_loss_book", "crowded_positions"],
+                "亏损分散在多只回归仓位上，说明组合展开过满而不是单笔判断偶发失误。",
+            )
+        if primary_driver == "regime_repeat_loss" and evidence_score >= 2:
+            return (
+                "overcrowded_reversion_book",
+                reason_codes + ["regime_repeat_loss", "structured_evidence"],
+                "同类回归亏损在震荡环境中重复出现，更像是组合铺得过满而不是单笔偶发失误。",
+            )
+        if bool(trade_micro_attribution.get("slow_exit_loss_book")) or int(
+            trade_micro_attribution.get("timeout_exit_count") or 0
+        ) > 0:
+            return (
+                "slow_reversion_timeout",
+                reason_codes + ["slow_realization", "holding_window_timeout"],
+                "回归判断可能并非方向错误，但持有窗口过长仍未兑现，说明节奏错配。",
+            )
+        if benchmark_passed and 0 < loss_size <= 1.0:
+            return (
+                "chop_stopout",
+                reason_codes + ["small_loss", "benchmark_held"],
+                "亏损不大且相对基准并未显著恶化，更像是震荡噪音把回归仓位洗出。",
+            )
+        if not benchmark_passed and (
+            loss_size >= 1.0
+            or int(trade_micro_attribution.get("material_loss_trade_count") or 0) >= 1
+        ):
+            return (
+                "false_rebound_entry",
+                reason_codes + ["benchmark_gap", "material_loss"],
+                "震荡中的局部反弹被误判为可回归拐点，入场后继续走弱并显著落后基准。",
+            )
+        return (
+            "slow_reversion_timeout",
+            reason_codes + ["slow_realization"],
+            "回归判断没有快速兑现，当前持有节奏对震荡回归的承接能力不足。",
         )
+
+    if strategy_family == "value_quality":
+        if bool(trade_micro_attribution.get("concentrated_loss_book")):
+            return (
+                "concentration_mismatch",
+                reason_codes + ["concentrated_loss_book"],
+                "亏损主要集中在少数持仓，说明当前集中度配置超过了震荡环境下的风格承载能力。",
+            )
+        if bool(trade_micro_attribution.get("diffuse_loss_book")) and int(
+            trade_micro_attribution.get("loss_trade_count") or 0
+        ) >= 4:
+            return (
+                "diluted_edge",
+                reason_codes + ["diffuse_loss_book", "diluted_positions"],
+                "亏损分散而单票不极端，更像是组合过散把有限的价值质量优势摊薄了。",
+            )
+        if primary_driver == "regime_repeat_loss" and loss_size >= 1.0:
+            return (
+                "concentration_mismatch",
+                reason_codes + ["regime_repeat_loss", "material_loss"],
+                "价值质量组合在震荡中被少数持仓反复拖累，说明当前集中度与风格承载能力不匹配。",
+            )
+        if not benchmark_passed and loss_size <= 0.8 and feedback_bias != "tighten_risk":
+            return (
+                "defensive_lag",
+                reason_codes + ["benchmark_gap", "small_loss"],
+                "亏损不大但持续跑输基准，更像是震荡中防守过重、收益兑现过慢。",
+            )
+        if not benchmark_passed and loss_size > 0.8:
+            return (
+                "quality_trap_in_range",
+                reason_codes + ["benchmark_gap", "material_loss"],
+                "标的看起来便宜或稳健，但震荡区间里没有获得资金确认，形成质量陷阱式亏损。",
+            )
+        if review_applied or benchmark_passed:
+            return (
+                "diluted_edge",
+                reason_codes + ["diffused_book"],
+                "组合更像是边际优势被摊薄，而不是单一风险暴露失控。",
+            )
+
+    return (
+        "oscillation_generic_loss",
+        reason_codes + ["insufficient_family_specific_structure"],
+        "当前证据足以识别为震荡亏损，但还不足以稳定归入更具体的家族失败模式。",
     )
 
 
-def _failure_signature(record: dict[str, Any]) -> dict[str, Any]:
+def build_failure_signature(record: dict[str, Any]) -> dict[str, Any]:
+    is_profit = bool(record.get("is_profit", False))
+    regime = str(record.get("regime") or "unknown").strip() or "unknown"
+    return_pct = _coerce_float(record.get("return_pct"))
+    benchmark_passed = bool(record.get("benchmark_passed", False))
+    selection_mode = str(record.get("selection_mode") or "unknown").strip() or "unknown"
+    plan_source = str(record.get("plan_source") or "unknown").strip() or "unknown"
+    primary_driver = _primary_driver(record)
+    feedback_bias = _feedback_bias(record)
+    evidence_score = _evidence_support_score(record)
+    review_applied = bool(record.get("review_applied", False))
+    strategy_family = _resolve_strategy_family(record)
+    trade_micro_attribution = dict(record.get("trade_micro_attribution") or {})
+    loss_size = abs(return_pct) if return_pct < 0 else 0.0
+    sub_label = ""
+    sub_description = ""
+
+    if is_profit:
+        label = ""
+        confidence = 0.0
+        reason = "盈利周期不打 failure signature。"
+        reason_codes = ["profit_cycle"]
+    elif regime == "bear" and loss_size > 0:
+        label = "overexposed_in_bear"
+        confidence = 0.74 if primary_driver == "regime_repeat_loss" else 0.68
+        reason = "bear 环境下出现亏损，并伴随风险收紧或重复亏损证据。"
+        reason_codes = ["bear_regime", "loss_cycle"]
+        if feedback_bias == "tighten_risk":
+            confidence += 0.08
+            reason_codes.append("tighten_risk_feedback")
+        if primary_driver == "regime_repeat_loss":
+            reason_codes.append("regime_repeat_loss")
+        if loss_size >= 1.0:
+            confidence += 0.04
+            reason_codes.append("material_loss")
+    elif regime == "bull" and loss_size > 0 and (
+        plan_source in {"meeting", "llm"} or selection_mode.startswith("meeting")
+    ):
+        label = "trend_chase_failed"
+        confidence = 0.66
+        reason = "bull 环境下由 meeting/LLM 主导的进攻性决策出现亏损。"
+        reason_codes = ["bull_regime", "aggressive_plan_source", "loss_cycle"]
+    elif regime == "oscillation" and loss_size > 0:
+        label = "mean_revert_failed"
+        confidence = 0.62
+        sub_label, sub_reason_codes, sub_reason = _oscillation_failure_sub_signature(
+            strategy_family=strategy_family,
+            benchmark_passed=benchmark_passed,
+            loss_size=loss_size,
+            primary_driver=primary_driver,
+            feedback_bias=feedback_bias,
+            review_applied=review_applied,
+            evidence_score=evidence_score,
+            trade_micro_attribution=trade_micro_attribution,
+        )
+        sub_description = str(
+            FAILURE_SUB_SIGNATURE_CATALOG.get(sub_label, {}).get("description") or ""
+        )
+        reason = (
+            "oscillation 环境下的逆向/回归判断未兑现。"
+            if not sub_reason
+            else f"oscillation 环境下的逆向/回归判断未兑现；{sub_reason}"
+        )
+        reason_codes = ["oscillation_regime", "loss_cycle"] + list(sub_reason_codes)
+    elif feedback_bias == "tighten_risk" and not review_applied and loss_size >= 1.0:
+        label = "late_exit"
+        confidence = 0.58
+        reason = "风险收紧信号已出现，但本轮仍形成较明显亏损。"
+        reason_codes = ["tighten_risk_feedback", "review_not_applied", "loss_cycle"]
+    elif benchmark_passed and 0 < loss_size <= 1.0:
+        label = "early_stopout"
+        confidence = 0.54
+        reason = "亏损幅度较小且基准未失效，疑似过早止损/过早离场。"
+        reason_codes = ["small_loss", "benchmark_held", "loss_cycle"]
+    elif not benchmark_passed:
+        label = "weak_signal_entry"
+        confidence = 0.56
+        reason = "未跑赢基准且形成亏损，说明入场信号质量偏弱。"
+        reason_codes = ["benchmark_gap", "loss_cycle"]
+        if evidence_score <= 1:
+            confidence += 0.04
+            reason_codes.append("low_structured_evidence")
+    else:
+        label = "unclassified_loss"
+        confidence = 0.35
+        reason = "当前可用字段不足以稳定归类到更具体的失败模式。"
+        reason_codes = ["loss_cycle", "insufficient_structure"]
+
+    confidence = round(min(0.95, confidence), 2)
     return {
-        "return_direction": "profit" if bool(record.get("is_profit", False)) else "loss",
-        "benchmark_passed": bool(record.get("benchmark_passed", False)),
-        "primary_driver": _primary_driver(record),
-        "feedback_bias": _feedback_bias(record),
+        "schema_version": "failure_signature.v1",
+        "label": label,
+        "description": str(FAILURE_SIGNATURE_CATALOG.get(label, {}).get("description") or ""),
+        "confidence": confidence,
+        "reason": reason,
+        "reason_codes": reason_codes,
+        "return_direction": "profit" if is_profit else "loss",
+        "benchmark_passed": benchmark_passed,
+        "strategy_family": strategy_family,
+        "sub_label": sub_label,
+        "sub_description": sub_description,
+        "trade_micro_attribution": trade_micro_attribution,
+        "primary_driver": primary_driver,
+        "feedback_bias": feedback_bias,
+        "regime": regime,
+        "selection_mode": selection_mode,
+        "plan_source": plan_source,
+        "evidence_score": evidence_score,
     }
+
+
+def _failure_signature(record: dict[str, Any]) -> dict[str, Any]:
+    return build_failure_signature(record)
 
 
 def _strict_failure_match(candidate: dict[str, Any], current_result: dict[str, Any]) -> bool:
@@ -203,6 +581,16 @@ def _strict_failure_match(candidate: dict[str, Any], current_result: dict[str, A
     current_bias = _feedback_bias(current_result)
     candidate_bias = _feedback_bias(candidate)
     if current_bias and candidate_bias and candidate_bias != current_bias:
+        return False
+    current_label = str(dict(current_result.get("failure_signature") or {}).get("label") or "")
+    candidate_label = str(dict(candidate.get("failure_signature") or {}).get("label") or "")
+    if (
+        current_label
+        and candidate_label
+        and current_label != "unclassified_loss"
+        and candidate_label != "unclassified_loss"
+        and candidate_label != current_label
+    ):
         return False
     return True
 
@@ -279,18 +667,6 @@ def _build_similar_results(
     minimum_score = 5
     ranked: list[tuple[int, int, dict[str, Any], list[str]]] = []
     history = list(getattr(controller, "cycle_history", []) or [])
-    if not _has_similarity_anchor(current_result):
-        return [], {
-            "target_cycle_id": int(cycle_id),
-            "matched_cycle_ids": [],
-            "match_features": [],
-            "dominant_regime": str(current_result.get("regime") or "unknown"),
-            "compared_history_size": len(history),
-            "strict_failure_match_count": 0,
-            "matched_primary_driver": _primary_driver(current_result),
-            "matched_feedback_bias": _feedback_bias(current_result),
-            "avg_evidence_score": 0.0,
-        }
     requires_strict_failure_match = not bool(current_result.get("is_profit", False))
     if requires_strict_failure_match:
         minimum_score = 7

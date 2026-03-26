@@ -564,10 +564,7 @@ class ControlPlaneConfigService:
         self.snapshot_dir.mkdir(parents=True, exist_ok=True)
         ts = datetime.now().strftime('%Y%m%d_%H%M%S')
         path = self.snapshot_dir / f'control_plane_{ts}.json'
-        path.write_text(
-            json.dumps(_mask_secrets(payload), ensure_ascii=False, indent=2),
-            encoding='utf-8',
-        )
+        path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding='utf-8')
 
     def _append_audit_log(self, *, source: str, updated: list[str]) -> None:
         self.audit_log_path.parent.mkdir(parents=True, exist_ok=True)

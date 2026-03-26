@@ -2,13 +2,13 @@ import logging
 import random
 import time
 from datetime import datetime, timedelta
+from hashlib import sha256
 from typing import Any, Dict, Sequence, cast
 
 import numpy as np
 import pandas as pd
 
 from config import normalize_date
-from .pit_join import join_financials_point_in_time
 from .quality import DataQualityService
 from .repository import MarketDataRepository
 
@@ -255,12 +255,18 @@ def _prepare_training_frames(
         combined = cast(pd.DataFrame, combined.merge(security_df, on="code", how="left"))
 
     financial_df = _records_frame(
-        repository.query_financial_snapshots(
-            valid_codes,
-            cutoff_date=end_date,
-        )
+        repository.query_latest_financial_snapshots(valid_codes, cutoff_norm)
     )
-    combined = join_financials_point_in_time(combined, financial_df)
+    if not financial_df.empty:
+        financial_df = financial_df.reindex(
+            columns=["code", "report_date", "publish_date", "roe", "net_profit", "revenue", "total_assets", "market_cap"]
+        ).rename(
+            columns={
+                "report_date": "financial_report_date",
+                "publish_date": "financial_publish_date",
+            }
+        )
+        combined = cast(pd.DataFrame, combined.merge(financial_df, on="code", how="left"))
 
     is_st_master = _numeric_series(combined, "is_st_master").fillna(0).astype(int)
     list_dt = _datetime_series(
@@ -415,6 +421,112 @@ def _prepare_training_frames(
         t_split - t_enrich,
     )
     return stock_data
+
+
+def _normalize_sampling_policy(value: dict[str, Any] | None = None) -> dict[str, str]:
+    payload = dict(value or {})
+    mode = str(payload.get("mode") or "ranked").strip().lower() or "ranked"
+    if mode not in {"ranked", "random", "stratified_random"}:
+        mode = "ranked"
+    stratify_by = str(payload.get("stratify_by") or "board").strip().lower() or "board"
+    if stratify_by not in {"board", "industry"}:
+        stratify_by = "board"
+    return {
+        "mode": mode,
+        "stratify_by": stratify_by,
+    }
+
+
+def _board_bucket(code: str) -> str:
+    normalized = str(code or "")
+    if normalized.startswith("sh.688"):
+        return "star"
+    if normalized.startswith("sz.300"):
+        return "chinext"
+    if normalized.startswith("bj."):
+        return "beijing"
+    return "main"
+
+
+def _sampling_rng(seed: int | None, cutoff_date: str) -> random.Random:
+    if seed is None:
+        return random.Random()
+    digest = sha256(f"{int(seed)}:{normalize_date(cutoff_date)}".encode("utf-8")).hexdigest()
+    return random.Random(int(digest[:16], 16))
+
+
+def _resolve_code_bucket(
+    code: str,
+    *,
+    security_meta: dict[str, dict[str, Any]] | None = None,
+    stratify_by: str,
+) -> str:
+    if stratify_by == "industry":
+        industry = str(dict((security_meta or {}).get(code) or {}).get("industry") or "").strip()
+        if industry:
+            return industry
+    return _board_bucket(code)
+
+
+def _round_robin_sample(
+    buckets: dict[str, list[str]],
+    *,
+    sample_size: int,
+    rng: random.Random,
+) -> list[str]:
+    ordered_bucket_names = [name for name, codes in buckets.items() if codes]
+    rng.shuffle(ordered_bucket_names)
+    for name in ordered_bucket_names:
+        rng.shuffle(buckets[name])
+    selected: list[str] = []
+    while ordered_bucket_names and len(selected) < sample_size:
+        next_bucket_names: list[str] = []
+        for name in ordered_bucket_names:
+            codes = buckets.get(name) or []
+            if not codes:
+                continue
+            selected.append(codes.pop())
+            if len(selected) >= sample_size:
+                break
+            if codes:
+                next_bucket_names.append(name)
+        ordered_bucket_names = next_bucket_names
+    return selected
+
+
+def sample_universe_codes(
+    codes: Sequence[str],
+    *,
+    stock_count: int,
+    cutoff_date: str,
+    sampling_policy: dict[str, Any] | None = None,
+    sampling_seed: int | None = None,
+    security_meta: dict[str, dict[str, Any]] | None = None,
+) -> list[str]:
+    normalized_codes = [str(code).strip() for code in list(codes or []) if str(code).strip()]
+    if len(normalized_codes) <= max(1, int(stock_count)):
+        return normalized_codes[: max(1, int(stock_count))]
+
+    sample_size = max(1, int(stock_count))
+    policy = _normalize_sampling_policy(sampling_policy)
+    if policy["mode"] == "ranked":
+        return normalized_codes[:sample_size]
+
+    rng = _sampling_rng(sampling_seed, cutoff_date)
+    if policy["mode"] == "random":
+        shuffled = list(normalized_codes)
+        rng.shuffle(shuffled)
+        return shuffled[:sample_size]
+
+    buckets: dict[str, list[str]] = {}
+    for code in normalized_codes:
+        bucket = _resolve_code_bucket(
+            code,
+            security_meta=security_meta,
+            stratify_by=policy["stratify_by"],
+        )
+        buckets.setdefault(bucket, []).append(code)
+    return _round_robin_sample(buckets, sample_size=sample_size, rng=rng)
 
 
 # ---------------------------------------------------------------------------
@@ -597,6 +709,11 @@ def _attach_point_in_time_context(
     # Step 2: Securities & Financials — vectorised map
     # ══════════════════════════════════════════════════════════════
     securities = {row["code"]: row for row in repository.query_securities(codes)}
+    financials = {
+        row["code"]: row
+        for row in repository.query_latest_financial_snapshots(codes, cutoff_date)
+    }
+
     code_series = _series_from_column(combined, "code").astype(str)
     for key in ("name", "industry", "list_date", "delist_date"):
         lookup = {c: meta.get(key) for c, meta in securities.items()}
@@ -607,16 +724,17 @@ def _attach_point_in_time_context(
     }
     combined["is_st_master"] = code_series.map(is_st_lookup).fillna(0).astype(int)
 
-    financial_cutoff = end_date or cutoff_date
-    financial_start = start_date
-    financial_rows = _records_frame(
-        repository.query_financial_snapshots(
-            codes,
-            cutoff_date=financial_cutoff,
-            start_date=financial_start,
-        )
-    )
-    combined = join_financials_point_in_time(combined, financial_rows)
+    for fin_key, fin_col in [
+        ("report_date", "financial_report_date"),
+        ("publish_date", "financial_publish_date"),
+        ("roe", "roe"),
+        ("net_profit", "net_profit"),
+        ("revenue", "revenue"),
+        ("total_assets", "total_assets"),
+        ("market_cap", "market_cap"),
+    ]:
+        lookup = {c: fin.get(fin_key) for c, fin in financials.items()}
+        combined[fin_col] = code_series.map(lookup)
 
     t2 = time.perf_counter()
     logger.debug("[enrich] Step 2 securities+financials: %.2fs", t2 - t1)
@@ -742,20 +860,41 @@ class TrainingDatasetBuilder:
         min_history_days: int = 200,
         include_future_days: int = 0,
         include_capital_flow: bool = False,
+        sampling_policy: dict[str, Any] | None = None,
+        sampling_seed: int | None = None,
     ) -> Dict[str, pd.DataFrame]:
         t_start = time.perf_counter()
+        sample_size = max(1, int(stock_count))
+        normalized_policy = _normalize_sampling_policy(sampling_policy)
 
         # Phase 1: select candidate codes
         codes = self.repository.select_codes_with_history(
-            cutoff_date, min_history_days, stock_count
+            cutoff_date,
+            min_history_days,
+            sample_size if normalized_policy["mode"] == "ranked" else None,
         )
         if not codes:
             return {}
+        if normalized_policy["mode"] != "ranked":
+            security_meta = {
+                str(item.get("code") or ""): dict(item or {})
+                for item in list(self.repository.query_securities(codes) or [])
+                if str(dict(item or {}).get("code") or "").strip()
+            }
+            codes = sample_universe_codes(
+                codes,
+                stock_count=sample_size,
+                cutoff_date=cutoff_date,
+                sampling_policy=normalized_policy,
+                sampling_seed=sampling_seed,
+                security_meta=security_meta,
+            )
         t_codes = time.perf_counter()
         logger.info(
-            "[get_stocks] Phase 1: selected %d codes in %.2fs",
+            "[get_stocks] Phase 1: selected %d codes in %.2fs (sampling_mode=%s)",
             len(codes),
             t_codes - t_start,
+            normalized_policy["mode"],
         )
 
         # Phase 2: batch load from DB (bounded per-code history window)

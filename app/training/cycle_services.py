@@ -36,6 +36,17 @@ class TrainingCycleDataService:
     """Owns the bootstrap and data-loading stages of a training cycle."""
 
     @staticmethod
+    def _resolve_stock_count(controller: Any) -> int:
+        return max(
+            1,
+            int(
+                getattr(controller, "experiment_stock_count", None)
+                or getattr(config, "max_stocks", 50)
+                or 50
+            ),
+        )
+
+    @staticmethod
     def _cycle_regime(item: Any) -> str:
         routing = dict(getattr(item, "routing_decision", {}) or {})
         audit_tags = dict(getattr(item, "audit_tags", {}) or {})
@@ -147,7 +158,7 @@ class TrainingCycleDataService:
                     preview = controller.training_routing_service.preview_routing(
                         controller,
                         cutoff_date=sample_date,
-                        stock_count=getattr(config, "max_stocks", 50),
+                        stock_count=self._resolve_stock_count(controller),
                         min_history_days=(
                             controller.experiment_min_history_days
                             or getattr(config, "min_history_days", 200)
@@ -217,7 +228,15 @@ class TrainingCycleDataService:
                 if str(item or "").strip()
             ]
             if dates:
-                return dates[min(max(cycle_id - 1, 0), len(dates) - 1)], {"mode": mode, "dates": dates}
+                index = min(max(cycle_id - 1, 0), len(dates) - 1)
+                sampling_seeds = list(policy.get("sampling_seeds") or [])
+                sampling_seed = None
+                if index < len(sampling_seeds):
+                    try:
+                        sampling_seed = int(sampling_seeds[index])
+                    except (TypeError, ValueError):
+                        sampling_seed = None
+                return dates[index], {"mode": mode, "dates": dates, "sampling_seed": sampling_seed}
 
         if mode == "rolling":
             anchor = normalize_date(str(policy.get("anchor_date") or min_date))
@@ -253,12 +272,20 @@ class TrainingCycleDataService:
 
     def prepare_cycle_context(self, controller: Any) -> TrainingCycleContext:
         cycle_id = int(controller.current_cycle_id) + 1
+        controller.current_cycle_sampling_seed = None
         if controller.experiment_seed is not None:
             seed_value = int(controller.experiment_seed) + cycle_id
             random.seed(seed_value)
             np.random.seed(seed_value % (2**32 - 1))
+            controller.current_cycle_sampling_seed = seed_value
 
         resolved_cutoff, cutoff_policy_context = self._resolve_cutoff(controller, cycle_id=cycle_id)
+        pinned_sampling_seed = cutoff_policy_context.get("sampling_seed")
+        if pinned_sampling_seed is not None:
+            seed_value = int(pinned_sampling_seed)
+            random.seed(seed_value)
+            np.random.seed(seed_value % (2**32 - 1))
+            controller.current_cycle_sampling_seed = seed_value
         controller.last_cutoff_policy_context = dict(cutoff_policy_context or {})
         cutoff_date = normalize_date(
             os.getenv("INVEST_FORCE_CUTOFF_DATE", "")
@@ -300,9 +327,10 @@ class TrainingCycleDataService:
             cutoff_date=cutoff_date,
             min_history_days=min_history_days,
         )
+        stock_count = self._resolve_stock_count(controller)
         stock_data = controller.data_manager.load_stock_data(
             cutoff_date,
-            stock_count=config.max_stocks,
+            stock_count=stock_count,
             min_history_days=min_history_days,
             include_future_days=max(
                 30,
@@ -311,6 +339,8 @@ class TrainingCycleDataService:
                     or getattr(config, "simulation_days", 30)
                 ),
             ),
+            sampling_policy=dict(getattr(controller, "experiment_universe_policy", {}) or {}),
+            sampling_seed=getattr(controller, "current_cycle_sampling_seed", None),
         )
         resolution = dict(getattr(controller.data_manager, "last_resolution", {}) or {})
         effective_data_mode = str(
@@ -349,7 +379,7 @@ class TrainingCycleDataService:
                 continue
             raw_diagnostics = method(
                 cutoff_date=cutoff_date,
-                stock_count=config.max_stocks,
+                stock_count=self._resolve_stock_count(controller),
                 min_history_days=min_history_days,
             )
             if isinstance(raw_diagnostics, dict):

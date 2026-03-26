@@ -24,6 +24,11 @@ from app.training.lineage_services import build_lineage_record
 from app.training.observability_services import TrainingObservabilityService
 from app.training.outcome_services import TrainingOutcomeService
 from app.training.policy_services import TrainingPolicyService
+from app.training.proposal_store import (
+    list_cycle_proposal_bundles,
+    load_cycle_proposal_bundle,
+    persist_cycle_proposal_bundle,
+)
 from app.training.promotion_services import build_promotion_record
 from app.training.review_services import TrainingReviewService
 from app.training.review_protocol import build_review_input
@@ -31,6 +36,7 @@ from app.training.review_stage_services import TrainingReviewStageResult, Traini
 from app.training.selection_services import TrainingSelectionResult, TrainingSelectionService
 from app.training.routing_services import TrainingRoutingService
 from app.training.simulation_services import TrainingSimulationService
+from app.training.candidate_builder import build_cycle_candidate_from_proposals
 
 __all__ = [
     "TrainingExperimentService",
@@ -54,6 +60,10 @@ __all__ = [
     "TrainingObservabilityService",
     "TrainingOutcomeService",
     "TrainingPolicyService",
+    "persist_cycle_proposal_bundle",
+    "load_cycle_proposal_bundle",
+    "list_cycle_proposal_bundles",
+    "build_cycle_candidate_from_proposals",
     "build_promotion_record",
     "TrainingReviewService",
     "TrainingReviewStageResult",

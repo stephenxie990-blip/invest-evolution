@@ -201,6 +201,22 @@ class ReviewMeeting:
                 judge_llm=judge,
             )
             logger.info("ReviewMeeting: risk debate enabled (max_rounds=%d)", max_risk_discuss_rounds)
+        self._meeting_llms = [
+            llm
+            for llm in (
+                self.llm,
+                self.deep_llm,
+                self.aggressive_llm,
+                self.conservative_llm,
+                self.neutral_llm,
+                self.risk_judge_llm,
+            )
+            if llm is not None
+        ]
+
+    def iter_runtime_llms(self) -> list[Any]:
+        """Expose every runtime LLM touched by the review meeting, including risk debate sidecars."""
+        return list(self._meeting_llms)
 
     def _notify_progress(self, payload: dict) -> None:
         if not self.progress_callback:
@@ -428,11 +444,16 @@ class ReviewMeeting:
         recommendation = dict(payload.get("recommendation") or {})
         t20 = dict(payload.get("horizons") or {}).get("T+20") or {}
         reason_codes = [str(item).strip() for item in recommendation.get("reason_codes", []) if str(item).strip()]
+        episode_count = int(payload.get("episode_count") or 0)
+        sample_count = int(payload.get("sample_count") or 0)
+        evidence_count = episode_count or sample_count
         lines = [
             "## 问股校准反馈",
             f"- 建议偏置: {recommendation.get('bias') or 'unknown'}",
-            f"- 样本数: {int(payload.get('sample_count') or 0)}",
+            f"- 决策轮数: {evidence_count}",
         ]
+        if episode_count and sample_count:
+            lines.append(f"- 股票样本数: {sample_count}")
         if recommendation.get("summary"):
             lines.append(f"- 摘要: {recommendation.get('summary')}")
         if reason_codes:
@@ -455,10 +476,15 @@ class ReviewMeeting:
             return ""
         recommendation = dict(payload.get("recommendation") or {})
         t20 = dict(payload.get("horizons") or {}).get("T+20") or {}
+        episode_count = int(payload.get("episode_count") or 0)
+        sample_count = int(payload.get("sample_count") or 0)
+        evidence_count = episode_count or sample_count
         parts = [
             f"bias={recommendation.get('bias') or 'unknown'}",
-            f"sample_count={int(payload.get('sample_count') or 0)}",
+            f"episode_count={evidence_count}",
         ]
+        if episode_count and sample_count:
+            parts.append(f"sample_count={sample_count}")
         if t20.get("hit_rate") is not None:
             parts.append(f"T+20_hit_rate={self._format_ratio(t20.get('hit_rate'))}")
         if payload.get("brier_like_direction_score") is not None:
@@ -514,14 +540,18 @@ class ReviewMeeting:
                 }
             )
 
+        feedback_episode_count = int(feedback.get("episode_count") or 0)
         feedback_sample_count = int(feedback.get("sample_count") or 0)
+        feedback_evidence_count = feedback_episode_count or feedback_sample_count
         if feedback:
             checks.append(
                 {
-                    "name": "research_feedback_sample_count",
-                    "passed": feedback_sample_count >= 3,
-                    "actual": feedback_sample_count,
+                    "name": "research_feedback_episode_count",
+                    "passed": feedback_evidence_count >= 3,
+                    "actual": feedback_evidence_count,
                     "threshold": 3,
+                    "sample_count": feedback_sample_count,
+                    "episode_count": feedback_episode_count,
                 }
             )
 

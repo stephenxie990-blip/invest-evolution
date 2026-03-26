@@ -14,6 +14,22 @@ params:
   max_5d_drop: -2.0
   max_20d_drop: -5.0
   min_reversion_score: 0.05
+regime_controls:
+  bull:
+    position_size: 0.14
+    cash_reserve: 0.40
+    min_reversion_score: 0.08
+    max_positions: 3
+  bear:
+    position_size: 0.15
+    cash_reserve: 0.38
+    min_reversion_score: 0.06
+    max_positions: 3
+  oscillation:
+    position_size: 0.18
+    cash_reserve: 0.30
+    min_reversion_score: 0.05
+    max_positions: 4
 risk:
   stop_loss_pct: 0.04
   take_profit_pct: 0.1
@@ -133,7 +149,7 @@ train:
   promotion_gate:
     min_samples: 3
     research_feedback:
-      min_sample_count: 5
+      min_episode_count: 5
       blocked_biases: [tighten_risk, recalibrate_probability]
       max_brier_like_direction_score: 0.25
       horizons:

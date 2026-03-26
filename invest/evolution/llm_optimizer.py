@@ -36,6 +36,14 @@ class LLMOptimizer:
         trade_history: List[Dict],
     ) -> AnalysisResult:
         """分析亏损原因"""
+        if bool(getattr(self.llm, "dry_run", False)):
+            result = self._default_analysis(cycle_result)
+            self.analysis_history.append({
+                "cycle_id": cycle_result.get("cycle_id"),
+                "result": result,
+            })
+            return result
+
         prompt = self._build_prompt(cycle_result, trade_history)
         try:
             response = self._call_llm(prompt)
@@ -103,7 +111,9 @@ class LLMOptimizer:
             key in data
             for key in ("cause", "suggestions", "strategy_adjustments", "new_strategy_needed")
         )
-        if data.get("_parse_error") or data.get("dry_run") is True or not has_expected_fields:
+        if data.get("dry_run") is True:
+            return self._default_analysis(cycle_result)
+        if data.get("_parse_error") or not has_expected_fields:
             logger.warning("解析 LLM 响应失败或为空占位，使用默认分析")
             return self._default_analysis(cycle_result)
         return AnalysisResult(

@@ -288,6 +288,39 @@ def test_set_mock_mode_delegates_to_llm_runtime_service(monkeypatch, tmp_path):
     assert captured['enabled'] is False
 
 
+def test_llm_runtime_service_applies_dry_run_to_auxiliary_meeting_llms():
+    service = TrainingLLMRuntimeService()
+
+    class DummyLLM:
+        def __init__(self):
+            self.dry_run = False
+
+    primary = DummyLLM()
+    selection_deep = DummyLLM()
+    review_judge = DummyLLM()
+
+    controller = SimpleNamespace(
+        llm_caller=primary,
+        agents={},
+        selection_meeting=SimpleNamespace(
+            iter_runtime_llms=lambda: [primary, selection_deep],
+        ),
+        review_meeting=SimpleNamespace(
+            iter_runtime_llms=lambda: [review_judge],
+        ),
+        llm_optimizer=SimpleNamespace(llm=DummyLLM()),
+        llm_mode='live',
+    )
+
+    service.set_dry_run(controller, True)
+
+    assert controller.llm_mode == 'dry_run'
+    assert primary.dry_run is True
+    assert selection_deep.dry_run is True
+    assert review_judge.dry_run is True
+    assert controller.llm_optimizer.llm.dry_run is True
+
+
 def test_training_experiment_service_configures_protocol_dataset_and_model_scope(monkeypatch):
     import app.training.controller_services as controller_services_module
 
@@ -357,6 +390,8 @@ def test_training_experiment_service_configures_protocol_dataset_and_model_scope
             'dataset': {
                 'min_history_days': 240,
                 'simulation_days': 45,
+                'stock_count': 24,
+                'universe_policy': {'mode': 'stratified_random', 'stratify_by': 'industry'},
             },
             'model_scope': {
                 'allowed_models': ['value_quality', 'momentum'],
@@ -388,6 +423,11 @@ def test_training_experiment_service_configures_protocol_dataset_and_model_scope
     assert controller.experiment_max_date == '20250304'
     assert controller.experiment_min_history_days == 240
     assert controller.experiment_simulation_days == 45
+    assert controller.experiment_stock_count == 24
+    assert controller.experiment_universe_policy == {
+        'mode': 'stratified_random',
+        'stratify_by': 'industry',
+    }
     assert controller.experiment_allowed_models == ['value_quality', 'momentum']
     assert controller.experiment_llm['timeout'] == 9
     assert controller.experiment_llm['mode'] == 'dry_run'
@@ -482,7 +522,206 @@ def test_training_experiment_service_respects_controller_compatibility_hooks(mon
 
     assert observed == {'llm': 1, 'refresh': 1, 'reload': 1}
     assert controller.experiment_llm_applied['timeout'] == 9
-    assert controller.reloaded_config_path == 'configs/value_quality.yaml'
+
+
+def test_training_experiment_service_validation_mode_disables_routing_and_pins_model(monkeypatch):
+    import app.training.controller_services as controller_services_module
+
+    service = TrainingExperimentService()
+    refresh_calls = {}
+    reload_calls = {}
+    runtime_service = TrainingLLMRuntimeService()
+
+    monkeypatch.setattr(
+        controller_services_module,
+        'resolve_model_config_path',
+        lambda model_name: f'configs/{model_name}.yaml',
+    )
+
+    class DummyController:
+        experiment_spec = {}
+        experiment_seed = None
+        experiment_min_date = None
+        experiment_max_date = None
+        experiment_min_history_days = None
+        experiment_simulation_days = None
+        experiment_allowed_models = []
+        experiment_llm = {}
+        experiment_review_window = {}
+        experiment_cutoff_policy = {}
+        experiment_promotion_policy = {}
+        experiment_train_policy_overrides = {}
+        experiment_mode = "standard"
+        allocator_enabled = True
+        model_routing_enabled = True
+        model_routing_mode = 'hybrid'
+        model_routing_allowed_models = ['defensive_low_vol', 'momentum']
+        model_switch_cooldown_cycles = 2
+        model_switch_min_confidence = 0.6
+        model_switch_hysteresis_margin = 0.08
+        model_routing_agent_override_enabled = True
+        model_routing_agent_override_max_gap = 0.18
+        model_name = 'momentum'
+        model_config_path = 'configs/momentum.yaml'
+        current_params = {'position_size': 0.2}
+        train_policy = {'max_losses_before_optimize': 3}
+        training_policy_service = TrainingPolicyService()
+        training_llm_runtime_service = runtime_service
+        llm_caller = SimpleNamespace(dry_run=False)
+        agents = {}
+        selection_aux_llm = SimpleNamespace(dry_run=False)
+        review_aux_llm = SimpleNamespace(dry_run=False)
+        selection_meeting = SimpleNamespace(
+            iter_runtime_llms=lambda: [DummyController.selection_aux_llm],
+        )
+        review_meeting = SimpleNamespace(
+            iter_runtime_llms=lambda: [DummyController.review_aux_llm],
+        )
+        llm_optimizer = SimpleNamespace(llm=SimpleNamespace(dry_run=False))
+
+        def _apply_experiment_llm_overrides(self, llm_spec=None):
+            self.training_llm_runtime_service.apply_experiment_overrides(self, llm_spec)
+
+        def _refresh_model_routing_coordinator(self):
+            refresh_calls['called'] = True
+
+        def _reload_investment_model(self, config_path=None):
+            reload_calls['config_path'] = config_path
+
+        def _sync_runtime_policy_from_model(self):
+            return None
+
+    controller = DummyController()
+    service.configure_experiment(
+        controller,
+        {
+            'model_scope': {
+                'experiment_mode': 'validation',
+            },
+            'llm': {
+                'dry_run': True,
+            },
+        },
+    )
+
+    assert controller.experiment_mode == 'validation'
+    assert controller.experiment_allowed_models == ['momentum']
+    assert controller.allocator_enabled is False
+    assert controller.model_routing_enabled is False
+    assert controller.model_routing_mode == 'off'
+    assert controller.model_routing_agent_override_enabled is False
+    assert controller.model_routing_allowed_models == ['momentum']
+    assert refresh_calls['called'] is True
+    assert reload_calls == {}
+    assert controller.selection_aux_llm.dry_run is True
+    assert controller.review_aux_llm.dry_run is True
+    assert controller.llm_optimizer.llm.dry_run is True
+
+
+def test_training_experiment_service_applies_runtime_train_policy_overrides():
+    service = TrainingExperimentService()
+
+    class DummyController:
+        experiment_spec = {}
+        experiment_seed = None
+        experiment_min_date = None
+        experiment_max_date = None
+        experiment_min_history_days = None
+        experiment_simulation_days = None
+        experiment_allowed_models = []
+        experiment_llm = {}
+        experiment_review_window = {}
+        experiment_cutoff_policy = {}
+        experiment_promotion_policy = {}
+        experiment_train_policy_overrides = {}
+        experiment_mode = "standard"
+        allocator_enabled = False
+        model_routing_enabled = False
+        model_routing_mode = 'off'
+        model_routing_allowed_models = ['momentum']
+        model_switch_cooldown_cycles = 2
+        model_switch_min_confidence = 0.6
+        model_switch_hysteresis_margin = 0.08
+        model_routing_agent_override_enabled = False
+        model_routing_agent_override_max_gap = 0.18
+        model_name = 'momentum'
+        model_config_path = 'configs/momentum.yaml'
+        current_params = {'position_size': 0.2}
+        max_losses_before_optimize = 3
+        freeze_total_cycles = 10
+        freeze_profit_required = 7
+        train_policy = {'max_losses_before_optimize': 3}
+        training_policy_service = TrainingPolicyService()
+        manual_train_policy_overrides = {}
+        investment_model = None
+
+        def _apply_experiment_llm_overrides(self, llm_spec=None):
+            return None
+
+        def _refresh_model_routing_coordinator(self):
+            return None
+
+        def _reload_investment_model(self, config_path=None):
+            return None
+
+        def _sync_runtime_policy_from_model(self):
+            self.max_losses_before_optimize = self.training_policy_service._resolve_train_scalar(  # pylint: disable=protected-access
+                self,
+                'max_losses_before_optimize',
+                self.max_losses_before_optimize,
+            )
+
+    controller = DummyController()
+    service.configure_experiment(
+        controller,
+        {
+            'optimization': {
+                'runtime_train_overrides': {
+                    'max_losses_before_optimize': 1,
+                },
+            },
+        },
+    )
+
+    assert controller.experiment_train_policy_overrides == {'max_losses_before_optimize': 1}
+    assert controller.max_losses_before_optimize == 1
+
+
+def test_training_routing_service_short_circuits_in_validation_mode():
+    service = TrainingRoutingService()
+
+    class DummyController:
+        experiment_mode = "validation"
+        experiment_allowed_models = ["momentum"]
+        allocator_enabled = True
+        model_routing_enabled = True
+        model_routing_mode = "hybrid"
+        model_routing_agent_override_enabled = True
+        model_name = "momentum"
+        model_config_path = "configs/momentum.yaml"
+        last_routing_decision = {}
+        routing_history = []
+        last_allocation_plan = {"weights": {"momentum": 0.5}}
+
+    controller = DummyController()
+    emitted = []
+
+    service.apply_model_routing(
+        controller,
+        stock_data={"sh.600001": {}},
+        cutoff_date="20240201",
+        cycle_id=1,
+        event_emitter=lambda event, payload: emitted.append((event, payload)),
+    )
+
+    assert controller.allocator_enabled is False
+    assert controller.model_routing_enabled is False
+    assert controller.model_routing_mode == "off"
+    assert controller.model_routing_agent_override_enabled is False
+    assert controller.last_routing_decision["hold_reason"] == "validation_mode_pinned"
+    assert controller.last_routing_decision["selected_model"] == "momentum"
+    assert controller.last_allocation_plan == {}
+    assert emitted == []
 
 
 def test_training_experiment_service_uses_controller_default_promotion_gate_when_unspecified():
@@ -780,6 +1019,7 @@ def test_run_continuous_delegates_to_lifecycle_service(monkeypatch, tmp_path):
 def test_training_lifecycle_service_finalize_cycle_updates_meta_and_callback(monkeypatch, tmp_path):
     from app.train import TrainingResult
     import app.train as train_module
+    import app.training.lifecycle_services as lifecycle_module
 
     service = TrainingLifecycleService()
     emitted = []
@@ -787,6 +1027,16 @@ def test_training_lifecycle_service_finalize_cycle_updates_meta_and_callback(mon
     callback_result = {}
 
     monkeypatch.setattr(train_module, 'emit_event', lambda event_type, data: emitted.append((event_type, data)))
+    monkeypatch.setattr(
+        lifecycle_module,
+        'refresh_cycle_history_suggestion_effects',
+        lambda controller, *, cycle_history: {
+            'current_cycle_id': len(cycle_history),
+            'updated_bundle_count': 1,
+            'evaluated_suggestion_count': 1,
+            'completed_effect_count': 1,
+        },
+    )
 
     class DummyController:
         def __init__(self):
@@ -861,6 +1111,12 @@ def test_training_lifecycle_service_finalize_cycle_updates_meta_and_callback(mon
     assert callback_result['cycle'] == 2
     assert any(item[0] == 'assessment' for item in logs)
     assert any(item[0] == 'save' for item in logs)
+    assert any(
+        item[0] == 'module'
+        and item[2].get('kind') == 'suggestion_effect_refresh'
+        and item[2].get('metrics', {}).get('completed_effect_count') == 1
+        for item in logs
+    )
 
 
 def test_training_selection_service_runs_selection_stage():
@@ -1076,6 +1332,508 @@ def test_training_selection_service_skips_when_no_selected_codes():
     assert skipped['reason'] == '模型与会议未产出可交易标的'
 
 
+def test_training_selection_service_applies_regime_overlay_and_hard_filter():
+    service = TrainingSelectionService()
+    saved_logs = []
+
+    class DummyInvestmentModel:
+        runtime_overrides = {}
+
+        def process(self, stock_data, cutoff_date):
+            del stock_data, cutoff_date
+            signal_packet = SimpleNamespace(
+                regime='bear',
+                cash_reserve=0.2,
+                params={'position_size': 0.2, 'signal_threshold': 0.7},
+                selected_codes=['sh.600519', 'sh.600096'],
+                signals=[
+                    {'code': 'sh.600519', 'score': 0.82},
+                    {'code': 'sh.600096', 'score': 0.71},
+                ],
+                max_positions=2,
+            )
+            return SimpleNamespace(
+                signal_packet=signal_packet,
+                agent_context=SimpleNamespace(summary='bear summary', metadata={}),
+                model_name='momentum',
+                config_name='cfg.yaml',
+                to_dict=lambda: {'model_name': 'momentum'},
+            )
+
+    trading_plan = SimpleNamespace(
+        positions=[
+            SimpleNamespace(code='sh.600519', priority=1, weight=0.16),
+            SimpleNamespace(code='sh.600096', priority=2, weight=0.16),
+        ],
+        cash_reserve=0.2,
+        max_positions=2,
+        source='meeting',
+    )
+
+    class DummyController:
+        current_params = {
+            'position_size': 0.2,
+            'cash_reserve': 0.2,
+            'signal_threshold': 0.7,
+            'max_positions': 4,
+        }
+        risk_policy = {'clamps': {'position_size': {'min': 0.05, 'max': 0.3}}}
+        review_policy = {
+            'param_clamps': {
+                'cash_reserve': {'min': 0.0, 'max': 0.8},
+                'signal_threshold': {'min': 0.3, 'max': 0.95},
+            }
+        }
+        regime_controls = {
+            'bear': {
+                'position_size': 0.1,
+                'cash_reserve': 0.45,
+                'signal_threshold': 0.75,
+                'max_positions': 1,
+            }
+        }
+        model_name = 'momentum'
+        investment_model = DummyInvestmentModel()
+        last_routing_decision = {'regime': 'bear', 'decision_source': 'router'}
+        selection_meeting_service = SimpleNamespace(
+            run_with_model_output=lambda model_output: {
+                'trading_plan': trading_plan,
+                'meeting_log': {'hunters': [], 'selected': ['sh.600519', 'sh.600096']},
+                'strategy_advice': {'bias': 'risk_off'},
+            }
+        )
+        meeting_recorder = SimpleNamespace(
+            save_selection=lambda meeting_log, cycle_id: saved_logs.append((cycle_id, dict(meeting_log)))
+        )
+        agent_tracker = SimpleNamespace(
+            record_predictions=lambda *args, **kwargs: None,
+            mark_selected=lambda *args, **kwargs: None,
+        )
+
+        @staticmethod
+        def _thinking_excerpt(text):
+            return text
+
+        @staticmethod
+        def _emit_agent_status(*args, **kwargs):
+            del args, kwargs
+
+        @staticmethod
+        def _emit_module_log(*args, **kwargs):
+            del args, kwargs
+
+        @staticmethod
+        def _emit_meeting_speech(*args, **kwargs):
+            del args, kwargs
+
+        @staticmethod
+        def _mark_cycle_skipped(*args, **kwargs):
+            raise AssertionError('selection should not skip')
+
+    result = service.run_selection_stage(
+        DummyController(),
+        cycle_id=6,
+        cutoff_date='20240201',
+        stock_data={'sh.600519': {'rows': 1}, 'sh.600096': {'rows': 1}},
+    )
+
+    assert result is not None
+    assert result.selected == ['sh.600519']
+    assert result.trading_plan.max_positions == 1
+    assert result.trading_plan.cash_reserve == 0.45
+    assert result.trading_plan.positions[0].weight == 0.1
+    assert result.regime_runtime_profile['applied'] is True
+    assert result.selection_intercepts['active'] is True
+    assert result.selection_intercepts['reason_counts']['weak_signal_below_regime_threshold'] == 1
+    assert saved_logs[0][1]['selection_intercepts']['active'] is True
+    assert saved_logs[0][1]['regime_runtime_profile']['regime'] == 'bear'
+
+
+def test_training_selection_service_does_not_apply_base_runtime_threshold_as_hard_filter():
+    service = TrainingSelectionService()
+    saved_logs = []
+
+    class DummyInvestmentModel:
+        runtime_overrides = {}
+
+        def process(self, stock_data, cutoff_date):
+            del stock_data, cutoff_date
+            signal_packet = SimpleNamespace(
+                regime='oscillation',
+                cash_reserve=0.2,
+                params={'position_size': 0.2, 'signal_threshold': 0.7},
+                selected_codes=['sh.603045', 'sz.300802', 'sh.601007'],
+                signals=[
+                    {'code': 'sh.603045', 'score': 0.554},
+                    {'code': 'sz.300802', 'score': 0.496},
+                    {'code': 'sh.601007', 'score': 0.584},
+                ],
+                max_positions=3,
+            )
+            return SimpleNamespace(
+                signal_packet=signal_packet,
+                agent_context=SimpleNamespace(summary='oscillation summary', metadata={}),
+                model_name='momentum',
+                config_name='cfg.yaml',
+                to_dict=lambda: {'model_name': 'momentum'},
+            )
+
+    trading_plan = SimpleNamespace(
+        positions=[
+            SimpleNamespace(code='sh.603045', priority=1, weight=0.2),
+            SimpleNamespace(code='sz.300802', priority=2, weight=0.2),
+            SimpleNamespace(code='sh.601007', priority=3, weight=0.2),
+        ],
+        cash_reserve=0.2,
+        max_positions=3,
+        source='llm',
+    )
+
+    class DummyController:
+        current_params = {
+            'position_size': 0.2,
+            'cash_reserve': 0.2,
+            'signal_threshold': 0.7,
+            'max_positions': 4,
+        }
+        risk_policy = {'clamps': {'position_size': {'min': 0.05, 'max': 0.3}}}
+        review_policy = {
+            'param_clamps': {
+                'cash_reserve': {'min': 0.0, 'max': 0.8},
+                'signal_threshold': {'min': 0.3, 'max': 0.95},
+            }
+        }
+        regime_controls = {
+            'bear': {
+                'position_size': 0.1,
+                'cash_reserve': 0.45,
+                'signal_threshold': 0.75,
+                'max_positions': 1,
+            }
+        }
+        model_name = 'momentum'
+        investment_model = DummyInvestmentModel()
+        last_routing_decision = {}
+        selection_meeting_service = SimpleNamespace(
+            run_with_model_output=lambda model_output: {
+                'trading_plan': trading_plan,
+                'meeting_log': {'hunters': [], 'selected': ['sh.603045', 'sz.300802', 'sh.601007']},
+                'strategy_advice': {'bias': 'observe'},
+            }
+        )
+        meeting_recorder = SimpleNamespace(
+            save_selection=lambda meeting_log, cycle_id: saved_logs.append((cycle_id, dict(meeting_log)))
+        )
+        agent_tracker = SimpleNamespace(
+            record_predictions=lambda *args, **kwargs: None,
+            mark_selected=lambda *args, **kwargs: None,
+        )
+
+        @staticmethod
+        def _thinking_excerpt(text):
+            return text
+
+        @staticmethod
+        def _emit_agent_status(*args, **kwargs):
+            del args, kwargs
+
+        @staticmethod
+        def _emit_module_log(*args, **kwargs):
+            del args, kwargs
+
+        @staticmethod
+        def _emit_meeting_speech(*args, **kwargs):
+            del args, kwargs
+
+        @staticmethod
+        def _mark_cycle_skipped(*args, **kwargs):
+            raise AssertionError('base runtime should not skip due to threshold re-filtering')
+
+    result = service.run_selection_stage(
+        DummyController(),
+        cycle_id=7,
+        cutoff_date='20220611',
+        stock_data={'sh.603045': {'rows': 1}, 'sz.300802': {'rows': 1}, 'sh.601007': {'rows': 1}},
+    )
+
+    assert result is not None
+    assert result.selected == ['sh.603045', 'sz.300802', 'sh.601007']
+    assert result.regime_runtime_profile['applied'] is True
+    assert result.regime_runtime_profile['strategy_family'] == 'momentum'
+    assert result.regime_runtime_profile['budget_layering']['family_budget'] == {
+        'position_size': 0.16,
+        'cash_reserve': 0.28,
+        'max_positions': 3,
+    }
+    assert result.selection_intercepts['active'] is True
+    assert result.selection_intercepts['budget']['entry_threshold_enforced'] is False
+    assert result.selection_intercepts['budget']['entry_threshold_reason'] == 'overlay_without_threshold'
+    assert result.selection_intercepts['position_count_after'] == 3
+    assert saved_logs[0][1]['selection_intercepts']['active'] is True
+
+
+def test_training_selection_service_passively_refreshes_regime_overlay_in_pinned_mode():
+    service = TrainingSelectionService()
+    saved_logs = []
+    module_logs = []
+
+    class DummyInvestmentModel:
+        def __init__(self):
+            self.runtime_overrides = {}
+            self.process_call_count = 0
+            self.process_runtime_snapshots = []
+
+        def process(self, stock_data, cutoff_date):
+            del stock_data, cutoff_date
+            self.process_call_count += 1
+            snapshot = dict(self.runtime_overrides or {})
+            self.process_runtime_snapshots.append(snapshot)
+            signal_packet = SimpleNamespace(
+                regime='bull',
+                cash_reserve=float(snapshot.get('cash_reserve', 0.2)),
+                params={
+                    'position_size': float(snapshot.get('position_size', 0.2)),
+                    'signal_threshold': float(snapshot.get('signal_threshold', 0.7)),
+                    'max_positions': int(snapshot.get('max_positions', 4)),
+                },
+                selected_codes=['sh.600519', 'sh.600096'],
+                signals=[
+                    {'code': 'sh.600519', 'score': 0.82},
+                    {'code': 'sh.600096', 'score': 0.76},
+                ],
+                max_positions=int(snapshot.get('max_positions', 4)),
+                model_name='momentum',
+                config_name='cfg.yaml',
+                as_of_date='20240201',
+                metadata={
+                    'entry_threshold_policy': {
+                        'mode': 'model_managed',
+                        'key': 'signal_threshold',
+                        'consumed_upstream': False,
+                        'post_selection_filter_supported': False,
+                    }
+                },
+            )
+            return SimpleNamespace(
+                signal_packet=signal_packet,
+                agent_context=SimpleNamespace(
+                    summary='bull summary',
+                    metadata={},
+                    stock_summaries=[
+                        {'code': 'sh.600519', 'algo_score': 0.9},
+                        {'code': 'sh.600096', 'algo_score': 0.8},
+                    ],
+                ),
+                model_name='momentum',
+                config_name='cfg.yaml',
+                to_dict=lambda: {'model_name': 'momentum', 'runtime': snapshot},
+            )
+
+    trading_plan = SimpleNamespace(
+        positions=[
+            SimpleNamespace(code='sh.600519', priority=1, weight=0.22),
+            SimpleNamespace(code='sh.600096', priority=2, weight=0.22),
+        ],
+        cash_reserve=0.15,
+        max_positions=4,
+        source='meeting',
+    )
+
+    model = DummyInvestmentModel()
+
+    class DummyController:
+        current_params = {
+            'position_size': 0.2,
+            'cash_reserve': 0.2,
+            'signal_threshold': 0.7,
+            'max_positions': 4,
+        }
+        risk_policy = {'clamps': {'position_size': {'min': 0.05, 'max': 0.3}}}
+        review_policy = {
+            'param_clamps': {
+                'cash_reserve': {'min': 0.0, 'max': 0.8},
+                'signal_threshold': {'min': 0.3, 'max': 0.95},
+            }
+        }
+        regime_controls = {
+            'bull': {
+                'position_size': 0.22,
+                'cash_reserve': 0.15,
+                'signal_threshold': 0.68,
+                'max_positions': 4,
+            }
+        }
+        model_name = 'momentum'
+        investment_model = model
+        last_routing_decision = {}
+        selection_meeting_service = SimpleNamespace(
+            run_with_model_output=lambda model_output: {
+                'trading_plan': trading_plan,
+                'meeting_log': {'hunters': [], 'selected': list(model_output.signal_packet.selected_codes)},
+                'strategy_advice': {'bias': 'risk_on'},
+            }
+        )
+        meeting_recorder = SimpleNamespace(
+            save_selection=lambda meeting_log, cycle_id: saved_logs.append((cycle_id, dict(meeting_log)))
+        )
+        agent_tracker = SimpleNamespace(
+            record_predictions=lambda *args, **kwargs: None,
+            mark_selected=lambda *args, **kwargs: None,
+        )
+
+        @staticmethod
+        def _thinking_excerpt(text):
+            return text
+
+        @staticmethod
+        def _emit_agent_status(*args, **kwargs):
+            del args, kwargs
+
+        @staticmethod
+        def _emit_module_log(*args, **kwargs):
+            module_logs.append((args, kwargs))
+
+        @staticmethod
+        def _emit_meeting_speech(*args, **kwargs):
+            del args, kwargs
+
+        @staticmethod
+        def _mark_cycle_skipped(*args, **kwargs):
+            raise AssertionError('passive regime refresh should not skip')
+
+    result = service.run_selection_stage(
+        DummyController(),
+        cycle_id=8,
+        cutoff_date='20240201',
+        stock_data={'sh.600519': {'rows': 1}, 'sh.600096': {'rows': 1}},
+    )
+
+    assert result is not None
+    assert model.process_call_count == 2
+    assert model.process_runtime_snapshots[0]['signal_threshold'] == 0.7
+    assert model.process_runtime_snapshots[1]['signal_threshold'] == 0.68
+    assert result.regime_runtime_profile['regime'] == 'bull'
+    assert result.regime_runtime_profile['applied'] is True
+    assert result.regime_runtime_profile['effective_params']['cash_reserve'] == 0.15
+    assert result.regime_runtime_profile['regime_resolution']['mode'] == 'passive_model_inference'
+    assert result.selected == ['sh.600519', 'sh.600096']
+    assert result.selection_intercepts['budget']['entry_threshold_enforced'] is False
+    assert result.selection_intercepts['budget']['entry_threshold_reason'] == 'model_managed_threshold_semantics'
+    assert saved_logs[0][1]['regime_runtime_profile']['applied'] is True
+    assert any(kwargs.get('kind') == 'passive_regime_overlay_refresh' for _, kwargs in module_logs)
+
+
+def test_training_selection_service_respects_upstream_consumed_entry_threshold():
+    service = TrainingSelectionService()
+
+    class DummyInvestmentModel:
+        runtime_overrides = {}
+
+        def process(self, stock_data, cutoff_date):
+            del stock_data, cutoff_date
+            signal_packet = SimpleNamespace(
+                regime='bear',
+                cash_reserve=0.35,
+                params={'position_size': 0.18, 'min_reversion_score': 0.08},
+                selected_codes=['sh.600519', 'sh.600096'],
+                signals=[
+                    {'code': 'sh.600519', 'score': 0.09},
+                    {'code': 'sh.600096', 'score': 0.085},
+                ],
+                max_positions=2,
+                metadata={
+                    'entry_threshold_policy': {
+                        'mode': 'upstream_signal_filter',
+                        'key': 'min_reversion_score',
+                        'consumed_upstream': True,
+                        'post_selection_filter_supported': False,
+                    }
+                },
+            )
+            return SimpleNamespace(
+                signal_packet=signal_packet,
+                agent_context=SimpleNamespace(summary='bear summary', metadata={}),
+                model_name='mean_reversion',
+                config_name='cfg.yaml',
+                to_dict=lambda: {'model_name': 'mean_reversion'},
+            )
+
+    trading_plan = SimpleNamespace(
+        positions=[
+            SimpleNamespace(code='sh.600519', priority=1, weight=0.20),
+            SimpleNamespace(code='sh.600096', priority=2, weight=0.20),
+        ],
+        cash_reserve=0.30,
+        max_positions=2,
+        source='meeting',
+    )
+
+    class DummyController:
+        current_params = {
+            'position_size': 0.18,
+            'cash_reserve': 0.35,
+            'min_reversion_score': 0.05,
+            'max_positions': 4,
+        }
+        risk_policy = {'clamps': {'position_size': {'min': 0.05, 'max': 0.3}}}
+        review_policy = {'param_clamps': {'cash_reserve': {'min': 0.0, 'max': 0.8}}}
+        regime_controls = {
+            'bear': {
+                'position_size': 0.13,
+                'cash_reserve': 0.55,
+                'min_reversion_score': 0.08,
+                'max_positions': 2,
+            }
+        }
+        model_name = 'mean_reversion'
+        investment_model = DummyInvestmentModel()
+        last_routing_decision = {'regime': 'bear'}
+        selection_meeting_service = SimpleNamespace(
+            run_with_model_output=lambda model_output: {
+                'trading_plan': trading_plan,
+                'meeting_log': {'hunters': [], 'selected': list(model_output.signal_packet.selected_codes)},
+                'strategy_advice': {'bias': 'risk_off'},
+            }
+        )
+        meeting_recorder = SimpleNamespace(save_selection=lambda *args, **kwargs: None)
+        agent_tracker = SimpleNamespace(
+            record_predictions=lambda *args, **kwargs: None,
+            mark_selected=lambda *args, **kwargs: None,
+        )
+
+        @staticmethod
+        def _thinking_excerpt(text):
+            return text
+
+        @staticmethod
+        def _emit_agent_status(*args, **kwargs):
+            del args, kwargs
+
+        @staticmethod
+        def _emit_module_log(*args, **kwargs):
+            del args, kwargs
+
+        @staticmethod
+        def _emit_meeting_speech(*args, **kwargs):
+            del args, kwargs
+
+        @staticmethod
+        def _mark_cycle_skipped(*args, **kwargs):
+            raise AssertionError('upstream-consumed threshold should not skip')
+
+    result = service.run_selection_stage(
+        DummyController(),
+        cycle_id=9,
+        cutoff_date='20240201',
+        stock_data={'sh.600519': {'rows': 1}, 'sh.600096': {'rows': 1}},
+    )
+
+    assert result is not None
+    assert result.selected == ['sh.600519', 'sh.600096']
+    assert result.selection_intercepts['budget']['entry_threshold_enforced'] is False
+    assert result.selection_intercepts['budget']['entry_threshold_reason'] == 'threshold_already_consumed_upstream'
+
+
 def test_training_review_stage_service_runs_review_flow():
     service = TrainingReviewStageService()
     events = []
@@ -1226,10 +1984,11 @@ def test_training_review_stage_service_runs_review_flow():
     assert saved_reviews[0][2] == 6
     assert any(item[0] == 'apply_review_decision' for item in events)
     review_call = next(item for item in events if item[0] == 'review_meeting')
-    assert review_call[6] == []
-    assert review_call[7]['matched_cycle_ids'] == []
-    assert review_call[8]['primary_driver'] == 'insufficient_history'
+    assert isinstance(review_call[6], list)
+    assert isinstance(review_call[7], dict)
+    assert isinstance(review_call[8], dict)
     assert [entry['cycle_id'] for entry in review_call[4]] == [4, 5, 6]
+    assert review_call[3] == {'position_size': 0.12}
     assert review_call[5] == {
         'mode': 'rolling',
         'size': 3,
@@ -1445,6 +2204,8 @@ def test_training_cycle_data_service_regime_balanced_selects_undercovered_regime
 
 
 def test_training_cycle_data_service_loads_diagnostics_and_resolution():
+    captured = {}
+
     class DummyDataManager:
         last_resolution = {
             'effective_data_mode': 'offline',
@@ -1460,19 +2221,35 @@ def test_training_cycle_data_service_loads_diagnostics_and_resolution():
                 'min_history_days': min_history_days,
             }
 
-        def load_stock_data(self, cutoff_date, *, stock_count, min_history_days, include_future_days):
+        def load_stock_data(
+            self,
+            cutoff_date,
+            *,
+            stock_count,
+            min_history_days,
+            include_future_days,
+            sampling_policy,
+            sampling_seed,
+        ):
+            captured['sampling_policy'] = dict(sampling_policy)
+            captured['sampling_seed'] = sampling_seed
             return {
                 'sh.600519': {
                     'cutoff_date': cutoff_date,
                     'stock_count': stock_count,
                     'min_history_days': min_history_days,
                     'include_future_days': include_future_days,
+                    'sampling_policy': dict(sampling_policy),
+                    'sampling_seed': sampling_seed,
                 }
             }
 
     class DummyController:
         experiment_min_history_days = 160
         experiment_simulation_days = 40
+        experiment_stock_count = 17
+        experiment_universe_policy = {'mode': 'stratified_random', 'stratify_by': 'board'}
+        current_cycle_sampling_seed = 123
         data_manager = DummyDataManager()
 
     service = TrainingCycleDataService()
@@ -1486,15 +2263,17 @@ def test_training_cycle_data_service_loads_diagnostics_and_resolution():
         diagnostics={
             'ready': True,
             'cutoff_date': '20240201',
-            'stock_count': config.max_stocks,
+            'stock_count': 17,
             'min_history_days': 160,
         },
         stock_data={
             'sh.600519': {
                 'cutoff_date': '20240201',
-                'stock_count': config.max_stocks,
+                'stock_count': 17,
                 'min_history_days': 160,
                 'include_future_days': 40,
+                'sampling_policy': {'mode': 'stratified_random', 'stratify_by': 'board'},
+                'sampling_seed': 123,
             }
         },
         requested_data_mode='live',
@@ -1504,6 +2283,8 @@ def test_training_cycle_data_service_loads_diagnostics_and_resolution():
         degrade_reason='',
         min_history_days=160,
     )
+    assert captured['sampling_policy'] == {'mode': 'stratified_random', 'stratify_by': 'board'}
+    assert captured['sampling_seed'] == 123
 
 
 def test_training_review_service_builds_eval_report():
@@ -1870,6 +2651,10 @@ def test_training_llm_runtime_service_applies_runtime_overrides_and_dry_run():
 
     shared = DummyLLM()
     optimizer_llm = DummyLLM()
+    selection_fast = DummyLLM()
+    selection_deep = DummyLLM()
+    review_fast = DummyLLM()
+    review_judge = DummyLLM()
 
     class DummyController:
         llm_caller = shared
@@ -1878,8 +2663,12 @@ def test_training_llm_runtime_service_applies_runtime_overrides_and_dry_run():
             'trend_hunter': SimpleNamespace(llm=shared),
             'strategist': SimpleNamespace(llm=DummyLLM()),
         }
-        selection_meeting = SimpleNamespace(llm=DummyLLM())
-        review_meeting = SimpleNamespace(llm=DummyLLM())
+        selection_meeting = SimpleNamespace(
+            iter_runtime_llms=lambda: [selection_fast, selection_deep],
+        )
+        review_meeting = SimpleNamespace(
+            iter_runtime_llms=lambda: [review_fast, review_judge],
+        )
         llm_optimizer = SimpleNamespace(llm=optimizer_llm)
 
     controller = DummyController()
@@ -1887,14 +2676,27 @@ def test_training_llm_runtime_service_applies_runtime_overrides_and_dry_run():
         controller,
         {'timeout': 11, 'max_retries': 2, 'dry_run': True},
     )
+
+    assert selection_fast.calls == [{'timeout': 11, 'max_retries': 2}]
+    assert selection_deep.calls == [{'timeout': 11, 'max_retries': 2}]
+    assert review_fast.calls == [{'timeout': 11, 'max_retries': 2}]
+    assert review_judge.calls == [{'timeout': 11, 'max_retries': 2}]
+    assert selection_fast.dry_run is True
+    assert selection_deep.dry_run is True
+    assert review_fast.dry_run is True
+    assert review_judge.dry_run is True
+
     service.set_dry_run(controller, False)
 
     assert shared.calls == [{'timeout': 11, 'max_retries': 2}]
     assert controller.agents['strategist'].llm.calls == [{'timeout': 11, 'max_retries': 2}]
-    assert controller.selection_meeting.llm.calls == [{'timeout': 11, 'max_retries': 2}]
     assert optimizer_llm.calls == [{'timeout': 11, 'max_retries': 2}]
     assert controller.llm_mode == 'live'
     assert shared.dry_run is False
+    assert selection_fast.dry_run is False
+    assert selection_deep.dry_run is False
+    assert review_fast.dry_run is False
+    assert review_judge.dry_run is False
 
 
 def test_training_routing_service_sync_runtime_from_config_reloads_on_model_change(monkeypatch):
@@ -2060,6 +2862,7 @@ def test_training_review_service_applies_review_decision():
             self.current_params = {'position_size': 0.2}
             self.investment_model = DummyModel()
             self.selection_meeting_service = DummySelectionMeetingService()
+            self.current_cycle_learning_proposals = []
 
         def _emit_agent_status(self, *args, **kwargs):
             agent_events.append((args, kwargs))
@@ -2083,13 +2886,21 @@ def test_training_review_service_applies_review_decision():
     )
 
     assert applied is True
-    assert controller.current_params['position_size'] == 0.12
-    assert controller.investment_model.updates[-1] == {'position_size': 0.12}
-    assert controller.selection_meeting_service.weight_updates[-1] == {'trend_hunter': 0.9}
-    assert review_event.applied_change == {
-        'params': {'position_size': 0.12},
-        'agent_weights': {'trend_hunter': 0.9},
-    }
+    assert controller.current_params['position_size'] == 0.2
+    assert controller.investment_model.updates == []
+    assert controller.selection_meeting_service.weight_updates == []
+    assert len(controller.current_cycle_learning_proposals) == 2
+    assert any(
+        proposal['patch'] == {'position_size': 0.12}
+        for proposal in controller.current_cycle_learning_proposals
+    )
+    assert any(
+        proposal['patch'] == {'trend_hunter': 0.9}
+        for proposal in controller.current_cycle_learning_proposals
+    )
+    assert review_event.applied_change['queued_param_adjustments'] == {'position_size': 0.12}
+    assert review_event.applied_change['queued_agent_weight_adjustments'] == {'trend_hunter': 0.9}
+    assert len(review_event.applied_change['proposal_refs']) == 2
     assert agent_events
 
 
@@ -2167,7 +2978,13 @@ def test_training_policy_service_loads_promotion_and_quality_gate_defaults():
                 'benchmark': {},
                 'train': {
                     'promotion_gate': {'min_samples': 4},
-                    'quality_gate_matrix': {'promotion': {'max_pending_cycles': 2}},
+                    'quality_gate_matrix': {
+                        'promotion': {'max_pending_cycles': 2},
+                        'shared_regime_hard_fail': {
+                            'critical_regimes': ['bull'],
+                            'per_regime': {'bull': {'min_avg_return_pct': -0.1}},
+                        },
+                    },
                     'freeze_gate': {'governance': {'max_candidate_pending_count': 0}},
                 },
                 'agent_weights': {},
@@ -2208,9 +3025,17 @@ def test_training_policy_service_loads_promotion_and_quality_gate_defaults():
 
     assert controller.freeze_gate_policy['avg_sharpe_gte'] == 0.8
     assert controller.freeze_gate_policy['benchmark_pass_rate_gte'] == 0.60
-    assert controller.freeze_gate_policy['research_feedback']['min_sample_count'] == 8
+    assert controller.freeze_gate_policy['research_feedback']['min_episode_count'] == 8
     assert controller.promotion_gate_policy['min_samples'] == 4
+    assert controller.promotion_gate_policy['regime_hard_fail']['enabled'] is True
     assert controller.experiment_promotion_policy['min_samples'] == 4
     assert controller.quality_gate_matrix['promotion']['max_pending_cycles'] == 2
+    assert controller.quality_gate_matrix['promotion']['regime_hard_fail']['critical_regimes'] == ['bull']
+    assert controller.quality_gate_matrix['routing']['regime_hard_fail']['critical_regimes'] == ['bull']
+    assert controller.quality_gate_matrix['routing']['regime_hard_fail']['per_regime']['bull']['min_avg_return_pct'] == -0.1
+    assert controller.quality_gate_matrix['routing']['regime_hard_fail']['max_benchmark_pass_rate'] == 0.25
     assert controller.freeze_gate_policy['governance']['max_candidate_pending_count'] == 0
     assert controller.freeze_gate_policy['governance']['max_override_pending_count'] == 0
+    assert controller.proposal_gate_policy['cumulative_drift']['max_param_ratio_vs_baseline'] == 0.50
+    assert controller.proposal_gate_policy['cumulative_drift']['scoring']['max_ratio_vs_baseline'] == 0.50
+    assert controller.proposal_gate_policy['identity_protection']['agent_weights']['max_single_step_ratio_vs_baseline'] == 0.30

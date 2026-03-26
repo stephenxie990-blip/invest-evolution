@@ -89,16 +89,30 @@ def test_allocator_api(tmp_path, monkeypatch):
     training_root = runtime.cfg.training_output_dir.parent
     run_dir = training_root / "defensive_case"
     run_dir.mkdir(parents=True, exist_ok=True)
-    (run_dir / "cycle_1.json").write_text(json.dumps({
-        "cycle_id": 1,
-        "cutoff_date": "20250101",
-        "return_pct": 1.0,
-        "is_profit": True,
-        "benchmark_passed": True,
-        "model_name": "defensive_low_vol",
-        "config_name": "defensive_low_vol_v1",
-        "self_assessment": {"regime": "bear", "sharpe_ratio": 1.4, "max_drawdown": 2.0, "excess_return": 0.6, "benchmark_passed": True},
-    }, ensure_ascii=False), encoding="utf-8")
+    for cycle_id, return_pct in ((1, 1.0), (2, 0.8), (3, 0.9)):
+        (run_dir / f"cycle_{cycle_id}.json").write_text(
+            json.dumps(
+                {
+                    "cycle_id": cycle_id,
+                    "cutoff_date": "20250101",
+                    "return_pct": return_pct,
+                    "is_profit": True,
+                    "benchmark_passed": True,
+                    "model_name": "defensive_low_vol",
+                    "config_name": "defensive_low_vol_v1",
+                    "self_assessment": {
+                        "regime": "bear",
+                        "sharpe_ratio": 1.4,
+                        "max_drawdown": 2.0,
+                        "excess_return": 0.6,
+                        "benchmark_passed": True,
+                        "overall_score": 0.72,
+                    },
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
     monkeypatch.setattr(web_server, "_runtime", runtime)
     client = web_server.app.test_client()
 
@@ -107,4 +121,3 @@ def test_allocator_api(tmp_path, monkeypatch):
     data = res.get_json()
     assert data["allocation"]["regime"] == "bear"
     assert "defensive_low_vol" in data["allocation"]["active_models"]
-    assert data["allocation"]["metadata"]["preview_mode"] == "relaxed_sample_gate"

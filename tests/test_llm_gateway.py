@@ -1,4 +1,4 @@
-from app.llm_gateway import LLMGateway
+from app.llm_gateway import LLMGateway, _configure_litellm_environment_defaults
 
 
 def test_llm_gateway_normalizes_gpt5_temperature():
@@ -89,3 +89,19 @@ def test_llm_gateway_logs_failed_litellm_attribute_configuration(monkeypatch, ca
         LLMGateway(model="gpt-5.4", api_key="token", api_base="https://example.com")
 
     assert "Failed to configure litellm.set_verbose=False" in caplog.text
+
+
+def test_configure_litellm_environment_defaults_sets_local_cost_map(monkeypatch):
+    monkeypatch.delenv("LITELLM_LOCAL_MODEL_COST_MAP", raising=False)
+
+    _configure_litellm_environment_defaults()
+
+    assert __import__("os").environ["LITELLM_LOCAL_MODEL_COST_MAP"] == "True"
+
+
+def test_configure_litellm_environment_defaults_preserves_explicit_override(monkeypatch):
+    monkeypatch.setenv("LITELLM_LOCAL_MODEL_COST_MAP", "False")
+
+    _configure_litellm_environment_defaults()
+
+    assert __import__("os").environ["LITELLM_LOCAL_MODEL_COST_MAP"] == "False"

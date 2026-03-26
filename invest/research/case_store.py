@@ -3,13 +3,10 @@ from __future__ import annotations
 import json
 from collections import defaultdict
 from datetime import datetime
-from functools import lru_cache
 from pathlib import Path
 from typing import Any, Dict, Iterable, List
 
-from app.training.reporting import evaluate_research_feedback_gate
 from config import normalize_date
-from invest.models import create_investment_model, resolve_model_config_path
 
 from .contracts import OutcomeAttribution, PolicySnapshot, ResearchHypothesis, ResearchSnapshot, stable_hash
 
@@ -73,74 +70,6 @@ class ResearchCaseStore:
     def _case_symbol(snapshot: Dict[str, Any]) -> str:
         security = dict(snapshot.get("security") or {})
         return str(security.get("code") or snapshot.get("metadata", {}).get("query_code") or "")
-
-    @staticmethod
-    def _model_config_matches(model: Any, config_name: str) -> bool:
-        normalized = str(config_name or "").strip().lower()
-        if not normalized:
-            return True
-        config = getattr(model, "config", None)
-        config_path = Path(str(getattr(config, "path", "") or ""))
-        aliases = {
-            str(getattr(config, "name", "") or "").strip().lower(),
-            config_path.stem.lower(),
-            config_path.name.lower(),
-            str(config_path).strip().lower(),
-        }
-        return normalized in aliases
-
-    @staticmethod
-    @lru_cache(maxsize=32)
-    def _model_research_feedback_policy(
-        model_name: str,
-        config_name: str,
-    ) -> Dict[str, Any]:
-        normalized_model = str(model_name or "").strip()
-        normalized_config = str(config_name or "").strip()
-        if not normalized_model:
-            return {}
-        candidate_paths: list[str | None] = []
-        if normalized_config:
-            config_path = Path(normalized_config).expanduser()
-            looks_like_path = (
-                config_path.is_absolute()
-                or config_path.suffix.lower() in {".yaml", ".yml", ".json"}
-                or "/" in normalized_config
-                or "\\" in normalized_config
-            )
-            if looks_like_path:
-                candidate_paths.append(normalized_config)
-        try:
-            candidate_paths.append(str(resolve_model_config_path(normalized_model)))
-        except Exception:
-            return {}
-
-        seen_paths: set[str] = set()
-        for candidate_path in candidate_paths:
-            normalized_path = str(candidate_path or "").strip()
-            if normalized_path in seen_paths:
-                continue
-            seen_paths.add(normalized_path)
-            try:
-                model = create_investment_model(
-                    normalized_model,
-                    config_path=normalized_path or None,
-                )
-            except Exception:
-                continue
-            if normalized_config and candidate_path is not None and not ResearchCaseStore._model_config_matches(
-                model,
-                normalized_config,
-            ):
-                continue
-            train_config = dict(model.config_section("train", {}) or {})
-            freeze_gate = dict(train_config.get("freeze_gate") or {})
-            feedback_policy = dict(freeze_gate.get("research_feedback") or {})
-            if feedback_policy:
-                return feedback_policy
-            promotion_gate = dict(train_config.get("promotion_gate") or {})
-            return dict(promotion_gate.get("research_feedback") or {})
-        return {}
 
     def _iter_case_attribution_records(
         self,
@@ -229,11 +158,40 @@ class ResearchCaseStore:
         first_invalidation_horizons: List[int] = []
         scenario_buckets: Dict[str, int] = defaultdict(int)
         attributed_records = [item for item in records if item.get("attribution")]
+        episode_ids: set[str] = set()
+        version_ids: set[str] = set()
+        covered_regimes: set[str] = set()
         for item in attributed_records:
             attribution = dict(item.get("attribution") or {})
             case = dict(item.get("case") or {})
+            case_metadata = dict(case.get("metadata") or {})
+            attribution_metadata = dict((item.get("attribution_item") or {}).get("metadata") or {})
             hypothesis = dict(case.get("hypothesis") or {})
+            snapshot = dict(item.get("snapshot") or {})
             calibration = dict(attribution.get("calibration_metrics") or {})
+            episode_id = str(
+                attribution_metadata.get("decision_episode_id")
+                or case_metadata.get("decision_episode_id")
+                or ""
+            ).strip()
+            if not episode_id:
+                cycle_id = attribution_metadata.get("cycle_id") or case_metadata.get("cycle_id")
+                if cycle_id not in (None, ""):
+                    episode_id = f"cycle_{int(cycle_id)}"
+            if episode_id:
+                episode_ids.add(episode_id)
+
+            version_id = str(
+                attribution_metadata.get("version_id")
+                or case_metadata.get("version_id")
+                or dict(item.get("policy") or {}).get("version_hash")
+                or ""
+            ).strip()
+            if version_id:
+                version_ids.add(version_id)
+            regime = str((snapshot.get("market_context") or {}).get("regime") or "").strip()
+            if regime:
+                covered_regimes.add(regime)
             if calibration.get("positive_return_brier") is not None:
                 briers.append(float(calibration.get("positive_return_brier") or 0.0))
             scenario = dict(hypothesis.get("scenario_distribution") or {})
@@ -298,6 +256,9 @@ class ResearchCaseStore:
             "subject": dict(subject or {}),
             "matched_case_count": len(records),
             "sample_count": len(attributed_records),
+            "episode_count": len(episode_ids),
+            "distinct_version_count": len(version_ids),
+            "distinct_regime_count": len(covered_regimes),
             "brier_like_direction_score": round(sum(briers) / len(briers), 6) if briers else None,
             "invalidation_timeliness": {
                 "sample_count": len(first_invalidation_horizons),
@@ -310,102 +271,34 @@ class ResearchCaseStore:
         }
 
     @staticmethod
-    def _generic_feedback_recommendation(
-        *,
-        hit_rate: Any,
-        invalidation_rate: Any,
-        interval_hit_rate: Any,
-        brier: Any,
-    ) -> tuple[str, list[str]]:
-        reason_codes: list[str] = []
-        bias = "maintain"
-        if hit_rate is not None and float(hit_rate) < 0.45:
-            bias = "tighten_risk"
-            reason_codes.append("t20_hit_rate_low")
-        if invalidation_rate is not None and float(invalidation_rate) >= 0.35:
-            bias = "tighten_risk"
-            reason_codes.append("t20_invalidation_high")
-        if bias == "maintain" and brier is not None and float(brier) > 0.28:
-            bias = "recalibrate_probability"
-            reason_codes.append("direction_brier_high")
-        if bias == "maintain" and interval_hit_rate is not None and float(interval_hit_rate) < 0.40:
-            bias = "recalibrate_probability"
-            reason_codes.append("interval_hit_rate_low")
-        return bias, reason_codes
-
-    @staticmethod
     def _feedback_recommendation(summary: Dict[str, Any]) -> Dict[str, Any]:
-        subject = dict(summary.get("subject") or {})
-        model_name = str(subject.get("model_name") or "").strip()
-        config_name = str(subject.get("config_name") or "").strip()
-        t5 = dict(summary.get("horizons", {}).get("T+5") or {})
         t20 = dict(summary.get("horizons", {}).get("T+20") or {})
-        t5_hit_rate = t5.get("hit_rate")
         hit_rate = t20.get("hit_rate")
         invalidation_rate = t20.get("invalidation_rate")
         interval_hit_rate = t20.get("interval_hit_rate")
         brier = summary.get("brier_like_direction_score")
         reason_codes: list[str] = []
         bias = "maintain"
-        feedback_policy = ResearchCaseStore._model_research_feedback_policy(
-            model_name,
-            config_name,
-        )
         if int(summary.get("sample_count") or 0) < 3:
             bias = "insufficient_samples"
             reason_codes.append("insufficient_samples")
-        elif feedback_policy:
-            gate_result = evaluate_research_feedback_gate(
-                {
-                    **dict(summary or {}),
-                    "recommendation": {"bias": "maintain"},
-                },
-                policy=feedback_policy,
-                defaults={},
-            )
-            if not bool(gate_result.get("active")):
-                bias, reason_codes = ResearchCaseStore._generic_feedback_recommendation(
-                    hit_rate=hit_rate,
-                    invalidation_rate=invalidation_rate,
-                    interval_hit_rate=interval_hit_rate,
-                    brier=brier,
-                )
-            else:
-                failed_checks = list(gate_result.get("failed_checks") or [])
-                horizon_reason_codes: list[str] = []
-                interval_failed = False
-                direction_brier_failed = False
-                for check in failed_checks:
-                    name = str(check.get("name") or "").strip()
-                    horizon = str(check.get("horizon") or "").strip().lower().replace("+", "")
-                    metric = str(check.get("metric") or "").strip()
-                    if metric == "hit_rate" and horizon:
-                        horizon_reason_codes.append(f"{horizon}_hit_rate_low")
-                    elif metric == "invalidation_rate" and horizon:
-                        horizon_reason_codes.append(f"{horizon}_invalidation_high")
-                    elif metric == "interval_hit_rate":
-                        interval_failed = True
-                    elif name == "max_brier_like_direction_score":
-                        direction_brier_failed = True
-                if horizon_reason_codes:
-                    bias = "tighten_risk"
-                    reason_codes.extend(horizon_reason_codes)
-                elif direction_brier_failed or interval_failed:
-                    bias = "recalibrate_probability"
-                    if direction_brier_failed:
-                        reason_codes.append("direction_brier_high")
-                    if interval_failed:
-                        reason_codes.append("interval_hit_rate_low")
         else:
-            bias, reason_codes = ResearchCaseStore._generic_feedback_recommendation(
-                hit_rate=hit_rate,
-                invalidation_rate=invalidation_rate,
-                interval_hit_rate=interval_hit_rate,
-                brier=brier,
-            )
+            if hit_rate is not None and float(hit_rate) < 0.45:
+                bias = "tighten_risk"
+                reason_codes.append("t20_hit_rate_low")
+            if invalidation_rate is not None and float(invalidation_rate) >= 0.35:
+                bias = "tighten_risk"
+                reason_codes.append("t20_invalidation_high")
+            if bias == "maintain" and brier is not None and float(brier) > 0.28:
+                bias = "recalibrate_probability"
+                reason_codes.append("direction_brier_high")
+            if bias == "maintain" and interval_hit_rate is not None and float(interval_hit_rate) < 0.40:
+                bias = "recalibrate_probability"
+                reason_codes.append("interval_hit_rate_low")
         notes = [
             f"样本数={int(summary.get('sample_count') or 0)}",
-            f"T+5 hit_rate={t5_hit_rate}",
+            f"episode_count={int(summary.get('episode_count') or 0)}",
+            f"distinct_version_count={int(summary.get('distinct_version_count') or 0)}",
             f"T+20 hit_rate={hit_rate}",
             f"T+20 invalidation_rate={invalidation_rate}",
             f"T+20 interval_hit_rate={interval_hit_rate}",
@@ -501,7 +394,9 @@ class ResearchCaseStore:
                 "requested_regime": normalized_regime,
                 "effective_scope": effective_scope,
                 "overall_sample_count": int(overall_summary.get("sample_count") or 0),
+                "overall_episode_count": int(overall_summary.get("episode_count") or 0),
                 "regime_sample_count": int(requested_regime_feedback.get("sample_count") or 0),
+                "regime_episode_count": int(requested_regime_feedback.get("episode_count") or 0),
                 "covered_regimes": sorted(regime_breakdown.keys()),
             },
             "overall_feedback": overall_summary,

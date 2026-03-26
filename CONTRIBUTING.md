@@ -61,6 +61,7 @@
 常见验证包括：
 
 ```bash
+ruff check .
 pytest -q
 ```
 

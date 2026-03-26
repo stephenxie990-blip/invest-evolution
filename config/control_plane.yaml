@@ -1,9 +1,11 @@
 llm:
   providers:
     default_provider:
-      api_base: https://vpsairobot.com/v1
+      api_base: ${ENV:OPENAI_API_BASE:-https://api.openai.com/v1}
+      api_key: ${ENV:OPENAI_API_KEY}
     minimax_provider:
-      api_base: https://api.minimaxi.com/v1
+      api_base: ${ENV:MINIMAX_API_BASE:-https://api.minimaxi.com/v1}
+      api_key: ${ENV:MINIMAX_API_KEY}
   models:
     default_fast:
       provider: default_provider
@@ -13,7 +15,7 @@ llm:
       model: gpt-5.4
     minimax_fast:
       provider: minimax_provider
-      model: openai/MiniMax-M2.5
+      model: minimax/MiniMax-M2.5-highspeed
   bindings:
     defaults.fast: default_fast
     defaults.deep: default_deep

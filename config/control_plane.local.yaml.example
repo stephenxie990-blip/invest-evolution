@@ -1,0 +1,9 @@
+# 本地敏感覆盖层示例（不要提交到版本库）
+# 用于覆盖共享的 control_plane.yaml 中的 provider key 或私有 endpoint。
+
+llm:
+  providers:
+    default_provider:
+      api_key: ${ENV:OPENAI_API_KEY}
+    minimax_provider:
+      api_key: ${ENV:MINIMAX_API_KEY}

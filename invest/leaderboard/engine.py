@@ -426,6 +426,10 @@ def build_leaderboard(records: List[Dict[str, Any]], policy: Dict[str, Any] | No
         entry = {
             "key": key,
             "model_name": str(items[0].get("model_name", "unknown")),
+            "strategy_family": str(
+                items[0].get("strategy_family")
+                or items[0].get("model_name", "unknown")
+            ),
             "config_name": str(items[0].get("config_name", "unknown")),
             "run_dirs": sorted({str(item.get("_dir", "")) for item in items}),
             "cycles": len(items),

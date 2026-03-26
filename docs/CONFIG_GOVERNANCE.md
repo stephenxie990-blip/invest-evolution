@@ -66,6 +66,12 @@
 
 持久化位置：`agent_settings/agents_config.json`
 
+说明：
+
+- 主仓库内置公开可用的 Agent baseline prompt
+- `agent_settings/agents_config.json` 是覆盖层，而不是必需资产
+- 空文件 `{}` 或缺省本地覆盖都不会阻断默认运行
+
 当前可由 Web 修改：
 
 - `llm_model`
@@ -84,6 +90,7 @@
 - `evolution_config` 修改后会更新 live config，并写入 `runtime/state/evolution.runtime.yaml`、审计日志与快照
 - `runtime_paths` 修改后，若 Commander 已启动，会同步更新 live runtime paths
 - `agent_prompts` 修改后写回 JSON 文件，仅影响 Agent prompt；模型绑定统一走 `/api/control_plane`
+- 若没有本地覆盖文件，运行时仍会使用内置 baseline prompt
 
 ## 4. 审计与快照
 

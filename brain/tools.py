@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from .tool_contracts import agent_prompts_update_schema
 from .tool_metadata import (
     INVEST_DEEP_STATUS_TOOL_NAME,
     INVEST_QUICK_STATUS_TOOL_NAME,
@@ -589,7 +588,7 @@ class InvestAgentPromptsUpdateTool(BrainTool):
         return "Update one agent system prompt."
     @property
     def parameters(self) -> dict[str, Any]:
-        return agent_prompts_update_schema()
+        return {"type": "object", "properties": {"name": {"type": "string"}, "system_prompt": {"type": "string"}}, "required": ["name", "system_prompt"]}
     async def execute(self, **kwargs: Any) -> str:
         return _json(self.runtime.update_agent_prompt(agent_name=str(kwargs["name"]), system_prompt=str(kwargs["system_prompt"])))
 

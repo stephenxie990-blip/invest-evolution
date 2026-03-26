@@ -42,9 +42,10 @@ class YamlConfigMutator:
         mutated: Dict[str, Any],
         param_adjustments: Optional[Dict[str, Any]],
         scoring_adjustments: Optional[Dict[str, Any]],
+        agent_weight_adjustments: Optional[Dict[str, Any]],
     ) -> Dict[str, Any]:
         mutation_space = dict(mutated.get("mutation_space", {}) or {})
-        applied = {"params": {}, "scoring": {}}
+        applied = {"params": {}, "scoring": {}, "agent_weights": {}}
 
         if param_adjustments:
             param_space = dict(mutation_space.get("params", {}) or {})
@@ -62,6 +63,9 @@ class YamlConfigMutator:
                     applied_section[key] = _clamp_numeric(value, section_space[key]) if key in section_space else value
                 if applied_section:
                     applied["scoring"][section_name] = applied_section
+
+        if agent_weight_adjustments:
+            applied["agent_weights"] = dict(agent_weight_adjustments)
         return applied
 
     def mutate(
@@ -70,6 +74,7 @@ class YamlConfigMutator:
         *,
         param_adjustments: Optional[Dict[str, Any]] = None,
         scoring_adjustments: Optional[Dict[str, Any]] = None,
+        agent_weight_adjustments: Optional[Dict[str, Any]] = None,
         narrative_adjustments: Optional[Dict[str, Any]] = None,
         generation_label: Optional[str] = None,
         parent_meta: Optional[Dict[str, Any]] = None,
@@ -80,7 +85,12 @@ class YamlConfigMutator:
         risk = dict(mutated.get("risk", {}))
 
         clean = sanitize_risk_params(param_adjustments) if param_adjustments else {}
-        applied_adjustments = self._apply_mutation_space(mutated, clean or param_adjustments, scoring_adjustments)
+        applied_adjustments = self._apply_mutation_space(
+            mutated,
+            clean or param_adjustments,
+            scoring_adjustments,
+            agent_weight_adjustments,
+        )
 
         if applied_adjustments.get("params"):
             params.update(applied_adjustments["params"])
@@ -91,12 +101,18 @@ class YamlConfigMutator:
         mutated["risk"] = risk
 
         if applied_adjustments.get("scoring"):
-            scoring = dict(mutated.get("scoring", {}))
+            scoring_section_name = "scoring" if isinstance(mutated.get("scoring"), dict) else "summary_scoring"
+            scoring = dict(mutated.get(scoring_section_name, {}))
             for section_name, section_patch in applied_adjustments["scoring"].items():
                 section = dict(scoring.get(section_name, {}))
                 section.update(section_patch)
                 scoring[section_name] = section
-            mutated["scoring"] = scoring
+            mutated[scoring_section_name] = scoring
+
+        if applied_adjustments.get("agent_weights"):
+            agent_weights = dict(mutated.get("agent_weights", {}))
+            agent_weights.update(dict(applied_adjustments.get("agent_weights") or {}))
+            mutated["agent_weights"] = agent_weights
 
         if narrative_adjustments:
             context = dict(mutated.get("context", {}))
@@ -112,6 +128,7 @@ class YamlConfigMutator:
             "output_config": str(out_path),
             "param_adjustments": param_adjustments or {},
             "scoring_adjustments": scoring_adjustments or {},
+            "agent_weight_adjustments": agent_weight_adjustments or {},
             "applied_adjustments": applied_adjustments,
             "narrative_adjustments": narrative_adjustments or {},
             "generated_at": datetime.now().isoformat(),

@@ -9,7 +9,6 @@ import config as config_module
 from flask import Flask, jsonify, request
 
 from app.commander_support.services import (
-    ConfigSurfaceValidationError,
     get_control_plane_payload,
     get_data_status_payload,
     get_evolution_config_payload,
@@ -464,27 +463,12 @@ def register_runtime_ops_routes(
 
     @app.route("/api/agent_prompts", methods=["POST"])
     def api_agent_prompts_update():
-        data = _as_object_dict(request.get_json(force=True) or {})
+        data = request.get_json(force=True) or {}
         agent_name = str(data.get("name", "") or "").strip()
         if not agent_name:
             return jsonify({"error": "name is required"}), 400
         if "system_prompt" not in data:
             return jsonify({"error": "system_prompt is required"}), 400
-        supported_fields = {"name", "system_prompt"}
-        unsupported = sorted(str(key) for key in data.keys() if str(key) not in supported_fields)
-        if unsupported:
-            if unsupported == ["llm_model"]:
-                return jsonify(
-                    {
-                        "error": "llm_model is not editable on /api/agent_prompts; use /api/control_plane for model binding"
-                    }
-                ), 400
-            return jsonify(
-                {
-                    "error": f"unsupported fields for /api/agent_prompts: {', '.join(unsupported)}",
-                    "invalid_keys": unsupported,
-                }
-            ), 400
         try:
             runtime = get_runtime()
             if runtime is not None:
@@ -502,11 +486,6 @@ def register_runtime_ops_routes(
                     project_root=config_module.PROJECT_ROOT,
                 )
             )
-        except ConfigSurfaceValidationError as exc:
-            payload: dict[str, Any] = {"status": "error", "error": str(exc)}
-            if exc.invalid_keys:
-                payload["invalid_keys"] = list(exc.invalid_keys)
-            return jsonify(payload), 400
         except Exception as exc:
             return jsonify({"status": "error", "error": str(exc)}), 500
 

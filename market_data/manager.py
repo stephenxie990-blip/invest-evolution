@@ -8,7 +8,7 @@ import random
 from datetime import datetime, timedelta
 from importlib import import_module
 from pathlib import Path
-from typing import Dict, Iterable, Mapping, Optional, Protocol, cast
+from typing import Any, Dict, Iterable, Mapping, Optional, Protocol, cast
 
 
 import numpy as np
@@ -16,11 +16,17 @@ import pandas as pd
 
 from config import PROJECT_ROOT, config, normalize_date
 from config.control_plane import get_runtime_data_policy
-from .datasets import CapitalFlowDatasetService, EventDatasetService, IntradayDatasetBuilder, TrainingDatasetBuilder, WebDatasetService
+from .datasets import (
+    CapitalFlowDatasetService,
+    EventDatasetService,
+    IntradayDatasetBuilder,
+    TrainingDatasetBuilder,
+    WebDatasetService,
+    sample_universe_codes,
+)
 from .gateway import MarketDataGateway
 from .ingestion import DataIngestionService
 from .quality import DataQualityService
-from .universe_policy import DEFAULT_MAX_STALENESS_DAYS, select_universe_codes
 
 logger = logging.getLogger(__name__)
 
@@ -193,6 +199,8 @@ class DataProvider(Protocol):
         min_history_days: int = 200,
         include_future_days: int = 0,
         include_capital_flow: bool = False,
+        sampling_policy: dict[str, Any] | None = None,
+        sampling_seed: int | None = None,
     ) -> Dict[str, pd.DataFrame]:
         ...
 
@@ -314,32 +322,27 @@ class MockDataProvider:
         min_history_days: int = 200,
         include_future_days: int = 0,
         include_capital_flow: bool = False,
+        sampling_policy: dict[str, Any] | None = None,
+        sampling_seed: int | None = None,
     ) -> Dict[str, pd.DataFrame]:
         del include_future_days
         selected: Dict[str, pd.DataFrame] = {}
         cutoff = normalize_date(cutoff_date)
-        candidates: list[dict[str, object]] = []
-        for code, df in self.data.items():
-            trade_dates = df["trade_date"].astype(str).map(normalize_date)
-            history_mask = trade_dates <= cutoff
-            history_days = int(history_mask.sum())
-            last_trade_date = str(trade_dates[history_mask].max()) if history_days > 0 else ""
-            candidates.append(
-                {
-                    "code": str(code),
-                    "history_days": history_days,
-                    "last_trade_date": last_trade_date,
-                }
-            )
-        selected_codes = select_universe_codes(
-            candidates=candidates,
+        eligible_codes = [
+            str(code)
+            for code, df in self.data.items()
+            if int((df["trade_date"] <= cutoff).sum()) >= max(1, int(min_history_days))
+        ]
+        selected_codes = sample_universe_codes(
+            eligible_codes,
+            stock_count=max(1, int(stock_count)),
             cutoff_date=cutoff,
-            stock_count=stock_count,
-            min_history_days=min_history_days,
-            max_staleness_days=DEFAULT_MAX_STALENESS_DAYS,
+            sampling_policy=sampling_policy,
+            sampling_seed=sampling_seed,
         )
         for code in selected_codes:
-            selected[code] = self.data[code].copy()
+            df = self.data[code]
+            selected[code] = df.copy()
         return selected
 
 
@@ -729,6 +732,8 @@ class DataManager:
         min_history_days: int = 200,
         include_future_days: int = 0,
         include_capital_flow: bool = False,
+        sampling_policy: dict[str, Any] | None = None,
+        sampling_seed: int | None = None,
     ) -> Dict[str, pd.DataFrame]:
         offline_diagnostics: dict[str, object] = {}
         online_error = ""
@@ -741,6 +746,8 @@ class DataManager:
                 min_history_days=min_history_days,
                 include_future_days=include_future_days,
                 include_capital_flow=include_capital_flow,
+                sampling_policy=sampling_policy,
+                sampling_seed=sampling_seed,
             )
             self._record_resolution(source=source)
             return data
@@ -767,6 +774,8 @@ class DataManager:
                 min_history_days=min_history_days,
                 include_future_days=include_future_days,
                 include_capital_flow=include_capital_flow,
+                sampling_policy=sampling_policy,
+                sampling_seed=sampling_seed,
             )
             if stock_data:
                 self._record_resolution(source="offline", offline_diagnostics=offline_diagnostics)
@@ -803,13 +812,24 @@ class DataManager:
                 data = self._online.load_all_data_before(effective_cutoff)
                 stocks = data.get("stocks", {})
                 if stocks:
+                    selected_codes = sample_universe_codes(
+                        list(stocks.keys()),
+                        stock_count=max(1, int(stock_count)),
+                        cutoff_date=cutoff_date,
+                        sampling_policy=sampling_policy,
+                        sampling_seed=sampling_seed,
+                    )
                     self._record_resolution(
                         source="online",
                         offline_diagnostics=offline_diagnostics,
                         degraded=True,
                         degrade_reason="offline_unavailable_or_incomplete",
                     )
-                    return dict(list(stocks.items())[:stock_count])
+                    return {
+                        str(code): stocks[str(code)]
+                        for code in selected_codes
+                        if str(code) in stocks
+                    }
             except Exception as exc:
                 online_error = str(exc)
                 logger.warning("在线数据加载失败: %s", exc)
@@ -817,6 +837,13 @@ class DataManager:
         if self.allow_mock_fallback:
             logger.warning("所有真实数据源不可用，显式 allow_mock_fallback 已开启，回退到模拟数据")
             data = generate_mock_stock_data(stock_count)
+            selected_codes = sample_universe_codes(
+                list(data.keys()),
+                stock_count=max(1, int(stock_count)),
+                cutoff_date=cutoff_date,
+                sampling_policy=sampling_policy,
+                sampling_seed=sampling_seed,
+            )
             self._record_resolution(
                 source="mock",
                 offline_diagnostics=offline_diagnostics,
@@ -824,7 +851,11 @@ class DataManager:
                 degraded=True,
                 degrade_reason="explicit_mock_fallback",
             )
-            return data
+            return {
+                str(code): data[str(code)]
+                for code in selected_codes
+                if str(code) in data
+            }
 
         error = self._build_data_source_unavailable(
             cutoff_date=cutoff_date,

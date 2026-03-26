@@ -14,10 +14,13 @@ import re
 import json
 import logging
 import sqlite3
+from copy import deepcopy
 from pathlib import Path
 from dataclasses import dataclass, field
 from typing import Any, Callable, List, Optional
 from datetime import datetime
+
+from config.agent_prompt_defaults import get_default_agent_configs
 
 logger = logging.getLogger(__name__)
 
@@ -44,26 +47,8 @@ WORKSPACE_DIR = RUNTIME_DIR / "workspace"
 
 
 # ===========================================================
-# LLM 默认配置（优先环境变量，其次 fallback）
+# LLM 默认配置（优先环境变量）
 # ===========================================================
-
-def _allow_codex_auth_fallback() -> bool:
-    raw = os.environ.get("INVEST_ALLOW_CODEX_AUTH_FALLBACK")
-    return str(raw or "").strip().lower() in {"1", "true", "t", "yes", "y", "on"}
-
-
-def _load_codex_openai_api_key() -> str:
-    if not _allow_codex_auth_fallback():
-        return ""
-    auth_path = Path.home() / ".codex" / "auth.json"
-    if not auth_path.exists():
-        return ""
-    try:
-        payload = json.loads(auth_path.read_text(encoding="utf-8"))
-    except Exception:
-        logger.debug("Failed to parse Codex auth file: %s", auth_path, exc_info=True)
-        return ""
-    return str(payload.get("OPENAI_API_KEY", "") or "").strip()
 
 
 # 快思考模型：用于数据汇总、预筛、摘要等轻量任务
@@ -79,7 +64,7 @@ DEFAULT_LLM_DEEP_MODEL = os.environ.get(
 )
 DEFAULT_LLM_API_KEY = os.environ.get(
     "LLM_API_KEY",
-    os.environ.get("OPENAI_API_KEY", _load_codex_openai_api_key()),
+    os.environ.get("OPENAI_API_KEY", ""),
 )
 DEFAULT_LLM_API_BASE = os.environ.get(
     "LLM_API_BASE",
@@ -472,6 +457,7 @@ class AgentConfigRegistry:
 
     def __init__(self, json_path: Path = PROJECT_ROOT / "agent_settings" / "agents_config.json"):
         self.json_path = json_path
+        self._default_configs: dict[str, dict[str, Any]] = get_default_agent_configs()
         self._configs: dict[str, dict[str, Any]] = {}
         self.reload()
 
@@ -482,10 +468,23 @@ class AgentConfigRegistry:
             except Exception as e:
                 logger.error(f"Failed to load agent configs from {self.json_path}: {e}")
                 self._configs = {}
+            return
+        self._configs = {}
+
+    def _merged_configs(self) -> dict[str, dict[str, Any]]:
+        merged = {
+            name: deepcopy(cfg)
+            for name, cfg in self._default_configs.items()
+        }
+        for name, override in self._configs.items():
+            base = dict(merged.get(name, {}))
+            base.update(dict(override or {}))
+            merged[name] = base
+        return merged
 
     def get_config(self, agent_name: str) -> dict[str, Any]:
         """Get the configuration dictionary for an agent by name."""
-        return self._configs.get(agent_name, {})
+        return dict(self._merged_configs().get(agent_name, {}))
 
     def save_config(self, agent_name: str, config_data: dict[str, Any]) -> bool:
         """Update and persist an agent's configuration."""
@@ -498,10 +497,10 @@ class AgentConfigRegistry:
             return False
 
     def all(self) -> dict[str, dict[str, Any]]:
-        return dict(self._configs)
+        return self._merged_configs()
 
     def list_configs(self) -> list[dict[str, Any]]:
-        return [{"name": k, **v} for k, v in self._configs.items()]
+        return [{"name": k, **v} for k, v in self._merged_configs().items()]
 
     def _persist(self) -> None:
         self.json_path.parent.mkdir(parents=True, exist_ok=True)
