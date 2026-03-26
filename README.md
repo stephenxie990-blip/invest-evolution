@@ -6,6 +6,12 @@
 这不是一个单纯的量化脚本仓库。  
 它更像一套面向投资场景的协作底座：让 Agent 在明确边界、统一事实来源和治理约束下参与训练、研究、复盘与运行。
 
+## 发布状态 / Release Status
+
+- 当前仓库是可公开 clone、安装、测试的 OSS baseline，许可证为 `Apache-2.0`
+- 本次公开版已经验证 `python -m pip install -e ".[dev]"`、`ruff check .`、`pytest -q`
+- 推荐的人类使用路径是 `Commander`：先初始化离线数据，再执行 `status`、`train-once`、`run --interactive`
+
 ## 项目定位 / Positioning
 
 - **Agent-first**：系统的“第一用户”是 Agent 与运行时，而不是 UI。
@@ -92,7 +98,7 @@
 推荐使用 Python 3.11+ 与虚拟环境。
 
 ```bash
-git clone https://github.com/<your-org>/invest-evolution.git invest-evolution
+git clone https://github.com/stephenxie990-blip/invest-evolution.git invest-evolution
 cd invest-evolution
 python3 -m venv .venv
 source .venv/bin/activate

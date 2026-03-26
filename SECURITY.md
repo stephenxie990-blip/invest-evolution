@@ -26,7 +26,11 @@
 - 运行时状态、bridge、memory、artifact 被恶意利用
 - dependency / supply chain 风险
 
-请通过私下渠道先反馈，并尽量提供：
+优先使用 GitHub 私下披露入口：
+
+- `https://github.com/stephenxie990-blip/invest-evolution/security/advisories/new`
+
+请在私下披露中尽量提供：
 
 - 影响范围
 - 复现步骤
