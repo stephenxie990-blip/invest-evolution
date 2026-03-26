@@ -12,6 +12,26 @@
 - 本次公开版已经验证 `python -m pip install -e ".[dev]"`、`ruff check .`、`pytest -q`
 - 推荐的人类使用路径是 `Commander`：先初始化离线数据，再执行 `status`、`train-once`、`run --interactive`
 
+## Quickstart in 60 Seconds
+
+```bash
+git clone https://github.com/stephenxie990-blip/invest-evolution.git
+cd invest-evolution
+python3 -m venv .venv
+source .venv/bin/activate
+python3 -m pip install -e ".[dev]"
+python3 -m market_data --source baostock --start 20180101
+python3 commander.py status --detail fast
+python3 commander.py run --interactive
+```
+
+如果你只想先确认仓库能正常工作，最短路径就是：
+
+1. 安装依赖
+2. 初始化离线数据
+3. 用 `Commander` 跑 `status`
+4. 再进入 `run --interactive`
+
 ## 项目定位 / Positioning
 
 - **Agent-first**：系统的“第一用户”是 Agent 与运行时，而不是 UI。
